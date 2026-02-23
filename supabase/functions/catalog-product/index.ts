@@ -424,6 +424,8 @@ function mapDbItemToResponse(item: any): CatalogItem {
     description: raw?.description || null,
     brand: item.brand,
     category: item.category,
+    categoryKey: item.category_key || null,
+    vehiclesSubkey: item.vehicles_subkey || null,
     variants,
   };
 }

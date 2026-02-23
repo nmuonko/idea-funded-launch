@@ -22,7 +22,7 @@ import {
   ChevronDown,
   CreditCard
 } from 'lucide-react';
-import { OrderTimeline } from './OrderTimeline';
+import { OrderTimelineComponent } from './OrderTimelineComponent';
 import { PaymentVerificationPanel } from './PaymentVerificationPanel';
 import { AIAssistantPanel } from './AIAssistantPanel';
 import { ProfitCalculator } from './ProfitCalculator';
@@ -374,7 +374,7 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                 <p className="text-xs text-muted-foreground mb-3">
                   Created: {new Date(order.created_at).toLocaleString()}
                 </p>
-                <OrderTimeline orderId={order.id} />
+                <OrderTimelineComponent orderId={order.id} />
               </div>
 
               <Separator />

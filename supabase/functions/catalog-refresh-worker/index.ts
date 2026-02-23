@@ -42,13 +42,15 @@ const RATE_LIMIT_DELAY_MS = 600;
 const SEED_BACKFILL_BATCH = 25;
 const SEED_BACKFILL_DELAY_MS = 800;
 
-// Builder constants
-const BUILDER_MAX_REQUESTS_PER_RUN = 40;
-const BUILDER_DELAY_MS = 1000;
+// Builder constants — Guardrail 3: cap derived from time budget
+const BUILDER_TIME_BUDGET_MS = 45_000;
+const BUILDER_DELAY_MS = 1_000;
+const BUILDER_RESERVE_MS = 3_000; // stop cleanly when < 3s remaining
+const BUILDER_MAX_REQUESTS_PER_RUN = Math.floor((BUILDER_TIME_BUDGET_MS - BUILDER_RESERVE_MS - 5_000) / BUILDER_DELAY_MS); // ~37
 const BUILDER_ITEMS_PER_PAGE = 100;
 const BUILDER_PAGES_PER_SOURCE = 3;
-const BUILDER_TIME_BUDGET_MS = 45000;
 const BUILDER_DUPLICATE_THRESHOLD = 0.7; // 70% duplicates = exhausted
+const BUILDER_EXHAUSTION_COOLDOWN_DAYS = 7; // Guardrail 7: temporary exhaustion
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -129,8 +131,11 @@ async function searchEbay(token: string, query: string, limit = 20, offset = 0):
   });
 
   if (res.status === 429) {
-    console.warn("[WORKER] eBay 429 rate limited");
-    throw new Error("RATE_LIMITED_429");
+    const retryAfter = res.headers.get("Retry-After");
+    console.warn(`[WORKER] eBay 429 rate limited, Retry-After=${retryAfter}`);
+    const err = new Error("RATE_LIMITED_429");
+    (err as any).retryAfterSec = retryAfter ? parseInt(retryAfter, 10) : undefined;
+    throw err;
   }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -184,21 +189,28 @@ function buildUpsertRow(item: any, categoryKey: string, now: string) {
 
 // ─── Update provider health in DB ────────────────────────────────────────────
 
-async function updateProviderHealth(supabase: any, provider: string, healthy: boolean, reason?: string) {
+async function updateProviderHealth(supabase: any, provider: string, healthy: boolean, reason?: string, retryAfterSec?: number) {
   const update: any = {
     healthy,
     reason: reason || null,
     updated_at: new Date().toISOString(),
   };
   if (!healthy) {
-    // Backoff: 10 min * 2^failures, max 1 hour
     const { data: current } = await supabase
       .from("provider_health_status")
       .select("consecutive_failures")
       .eq("provider", provider)
       .maybeSingle();
     const failures = (current?.consecutive_failures || 0) + 1;
-    const backoffMs = Math.min(3600000, 600000 * Math.pow(2, failures - 1));
+    // Guardrail 4: honor Retry-After, else 30 min with jitter
+    let backoffMs: number;
+    if (retryAfterSec && retryAfterSec > 0) {
+      backoffMs = Math.min(retryAfterSec * 1000, 3600000);
+    } else {
+      const baseMs = 30 * 60 * 1000; // 30 minutes
+      const jitterMs = Math.random() * 5 * 60 * 1000; // 0-5 min jitter
+      backoffMs = Math.min(3600000, baseMs * Math.pow(2, failures - 1) + jitterMs);
+    }
     update.consecutive_failures = failures;
     update.unhealthy_until = new Date(Date.now() + backoffMs).toISOString();
   } else {
@@ -701,10 +713,13 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
     return { status: "no_sources", error: srcErr?.message };
   }
 
-  // Filter out exhausted sources
+  // Guardrail 7: Filter out exhausted sources (but respect cooldown_until for temporary exhaustion)
   const activeSources = sources.filter((s: any) => {
     const state = s.catalog_builder_state?.[0];
-    return !state?.exhausted;
+    if (!state?.exhausted) return true;
+    // If cooldown_until has passed, reset exhaustion
+    if (state.cooldown_until && new Date(state.cooldown_until) <= new Date()) return true;
+    return false;
   });
 
   if (activeSources.length === 0) {
@@ -719,9 +734,10 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
   });
 
   for (const source of shuffled) {
-    // Time budget check
-    if (Date.now() - runStart > BUILDER_TIME_BUDGET_MS) {
-      console.log("[BUILDER] Time budget exceeded, stopping");
+    // Guardrail 3: Time budget check — stop cleanly when < RESERVE remaining
+    const timeRemaining = BUILDER_TIME_BUDGET_MS - (Date.now() - runStart);
+    if (timeRemaining < BUILDER_RESERVE_MS) {
+      console.log(`[BUILDER] Time budget: ${timeRemaining}ms remaining < ${BUILDER_RESERVE_MS}ms reserve, stopping cleanly`);
       break;
     }
 
@@ -751,7 +767,7 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
     // Fetch up to BUILDER_PAGES_PER_SOURCE pages
     for (let page = 0; page < BUILDER_PAGES_PER_SOURCE; page++) {
       if (requestsThisRun >= BUILDER_MAX_REQUESTS_PER_RUN) break;
-      if (Date.now() - runStart > BUILDER_TIME_BUDGET_MS) break;
+      if ((BUILDER_TIME_BUDGET_MS - (Date.now() - runStart)) < BUILDER_RESERVE_MS) break;
       if (rateLimited) break;
 
       try {
@@ -766,22 +782,26 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
           emptyPages++;
           if (emptyPages >= 2) {
             // Mark exhausted
-            await supabase.from("catalog_builder_state").upsert({
-              source_id: source.id,
-              exhausted: true,
-              last_run_at: now,
-              last_error: "empty_pages",
-            }, { onConflict: "source_id" });
-            break;
+          const cooldownUntil = new Date(Date.now() + BUILDER_EXHAUSTION_COOLDOWN_DAYS * 86400000).toISOString();
+          await supabase.from("catalog_builder_state").upsert({
+            source_id: source.id,
+            exhausted: true,
+            cooldown_until: cooldownUntil,
+            last_run_at: now,
+            last_error: "empty_pages",
+          }, { onConflict: "source_id" });
+          break;
           }
           continue;
         }
 
         // Check if offset >= total
         if (currentOffset >= total) {
-          await supabase.from("catalog_builder_state").upsert({
+        const cooldownUntil = new Date(Date.now() + BUILDER_EXHAUSTION_COOLDOWN_DAYS * 86400000).toISOString();
+        await supabase.from("catalog_builder_state").upsert({
             source_id: source.id,
             exhausted: true,
+            cooldown_until: cooldownUntil,
             last_run_at: now,
           }, { onConflict: "source_id" });
           break;
@@ -833,20 +853,23 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
           last_error: null,
         }, { onConflict: "source_id" });
 
-        // Uniqueness gate: >70% duplicates = exhausted
+        // Guardrail 7: Uniqueness gate — temporary exhaustion with cooldown
         if (duplicateRatio > BUILDER_DUPLICATE_THRESHOLD) {
-          console.log(`[BUILDER] Source ${source.id} exhausted (${(duplicateRatio * 100).toFixed(0)}% duplicates)`);
+          const cooldownUntil = new Date(Date.now() + BUILDER_EXHAUSTION_COOLDOWN_DAYS * 86400000).toISOString();
+          console.log(`[BUILDER] Source ${source.id} exhausted (${(duplicateRatio * 100).toFixed(0)}% duplicates), cooldown until ${cooldownUntil}`);
           await supabase.from("catalog_builder_state").upsert({
             source_id: source.id,
             exhausted: true,
+            cooldown_until: cooldownUntil,
             last_run_at: now,
             last_error: `exhausted_duplicates_${(duplicateRatio * 100).toFixed(0)}pct`,
           }, { onConflict: "source_id" });
           break;
         }
 
-        // Delay between calls
-        await new Promise(r => setTimeout(r, BUILDER_DELAY_MS));
+        // Guardrail 4: Delay with jitter to avoid thundering herd
+        const jitter = Math.floor(Math.random() * 400);
+        await new Promise(r => setTimeout(r, BUILDER_DELAY_MS + jitter));
 
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown";
@@ -854,7 +877,8 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
         if (msg.includes("RATE_LIMITED_429")) {
           rateLimited = true;
           rateLimitedCount++;
-          await updateProviderHealth(supabase, source.provider, false, "429_rate_limited");
+          const retryAfterSec = (err as any).retryAfterSec;
+          await updateProviderHealth(supabase, source.provider, false, "429_rate_limited", retryAfterSec);
           await supabase.from("catalog_builder_state").upsert({
             source_id: source.id,
             current_offset: currentOffset,

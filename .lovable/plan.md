@@ -1,111 +1,67 @@
 
 
-# Remove MaishaPay and Bank Transfer -- Implementation Plan
+# Regression Fixes for Stripe and PawaPay Payment Flows
 
-## Overview
-Remove all MaishaPay and Bank Transfer code, keeping only Stripe and PawaPay as active payment providers.
+## Issues Found
 
-## Phase 1: Delete Frontend Pages (8 files)
+### 1. CRITICAL: `verify-payment` crashes on failed payments (undefined variable)
 
-Delete these files entirely:
-- `src/pages/MaishapayResult.tsx`
-- `src/pages/MaishapayCheckout.tsx`
-- `src/pages/MaishaCallback.tsx`
-- `src/pages/BankTransfer.tsx`
-- `src/pages/BankTransferInfo.tsx`
-- `src/pages/PublicBankTransfer.tsx`
-- `src/pages/ManualTransfer.tsx`
-- `src/pages/admin/BankTransferSettings.tsx`
+**File:** `supabase/functions/verify-payment/index.ts`, line 333
 
-## Phase 2: Clean Up App.tsx
+The failed/cancelled payment response references `maishapayStatus` -- a variable that was removed during the MaishaPay cleanup. This means any failed PawaPay or Stripe payment verification will crash the function with a `ReferenceError`.
 
-- Remove imports for: `PublicBankTransfer`, `BankTransfer`, `ManualTransfer`, `MaishaCallback`, `MaishapayCheckout`, `MaishapayResult`, `BankTransferInfo`
-- Remove routes: `/maisha-callback`, `/maishapay/checkout`, `/maishapay/result`, `/bank-transfer`, `/bank-transfer-legacy`, `/bank-transfer-info`, `/manual-transfer/:uploadToken`
-- Remove `/bank-transfer`, `/manual-transfer`, `/maishapay` from the `publicPaths` splash screen check
+**Fix:** Replace `paymentStatus: maishapayStatus` with `paymentStatus: normalizedStatus` (the local variable already computed on line 256).
 
-## Phase 3: Clean Up Checkout.tsx
+### 2. CRITICAL: Stripe card payment redirects to non-existent route
 
-- Remove `'bank_transfer': 'bank_transfer'` from `providerMap` (line 235)
-- Remove `bank_transfer` handling in checkout payload (lines 206-208)
-- Remove `bank_transfer` provider response handling (lines 302-310, 325-327)
+**File:** `src/pages/shop/CardPayment.tsx`, lines 121 and 133
 
-## Phase 4: Clean Up Customer OrderDetail.tsx
+After a successful Stripe card payment, the user is redirected to `/shop/payment-success?order_id=...`. However, there is **no route** matching `/shop/payment-success` in `App.tsx`. The route is at `/payment-success-shop`.
 
-- Change query from `'*, order_items(*), maisha_payments(*)'` to `'*, order_items(*)'` (line 43)
-- Remove `const payment = order.maisha_payments?.[0];` (line 204)
-- Remove payment info card that references `payment` (lines 285-319)
-- Change retry condition from `order.status === 'PENDING_PAYMENT' || order.maisha_payment_status === 'failed'` to just `order.status === 'PENDING_PAYMENT'` (line 419)
-- Remove the track order button that uses `payment?.confirmation_code` (lines 437-445)
+This means:
+- After successful Stripe card payment, users see a blank page / 404
+- For 3D Secure redirects (where Stripe uses `return_url`), users land on a non-existent page
 
-## Phase 5: Clean Up Admin Pages
+**Fix:** Change both redirect URLs in `CardPayment.tsx` from `/shop/payment-success` to `/payment-success-shop`.
 
-### admin/Payments.tsx
-- Rewrite to query `payment_attempts` table instead of `maisha_payments`
-- Remove `verify-maisha-payment` function invocation
-- Update interface and display fields
+### 3. LOW: Leftover MaishaPay/bank transfer references in translations
 
-### admin/Orders.tsx
-- Remove `maisha_payment_status` from CSV export (line 344)
-- Remove `maisha_payment_status === 'SUCCESS'` check in bulk receipt download (line 388)
+**File:** `src/lib/i18n/translations.ts`
 
-### admin/SupportContactSettings.tsx
-- Change from reading/writing `bank_transfer_settings` table to `settings` table (support_whatsapp, support_email columns)
+Multiple translation strings still reference "MaishaPay" and "bank transfer":
+- `payments.subtitle`: "Track and manage MaishaPay transactions" (en/fr/sw/ln)
+- `payments.transactionsDesc`: "View and manage MaishaPay payment records"
+- `payments.maishaPayRef`: "MaishaPay Ref"
+- `onboardingStep2Desc`: mentions "Bank Transfer"
+- `howItWorks2Desc`: mentions "bank transfer"
+- `admin.bankTransferSettings`: "Bank Transfer"
 
-## Phase 6: Clean Up Edge Functions (shared utilities)
+**Fix:** Update these strings to reference "PawaPay and Stripe" or generic "payment" terminology.
 
-### `_shared/circuitBreaker.ts`
-- Remove `'maishapay'` entry from `SERVICE_CONFIGS` (lines 53-57)
+### 4. LOW: Leftover legacy paths in environment.ts
 
-### `_shared/checkoutResponse.ts`
-- Remove `BankTransferDetails` interface
-- Remove `bank_transfer` field from `CheckoutResponse`
-- Remove `BankConfig` interface and `getBankConfig()` function
-- Remove `getBankDetailsFromSettings()` function
-- Remove `buildManualResponse()` function
-- Keep `buildRedirectResponse`, `buildCheckoutErrorResponse`, `buildServerErrorResponse`, rate limiting, and logging helpers
+**File:** `src/lib/environment.ts`, line 31
 
-### `_shared/paymentProviders.ts`
-- Clean: already references only PawaPay and Stripe -- minimal changes needed (comment cleanup on line 179)
+The `excludedPaths` array still contains `/bank-transfer`, `/manual-transfer`, `/maishapay`. These are harmless (the pages don't exist, so they'll just 404), but should be cleaned up.
 
-## Phase 7: Clean Up select-payment-provider Edge Function
+**Fix:** Remove `/bank-transfer`, `/manual-transfer`, `/maishapay` from the `excludedPaths` array.
 
-- Remove `'bank_transfer'` from `ProviderSelection` type and `VALID_PROVIDERS` array (lines 36-37)
-- Remove entire BANK_TRANSFER handler block (lines 693-770)
-- Remove `maisha_payment_status: 'PENDING'` update in PawaPay success (line 464)
-- Update error message to show only "pawapay, stripe" (line 82-83)
+## What is NOT broken (confirmed working)
 
-## Phase 8: Clean Up verify-payment Edge Function
+- **Checkout flow (Stripe):** Correctly maps `card` to `stripe` provider, sends `checkout_session_id` to `select-payment-provider`, receives `clientSecret`, navigates to `/card-payment`
+- **Checkout flow (PawaPay):** Correctly maps `mobile_money` to `pawapay`, sends phone + operator, navigates to `/payment-pending`
+- **Duplicate payment prevention:** `select-payment-provider` checks `payment_attempts` for existing `pending/processing/paid` attempts and returns idempotent responses with `ALREADY_PAID` code
+- **Cart sync:** Uses `sessionRef` to prevent ghost re-additions, `deletedItemIdsRef` with TTL to prevent deleted items from reappearing, dedup using `canonicalItemKey`
+- **Cart clearing:** Only happens on confirmed `PAID` status via `clearCartOnPaymentSuccess()`
+- **Payment callback page:** Polls `mobile-verify-payment` correctly for both PawaPay and Stripe
+- **PaymentPending page:** Polls order status for PawaPay USSD confirmation
+- **PawaPay webhook (`payments-webhook`):** Not affected by changes
+- **Order detail retry:** Uses `order.status === 'PENDING_PAYMENT'` (no MaishaPay dependency)
 
-- Remove `MAISHAPAY_WEBHOOK_SECRET` check (line 176)
-- Remove `maisha_payment_status`, `maisha_status_code`, `maisha_description` updates on orders (lines 332-337)
-- Remove `maisha_payments` table updates (lines 339-344)
-- Keep core finalize_paid_order RPC logic
+## Implementation Order
 
-## Phase 9: Clean Up Static Pages
-
-- `src/pages/About.tsx` line 22: Change "mobile money and bank transfers" to "mobile money and card payments"
-- `src/pages/Terms.tsx` line 179: Change "mobile money, bank transfers, and other payment methods" to "mobile money, card payments, and other payment methods"
-
-## Phase 10: Delete Edge Functions (11 functions)
-
-Delete these function directories:
-- `supabase/functions/verify-maisha-payment/`
-- `supabase/functions/web-maisha-callback/`
-- `supabase/functions/get-bank-transfer-settings/`
-- `supabase/functions/get-bank-transfer-view/`
-- `supabase/functions/get-manual-transfer-page/`
-- `supabase/functions/create-bank-transfer-view-link/`
-- `supabase/functions/create-manual-transfer-session/`
-- `supabase/functions/submit-bank-transfer-proof/`
-- `supabase/functions/upload-manual-transfer-proof/`
-- `supabase/functions/notify-large-bank-transfer/`
-- `supabase/functions/create-payment-link/`
-
-Remove their entries from `supabase/config.toml` and delete deployed functions from Supabase.
-
-## What is NOT Changed
-
-- Database tables (`maisha_payments`, `bank_transfer_settings`, etc.) stay for historical data
-- `orders` table columns (`maisha_payment_status`, etc.) stay but are no longer written to
-- `finalize_paid_order` RPC stays (used by PawaPay and Stripe)
-
+1. Fix `verify-payment/index.ts` -- replace `maishapayStatus` with `normalizedStatus` (line 333)
+2. Fix `CardPayment.tsx` -- change `/shop/payment-success` to `/payment-success-shop` (lines 121 and 133)
+3. Update `src/lib/i18n/translations.ts` -- clean up MaishaPay and bank transfer text
+4. Update `src/lib/environment.ts` -- remove legacy paths from `excludedPaths`
+5. Redeploy `verify-payment` edge function

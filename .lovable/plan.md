@@ -1,26 +1,75 @@
 
 
-# Fix: Cached Products Showing "~0 total"
+# Fix: "Products Per Category" Bars Appear Static
 
 ## Root Cause
 
-The `admin-catalog-items` edge function is **not deployed** -- it returns a 404 error. The database has **22,480 items**, but neither the primary path (edge function) nor the fallback (direct DB query) is surfacing the count because:
+The `admin-auto-learning` edge function is **not deployed** (404 error). Every call to fetch category counts (`backfill-status` action) silently fails, so the UI either shows stale data from the initial failed load or zeros.
 
-1. The edge function call fails with 404
-2. The error is caught, and the DB fallback runs
-3. The DB fallback likely succeeds but a subtle issue with the query result propagation keeps the count at 0
+Additionally, there is no periodic refresh -- the category data only updates when:
+- You click "Refresh Status" (which calls the broken function)
+- Auto-polling runs (only active during bulk import)
 
 ## Fix
 
-### Step 1: Deploy `admin-catalog-items` edge function
-This is the primary fix. The function exists in code at `supabase/functions/admin-catalog-items/index.ts` but was never deployed. Once deployed, the `mode=summary` endpoint will return `total_count: 22480` directly.
+### Step 1: Deploy the `admin-auto-learning` edge function
 
-### Step 2: Harden the DB fallback in `SummaryCards`
-Add explicit error logging to the fallback path so if the edge function ever goes down again, we can see exactly what happens. Also ensure the fallback query result is never silently swallowed.
+This is the primary fix. The function code exists at `supabase/functions/admin-auto-learning/index.ts` but was never deployed. Once deployed, the `backfill-status` action will return live category counts from the database.
 
-### Files to change
-- **Deploy**: `admin-catalog-items` edge function
-- **Edit**: `src/pages/admin/CatalogCache.tsx` -- add `console.log` in the fallback path to confirm it runs and what count it gets
+### Step 2: Add automatic periodic refresh for category counts
 
-This should immediately fix the "~0 total" display.
+Update `AutoLearning.tsx` to periodically refresh the backfill status (every 60 seconds) so the bars visually update without requiring manual clicks. This uses a simple `setInterval` that runs independently of the bulk import polling.
+
+### Step 3: Add a direct DB fallback for category counts
+
+Similar to the fix applied to the Catalog Cache page, add a fallback in the frontend: if the edge function call fails, query the `admin_catalog_category_counts` RPC directly via Supabase client so the bars always show real data.
+
+## Technical Details
+
+### Edge function deployment
+- Deploy `admin-auto-learning`
+
+### File: `src/pages/admin/AutoLearning.tsx`
+
+**Add periodic auto-refresh (near line 217):**
+```typescript
+// Auto-refresh category counts every 60 seconds
+useEffect(() => {
+  const interval = setInterval(() => fetchBackfillStatus(), 60_000);
+  return () => clearInterval(interval);
+}, []);
+```
+
+**Add DB fallback in `fetchBackfillStatus` (lines 203-215):**
+```typescript
+const fetchBackfillStatus = async (showToast = false) => {
+  setRefreshingStatus(true);
+  try {
+    const result = await api.post<BackfillStatus>(
+      "admin-auto-learning?action=backfill-status", {}
+    );
+    if (result.error) throw new Error(result.error);
+    setBackfillStatus(result.data);
+    if (showToast) toast.success("Status refreshed");
+  } catch (err: any) {
+    console.warn("Edge fn failed, using DB fallback for category counts", err);
+    // Fallback: call the RPC directly
+    const { data: cats } = await supabase.rpc('admin_catalog_category_counts');
+    if (cats) {
+      setBackfillStatus({
+        queue: { queued: 0, running: 0 },
+        categories: cats,
+      });
+      if (showToast) toast.success("Status refreshed (from database)");
+    } else if (showToast) {
+      toast.error("Failed to refresh status");
+    }
+  }
+  setRefreshingStatus(false);
+};
+```
+
+### Summary of changes
+- **Deploy**: `admin-auto-learning` edge function
+- **Edit**: `src/pages/admin/AutoLearning.tsx` -- add 60s auto-refresh interval and direct DB fallback for category counts
 

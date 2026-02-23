@@ -1045,7 +1045,19 @@ export default function CatalogCache() {
   // Get total count from summary for the items table footer
   const { data: summaryData } = useQuery({
     queryKey: ['catalog-cache-summary'],
-    queryFn: () => invokeAdmin({ mode: 'summary' }),
+    queryFn: async () => {
+      try {
+        const result = await invokeAdmin({ mode: 'summary' });
+        if (result?.total_count != null) return result;
+      } catch (e) {
+        console.warn('[CatalogCache] summary edge fn failed, using DB fallback', e);
+      }
+      // Fallback: direct DB count
+      const { count } = await supabase
+        .from('catalog_items')
+        .select('*', { count: 'exact', head: true });
+      return { total_count: count ?? 0 };
+    },
     staleTime: 60_000,
   });
   const totalCount = summaryData?.total_count ?? 0;

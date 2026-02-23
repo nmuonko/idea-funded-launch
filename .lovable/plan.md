@@ -1,67 +1,58 @@
 
 
-# Regression Fixes for Stripe and PawaPay Payment Flows
+# Regression Fixes -- Exact Changes
 
-## Issues Found
-
-### 1. CRITICAL: `verify-payment` crashes on failed payments (undefined variable)
+## Fix 1: CRITICAL -- verify-payment crash on failed payments
 
 **File:** `supabase/functions/verify-payment/index.ts`, line 333
 
-The failed/cancelled payment response references `maishapayStatus` -- a variable that was removed during the MaishaPay cleanup. This means any failed PawaPay or Stripe payment verification will crash the function with a `ReferenceError`.
+Change `paymentStatus: maishapayStatus` to `paymentStatus: normalizedStatus`
 
-**Fix:** Replace `paymentStatus: maishapayStatus` with `paymentStatus: normalizedStatus` (the local variable already computed on line 256).
+Then redeploy the `verify-payment` edge function.
 
-### 2. CRITICAL: Stripe card payment redirects to non-existent route
+## Fix 2: CRITICAL -- Stripe redirect to wrong route
 
-**File:** `src/pages/shop/CardPayment.tsx`, lines 121 and 133
+**File:** `src/pages/shop/CardPayment.tsx`
 
-After a successful Stripe card payment, the user is redirected to `/shop/payment-success?order_id=...`. However, there is **no route** matching `/shop/payment-success` in `App.tsx`. The route is at `/payment-success-shop`.
+- Line 121: Change `/shop/payment-success?order_id=` to `/payment-success-shop?order_id=`
+- Line 133: Change `/shop/payment-success?order_id=` to `/payment-success-shop?order_id=`
 
-This means:
-- After successful Stripe card payment, users see a blank page / 404
-- For 3D Secure redirects (where Stripe uses `return_url`), users land on a non-existent page
-
-**Fix:** Change both redirect URLs in `CardPayment.tsx` from `/shop/payment-success` to `/payment-success-shop`.
-
-### 3. LOW: Leftover MaishaPay/bank transfer references in translations
-
-**File:** `src/lib/i18n/translations.ts`
-
-Multiple translation strings still reference "MaishaPay" and "bank transfer":
-- `payments.subtitle`: "Track and manage MaishaPay transactions" (en/fr/sw/ln)
-- `payments.transactionsDesc`: "View and manage MaishaPay payment records"
-- `payments.maishaPayRef`: "MaishaPay Ref"
-- `onboardingStep2Desc`: mentions "Bank Transfer"
-- `howItWorks2Desc`: mentions "bank transfer"
-- `admin.bankTransferSettings`: "Bank Transfer"
-
-**Fix:** Update these strings to reference "PawaPay and Stripe" or generic "payment" terminology.
-
-### 4. LOW: Leftover legacy paths in environment.ts
+## Fix 3: Remove legacy paths from environment.ts
 
 **File:** `src/lib/environment.ts`, line 31
 
-The `excludedPaths` array still contains `/bank-transfer`, `/manual-transfer`, `/maishapay`. These are harmless (the pages don't exist, so they'll just 404), but should be cleaned up.
+Remove `/bank-transfer`, `/manual-transfer`, `/maishapay` from the `excludedPaths` array.
 
-**Fix:** Remove `/bank-transfer`, `/manual-transfer`, `/maishapay` from the `excludedPaths` array.
+## Fix 4: Clean up translation strings (all 4 languages)
 
-## What is NOT broken (confirmed working)
+**File:** `src/lib/i18n/translations.ts`
 
-- **Checkout flow (Stripe):** Correctly maps `card` to `stripe` provider, sends `checkout_session_id` to `select-payment-provider`, receives `clientSecret`, navigates to `/card-payment`
-- **Checkout flow (PawaPay):** Correctly maps `mobile_money` to `pawapay`, sends phone + operator, navigates to `/payment-pending`
-- **Duplicate payment prevention:** `select-payment-provider` checks `payment_attempts` for existing `pending/processing/paid` attempts and returns idempotent responses with `ALREADY_PAID` code
-- **Cart sync:** Uses `sessionRef` to prevent ghost re-additions, `deletedItemIdsRef` with TTL to prevent deleted items from reappearing, dedup using `canonicalItemKey`
-- **Cart clearing:** Only happens on confirmed `PAID` status via `clearCartOnPaymentSuccess()`
-- **Payment callback page:** Polls `mobile-verify-payment` correctly for both PawaPay and Stripe
-- **PaymentPending page:** Polls order status for PawaPay USSD confirmation
-- **PawaPay webhook (`payments-webhook`):** Not affected by changes
-- **Order detail retry:** Uses `order.status === 'PENDING_PAYMENT'` (no MaishaPay dependency)
+| Line | Old | New |
+|------|-----|-----|
+| 384 | `Pay with Mobile Money, Card, or Bank Transfer` | `Pay with Mobile Money or Card` |
+| 428 | `card, mobile money, or bank transfer` | `card or mobile money` |
+| 1846 | `Bank Transfer` | `Payments` |
+| 1944 | `Track and manage MaishaPay transactions` | `Track and manage payment transactions` |
+| 1954 | `View and manage MaishaPay payment records` | `View and manage payment records` |
+| 1959 | `MaishaPay Ref` | `Payment Ref` |
+| 2411 | `Virement bancaire` | `Paiements` |
+| 2509 | `transactions MaishaPay` | `transactions de paiement` |
+| 2518 | `paiement MaishaPay` | `paiement` |
+| 2523 | `Réf MaishaPay` | `Réf paiement` |
+| 2960 | `Uhamisho wa benki` | `Malipo` |
+| 3058 | `shughuli za MaishaPay` | `shughuli za malipo` |
+| 3067 | `malipo za MaishaPay` | `malipo` |
+| 3072 | `Ref ya MaishaPay` | `Ref ya malipo` |
+| 3509 | `Virement bancaire` | `Mafuta` |
+| 3607 | `transactions ya MaishaPay` | `transactions ya mafuta` |
+| 3616 | `mafuta ya MaishaPay` | `mafuta` |
+| 3621 | `Réf MaishaPay` | `Réf mafuta` |
 
-## Implementation Order
+## Execution Order
 
-1. Fix `verify-payment/index.ts` -- replace `maishapayStatus` with `normalizedStatus` (line 333)
-2. Fix `CardPayment.tsx` -- change `/shop/payment-success` to `/payment-success-shop` (lines 121 and 133)
-3. Update `src/lib/i18n/translations.ts` -- clean up MaishaPay and bank transfer text
-4. Update `src/lib/environment.ts` -- remove legacy paths from `excludedPaths`
-5. Redeploy `verify-payment` edge function
+1. Fix verify-payment (line 333)
+2. Fix CardPayment.tsx (lines 121, 133)
+3. Update environment.ts (line 31)
+4. Update translations.ts (18 lines across 4 languages)
+5. Deploy verify-payment edge function
+

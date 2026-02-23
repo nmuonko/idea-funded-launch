@@ -19,7 +19,7 @@ import {
   Database, Package, AlertTriangle, XCircle, Clock, ChevronLeft, ChevronRight,
   RefreshCw, Power, PowerOff, Search, RotateCcw, ExternalLink,
   Play, Zap, Timer, TrendingUp, ChevronDown, Heart, Activity,
-  StopCircle, ArrowUpDown
+  StopCircle, ArrowUpDown, Plus, Loader2, CheckCircle
 } from 'lucide-react';
 
 const ALL_CATEGORIES = [
@@ -71,12 +71,30 @@ async function postAction(action: string, body: Record<string, unknown>) {
 }
 
 // ── Summary Cards ────────────────────────────────────────────────────────────
+// Known named categories (filter out numeric eBay IDs)
+const NAMED_CATEGORIES = new Set([
+  'phones', 'electronics', 'audio_music', 'gaming', 'vehicles', 'home_garden',
+  'toys', 'sporting_goods', 'jewelry_watches', 'parts_accessories', 'refurbished',
+  'clothing', 'shoes_sneakers', 'cameras_photo', 'beauty_health', 'collectibles',
+  'electronics_phones', 'electronics_gaming', 'electronics_audio', 'electronics_computers',
+  'electronics_accessories', 'electronics_tv', 'vehicles_cars_trucks', 'clothing_shoes_accessories',
+  'business_industrial', 'computers', 'motors', 'general',
+]);
+
+function isNamedCategory(key: string): boolean {
+  return NAMED_CATEGORIES.has(key) || !/^\d+$/.test(key);
+}
+
 function SummaryCards() {
   const { data, isLoading } = useQuery({
     queryKey: ['catalog-cache-summary'],
     queryFn: () => invokeAdmin({ mode: 'summary' }),
     staleTime: 60_000,
   });
+
+  // Filter thin categories to only named ones
+  const namedThinCategories = (data?.thin_categories ?? []).filter((c: any) => isNamedCategory(c.category_key));
+  const allHealthy = namedThinCategories.length === 0;
 
   if (isLoading) {
     return (
@@ -94,7 +112,7 @@ function SummaryCards() {
     { label: 'Inactive', value: data?.inactive_count ?? 0, icon: PowerOff, color: 'text-muted-foreground' },
     { label: 'Dead (≥3 fails)', value: data?.dead_count ?? 0, icon: XCircle, color: 'text-destructive' },
     { label: 'Stale Price', value: data?.stale_price_count ?? 0, icon: Clock, color: 'text-orange-500' },
-    { label: 'Thin (<2k)', value: data?.thin_categories?.length ?? 0, icon: AlertTriangle, color: 'text-yellow-600' },
+    { label: 'Thin (<2k)', value: namedThinCategories.length, icon: AlertTriangle, color: allHealthy ? 'text-green-600' : 'text-yellow-600' },
   ];
 
   return (
@@ -113,19 +131,35 @@ function SummaryCards() {
         ))}
       </div>
 
-      {data?.thin_categories?.length > 0 && (
+      {allHealthy ? (
+        <Card className="mt-4 border-green-500/30">
+          <CardContent className="py-3 px-4 flex items-center gap-2">
+            <CheckCircle className="h-4 w-4 text-green-600" />
+            <span className="text-sm text-green-700 dark:text-green-400 font-medium">All named categories healthy (≥2,000 active items)</span>
+          </CardContent>
+        </Card>
+      ) : (
         <Card className="mt-4">
           <CardHeader className="py-3 px-4">
             <CardTitle className="text-sm font-medium">Thin Categories (&lt;2,000 active)</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3">
-            <div className="flex flex-wrap gap-2">
-              {data.thin_categories.map((c: any) => (
-                <Badge key={c.category_key} variant="outline" className="text-xs">
-                  {c.category_key}: {c.active_count.toLocaleString()}
-                </Badge>
-              ))}
-            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs">Category</TableHead>
+                  <TableHead className="text-xs text-right">Active Items</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {namedThinCategories.map((c: any) => (
+                  <TableRow key={c.category_key}>
+                    <TableCell className="text-xs py-1.5">{c.category_key}</TableCell>
+                    <TableCell className="text-xs text-right py-1.5 font-mono">{c.active_count.toLocaleString()}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       )}
@@ -145,6 +179,8 @@ function RunControls() {
     continuous: true,
   });
 
+  const [maxItemsTarget, setMaxItemsTarget] = useState(100);
+
   const { data: status, isLoading: statusLoading } = useQuery({
     queryKey: ['builder-status'],
     queryFn: () => invokeAdmin({ mode: 'builder-status' }),
@@ -153,7 +189,7 @@ function RunControls() {
   });
 
   const runBuilderMut = useMutation({
-    mutationFn: (provider: string) => postAction('run-builder', { provider }),
+    mutationFn: (provider: string) => postAction('run-builder', { provider, max_items_target: maxItemsTarget }),
     onSuccess: (data) => {
       toast.success(`Builder run started for ${data?.provider || 'provider'}`);
       queryClient.invalidateQueries({ queryKey: ['builder-status'] });
@@ -195,7 +231,18 @@ function RunControls() {
           </CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-4">
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs text-muted-foreground">Items to fetch</Label>
+              <Input
+                type="number"
+                className="h-9 w-24 text-xs"
+                value={maxItemsTarget}
+                min={10}
+                max={1000}
+                onChange={(e) => setMaxItemsTarget(Math.max(10, Math.min(1000, +e.target.value)))}
+              />
+            </div>
             <Button
               size="sm"
               onClick={() => runBuilderMut.mutate('ebay')}
@@ -821,6 +868,311 @@ function ItemsTable() {
   );
 }
 
+// ── Builder Sources (merged from CatalogBuilder) ────────────────────────────
+function BuilderSources() {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [newSource, setNewSource] = useState({
+    category_key: '',
+    provider: 'ebay',
+    source_type: 'seed_query',
+    source_value: '',
+    priority: 10,
+  });
+
+  const { data: sources, isLoading } = useQuery({
+    queryKey: ['catalog-builder-sources'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('catalog_builder_sources' as any)
+        .select('*, catalog_builder_state(*)')
+        .order('priority', { ascending: true });
+      if (error) throw error;
+      return data as any[];
+    },
+    staleTime: 30_000,
+    enabled: open,
+  });
+
+  const addSourceMutation = useMutation({
+    mutationFn: async (source: typeof newSource) => {
+      const { error } = await supabase
+        .from('catalog_builder_sources' as any)
+        .insert(source);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['catalog-builder-sources'] });
+      toast.success('Source added');
+      setNewSource({ category_key: '', provider: 'ebay', source_type: 'seed_query', source_value: '', priority: 10 });
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const toggleSourceMutation = useMutation({
+    mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
+      const { error } = await supabase
+        .from('catalog_builder_sources' as any)
+        .update({ enabled })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['catalog-builder-sources'] }),
+  });
+
+  const resetProgressMutation = useMutation({
+    mutationFn: async (sourceId: string) => {
+      const { error } = await supabase
+        .from('catalog_builder_state' as any)
+        .upsert({
+          source_id: sourceId,
+          current_offset: 0,
+          total_ingested: 0,
+          exhausted: false,
+          last_run_at: null,
+          last_error: null,
+        }, { onConflict: 'source_id' });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['catalog-builder-sources'] });
+      toast.success('Progress reset');
+    },
+  });
+
+  const fmtDate = (d: string | null) => {
+    if (!d) return '—';
+    return new Date(d).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <Card>
+        <CollapsibleTrigger asChild>
+          <CardHeader className="py-3 px-4 cursor-pointer hover:bg-muted/50 transition-colors">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Plus className="h-4 w-4" /> Builder Sources ({sources?.length ?? '…'})
+              <ChevronDown className={`h-4 w-4 ml-auto transition-transform ${open ? 'rotate-180' : ''}`} />
+            </CardTitle>
+          </CardHeader>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <CardContent className="px-4 pb-4 space-y-4">
+            {/* Add Source */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <Select value={newSource.category_key || '_none'} onValueChange={(v) => setNewSource(s => ({ ...s, category_key: v === '_none' ? '' : v }))}>
+                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Category" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">Select category</SelectItem>
+                  {ALL_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={newSource.provider} onValueChange={(v) => setNewSource(s => ({ ...s, provider: v }))}>
+                <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ebay">eBay</SelectItem>
+                  <SelectItem value="rainforest">Amazon</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={newSource.source_type} onValueChange={(v) => setNewSource(s => ({ ...s, source_type: v }))}>
+                <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="seed_query">Seed Query</SelectItem>
+                  <SelectItem value="ebay_category">eBay Category</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                placeholder="Query or Category ID"
+                className="h-9 text-xs"
+                value={newSource.source_value}
+                onChange={(e) => setNewSource(s => ({ ...s, source_value: e.target.value }))}
+              />
+              <Button
+                size="sm"
+                onClick={() => newSource.category_key && newSource.source_value && addSourceMutation.mutate(newSource)}
+                disabled={!newSource.category_key || !newSource.source_value || addSourceMutation.isPending}
+              >
+                {addSourceMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add'}
+              </Button>
+            </div>
+
+            {/* Sources Table */}
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-12">On</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Provider</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Value</TableHead>
+                    <TableHead className="text-right">Offset</TableHead>
+                    <TableHead className="text-right">Ingested</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Last Run</TableHead>
+                    <TableHead className="w-20">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {isLoading ? (
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <TableRow key={i}>
+                        {Array.from({ length: 10 }).map((_, j) => (
+                          <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  ) : !sources?.length ? (
+                    <TableRow>
+                      <TableCell colSpan={10} className="text-center py-6 text-muted-foreground text-xs">
+                        No sources configured
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    sources.map((src: any) => {
+                      const state = src.catalog_builder_state?.[0];
+                      return (
+                        <TableRow key={src.id} className={!src.enabled ? 'opacity-50' : ''}>
+                          <TableCell>
+                            <Switch
+                              checked={src.enabled}
+                              onCheckedChange={(v) => toggleSourceMutation.mutate({ id: src.id, enabled: v })}
+                            />
+                          </TableCell>
+                          <TableCell className="text-xs">{src.category_key}</TableCell>
+                          <TableCell><Badge variant="outline" className="text-[10px]">{src.provider}</Badge></TableCell>
+                          <TableCell className="text-xs">{src.source_type}</TableCell>
+                          <TableCell className="text-xs max-w-[150px] truncate">{src.source_value}</TableCell>
+                          <TableCell className="text-right text-xs font-mono">{state?.current_offset || 0}</TableCell>
+                          <TableCell className="text-right text-xs font-mono">{state?.total_ingested || 0}</TableCell>
+                          <TableCell>
+                            {state?.exhausted ? (
+                              <Badge variant="secondary" className="text-[10px]">Exhausted</Badge>
+                            ) : (
+                              <Badge variant="default" className="text-[10px]">Active</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{fmtDate(state?.last_run_at)}</TableCell>
+                          <TableCell>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2"
+                              onClick={() => resetProgressMutation.mutate(src.id)}
+                              disabled={resetProgressMutation.isPending}
+                              title="Reset progress"
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
+  );
+}
+
+// ── Recent Builder Runs ─────────────────────────────────────────────────────
+function RecentRuns() {
+  const [open, setOpen] = useState(false);
+
+  const { data: runs, isLoading } = useQuery({
+    queryKey: ['catalog-builder-runs'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('catalog_builder_runs' as any)
+        .select('*')
+        .order('started_at', { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return data as any[];
+    },
+    staleTime: 30_000,
+    enabled: open,
+  });
+
+  const fmtDate = (d: string | null) => {
+    if (!d) return '—';
+    return new Date(d).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <Card>
+        <CollapsibleTrigger asChild>
+          <CardHeader className="py-3 px-4 cursor-pointer hover:bg-muted/50 transition-colors">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Activity className="h-4 w-4" /> Recent Runs
+              <ChevronDown className={`h-4 w-4 ml-auto transition-transform ${open ? 'rotate-180' : ''}`} />
+            </CardTitle>
+          </CardHeader>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Provider</TableHead>
+                    <TableHead>Started</TableHead>
+                    <TableHead className="text-right">Upserted</TableHead>
+                    <TableHead className="text-right">New Unique</TableHead>
+                    <TableHead className="text-right">Duplicates</TableHead>
+                    <TableHead className="text-right">Rate Limited</TableHead>
+                    <TableHead className="text-right">Sources</TableHead>
+                    <TableHead className="text-right">Duration</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {isLoading ? (
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <TableRow key={i}>
+                        {Array.from({ length: 8 }).map((_, j) => (
+                          <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  ) : !runs?.length ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-6 text-muted-foreground text-xs">
+                        No runs yet
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    runs.map((run: any) => (
+                      <TableRow key={run.id}>
+                        <TableCell><Badge variant="outline" className="text-[10px]">{run.provider}</Badge></TableCell>
+                        <TableCell className="text-xs">{fmtDate(run.started_at)}</TableCell>
+                        <TableCell className="text-right text-xs font-mono">{run.items_upserted}</TableCell>
+                        <TableCell className="text-right text-xs font-mono text-green-600">{run.new_unique_items}</TableCell>
+                        <TableCell className="text-right text-xs font-mono text-muted-foreground">{run.duplicates_skipped}</TableCell>
+                        <TableCell className="text-right text-xs font-mono">
+                          {run.rate_limited_count > 0 ? (
+                            <Badge variant="destructive" className="text-[10px]">{run.rate_limited_count}</Badge>
+                          ) : '0'}
+                        </TableCell>
+                        <TableCell className="text-right text-xs font-mono">{run.sources_processed}</TableCell>
+                        <TableCell className="text-right text-xs font-mono">{(run.duration_ms / 1000).toFixed(1)}s</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
+  );
+}
+
 // ── Main Page ────────────────────────────────────────────────────────────────
 export default function CatalogCache() {
   const { language } = useLanguage();
@@ -840,6 +1192,8 @@ export default function CatalogCache() {
 
       <SummaryCards />
       <RunControls />
+      <BuilderSources />
+      <RecentRuns />
       <SearchInsights />
       <ItemsTable />
     </div>

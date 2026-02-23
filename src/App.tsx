@@ -54,12 +54,9 @@ const AuditLog = lazy(() => import("./pages/admin/AuditLog"));
 const QuoteRequests = lazy(() => import("./pages/admin/QuoteRequests"));
 const AdminHealth = lazy(() => import("./pages/admin/Health"));
 const CatalogSourcesSettings = lazy(() => import("./pages/admin/CatalogSourcesSettings"));
-const CarsSettings = lazy(() => import("./pages/admin/CarsSettings"));
 const HomeRecipes = lazy(() => import("./pages/admin/HomeRecipes"));
-const SearchRelevancy = lazy(() => import("./pages/admin/SearchRelevancy"));
 const CatalogCache = lazy(() => import("./pages/admin/CatalogCache"));
 const AutoLearning = lazy(() => import("./pages/admin/AutoLearning"));
-const CatalogBuilder = lazy(() => import("./pages/admin/CatalogBuilder"));
 const AdminReferrals = lazy(() => import("./pages/admin/Referrals"));
 const PaymentsSettings = lazy(() => import("./pages/admin/PaymentsSettings"));
 const ServiceZones = lazy(() => import("./pages/admin/ServiceZones"));
@@ -390,16 +387,7 @@ const App = () => {
                   <AutoLearning />
                 </AdminRouteGuard>
               } />
-              <Route path="catalog-builder" element={
-                <AdminRouteGuard requiredPermission="can_view_settings">
-                  <CatalogBuilder />
-                </AdminRouteGuard>
-              } />
-              <Route path="cars-settings" element={
-                <AdminRouteGuard requiredPermission="can_view_settings">
-                  <CarsSettings />
-                </AdminRouteGuard>
-              } />
+              {/* catalog-builder and cars-settings routes removed */}
               <Route path="catalog-sources" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <CatalogSourcesSettings />
@@ -411,11 +399,7 @@ const App = () => {
                   <HomeRecipes />
                 </AdminRouteGuard>
               } />
-              <Route path="search-relevancy" element={
-                <AdminRouteGuard requiredPermission="can_view_dashboard">
-                  <SearchRelevancy />
-                </AdminRouteGuard>
-              } />
+              {/* search-relevancy route removed */}
               <Route path="referrals" element={
                 <AdminRouteGuard requiredPermission="can_view_payments">
                   <AdminReferrals />

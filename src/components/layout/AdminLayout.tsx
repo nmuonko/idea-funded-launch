@@ -12,7 +12,7 @@ import {
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, Home,
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
   Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe,
-  ChevronDown, Database, Store, Search, Gift, Archive, Brain, Hammer
+  ChevronDown, Database, Store, Gift, Archive, Brain
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AdminNotificationsBell } from '@/components/admin/AdminNotificationsBell';
@@ -93,13 +93,10 @@ export function AdminLayout() {
       items: [
         { to: '/admin/home-recipes', icon: Home, label: language === 'fr' ? 'Curation Accueil' : 'Home Curation', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/catalog-sources', icon: Store, label: language === 'fr' ? 'Config Catalogue' : 'Catalog Config', exact: false, permission: 'can_view_settings' as const },
-        { to: '/admin/cars-settings', icon: Car, label: language === 'fr' ? 'Voitures' : 'Cars API', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/catalog-cache', icon: Archive, label: language === 'fr' ? 'Cache Catalogue' : 'Catalog Cache', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/auto-learning', icon: Brain, label: 'Auto-Learning', exact: false, permission: 'can_view_settings' as const },
-        { to: '/admin/catalog-builder', icon: Hammer, label: language === 'fr' ? 'Constructeur' : 'Catalog Builder', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/health', icon: Activity, label: t.sidebar.health || 'Health', exact: false, permission: 'can_view_dashboard' as const },
         { to: '/admin/audit-log', icon: Shield, label: t.sidebar.auditLog, exact: false, permission: 'can_view_dashboard' as const },
-        { to: '/admin/search-relevancy', icon: Search, label: language === 'fr' ? 'Pertinence Recherche' : 'Search Relevancy', exact: false, permission: 'can_view_dashboard' as const },
       ]
     }] : []),
   ], [t, language, isSuperAdmin]);

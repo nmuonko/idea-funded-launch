@@ -229,6 +229,7 @@ All colors MUST be HSL.
   html, body {
     @apply bg-background text-foreground antialiased;
     overflow-x: hidden;
+    width: 100%;
     -webkit-text-size-adjust: 100%;
   }
 }

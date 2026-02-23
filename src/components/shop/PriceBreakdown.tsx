@@ -63,14 +63,14 @@ export function PriceBreakdown({
         {showDetails && (
           <>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-white/60">
+              <span className="text-white/60 min-w-0">
                 {shop.orderSummaryItem || 'Item'}{quantity > 1 ? ` (×${quantity})` : ''}
               </span>
-              <span className="text-white/90">${subtotal.toFixed(2)}</span>
+              <span className="text-white/90 flex-shrink-0">${subtotal.toFixed(2)}</span>
             </div>
 
             <div className="flex items-center justify-between text-sm">
-              <span className="text-white/60 flex items-center gap-1">
+              <span className="text-white/60 flex items-center gap-1 min-w-0">
                 {shop.markupFee || 'Markup Fee'}
                 <Tooltip>
                   <TooltipTrigger>
@@ -81,7 +81,7 @@ export function PriceBreakdown({
                   </TooltipContent>
                 </Tooltip>
               </span>
-              <span className="text-white/90">${serviceFee.toFixed(2)}</span>
+              <span className="text-white/90 flex-shrink-0">${serviceFee.toFixed(2)}</span>
             </div>
 
             <div className="border-t border-white/10 pt-3" />
@@ -101,10 +101,10 @@ export function PriceBreakdown({
       {showDetails && (
         <>
           <div className="flex items-center justify-between text-sm">
-            <span className="text-white/60">
+            <span className="text-white/60 min-w-0">
               {shop.orderSummaryItem || 'Item'}{quantity > 1 ? ` (×${quantity})` : ''}
             </span>
-            <span className="text-white/90">${subtotal.toFixed(2)}</span>
+            <span className="text-white/90 flex-shrink-0">${subtotal.toFixed(2)}</span>
           </div>
 
           {showPendingQuote ? (
@@ -151,7 +151,7 @@ export function PriceBreakdown({
           ) : (
             <>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-white/60 flex items-center gap-1">
+                <span className="text-white/60 flex items-center gap-1 min-w-0">
                   {shop.markupFee || 'Markup Fee'}
                   <Tooltip>
                     <TooltipTrigger>
@@ -162,11 +162,11 @@ export function PriceBreakdown({
                     </TooltipContent>
                   </Tooltip>
                 </span>
-                <span className="text-white/90">${serviceFee.toFixed(2)}</span>
+                <span className="text-white/90 flex-shrink-0">${serviceFee.toFixed(2)}</span>
               </div>
 
               <div className="flex items-center justify-between text-sm">
-                <span className="text-white/60 flex items-center gap-1">
+                <span className="text-white/60 flex items-center gap-1 min-w-0">
                   {shop.shippingFee || 'Shipping Fee'}
                   <Tooltip>
                     <TooltipTrigger>
@@ -177,7 +177,7 @@ export function PriceBreakdown({
                     </TooltipContent>
                   </Tooltip>
                 </span>
-                <span className="text-white/90">${shippingFee.toFixed(2)}</span>
+                <span className="text-white/90 flex-shrink-0">${shippingFee.toFixed(2)}</span>
               </div>
             </>
           )}

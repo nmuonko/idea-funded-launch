@@ -544,7 +544,7 @@ export default function ProductDetailsPage() {
   const safeRating = typeof product.rating === 'number' ? product.rating : null;
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-black overflow-x-hidden">
       <ShopHeader />
 
       <main className="pt-24 px-4 pb-20">
@@ -636,7 +636,7 @@ export default function ProductDetailsPage() {
                 </p>
               )}
 
-              <h1 className="text-2xl md:text-3xl font-bold text-white">
+              <h1 className="text-2xl md:text-3xl font-bold text-white break-words">
                 {product.title}
               </h1>
 
@@ -783,7 +783,7 @@ export default function ProductDetailsPage() {
               {product.description && (
                 <div className="pt-6 border-t border-white/10">
                   <h3 className="text-lg font-semibold text-white mb-3">Description</h3>
-                  <p className="text-white/70 whitespace-pre-line">{product.description}</p>
+                  <p className="text-white/70 whitespace-pre-line break-words">{product.description}</p>
                 </div>
               )}
             </div>

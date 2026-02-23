@@ -257,6 +257,20 @@ function mapDbItemToResponse(item: any): CatalogItem {
     allImages = item.images.filter((img: any): img is string => typeof img === "string" && img.length > 0);
   }
   
+  // Fallback: extract images from raw JSON (Amazon/Rainforest products with stored raw data)
+  const raw = item.raw as Record<string, any> | null;
+  if (allImages.length === 0 && raw) {
+    if (raw.processedImages && Array.isArray(raw.processedImages)) {
+      allImages = raw.processedImages.filter((url: any) => typeof url === "string" && url.length > 0);
+      console.log(`[CATALOG_PRODUCT] extracted ${allImages.length} images from raw.processedImages for ${item.id}`);
+    } else if (raw.images && Array.isArray(raw.images)) {
+      allImages = raw.images
+        .map((i: any) => i?.large || i?.hi_res || i?.link || (typeof i === "string" ? i : null))
+        .filter((url: any): url is string => !!url && typeof url === "string");
+      console.log(`[CATALOG_PRODUCT] extracted ${allImages.length} images from raw.images for ${item.id}`);
+    }
+  }
+  
   if (item.image_url && !allImages.includes(item.image_url)) {
     allImages.unshift(item.image_url);
   }
@@ -686,9 +700,8 @@ Deno.serve(async (req: Request) => {
           return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
         }
         
-        // Cache to catalog_items
+        // Cache to catalog_items using provider+provider_product_id constraint
         const toCache = {
-          id: fullProductId,
           provider: "ebay",
           provider_product_id: ebayItem.providerProductId,
           title: ebayItem.title,
@@ -698,12 +711,12 @@ Deno.serve(async (req: Request) => {
           product_url: ebayItem.productUrl,
           in_stock: ebayItem.inStock,
           rating: null,
-          category: "uncategorized",
+          category_key: "uncategorized",
           tags: [],
           updated_at: new Date().toISOString(),
         };
         
-        await db.from("catalog_items").upsert(toCache, { onConflict: "id" });
+        await db.from("catalog_items").upsert(toCache, { onConflict: "provider,provider_product_id" });
         
         const rawImages = ebayItem.images || [];
         if (ebayItem.imageUrl && !rawImages.includes(ebayItem.imageUrl)) {
@@ -777,9 +790,8 @@ Deno.serve(async (req: Request) => {
       return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
     }
 
-    // Cache to catalog_items
+    // Cache to catalog_items using provider+provider_product_id constraint
     const toCache = {
-      id: fullProductId,
       provider: "rainforest",
       provider_product_id: product.providerProductId,
       title: product.title,
@@ -791,13 +803,13 @@ Deno.serve(async (req: Request) => {
       rating: product.rating,
       review_count: product.reviewCount,
       brand: product.brand,
-      category: "uncategorized",
+      category_key: "uncategorized",
       tags: [],
       raw: product.raw,
       updated_at: new Date().toISOString(),
     };
 
-    await db.from("catalog_items").upsert(toCache, { onConflict: "id" });
+    await db.from("catalog_items").upsert(toCache, { onConflict: "provider,provider_product_id" });
 
     const rawImages = product.images || [];
     if (product.imageUrl && !rawImages.includes(product.imageUrl)) {

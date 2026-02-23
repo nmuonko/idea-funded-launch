@@ -86,6 +86,8 @@ const PENDING_CHECKOUT_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
 
 export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const { user, session } = useAuth();
+  const sessionRef = useRef(session);
+  useEffect(() => { sessionRef.current = session; }, [session]);
   const [items, setItems] = useState<CartItem[]>([]);
   const [savedItems, setSavedItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -322,7 +324,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
 
   // Sync cart when user logs in — filters out deleted items, preserves optimistic local items
   const syncCart = useCallback(async () => {
-    if (!user || !session) return;
+    if (!user || !sessionRef.current) return;
 
     // Lock: avoid overlapping syncs
     if (syncInProgressRef.current) {
@@ -398,7 +400,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         syncCart();
       }
     }
-  }, [user, session]);
+  }, [user]);
 
   const userId = user?.id;
   useEffect(() => {
@@ -448,7 +450,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     });
 
     // If logged in, add to server then sync silently (no loading spinner)
-    if (user && session) {
+    if (user && sessionRef.current) {
       if (!resolvedUrl) {
         console.error('[CART] Cannot sync item without productUrl:', item);
         return;
@@ -481,7 +483,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       prev.map((item) => (item.id === id ? { ...item, quantity } : item))
     );
 
-    if (user && session && !id.startsWith('local_')) {
+    if (user && sessionRef.current && !id.startsWith('local_')) {
       try {
         await supabase.functions.invoke('mobile-update-cart-item', {
           body: { cart_item_id: id, quantity },
@@ -505,7 +507,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
 
-    if (user && session && !id.startsWith('local_')) {
+    if (user && sessionRef.current && !id.startsWith('local_')) {
       try {
         await supabase.functions.invoke('mobile-delete-cart-item', {
           body: { cart_item_id: id },
@@ -529,7 +531,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     console.log('[CART] clearCart called - deleting server items and clearing local state');
     setLoading(true);
     try {
-      if (user && session) {
+      if (user && sessionRef.current) {
         // Delete each server item (skip local_ optimistic items)
         const serverItems = items.filter(item => !isLocalId(item.id));
         const deletePromises = serverItems.map(item =>

@@ -68,6 +68,7 @@ export default function AutoLearning() {
   const [backfillResult, setBackfillResult] = useState<any>(null);
   const [backfillStatus, setBackfillStatus] = useState<BackfillStatus | null>(null);
   const [autoPolling, setAutoPolling] = useState(false);
+  const [refreshingStatus, setRefreshingStatus] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -200,6 +201,7 @@ export default function AutoLearning() {
   };
 
   const fetchBackfillStatus = async (showToast = false) => {
+    setRefreshingStatus(true);
     try {
       const result = await api.post<BackfillStatus>("admin-auto-learning?action=backfill-status", {});
       if (result.error) throw new Error(result.error);
@@ -209,6 +211,7 @@ export default function AutoLearning() {
       console.error("Failed to fetch backfill status:", err);
       if (showToast) toast.error("Failed to refresh status");
     }
+    setRefreshingStatus(false);
   };
 
   useEffect(() => { fetchBackfillStatus(); }, []);
@@ -236,9 +239,8 @@ export default function AutoLearning() {
     return `${(seconds / 3600).toFixed(1)}h`;
   };
 
-  const maxActiveCount = backfillStatus?.categories
-    ? Math.max(...backfillStatus.categories.map((c) => c.active_count), 1)
-    : 1;
+  // Target benchmark: 2000 items per category is considered "healthy"
+  const TARGET_COUNT = 2000;
 
   return (
     <div className="space-y-6">
@@ -292,9 +294,9 @@ export default function AutoLearning() {
                 Stop Import
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={() => fetchBackfillStatus(true)}>
-              <Database className="h-4 w-4 mr-1" />
-              Refresh Status
+            <Button variant="outline" size="sm" onClick={() => fetchBackfillStatus(true)} disabled={refreshingStatus}>
+              <Database className={`h-4 w-4 mr-1 ${refreshingStatus ? "animate-spin" : ""}`} />
+              {refreshingStatus ? "Loading..." : "Refresh Status"}
             </Button>
           </div>
 
@@ -350,10 +352,13 @@ export default function AutoLearning() {
           {/* Import Progress Block */}
           {backfillStatus && (
             <div className="rounded-lg border p-4 bg-background space-y-3">
-              <h4 className="font-semibold text-sm flex items-center gap-2">
-                <Database className="h-4 w-4" />
-                Import Progress
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="font-semibold text-sm flex items-center gap-2">
+                  <Database className="h-4 w-4" />
+                  Products Per Category
+                </h4>
+                <span className="text-xs text-muted-foreground">Target: {TARGET_COUNT.toLocaleString()} per category</span>
+              </div>
 
               <div className="flex gap-6 text-sm">
                 <div className="flex-1 space-y-1">
@@ -392,7 +397,7 @@ export default function AutoLearning() {
                         .sort((a, b) => b.active_count - a.active_count)
                         .slice(0, 20)
                         .map((cat) => {
-                          const pct = (cat.active_count / maxActiveCount) * 100;
+                          const pct = Math.min((cat.active_count / TARGET_COUNT) * 100, 100);
                           const colorClass = getCategoryColor(cat.active_count);
                           return (
                             <TableRow key={cat.category_key}>

@@ -89,7 +89,7 @@ export function AdminNotificationsBell() {
               </Button>
             )}
           </div>
-          <ScrollArea className="max-h-80">
+          <ScrollArea className="h-80">
             {notifications.length === 0 ? (
               <p className="text-muted-foreground text-sm text-center py-6">
                 {isFr ? 'Aucune notification' : 'No notifications'}

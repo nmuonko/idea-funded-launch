@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { verifyAdminAuth, authErrorResponse } from "../_shared/auth.ts";
+import { verifyAndGetUser, errorResponse, handleCors, createAdminClient } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -67,15 +66,21 @@ serve(async (req) => {
 
   try {
     // Verify admin auth
-    const authResult = await verifyAdminAuth(req);
-    if (!authResult.authorized) {
-      return authErrorResponse(authResult.error || 'Unauthorized');
+    const { user } = await verifyAndGetUser(req);
+
+    const adminClient = createAdminClient();
+    const { data: roleData } = await adminClient
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('role', 'admin')
+      .maybeSingle();
+
+    if (!roleData) {
+      return errorResponse('Unauthorized: admin role required', 403);
     }
 
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
+    const supabase = adminClient;
 
     // Gather all stats in parallel
     const [

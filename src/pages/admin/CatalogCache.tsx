@@ -9,10 +9,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import {
   Database, Package, AlertTriangle, XCircle, Clock, ChevronLeft, ChevronRight,
-  RefreshCw, Power, PowerOff, Search, RotateCcw, ExternalLink
+  RefreshCw, Power, PowerOff, Search, RotateCcw, ExternalLink,
+  Play, Zap, Timer, TrendingUp, ChevronDown, Heart, Activity,
+  StopCircle, ArrowUpDown
 } from 'lucide-react';
 
 const ALL_CATEGORIES = [
@@ -30,6 +37,8 @@ interface Filters {
   q: string;
   stale_price_days: string;
   not_seen_days: string;
+  sort_by: string;
+  date_preset: string;
 }
 
 const defaultFilters: Filters = {
@@ -39,6 +48,8 @@ const defaultFilters: Filters = {
   q: '',
   stale_price_days: '',
   not_seen_days: '',
+  sort_by: '',
+  date_preset: '',
 };
 
 async function invokeAdmin(params: Record<string, string>) {
@@ -122,6 +133,312 @@ function SummaryCards() {
   );
 }
 
+// ── Run Control Buttons ─────────────────────────────────────────────────────
+function RunControls() {
+  const queryClient = useQueryClient();
+  const [campaignOpen, setCampaignOpen] = useState(false);
+  const [campaignForm, setCampaignForm] = useState({
+    run_window_days: 7,
+    goal_total_items: 10000,
+    goal_ebay_items: 5000,
+    goal_amazon_items: 5000,
+    continuous: true,
+  });
+
+  const { data: status, isLoading: statusLoading } = useQuery({
+    queryKey: ['builder-status'],
+    queryFn: () => invokeAdmin({ mode: 'builder-status' }),
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
+
+  const runBuilderMut = useMutation({
+    mutationFn: (provider: string) => postAction('run-builder', { provider }),
+    onSuccess: (data) => {
+      toast.success(`Builder run started for ${data?.provider || 'provider'}`);
+      queryClient.invalidateQueries({ queryKey: ['builder-status'] });
+    },
+    onError: (err: any) => toast.error(err.message || 'Failed to start builder'),
+  });
+
+  const startCampaignMut = useMutation({
+    mutationFn: (form: typeof campaignForm) => postAction('start-campaign', form),
+    onSuccess: () => {
+      toast.success('Campaign started!');
+      setCampaignOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['builder-status'] });
+    },
+    onError: (err: any) => toast.error(err.message || 'Failed to start campaign'),
+  });
+
+  const cancelCampaignMut = useMutation({
+    mutationFn: () => postAction('cancel-campaign', {}),
+    onSuccess: () => {
+      toast.success('Campaign canceled');
+      queryClient.invalidateQueries({ queryKey: ['builder-status'] });
+    },
+    onError: (err: any) => toast.error(err.message || 'Failed to cancel'),
+  });
+
+  const campaign = status?.campaign;
+  const health = status?.provider_health;
+  const ebayHealthy = !health?.ebay || health.ebay.healthy !== false;
+  const amazonHealthy = !health?.rainforest || health.rainforest.healthy !== false;
+
+  return (
+    <div className="space-y-4">
+      {/* Run Buttons */}
+      <Card>
+        <CardHeader className="py-3 px-4">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Zap className="h-4 w-4" /> Builder Controls
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <div className="flex flex-wrap gap-3">
+            <Button
+              size="sm"
+              onClick={() => runBuilderMut.mutate('ebay')}
+              disabled={runBuilderMut.isPending}
+              className="gap-2"
+            >
+              <Play className="h-3.5 w-3.5" /> Run eBay Builder Now
+              {!ebayHealthy && <Badge variant="destructive" className="text-[9px] ml-1">Unhealthy</Badge>}
+            </Button>
+
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => runBuilderMut.mutate('rainforest')}
+              disabled={runBuilderMut.isPending || !amazonHealthy}
+              className="gap-2"
+            >
+              <Play className="h-3.5 w-3.5" /> Run Amazon Builder Now
+              {!amazonHealthy && <Badge variant="destructive" className="text-[9px] ml-1">Down</Badge>}
+            </Button>
+
+            <Dialog open={campaignOpen} onOpenChange={setCampaignOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" variant="outline" className="gap-2">
+                  <Timer className="h-3.5 w-3.5" /> Automate Window Run
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Start Campaign Window</DialogTitle>
+                  <DialogDescription>
+                    Set goals and timeframe for automated catalog building. The builder will run every 10 minutes until goals are met or the window expires.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Window (days)</Label>
+                      <Input
+                        type="number"
+                        value={campaignForm.run_window_days}
+                        onChange={(e) => setCampaignForm(f => ({ ...f, run_window_days: +e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Total Goal</Label>
+                      <Input
+                        type="number"
+                        value={campaignForm.goal_total_items}
+                        onChange={(e) => setCampaignForm(f => ({ ...f, goal_total_items: +e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">eBay Goal</Label>
+                      <Input
+                        type="number"
+                        value={campaignForm.goal_ebay_items}
+                        onChange={(e) => setCampaignForm(f => ({ ...f, goal_ebay_items: +e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Amazon Goal</Label>
+                      <Input
+                        type="number"
+                        value={campaignForm.goal_amazon_items}
+                        onChange={(e) => setCampaignForm(f => ({ ...f, goal_amazon_items: +e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={campaignForm.continuous}
+                      onCheckedChange={(v) => setCampaignForm(f => ({ ...f, continuous: v }))}
+                    />
+                    <Label className="text-xs">Continuous mode (keep going past goal)</Label>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    onClick={() => startCampaignMut.mutate(campaignForm)}
+                    disabled={startCampaignMut.isPending}
+                  >
+                    Start Campaign
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {/* Provider Health */}
+          {health && (
+            <div className="flex gap-4 mt-3 text-xs">
+              <span className="flex items-center gap-1">
+                <Activity className={`h-3 w-3 ${ebayHealthy ? 'text-green-500' : 'text-destructive'}`} />
+                eBay: {ebayHealthy ? 'Healthy' : health.ebay?.reason || 'Unhealthy'}
+              </span>
+              <span className="flex items-center gap-1">
+                <Activity className={`h-3 w-3 ${amazonHealthy ? 'text-green-500' : 'text-destructive'}`} />
+                Amazon: {amazonHealthy ? 'Healthy' : health.rainforest?.reason || 'Down'}
+              </span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Campaign Progress */}
+      {campaign && campaign.status === 'running' && (
+        <Card className="border-primary/30">
+          <CardHeader className="py-3 px-4">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-primary" /> Campaign Progress
+              </CardTitle>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => cancelCampaignMut.mutate()}
+                disabled={cancelCampaignMut.isPending}
+                className="gap-1 h-7"
+              >
+                <StopCircle className="h-3 w-3" /> Cancel
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-3">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span>Total</span>
+                  <span>{(campaign.achieved_total ?? 0).toLocaleString()} / {(campaign.goal_total ?? 0).toLocaleString()}</span>
+                </div>
+                <Progress value={campaign.goal_total ? (campaign.achieved_total / campaign.goal_total) * 100 : 0} />
+              </div>
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span>eBay</span>
+                  <span>{(campaign.achieved_ebay ?? 0).toLocaleString()} / {(campaign.goal_ebay ?? 0).toLocaleString()}</span>
+                </div>
+                <Progress value={campaign.goal_ebay ? (campaign.achieved_ebay / campaign.goal_ebay) * 100 : 0} />
+              </div>
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span>Amazon</span>
+                  <span>{(campaign.achieved_rainforest ?? 0).toLocaleString()} / {(campaign.goal_rainforest ?? 0).toLocaleString()}</span>
+                </div>
+                <Progress value={campaign.goal_rainforest ? (campaign.achieved_rainforest / campaign.goal_rainforest) * 100 : 0} />
+              </div>
+            </div>
+            {campaign.end_at && (
+              <p className="text-xs text-muted-foreground">
+                ⏱ Window ends: {new Date(campaign.end_at).toLocaleDateString()} ({
+                  Math.max(0, Math.ceil((new Date(campaign.end_at).getTime() - Date.now()) / 86400000))
+                }d remaining)
+                {campaign.continuous && <Badge variant="outline" className="ml-2 text-[9px]">Continuous</Badge>}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ── Search Insights Panel ───────────────────────────────────────────────────
+function SearchInsights() {
+  const [open, setOpen] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['search-insights'],
+    queryFn: () => invokeAdmin({ mode: 'search-insights' }),
+    staleTime: 120_000,
+    enabled: open,
+  });
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <Card>
+        <CollapsibleTrigger asChild>
+          <CardHeader className="py-3 px-4 cursor-pointer hover:bg-muted/50 transition-colors">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" /> Search Insights
+              <ChevronDown className={`h-4 w-4 ml-auto transition-transform ${open ? 'rotate-180' : ''}`} />
+            </CardTitle>
+          </CardHeader>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <CardContent className="px-4 pb-4 space-y-4">
+            {isLoading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-6" />)}
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* Top Queries */}
+                <div>
+                  <h4 className="text-xs font-semibold mb-2 text-muted-foreground uppercase">Top Searched Queries</h4>
+                  <div className="space-y-1.5">
+                    {(data?.top_queries ?? []).slice(0, 15).map((q: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between text-xs border-b border-border/50 pb-1">
+                        <span className="truncate max-w-[180px]">{q.q_norm}</span>
+                        <div className="flex gap-3 text-muted-foreground shrink-0">
+                          <span>{q.search_count}×</span>
+                          <span>DB:{q.avg_db ?? 0}</span>
+                          <span>Live:{q.avg_live ?? 0}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {(!data?.top_queries || data.top_queries.length === 0) && (
+                      <p className="text-xs text-muted-foreground">No query data yet</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Popular Products */}
+                <div>
+                  <h4 className="text-xs font-semibold mb-2 text-muted-foreground uppercase">Most Popular Products</h4>
+                  <div className="space-y-1.5">
+                    {(data?.popular_products ?? []).slice(0, 15).map((p: any, i: number) => (
+                      <div key={i} className="flex items-center gap-2 text-xs border-b border-border/50 pb-1">
+                        {p.image_url && <img src={p.image_url} alt="" className="w-6 h-6 rounded object-cover" />}
+                        <span className="truncate flex-1">{p.title || '—'}</span>
+                        <Badge variant="outline" className="text-[9px] shrink-0">{p.provider}</Badge>
+                        <span className="text-muted-foreground shrink-0 flex items-center gap-0.5">
+                          <Heart className="h-2.5 w-2.5" /> {p.popularity_score ?? 0}
+                        </span>
+                      </div>
+                    ))}
+                    {(!data?.popular_products || data.popular_products.length === 0) && (
+                      <p className="text-xs text-muted-foreground">No popularity data yet</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
+  );
+}
+
 // ── Items Table ──────────────────────────────────────────────────────────────
 function ItemsTable() {
   const queryClient = useQueryClient();
@@ -152,6 +469,8 @@ function ItemsTable() {
     if (appliedFilters.q) p.q = appliedFilters.q;
     if (appliedFilters.stale_price_days) p.stale_price_days = appliedFilters.stale_price_days;
     if (appliedFilters.not_seen_days) p.not_seen_days = appliedFilters.not_seen_days;
+    if (appliedFilters.sort_by) p.sort_by = appliedFilters.sort_by;
+    if (appliedFilters.date_preset) p.date_preset = appliedFilters.date_preset;
     return p;
   }, [page, appliedFilters]);
 
@@ -206,7 +525,7 @@ function ItemsTable() {
       {/* Filters */}
       <Card>
         <CardContent className="pt-4 pb-3 px-4">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
             <Select
               value={filters.category_key || '_all'}
               onValueChange={(v) => setFilters((f) => ({ ...f, category_key: v === '_all' ? '' : v }))}
@@ -247,6 +566,37 @@ function ItemsTable() {
                 <SelectItem value="_all">All</SelectItem>
                 <SelectItem value="true">Active</SelectItem>
                 <SelectItem value="false">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={filters.sort_by || '_default'}
+              onValueChange={(v) => setFilters((f) => ({ ...f, sort_by: v === '_default' ? '' : v }))}
+            >
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_default">Default</SelectItem>
+                <SelectItem value="newest">Newest Added</SelectItem>
+                <SelectItem value="recently_seen">Recently Seen</SelectItem>
+                <SelectItem value="highest_price">Highest Price</SelectItem>
+                <SelectItem value="popularity">Most Popular</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={filters.date_preset || '_all'}
+              onValueChange={(v) => setFilters((f) => ({ ...f, date_preset: v === '_all' ? '' : v }))}
+            >
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue placeholder="Date Added" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">All Time</SelectItem>
+                <SelectItem value="24h">Last 24h</SelectItem>
+                <SelectItem value="7d">Last 7 days</SelectItem>
+                <SelectItem value="30d">Last 30 days</SelectItem>
               </SelectContent>
             </Select>
 
@@ -300,6 +650,7 @@ function ItemsTable() {
                   <TableHead className="w-16">Provider</TableHead>
                   <TableHead className="w-20 text-right">Price</TableHead>
                   <TableHead className="w-16">Stock</TableHead>
+                  <TableHead className="w-20">Added</TableHead>
                   <TableHead className="w-20">Seen</TableHead>
                   <TableHead className="w-20">Price ↻</TableHead>
                   <TableHead className="w-12">Fails</TableHead>
@@ -311,7 +662,7 @@ function ItemsTable() {
                 {isLoading
                   ? Array.from({ length: 8 }).map((_, i) => (
                       <TableRow key={i}>
-                        {Array.from({ length: 11 }).map((_, j) => (
+                        {Array.from({ length: 12 }).map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
@@ -319,7 +670,7 @@ function ItemsTable() {
                   : items.length === 0
                   ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
                         No items found
                       </TableCell>
                     </TableRow>
@@ -361,6 +712,7 @@ function ItemsTable() {
                           {item.in_stock ? 'Yes' : 'No'}
                         </Badge>
                       </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{fmtDate(item.first_seen_at)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{fmtDate(item.last_seen_at)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{fmtDate(item.price_updated_at)}</TableCell>
                       <TableCell className="text-xs text-center">
@@ -464,6 +816,8 @@ export default function CatalogCache() {
       </div>
 
       <SummaryCards />
+      <RunControls />
+      <SearchInsights />
       <ItemsTable />
     </div>
   );

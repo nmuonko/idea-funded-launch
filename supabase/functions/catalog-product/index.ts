@@ -588,29 +588,30 @@ Deno.serve(async (req: Request) => {
         return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
       }
       
-      // Use pre-fetched variants cache result
+      // Use pre-fetched variants cache result if available
       if (cachedVariantsResult) {
         item.variants = cachedVariantsResult;
-        console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: externalProvider, id: productId, dbHit: true, variantsCacheHit: true, liveFetch: false, variantsCount: cachedVariantsResult.length, totalMs: Date.now() - startTime }));
-        
-        return new Response(JSON.stringify({
-          ok: true,
-          status: "success",
-          env: envName,
-          id: fullProductId,
-          item,
-          product: item,
-          source: "db",
-          cached: true,
-          error: null,
-        }), {
-          status: 200,
-          headers: buildDiagHeaders({ variantsCache: "HIT", provider: externalProvider as "amazon" | "ebay", upstreamMs: 0, totalMs: Date.now() - startTime, source: "db+variants_cache" }),
-        });
       }
-
-      // Amazon or eBay with no cached variants: fall through to live fetch
-      console.log(`[DETAIL_DB] correlationId=${correlationId} db_hit but no cached variants, fetching live...`);
+      
+      // ALWAYS return DB item when found — don't fall through to live fetch
+      // which may fail (expired listings) and lose the gallery we already have
+      const variantsCacheStatus = cachedVariantsResult ? "HIT" : "MISS";
+      console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: externalProvider, id: productId, dbHit: true, variantsCacheHit: !!cachedVariantsResult, liveFetch: false, variantsCount: cachedVariantsResult?.length ?? 0, imageCount: item.images?.length ?? 0, totalMs: Date.now() - startTime }));
+      
+      return new Response(JSON.stringify({
+        ok: true,
+        status: "success",
+        env: envName,
+        id: fullProductId,
+        item,
+        product: item,
+        source: "db",
+        cached: true,
+        error: null,
+      }), {
+        status: 200,
+        headers: buildDiagHeaders({ variantsCache: variantsCacheStatus, provider: externalProvider as "amazon" | "ebay", upstreamMs: 0, totalMs: Date.now() - startTime, source: `db+variants_${variantsCacheStatus.toLowerCase()}` }),
+      });
     }
     
     console.log(`[DETAIL_DB] correlationId=${correlationId} miss, fetching_live...`);

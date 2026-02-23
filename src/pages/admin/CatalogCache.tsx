@@ -149,6 +149,7 @@ function FetchProducts() {
     duplicates: number;
   } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fetchStartTimeRef = useRef<number>(0);
 
   const [campaignOpen, setCampaignOpen] = useState(false);
   const [campaignForm, setCampaignForm] = useState({
@@ -176,8 +177,21 @@ function FetchProducts() {
   // Poll for progress when fetching
   useEffect(() => {
     if (!isFetching) return;
+    fetchStartTimeRef.current = Date.now();
     
     pollRef.current = setInterval(async () => {
+      // 5-minute safety timeout
+      const elapsed = Date.now() - fetchStartTimeRef.current;
+      if (elapsed > 5 * 60 * 1000) {
+        setFetchProgress({
+          status: 'error',
+          message: 'Fetch timed out after 5 minutes. The worker may still be running in the background.',
+          itemsFetched: 0, target: quantity, newUnique: 0, duplicates: 0,
+        });
+        setIsFetching(false);
+        return;
+      }
+
       try {
         const result = await invokeAdmin({ mode: 'builder-status' });
         queryClient.setQueryData(['builder-status'], result);
@@ -189,7 +203,6 @@ function FetchProducts() {
           if (latest.finished_at) {
             const finishedAt = new Date(latest.finished_at).getTime();
             const now = Date.now();
-            // If finished within last 30 seconds, treat as our run completing
             if (now - finishedAt < 30_000) {
               setFetchProgress({
                 status: 'done',
@@ -247,6 +260,20 @@ function FetchProducts() {
         setIsFetching(false);
         queryClient.invalidateQueries({ queryKey: ['catalog-cache-summary'] });
         queryClient.invalidateQueries({ queryKey: ['catalog-cache-list'] });
+      } else if (workerResult?.status === 'no_sources' || workerResult?.status === 'no_active_sources') {
+        setFetchProgress({
+          status: 'error',
+          message: 'No builder sources configured for this category/provider. Add sources in builder settings.',
+          itemsFetched: 0, target: quantity, newUnique: 0, duplicates: 0,
+        });
+        setIsFetching(false);
+      } else if (workerResult?.status === 'paused') {
+        setFetchProgress({
+          status: 'error',
+          message: 'Builder is currently paused. Resume it from settings.',
+          itemsFetched: 0, target: quantity, newUnique: 0, duplicates: 0,
+        });
+        setIsFetching(false);
       }
     } catch (err: any) {
       setFetchProgress({

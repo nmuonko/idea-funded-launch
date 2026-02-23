@@ -49,7 +49,7 @@ export default function Orders() {
 
       const { data, error } = await supabase
         .from('orders')
-        .select('*, order_items(*), maisha_payments(*)')
+        .select('*, order_items(*)')
         .eq('user_id', user.id)
         .neq('status', 'DRAFT')
         .order('created_at', { ascending: false });
@@ -424,7 +424,7 @@ export default function Orders() {
                       <Eye className="h-4 w-4 mr-2" />
                       {t.common.viewDetails}
                     </Button>
-                    {(order.status === 'PENDING_PAYMENT' || order.maisha_payment_status === 'failed') && (
+                    {order.status === 'PENDING_PAYMENT' && (
                       <Button 
                         onClick={() => retryPayment(order.id)}
                         disabled={retrying === order.id}

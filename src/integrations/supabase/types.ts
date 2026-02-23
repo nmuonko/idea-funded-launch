@@ -935,29 +935,35 @@ export type Database = {
       }
       catalog_builder_state: {
         Row: {
+          consecutive_zero_new_pages: number
           cooldown_until: string | null
           current_offset: number
           exhausted: boolean
           last_error: string | null
           last_run_at: string | null
+          sort_mode: string
           source_id: string
           total_ingested: number
         }
         Insert: {
+          consecutive_zero_new_pages?: number
           cooldown_until?: string | null
           current_offset?: number
           exhausted?: boolean
           last_error?: string | null
           last_run_at?: string | null
+          sort_mode?: string
           source_id: string
           total_ingested?: number
         }
         Update: {
+          consecutive_zero_new_pages?: number
           cooldown_until?: string | null
           current_offset?: number
           exhausted?: boolean
           last_error?: string | null
           last_run_at?: string | null
+          sort_mode?: string
           source_id?: string
           total_ingested?: number
         }

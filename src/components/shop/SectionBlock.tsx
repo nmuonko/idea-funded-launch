@@ -47,7 +47,7 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
             )}
           </div>
         )}
-        <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-8 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 xl:grid-cols-8 gap-2">
           {items.slice(0, 16).map((product) => (
             <ProductCard key={product.id} product={product} compact coverImage />
           ))}

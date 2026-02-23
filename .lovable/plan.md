@@ -1,43 +1,41 @@
 
+
 # Fix: `admin-system-health` BOOT_ERROR
 
-## Problem Found
+## Problem
+The `admin-system-health` edge function crashes on startup because it imports `verifyAdminAuth` and `authErrorResponse` from `_shared/auth.ts`, but those exports don't exist.
 
-The `admin-system-health` edge function crashes on startup with:
+## Changes to `supabase/functions/admin-system-health/index.ts`
+
+### 1. Fix imports (lines 1-3)
+Remove `createClient` and broken imports. Replace with working exports from `_shared/auth.ts`:
 
 ```
-Uncaught SyntaxError: The requested module '../_shared/auth.ts' does not provide an export named 'authErrorResponse'
+import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { verifyAndGetUser, errorResponse, handleCors, createAdminClient } from "../_shared/auth.ts";
 ```
 
-It imports two functions that don't exist in `_shared/auth.ts`:
-- `verifyAdminAuth` -- does not exist
-- `authErrorResponse` -- does not exist
+### 2. Fix auth block (lines 69-78)
+Replace the broken `verifyAdminAuth` call with `verifyAndGetUser` + admin role check against `user_roles` table, and use `createAdminClient()` instead of manual client creation:
 
-This is the **only** broken function found across the entire system. All other health endpoints (general `health`, `catalog-health`, `payment-health`, `mobile-health`, `stripe-health`) return 200 OK.
+```typescript
+const { user } = await verifyAndGetUser(req);
 
-## Fix
+const adminClient = createAdminClient();
+const { data: roleData } = await adminClient
+  .from('user_roles')
+  .select('role')
+  .eq('user_id', user.id)
+  .eq('role', 'admin')
+  .maybeSingle();
 
-Replace the non-existent imports with equivalent functions that already exist in `_shared/auth.ts`:
+if (!roleData) {
+  return errorResponse('Unauthorized: admin role required', 403);
+}
 
-| Broken Import | Replacement |
-|---|---|
-| `verifyAdminAuth` | `verifyAndGetUser` (validates JWT, returns user object) + admin role check |
-| `authErrorResponse` | `errorResponse` (generic JSON error response) |
+const supabase = adminClient;
+```
 
-### Changes to `supabase/functions/admin-system-health/index.ts`
+### 3. Redeploy
+Redeploy the `admin-system-health` edge function after applying changes.
 
-1. **Line 3**: Change import from `verifyAdminAuth, authErrorResponse` to `verifyAndGetUser, errorResponse, handleCors, AuthError, createAdminClient`
-2. **Lines 63-73**: Replace the auth block to use `verifyAndGetUser` with an admin role check against the `user_roles` table
-3. **Line 75-78**: Use `createAdminClient()` instead of manually creating a client with service role key
-
-The admin check will query `user_roles` for `role = 'admin'`, consistent with how other admin functions in the project verify authorization.
-
-### Deployment
-
-Redeploy `admin-system-health` after the fix.
-
-## What Was NOT a Bug
-
-- **Rainforest API 402 errors**: External billing issue (their API key needs payment update), not a code bug. The circuit breaker handles this correctly by serving from DB cache.
-- **"No images found" logs**: Expected when Rainforest returns errors -- the media cache gracefully skips those items.
-- **Frontend postMessage warnings**: Standard Lovable platform messages, not application bugs.

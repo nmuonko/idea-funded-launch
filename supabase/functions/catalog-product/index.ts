@@ -280,7 +280,6 @@ function mapDbItemToResponse(item: any): CatalogItem {
 
   // Extract variants from raw data if available
   let variants: CatalogItem["variants"] = undefined;
-  const raw = item.raw as Record<string, any> | null;
   const variantSources: string[] = [];
   
   if (raw?.variants && Array.isArray(raw.variants)) {

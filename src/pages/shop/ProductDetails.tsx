@@ -32,9 +32,7 @@ function isVehicleProduct(product: { title: string; priceUsd?: number; categoryK
   if (product.vehiclesSubkey) return true;
 
   // FALLBACK: title heuristic for items missing category data
-  // Intentionally very strict: requires ALL of price >= $5,000 + year + brand + body type
-  if ((product.priceUsd || 0) < 5000) return false;
-
+  // Intentionally very strict: requires ALL of year + brand + body type
   const lower = product.title.toLowerCase();
 
   // Exclusions: accessories, parts, toys, etc.

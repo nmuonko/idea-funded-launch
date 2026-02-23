@@ -40,7 +40,7 @@ const About = () => {
             transition={{ duration: 0.6 }}
           >
             <div className="w-24 h-24 rounded-3xl bg-white/10 flex items-center justify-center mx-auto mb-8 border border-white/20 p-4">
-              <img src={afrishopLogo} alt="AfriShop" className="w-full h-full object-contain" />
+              <img src={afrishopLogo} alt="AfriShop" className="w-full h-full object-contain rounded-lg" />
             </div>
             <h1 className="text-4xl md:text-6xl font-bold mb-6">
               About <span className="bg-gradient-to-r from-violet-400 to-purple-400 bg-clip-text text-transparent">AfriShop</span>

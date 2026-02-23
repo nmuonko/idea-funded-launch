@@ -223,7 +223,7 @@ export default function ResetPassword() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,11%)] to-[hsl(215,30%,15%)] p-4">
       <div className="w-full max-w-md space-y-8">
         <div className="flex justify-center">
-          <img src={afrishopLogo} alt="AfriShop" className="h-14 w-auto" />
+          <img src={afrishopLogo} alt="AfriShop" className="h-14 w-auto rounded-xl" />
         </div>
 
         <Card className="bg-card/50 backdrop-blur-xl border-border/30">

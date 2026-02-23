@@ -30,7 +30,7 @@ export const PublicHeader = () => {
     <header className="fixed top-0 left-0 right-0 z-50 bg-black/60 backdrop-blur-xl border-b border-white/10">
       <div className="container mx-auto px-4 py-3 flex items-center justify-between">
         <Link to="/" className="flex items-center">
-          <img src={afrishopLogo} alt="AfriShop" className="h-10 md:h-12 drop-shadow-lg" />
+          <img src={afrishopLogo} alt="AfriShop" className="h-10 md:h-12 drop-shadow-lg rounded-lg" />
         </Link>
         
         {/* Desktop Nav */}
@@ -126,7 +126,7 @@ export const PublicFooter = () => {
           {/* Brand & Company Info */}
           <div className="lg:col-span-2">
             <div className="flex items-center gap-3 mb-4">
-              <img src={afrishopLogo} alt="AfriShop" className="h-10" />
+              <img src={afrishopLogo} alt="AfriShop" className="h-10 rounded-lg" />
             </div>
             <div className="space-y-2 text-sm text-white/60">
               <p className="flex items-start gap-2">

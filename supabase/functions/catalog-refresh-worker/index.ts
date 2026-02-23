@@ -7,9 +7,10 @@
  * 3. Upserts results into catalog_items (never deletes)
  * 4. Deactivates items only when provider confirms unavailable or repeated failures
  * 5. Respects TTL policy (global + per-category)
+ * 6. NEW: mode=catalog-builder for aggressive bulk indexing
  * 
  * POST /catalog-refresh-worker
- * Body: { maxJobs?: number, mode?: 'queue' | 'stale' | 'pool-fill' }
+ * Body: { maxJobs?: number, mode?: 'queue' | 'stale' | 'pool-fill' | 'catalog-builder' }
  * 
  * Requires: admin auth or cron secret
  */
@@ -19,7 +20,7 @@ import { getTtlPolicy } from "../_shared/ttlPolicy.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-cron-secret, x-admin-key",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-cron-secret, x-admin-key, x-internal-cron-key",
 };
 
 const EBAY_OAUTH_SCOPES = "https://api.ebay.com/oauth/api_scope";
@@ -39,27 +40,29 @@ const DEACTIVATE_FAIL_THRESHOLD = 3;
 const DEACTIVATE_NOT_SEEN_DAYS = 90;
 const RATE_LIMIT_DELAY_MS = 600;
 const SEED_BACKFILL_BATCH = 25;
-const SEED_BACKFILL_DELAY_MS = 800; // 700-900ms range, use 800 average
+const SEED_BACKFILL_DELAY_MS = 800;
+
+// Builder constants
+const BUILDER_MAX_REQUESTS_PER_RUN = 40;
+const BUILDER_DELAY_MS = 1000;
+const BUILDER_ITEMS_PER_PAGE = 100;
+const BUILDER_PAGES_PER_SOURCE = 3;
+const BUILDER_TIME_BUDGET_MS = 45000;
+const BUILDER_DUPLICATE_THRESHOLD = 0.7; // 70% duplicates = exhausted
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 function checkAuth(req: Request, serviceKey: string): boolean {
-  // 1. x-cron-secret header (used by pg_cron scheduled calls)
   const cronSecret = req.headers.get("x-cron-secret");
   const envCronSecret = Deno.env.get("CRON_SECRET");
   if (cronSecret && envCronSecret && cronSecret === envCronSecret) return true;
-  // 1b. x-cron-secret may also carry the service role key (vault sync fallback)
   if (cronSecret && cronSecret === serviceKey) return true;
-  // 2. x-admin-key header (legacy, same secret)
   const adminKey = req.headers.get("x-admin-key");
   if (adminKey && envCronSecret && adminKey === envCronSecret) return true;
-  // 3. Authorization: Bearer <service_role_key>
   const auth = req.headers.get("authorization");
   if (auth?.startsWith("Bearer ") && auth.replace("Bearer ", "") === serviceKey) return true;
-  // 4. Internal cron key (for pg_cron when vault is inaccessible)
   const internalKey = req.headers.get("x-internal-cron-key");
   if (internalKey === "afrishop-internal-cron-2026") return true;
-  // NEVER accept anon key — it's public and would let anyone trigger refreshes
   return false;
 }
 
@@ -106,14 +109,14 @@ async function getEbayToken(supabase: any): Promise<string> {
   return data.access_token;
 }
 
-// ─── eBay Search ─────────────────────────────────────────────────────────────
+// ─── eBay Search (with offset support) ───────────────────────────────────────
 
-async function searchEbay(token: string, query: string, limit = 20): Promise<any[]> {
+async function searchEbay(token: string, query: string, limit = 20, offset = 0): Promise<{ items: any[]; total: number }> {
   const env = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
   const params = new URLSearchParams({
     q: query,
     limit: String(limit),
-    offset: "0",
+    offset: String(offset),
     filter: "buyingOptions:{FIXED_PRICE}",
   });
 
@@ -127,15 +130,19 @@ async function searchEbay(token: string, query: string, limit = 20): Promise<any
 
   if (res.status === 429) {
     console.warn("[WORKER] eBay 429 rate limited");
-    return [];
+    throw new Error("RATE_LIMITED_429");
   }
   if (!res.ok) {
-    console.error(`[WORKER] eBay error: ${res.status}`);
-    return [];
+    const text = await res.text().catch(() => "");
+    console.error(`[WORKER] eBay error: ${res.status} ${text}`);
+    return { items: [], total: 0 };
   }
 
   const data = await res.json();
-  return data.itemSummaries || [];
+  return {
+    items: data.itemSummaries || [],
+    total: data.total || 0,
+  };
 }
 
 // ─── Compute data hash ──────────────────────────────────────────────────────
@@ -144,10 +151,69 @@ function computeHash(title: string, price: number | null, imageUrl: string | nul
   return `${title || ""}|${price || 0}|${imageUrl || ""}`;
 }
 
+// ─── Build upsert row from eBay item ─────────────────────────────────────────
+
+function buildUpsertRow(item: any, categoryKey: string, now: string) {
+  const priceUsd = item.price?.value ? parseFloat(item.price.value) : null;
+  const imageUrl = item.image?.imageUrl?.replace(/^http:/, "https:") || null;
+  const hash = computeHash(item.title, priceUsd, imageUrl);
+
+  return {
+    provider: "ebay",
+    provider_product_id: item.itemId,
+    title: item.title,
+    price_usd: priceUsd,
+    image_url: imageUrl,
+    product_url: item.itemWebUrl || `https://www.ebay.com/itm/${item.itemId}`,
+    in_stock: item.itemAvailability?.availabilityStatus !== "OUT_OF_STOCK",
+    category_key: categoryKey,
+    unified_category: categoryKey,
+    last_seen_at: now,
+    data_updated_at: now,
+    price_updated_at: now,
+    data_hash: hash,
+    is_active: true,
+    status_reason: "active",
+    fail_count: 0,
+    last_checked_at: now,
+    updated_at: now,
+    tags: [categoryKey],
+    buying_options: item.buyingOptions || ["FIXED_PRICE"],
+  };
+}
+
+// ─── Update provider health in DB ────────────────────────────────────────────
+
+async function updateProviderHealth(supabase: any, provider: string, healthy: boolean, reason?: string) {
+  const update: any = {
+    healthy,
+    reason: reason || null,
+    updated_at: new Date().toISOString(),
+  };
+  if (!healthy) {
+    // Backoff: 10 min * 2^failures, max 1 hour
+    const { data: current } = await supabase
+      .from("provider_health_status")
+      .select("consecutive_failures")
+      .eq("provider", provider)
+      .maybeSingle();
+    const failures = (current?.consecutive_failures || 0) + 1;
+    const backoffMs = Math.min(3600000, 600000 * Math.pow(2, failures - 1));
+    update.consecutive_failures = failures;
+    update.unhealthy_until = new Date(Date.now() + backoffMs).toISOString();
+  } else {
+    update.consecutive_failures = 0;
+    update.unhealthy_until = null;
+  }
+
+  await supabase
+    .from("provider_health_status")
+    .upsert({ provider, ...update }, { onConflict: "provider" });
+}
+
 // ─── Process queue jobs ──────────────────────────────────────────────────────
 
 async function processQueueJobs(supabase: any, ebayToken: string, maxJobs: number) {
-  // Atomic claim with SKIP LOCKED — prevents double-processing
   const lockId = crypto.randomUUID().slice(0, 8);
   const now = new Date().toISOString();
 
@@ -167,10 +233,9 @@ async function processQueueJobs(supabase: any, ebayToken: string, maxJobs: numbe
 
   for (const job of jobs) {
     try {
-      const items = await searchEbay(ebayToken, job.query, 20);
+      const { items } = await searchEbay(ebayToken, job.query, 20);
       
       if (items.length === 0) {
-        // Mark done with no results
         await supabase.from("catalog_refresh_queue").update({
           status: "done",
           attempts: (job.attempts || 0) + 1,
@@ -179,37 +244,9 @@ async function processQueueJobs(supabase: any, ebayToken: string, maxJobs: numbe
         continue;
       }
 
-      // Upsert items
       const upsertRows = items
         .filter((item: any) => item.title && item.itemId)
-        .map((item: any) => {
-          const priceUsd = item.price?.value ? parseFloat(item.price.value) : null;
-          const imageUrl = item.image?.imageUrl?.replace(/^http:/, "https:") || null;
-          const hash = computeHash(item.title, priceUsd, imageUrl);
-
-          return {
-            provider: "ebay",
-            provider_product_id: item.itemId,
-            title: item.title,
-            price_usd: priceUsd,
-            image_url: imageUrl,
-            product_url: item.itemWebUrl || `https://www.ebay.com/itm/${item.itemId}`,
-            in_stock: item.itemAvailability?.availabilityStatus !== "OUT_OF_STOCK",
-            category_key: job.category_key,
-            unified_category: job.category_key,
-            last_seen_at: now,
-            data_updated_at: now,
-            price_updated_at: now,
-            data_hash: hash,
-            is_active: true,
-            status_reason: "active",
-            fail_count: 0,
-            last_checked_at: now,
-            updated_at: now,
-            tags: [job.category_key],
-            buying_options: item.buyingOptions || ["FIXED_PRICE"],
-          };
-        });
+        .map((item: any) => buildUpsertRow(item, job.category_key, now));
 
       if (upsertRows.length > 0) {
         const { error: upsertErr } = await supabase
@@ -228,7 +265,6 @@ async function processQueueJobs(supabase: any, ebayToken: string, maxJobs: numbe
         attempts: (job.attempts || 0) + 1,
       }).eq("id", job.id);
 
-      // Update promotion heartbeat if this job came from auto-learning
       await supabase
         .from("auto_seed_promotions")
         .update({
@@ -244,7 +280,6 @@ async function processQueueJobs(supabase: any, ebayToken: string, maxJobs: numbe
       const msg = err instanceof Error ? err.message : "Unknown";
       console.error(`[WORKER] Job ${job.id} failed:`, msg);
 
-      // Exponential backoff
       const attempts = (job.attempts || 0) + 1;
       const backoffMinutes = Math.min(60 * 24, Math.pow(2, attempts) * 10);
       const nextRun = new Date(Date.now() + backoffMinutes * 60_000).toISOString();
@@ -259,17 +294,15 @@ async function processQueueJobs(supabase: any, ebayToken: string, maxJobs: numbe
       }).eq("id", job.id);
     }
 
-    // Rate limit between API calls
     await new Promise(r => setTimeout(r, RATE_LIMIT_DELAY_MS));
   }
 
   return { processed: jobs.length, upserted: totalUpserted };
 }
 
-// ─── Refresh stale items (price/availability) ────────────────────────────────
+// ─── Refresh stale items ─────────────────────────────────────────────────────
 
 async function refreshStaleItems(supabase: any, ebayToken: string, maxItems: number) {
-  // Find items with stale prices
   const policy = await getTtlPolicy(supabase);
   const staleDate = new Date(Date.now() - policy.priceRefreshDays * 86_400_000).toISOString();
 
@@ -291,15 +324,13 @@ async function refreshStaleItems(supabase: any, ebayToken: string, maxItems: num
   let refreshed = 0;
   let deactivated = 0;
   const now = new Date().toISOString();
+  const env = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
 
-  // Process in batches of MAX_CONCURRENCY
   for (let i = 0; i < staleItems.length; i += MAX_CONCURRENCY) {
     const batch = staleItems.slice(i, i + MAX_CONCURRENCY);
 
     for (const item of batch) {
       try {
-        // Try to fetch individual item
-        const env = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
         const itemUrl = `${EBAY_ENDPOINTS[env].browse}/item/${item.provider_product_id}`;
         
         const res = await fetch(itemUrl, {
@@ -310,7 +341,6 @@ async function refreshStaleItems(supabase: any, ebayToken: string, maxItems: num
         });
 
         if (res.status === 404 || res.status === 410) {
-          // Item no longer available
           const failCount = (item.fail_count || 0) + 1;
           if (failCount >= DEACTIVATE_FAIL_THRESHOLD) {
             await supabase.from("catalog_items").update({
@@ -373,13 +403,10 @@ async function refreshStaleItems(supabase: any, ebayToken: string, maxItems: num
 
 async function deactivateOldItems(supabase: any) {
   try {
-    const cutoff = new Date(Date.now() - DEACTIVATE_NOT_SEEN_DAYS * 86_400_000).toISOString();
-
-    // Use RPC to deactivate old items since .lt()/.filter() not available on update builder
     const { data, error } = await supabase.rpc("cleanup_all_expired_data");
     if (error) console.error("[WORKER] Deactivation cleanup error:", error.message);
     return 0;
-  } catch (e) {
+  } catch (e: any) {
     console.error("[WORKER] Deactivation skipped:", e.message);
     return 0;
   }
@@ -391,7 +418,6 @@ async function ensureCategoryPools(supabase: any) {
   const MIN_POOL = 2000;
   const TARGET_POOL = 4000;
   
-  // Get active item counts per category
   const { data: items } = await supabase
     .from("catalog_items")
     .select("unified_category")
@@ -406,9 +432,7 @@ async function ensureCategoryPools(supabase: any) {
 
   console.log("[WORKER] Category pool counts:", counts);
 
-  // Find categories below min pool
   const thinCategories: string[] = [];
-  // Must match the granular keys stored in catalog_items + seeds
   const allCats = [
     "electronics_phones", "electronics_gaming", "electronics_audio",
     "electronics_computers", "electronics_tablets", "electronics_monitors",
@@ -433,10 +457,8 @@ async function ensureCategoryPools(supabase: any) {
 
   console.log(`[WORKER] Thin categories: ${thinCategories.join(", ")}`);
 
-  // Enqueue additional seed queries for thin categories
   let enqueued = 0;
   for (const cat of thinCategories) {
-    // Get unused/least-recently-used seeds for this category
     const { data: seeds } = await supabase
       .from("catalog_seed_queries")
       .select("*")
@@ -446,7 +468,6 @@ async function ensureCategoryPools(supabase: any) {
       .limit(10);
 
     for (const seed of seeds || []) {
-      // Check if already queued
       const { data: existing } = await supabase
         .from("catalog_refresh_queue")
         .select("id")
@@ -460,7 +481,7 @@ async function ensureCategoryPools(supabase: any) {
           category_key: cat,
           provider: seed.provider || "ebay",
           query: seed.query,
-          priority: 10, // High priority for pool fill
+          priority: 10,
           status: "queued",
           scheduled_at: new Date().toISOString(),
         });
@@ -477,7 +498,6 @@ async function ensureCategoryPools(supabase: any) {
 async function runSeedBackfill(supabase: any, ebayToken: string) {
   console.log("[WORKER] === SEED BACKFILL MODE ===");
 
-  // Step 1: Enqueue all seeds via the DB function
   const { data: enqueueResult, error: enqErr } = await supabase.rpc("enqueue_all_seeds_ebay", { p_limit: 2000 });
   if (enqErr) {
     console.error("[WORKER] enqueue_all_seeds_ebay failed:", enqErr.message);
@@ -485,7 +505,6 @@ async function runSeedBackfill(supabase: any, ebayToken: string) {
   }
   console.log("[WORKER] Seeds enqueued:", JSON.stringify(enqueueResult));
 
-  // Step 2: Loop through queue in batches until drained
   let totalProcessed = 0;
   let totalUpserted = 0;
   let totalErrors = 0;
@@ -510,7 +529,7 @@ async function runSeedBackfill(supabase: any, ebayToken: string) {
 
     for (const job of jobs) {
       try {
-        const items = await searchEbay(ebayToken, job.query, 20);
+        const { items } = await searchEbay(ebayToken, job.query, 20);
 
         if (items.length === 0) {
           await supabase.from("catalog_refresh_queue").update({
@@ -519,7 +538,6 @@ async function runSeedBackfill(supabase: any, ebayToken: string) {
             last_error: "no_results",
           }).eq("id", job.id);
 
-          // Update promotion heartbeat
           await supabase.from("auto_seed_promotions").update({
             last_refreshed_at: now,
             last_refresh_count: 0,
@@ -531,37 +549,9 @@ async function runSeedBackfill(supabase: any, ebayToken: string) {
           continue;
         }
 
-        // Build upsert rows
         const upsertRows = items
           .filter((item: any) => item.title && item.itemId)
-          .map((item: any) => {
-            const priceUsd = item.price?.value ? parseFloat(item.price.value) : null;
-            const imageUrl = item.image?.imageUrl?.replace(/^http:/, "https:") || null;
-            const hash = computeHash(item.title, priceUsd, imageUrl);
-
-            return {
-              provider: "ebay",
-              provider_product_id: item.itemId,
-              title: item.title,
-              price_usd: priceUsd,
-              image_url: imageUrl,
-              product_url: item.itemWebUrl || `https://www.ebay.com/itm/${item.itemId}`,
-              in_stock: item.itemAvailability?.availabilityStatus !== "OUT_OF_STOCK",
-              category_key: job.category_key,
-              unified_category: job.category_key,
-              last_seen_at: now,
-              data_updated_at: now,
-              price_updated_at: now,
-              data_hash: hash,
-              is_active: true,
-              status_reason: "active",
-              fail_count: 0,
-              last_checked_at: now,
-              updated_at: now,
-              tags: [job.category_key],
-              buying_options: item.buyingOptions || ["FIXED_PRICE"],
-            };
-          });
+          .map((item: any) => buildUpsertRow(item, job.category_key, now));
 
         if (upsertRows.length > 0) {
           const { error: upsertErr } = await supabase
@@ -581,7 +571,6 @@ async function runSeedBackfill(supabase: any, ebayToken: string) {
           attempts: (job.attempts || 0) + 1,
         }).eq("id", job.id);
 
-        // Update promotion heartbeat
         await supabase.from("auto_seed_promotions").update({
           last_refreshed_at: now,
           last_refresh_count: upsertRows.length,
@@ -596,8 +585,7 @@ async function runSeedBackfill(supabase: any, ebayToken: string) {
         console.error(`[WORKER] Seed job ${job.id} failed:`, msg);
         totalErrors++;
 
-        // Handle 429: reschedule instead of failing
-        const is429 = msg.includes("429") || msg.includes("rate limit");
+        const is429 = msg.includes("429") || msg.includes("rate limit") || msg.includes("RATE_LIMITED");
         const attempts = (job.attempts || 0) + 1;
 
         if (is429) {
@@ -610,7 +598,6 @@ async function runSeedBackfill(supabase: any, ebayToken: string) {
             locked_at: null,
             locked_by: null,
           }).eq("id", job.id);
-          // Wait extra on 429
           await new Promise(r => setTimeout(r, 5000));
         } else {
           await supabase.from("catalog_refresh_queue").update({
@@ -624,7 +611,6 @@ async function runSeedBackfill(supabase: any, ebayToken: string) {
         }
       }
 
-      // Rate limit between eBay calls
       await new Promise(r => setTimeout(r, SEED_BACKFILL_DELAY_MS));
     }
   }
@@ -638,6 +624,296 @@ async function runSeedBackfill(supabase: any, ebayToken: string) {
   };
   console.log("[WORKER] Seed backfill complete:", JSON.stringify(summary));
   return summary;
+}
+
+// ─── Catalog Builder Mode ────────────────────────────────────────────────────
+
+async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilter?: string) {
+  console.log("[WORKER] === CATALOG BUILDER MODE ===");
+  const runStart = Date.now();
+  const now = new Date().toISOString();
+  let requestsThisRun = 0;
+  let totalUpserted = 0;
+  let totalNewUnique = 0;
+  let totalDuplicatesSkipped = 0;
+  let rateLimitedCount = 0;
+  let sourcesProcessed = 0;
+  let rateLimited = false;
+
+  // Check for active campaign
+  const { data: campaign } = await supabase
+    .from("catalog_builder_goals")
+    .select("*")
+    .eq("status", "running")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (campaign) {
+    // Check if window expired
+    if (new Date(campaign.end_at) < new Date() && !campaign.continuous) {
+      await supabase.from("catalog_builder_goals").update({
+        status: "completed",
+        updated_at: now,
+      }).eq("id", campaign.id);
+      console.log("[BUILDER] Campaign window expired, marking completed");
+      return { status: "campaign_expired" };
+    }
+
+    // Check if goal met (non-continuous only)
+    if (!campaign.continuous && campaign.achieved_total >= campaign.goal_total) {
+      await supabase.from("catalog_builder_goals").update({
+        status: "completed",
+        updated_at: now,
+      }).eq("id", campaign.id);
+      console.log("[BUILDER] Campaign goal met, marking completed");
+      return { status: "campaign_goal_met" };
+    }
+  }
+
+  // Check builder_paused flag
+  const { data: pausedSetting } = await supabase
+    .from("admin_settings")
+    .select("value")
+    .eq("key", "builder_paused")
+    .maybeSingle();
+
+  if (pausedSetting?.value === "true") {
+    console.log("[BUILDER] Builder is paused");
+    return { status: "paused" };
+  }
+
+  // Get builder sources (enabled, not exhausted), round-robin by category
+  let sourcesQuery = supabase
+    .from("catalog_builder_sources")
+    .select("*, catalog_builder_state(*)")
+    .eq("enabled", true)
+    .order("priority", { ascending: true });
+
+  if (providerFilter) {
+    sourcesQuery = sourcesQuery.eq("provider", providerFilter);
+  }
+
+  const { data: sources, error: srcErr } = await sourcesQuery.limit(100);
+
+  if (srcErr || !sources?.length) {
+    console.log("[BUILDER] No sources found:", srcErr?.message || "empty");
+    return { status: "no_sources", error: srcErr?.message };
+  }
+
+  // Filter out exhausted sources
+  const activeSources = sources.filter((s: any) => {
+    const state = s.catalog_builder_state?.[0];
+    return !state?.exhausted;
+  });
+
+  if (activeSources.length === 0) {
+    console.log("[BUILDER] All sources exhausted");
+    return { status: "all_exhausted" };
+  }
+
+  // Round-robin: sort by category to diversify
+  const shuffled = [...activeSources].sort((a: any, b: any) => {
+    if (a.category_key !== b.category_key) return a.category_key.localeCompare(b.category_key);
+    return a.priority - b.priority;
+  });
+
+  for (const source of shuffled) {
+    // Time budget check
+    if (Date.now() - runStart > BUILDER_TIME_BUDGET_MS) {
+      console.log("[BUILDER] Time budget exceeded, stopping");
+      break;
+    }
+
+    // Request budget check
+    if (requestsThisRun >= BUILDER_MAX_REQUESTS_PER_RUN) {
+      console.log("[BUILDER] Request budget reached, stopping");
+      break;
+    }
+
+    if (rateLimited) break;
+
+    const state = source.catalog_builder_state?.[0];
+    let currentOffset = state?.current_offset || 0;
+    let sourceIngested = 0;
+    let emptyPages = 0;
+
+    // Ensure state row exists
+    if (!state) {
+      await supabase.from("catalog_builder_state").upsert({
+        source_id: source.id,
+        current_offset: 0,
+        total_ingested: 0,
+        exhausted: false,
+      }, { onConflict: "source_id" });
+    }
+
+    // Fetch up to BUILDER_PAGES_PER_SOURCE pages
+    for (let page = 0; page < BUILDER_PAGES_PER_SOURCE; page++) {
+      if (requestsThisRun >= BUILDER_MAX_REQUESTS_PER_RUN) break;
+      if (Date.now() - runStart > BUILDER_TIME_BUDGET_MS) break;
+      if (rateLimited) break;
+
+      try {
+        const query = source.source_type === "ebay_category"
+          ? source.source_value // For category IDs, use as query
+          : source.source_value;
+
+        const { items, total } = await searchEbay(ebayToken, query, BUILDER_ITEMS_PER_PAGE, currentOffset);
+        requestsThisRun++;
+
+        if (items.length === 0) {
+          emptyPages++;
+          if (emptyPages >= 2) {
+            // Mark exhausted
+            await supabase.from("catalog_builder_state").upsert({
+              source_id: source.id,
+              exhausted: true,
+              last_run_at: now,
+              last_error: "empty_pages",
+            }, { onConflict: "source_id" });
+            break;
+          }
+          continue;
+        }
+
+        // Check if offset >= total
+        if (currentOffset >= total) {
+          await supabase.from("catalog_builder_state").upsert({
+            source_id: source.id,
+            exhausted: true,
+            last_run_at: now,
+          }, { onConflict: "source_id" });
+          break;
+        }
+
+        // Build upsert rows
+        const upsertRows = items
+          .filter((item: any) => item.title && item.itemId)
+          .map((item: any) => buildUpsertRow(item, source.category_key, now));
+
+        if (upsertRows.length === 0) continue;
+
+        // Check how many already exist (for uniqueness gate)
+        const productIds = upsertRows.map((r: any) => r.provider_product_id);
+        const { data: existing } = await supabase
+          .from("catalog_items")
+          .select("provider_product_id")
+          .eq("provider", "ebay")
+          .in("provider_product_id", productIds);
+
+        const existingSet = new Set((existing || []).map((e: any) => e.provider_product_id));
+        const duplicateCount = productIds.filter((id: string) => existingSet.has(id)).length;
+        const duplicateRatio = duplicateCount / productIds.length;
+
+        // Upsert all (updates existing, inserts new)
+        const { error: upsertErr } = await supabase
+          .from("catalog_items")
+          .upsert(upsertRows, { onConflict: "provider,provider_product_id" });
+
+        if (upsertErr) {
+          console.error(`[BUILDER] Upsert error source ${source.id}:`, upsertErr.message);
+        } else {
+          totalUpserted += upsertRows.length;
+          const newItems = productIds.length - duplicateCount;
+          totalNewUnique += newItems;
+          totalDuplicatesSkipped += duplicateCount;
+          sourceIngested += newItems;
+        }
+
+        // Advance offset
+        currentOffset += items.length;
+
+        // Update state
+        await supabase.from("catalog_builder_state").upsert({
+          source_id: source.id,
+          current_offset: currentOffset,
+          total_ingested: (state?.total_ingested || 0) + sourceIngested,
+          last_run_at: now,
+          last_error: null,
+        }, { onConflict: "source_id" });
+
+        // Uniqueness gate: >70% duplicates = exhausted
+        if (duplicateRatio > BUILDER_DUPLICATE_THRESHOLD) {
+          console.log(`[BUILDER] Source ${source.id} exhausted (${(duplicateRatio * 100).toFixed(0)}% duplicates)`);
+          await supabase.from("catalog_builder_state").upsert({
+            source_id: source.id,
+            exhausted: true,
+            last_run_at: now,
+            last_error: `exhausted_duplicates_${(duplicateRatio * 100).toFixed(0)}pct`,
+          }, { onConflict: "source_id" });
+          break;
+        }
+
+        // Delay between calls
+        await new Promise(r => setTimeout(r, BUILDER_DELAY_MS));
+
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unknown";
+
+        if (msg.includes("RATE_LIMITED_429")) {
+          rateLimited = true;
+          rateLimitedCount++;
+          await updateProviderHealth(supabase, source.provider, false, "429_rate_limited");
+          await supabase.from("catalog_builder_state").upsert({
+            source_id: source.id,
+            current_offset: currentOffset,
+            last_run_at: now,
+            last_error: "rate_limited",
+          }, { onConflict: "source_id" });
+          break;
+        }
+
+        console.error(`[BUILDER] Error source ${source.id}:`, msg);
+        await supabase.from("catalog_builder_state").upsert({
+          source_id: source.id,
+          current_offset: currentOffset,
+          last_run_at: now,
+          last_error: msg,
+        }, { onConflict: "source_id" });
+        break;
+      }
+    }
+
+    sourcesProcessed++;
+  }
+
+  // If no rate limit, mark provider healthy
+  if (!rateLimited) {
+    await updateProviderHealth(supabase, providerFilter || "ebay", true);
+  }
+
+  // Update campaign counters
+  if (campaign && totalNewUnique > 0) {
+    const providerField = providerFilter === "rainforest" ? "achieved_rainforest" : "achieved_ebay";
+    await supabase.from("catalog_builder_goals").update({
+      achieved_total: campaign.achieved_total + totalNewUnique,
+      [providerField]: (campaign[providerField] || 0) + totalNewUnique,
+      last_run_at: now,
+      updated_at: now,
+    }).eq("id", campaign.id);
+  }
+
+  // Log run
+  const runResult = {
+    items_upserted: totalUpserted,
+    new_unique_items: totalNewUnique,
+    duplicates_skipped: totalDuplicatesSkipped,
+    rate_limited_count: rateLimitedCount,
+    sources_processed: sourcesProcessed,
+    duration_ms: Date.now() - runStart,
+  };
+
+  await supabase.from("catalog_builder_runs").insert({
+    goal_id: campaign?.id || null,
+    provider: providerFilter || "ebay",
+    started_at: new Date(runStart).toISOString(),
+    finished_at: new Date().toISOString(),
+    ...runResult,
+  });
+
+  console.log("[BUILDER] Complete:", JSON.stringify(runResult));
+  return runResult;
 }
 
 // ─── Main Handler ────────────────────────────────────────────────────────────
@@ -658,26 +934,29 @@ Deno.serve(async (req) => {
   }
 
   let maxJobs = 10;
-  let mode = "queue"; // queue | stale | pool-fill | all | seed-backfill
+  let mode = "queue";
+  let provider: string | undefined;
   try {
     const body = await req.json().catch(() => ({}));
     maxJobs = body.maxJobs || 10;
     mode = body.mode || "queue";
+    provider = body.provider;
   } catch { /* defaults */ }
 
-  // Also check URL params
   const url = new URL(req.url);
   mode = url.searchParams.get("mode") || mode;
+  provider = url.searchParams.get("provider") || provider;
 
   const supabase = createClient(supabaseUrl, serviceKey);
   const startTime = Date.now();
   const results: Record<string, any> = { mode };
 
   try {
-    // Get eBay token
     const ebayToken = await getEbayToken(supabase);
 
-    if (mode === "seed-backfill") {
+    if (mode === "catalog-builder") {
+      results.builder = await runCatalogBuilder(supabase, ebayToken, provider);
+    } else if (mode === "seed-backfill") {
       results.seedBackfill = await runSeedBackfill(supabase, ebayToken);
     } else {
       if (mode === "queue" || mode === "all") {
@@ -692,7 +971,6 @@ Deno.serve(async (req) => {
         results.poolFill = await ensureCategoryPools(supabase);
       }
 
-      // Always deactivate old items
       results.deactivated = await deactivateOldItems(supabase);
     }
 

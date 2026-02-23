@@ -16,7 +16,6 @@ function json(data: unknown, status = 200) {
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 async function isAdmin(req: Request): Promise<boolean> {
-  // x-admin-key / x-cron-secret shortcuts
   const adminKey = req.headers.get("x-admin-key");
   const cronSecret = req.headers.get("x-cron-secret");
   const expectedAdmin = Deno.env.get("ADMIN_KEY");
@@ -24,7 +23,6 @@ async function isAdmin(req: Request): Promise<boolean> {
   if (adminKey && expectedAdmin && adminKey === expectedAdmin) return true;
   if (cronSecret && expectedCron && cronSecret === expectedCron) return true;
 
-  // JWT-based: check user_roles
   const auth = req.headers.get("authorization");
   if (!auth?.startsWith("Bearer ")) return false;
   const token = auth.replace("Bearer ", "");
@@ -67,7 +65,6 @@ async function handleSummary(url: URL) {
   const sb = serviceClient();
   const staleDaysParam = parseInt(url.searchParams.get("stale_days") || "10");
 
-  // Total counts
   const { count: total_count } = await sb
     .from("catalog_items")
     .select("*", { count: "exact", head: true });
@@ -106,14 +103,18 @@ async function handleSummary(url: URL) {
     .eq("is_active", true)
     .lt("last_seen_at", notSeenDate);
 
-  // Per-category breakdown via RPC or manual aggregation
-  // Use a raw query for efficiency
   const { data: catData } = await sb.rpc("admin_catalog_category_counts");
 
-  // Thin categories
   const thin_categories = (catData || []).filter(
     (c: any) => c.active_count < 2000
   );
+
+  // Items added in last 24h
+  const yesterday = new Date(Date.now() - 86400000).toISOString();
+  const { count: added_24h } = await sb
+    .from("catalog_items")
+    .select("*", { count: "exact", head: true })
+    .gte("first_seen_at", yesterday);
 
   return json({
     total_count: total_count ?? 0,
@@ -122,6 +123,7 @@ async function handleSummary(url: URL) {
     dead_count: dead_count ?? 0,
     stale_price_count: stale_price_count ?? 0,
     not_seen_count: not_seen_count ?? 0,
+    added_24h: added_24h ?? 0,
     counts_by_category: catData || [],
     thin_categories,
   });
@@ -135,11 +137,11 @@ async function handleList(url: URL) {
   let query = sb
     .from("catalog_items")
     .select(
-      "id, provider, provider_product_id, category_key, unified_category, title, image_url, product_url, price_usd, currency, in_stock, is_active, status_reason, fail_count, last_seen_at, last_checked_at, price_updated_at, data_updated_at",
+      "id, provider, provider_product_id, category_key, unified_category, title, image_url, product_url, price_usd, currency, in_stock, is_active, status_reason, fail_count, last_seen_at, last_checked_at, price_updated_at, data_updated_at, first_seen_at, popularity_score",
       { count: "exact" }
     );
 
-  // Filters (indexed first)
+  // Filters
   const categoryKey = url.searchParams.get("category_key");
   if (categoryKey) query = query.eq("category_key", categoryKey);
 
@@ -155,35 +157,118 @@ async function handleList(url: URL) {
 
   const stalePriceDays = url.searchParams.get("stale_price_days");
   if (stalePriceDays) {
-    const d = new Date(
-      Date.now() - parseInt(stalePriceDays) * 86400000
-    ).toISOString();
+    const d = new Date(Date.now() - parseInt(stalePriceDays) * 86400000).toISOString();
     query = query.lt("price_updated_at", d);
   }
 
   const notSeenDays = url.searchParams.get("not_seen_days");
   if (notSeenDays) {
-    const d = new Date(
-      Date.now() - parseInt(notSeenDays) * 86400000
-    ).toISOString();
+    const d = new Date(Date.now() - parseInt(notSeenDays) * 86400000).toISOString();
     query = query.lt("last_seen_at", d);
   }
 
-  // Text search (last, after indexed filters)
+  // Date range filters
+  const dateFrom = url.searchParams.get("date_from");
+  const dateTo = url.searchParams.get("date_to");
+  const datePreset = url.searchParams.get("date_preset");
+
+  if (datePreset) {
+    const presetMs: Record<string, number> = { "24h": 86400000, "7d": 604800000, "30d": 2592000000 };
+    const ms = presetMs[datePreset];
+    if (ms) query = query.gte("first_seen_at", new Date(Date.now() - ms).toISOString());
+  } else {
+    if (dateFrom) query = query.gte("first_seen_at", dateFrom);
+    if (dateTo) query = query.lte("first_seen_at", dateTo);
+  }
+
+  // Text search
   const q = url.searchParams.get("q");
   if (q) query = query.ilike("title", `%${q}%`);
 
-  // Order + paginate
-  query = query
-    .order("is_active", { ascending: false })
-    .order("last_seen_at", { ascending: false, nullsFirst: false })
-    .order("price_updated_at", { ascending: false, nullsFirst: false })
-    .range(offset, offset + limit - 1);
+  // Sorting
+  const sortBy = url.searchParams.get("sort_by") || "newest";
+  switch (sortBy) {
+    case "recently_seen":
+      query = query.order("last_seen_at", { ascending: false, nullsFirst: false });
+      break;
+    case "highest_price":
+      query = query.order("price_usd", { ascending: false, nullsFirst: false });
+      break;
+    case "popularity":
+      query = query.order("popularity_score", { ascending: false, nullsFirst: false });
+      break;
+    case "newest":
+    default:
+      query = query.order("first_seen_at", { ascending: false, nullsFirst: false });
+      break;
+  }
+
+  query = query.range(offset, offset + limit - 1);
 
   const { data: items, count: total_count, error } = await query;
   if (error) return json({ error: error.message }, 500);
 
   return json({ items: items || [], total_count: total_count ?? 0 });
+}
+
+async function handleBuilderStatus() {
+  const sb = serviceClient();
+
+  // Active campaign
+  const { data: campaign } = await sb
+    .from("catalog_builder_goals")
+    .select("*")
+    .eq("status", "running")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // Queue depth
+  const { count: queued } = await sb.from("catalog_refresh_queue").select("*", { count: "exact", head: true }).eq("status", "queued");
+  const { count: running } = await sb.from("catalog_refresh_queue").select("*", { count: "exact", head: true }).eq("status", "running");
+
+  // Items added 24h
+  const yesterday = new Date(Date.now() - 86400000).toISOString();
+  const { count: added_24h } = await sb.from("catalog_items").select("*", { count: "exact", head: true }).gte("first_seen_at", yesterday);
+
+  // Provider health
+  const { data: health } = await sb.from("provider_health_status").select("*");
+
+  // Recent runs
+  const { data: recentRuns } = await sb
+    .from("catalog_builder_runs")
+    .select("*")
+    .order("started_at", { ascending: false })
+    .limit(10);
+
+  return json({
+    campaign,
+    queue: { queued: queued ?? 0, running: running ?? 0 },
+    added_24h: added_24h ?? 0,
+    provider_health: health || [],
+    recent_runs: recentRuns || [],
+  });
+}
+
+async function handleSearchInsights() {
+  const sb = serviceClient();
+
+  // Top queries from search_query_log
+  const { data: topQueries } = await sb.rpc("get_popular_queries", { p_window_hours: 168, p_limit: 30 });
+
+  // Most popular products
+  const { data: popularItems } = await sb
+    .from("catalog_items")
+    .select("id, title, image_url, provider, price_usd, popularity_score, category_key")
+    .eq("is_active", true)
+    .gt("popularity_score", 0)
+    .order("popularity_score", { ascending: false })
+    .limit(20);
+
+  return json({
+    top_queries: topQueries || [],
+    popular_items: popularItems || [],
+  });
 }
 
 async function handleAction(req: Request, action: string) {
@@ -237,6 +322,81 @@ async function handleAction(req: Request, action: string) {
     return json({ success: true });
   }
 
+  if (action === "run-builder") {
+    const provider = body.provider || "ebay";
+    // Check provider health first
+    const { data: health } = await sb
+      .from("provider_health_status")
+      .select("*")
+      .eq("provider", provider)
+      .maybeSingle();
+
+    if (health && !health.healthy && health.unhealthy_until && new Date(health.unhealthy_until) > new Date()) {
+      return json({ error: `Provider ${provider} is currently unhealthy: ${health.reason}`, unhealthy_until: health.unhealthy_until }, 429);
+    }
+
+    // Call catalog-refresh-worker with mode=catalog-builder
+    const workerUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/catalog-refresh-worker`;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    const res = await fetch(workerUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({ mode: "catalog-builder", provider }),
+    });
+
+    const result = await res.json();
+    return json({ success: true, worker_result: result });
+  }
+
+  if (action === "start-campaign") {
+    const {
+      run_window_days = 7,
+      goal_total = 10000,
+      goal_ebay = 5000,
+      goal_rainforest = 5000,
+      continuous = true,
+    } = body;
+
+    // Cancel any existing running campaign
+    await sb
+      .from("catalog_builder_goals")
+      .update({ status: "canceled", updated_at: new Date().toISOString() })
+      .eq("status", "running");
+
+    const startAt = new Date();
+    const endAt = new Date(startAt.getTime() + run_window_days * 86400000);
+
+    const { data: campaign, error } = await sb
+      .from("catalog_builder_goals")
+      .insert({
+        status: "running",
+        start_at: startAt.toISOString(),
+        end_at: endAt.toISOString(),
+        goal_total,
+        goal_ebay,
+        goal_rainforest,
+        continuous,
+      })
+      .select()
+      .single();
+
+    if (error) return json({ error: error.message }, 500);
+    return json({ success: true, campaign });
+  }
+
+  if (action === "cancel-campaign") {
+    const { error } = await sb
+      .from("catalog_builder_goals")
+      .update({ status: "canceled", updated_at: new Date().toISOString() })
+      .eq("status", "running");
+    if (error) return json({ error: error.message }, 500);
+    return json({ success: true });
+  }
+
   return json({ error: "unknown action" }, 400);
 }
 
@@ -262,6 +422,10 @@ serve(async (req) => {
       response = await handleSummary(url);
     } else if (req.method === "GET" && mode === "list") {
       response = await handleList(url);
+    } else if (req.method === "GET" && mode === "builder-status") {
+      response = await handleBuilderStatus();
+    } else if (req.method === "GET" && mode === "search-insights") {
+      response = await handleSearchInsights();
     } else if (req.method === "POST" && action) {
       response = await handleAction(req, action);
     } else {

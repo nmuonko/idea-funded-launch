@@ -84,7 +84,7 @@ export default function ShopCart() {
     <div className="min-h-screen bg-black">
       <ShopHeader />
 
-      <main className="pt-24 px-3 sm:px-4 pb-20">
+      <main className="pt-24 px-3 sm:px-4 pb-36">
         <div className="container mx-auto max-w-4xl">
           {/* Header */}
           <div className="flex items-center justify-between mb-8">

@@ -42,7 +42,7 @@ export function ShopHeader() {
         <div className="flex items-center gap-2 md:gap-3">
           {/* Logo - Far Left */}
           <Link to="/" className="flex-shrink-0">
-            <img src={afrishopLogo} alt="AfriShop" className="h-9 rounded-md" />
+            <img src={afrishopLogo} alt="AfriShop" className="h-9 brightness-0 invert" />
           </Link>
 
           {/* Search Bar - Takes most space */}
@@ -68,7 +68,7 @@ export function ShopHeader() {
               <SheetContent side="right" className="w-72 bg-black/95 border-white/10 p-0">
                 <SheetHeader className="p-4 border-b border-white/10">
                   <SheetTitle className="text-white flex items-center gap-2">
-                    <img src={afrishopLogo} alt="AfriShop" className="h-6 rounded-sm" />
+                    <img src={afrishopLogo} alt="AfriShop" className="h-6 brightness-0 invert" />
                   </SheetTitle>
                 </SheetHeader>
                 

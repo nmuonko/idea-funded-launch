@@ -70,7 +70,7 @@ const EmailConfirmed = () => {
           <img 
             src={afrishopLogo} 
             alt="AfriShop USA" 
-            className="h-16 w-auto rounded-xl"
+            className="h-16 w-auto brightness-0 invert"
           />
         </div>
 

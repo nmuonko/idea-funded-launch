@@ -30,7 +30,7 @@ import { translations } from '@/lib/i18n/translations';
       <div className="container mx-auto px-4 py-12">
         {/* Logo at top */}
         <div className="flex items-center gap-2 mb-10">
-          <img src={afrishopLogo} alt="AfriShop" className="h-7 opacity-80 rounded-md" />
+          <img src={afrishopLogo} alt="AfriShop" className="h-7 opacity-80 brightness-0 invert" />
         </div>
         {/* Main Footer Content - 4 columns on desktop, 2 on tablet, 1 on mobile */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-12 gap-y-10 mb-10">

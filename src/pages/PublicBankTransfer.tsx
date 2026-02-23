@@ -256,7 +256,7 @@ const PublicBankTransfer = () => {
       <div className="max-w-lg mx-auto space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
-          <img src={afrishopLogo} alt="AfriShop" className="h-10 mx-auto mb-4 rounded-lg" />
+          <img src={afrishopLogo} alt="AfriShop" className="h-10 mx-auto mb-4" />
           <Building2 className="h-12 w-12 mx-auto text-primary" />
           <h1 className="text-2xl font-bold text-foreground">
             {language === "fr" ? "Virement Bancaire" : "Bank Transfer"}

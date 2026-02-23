@@ -1,42 +1,92 @@
 
 
-# Fix: Catalog Cache Shows "~0 total" Despite 22,473 Items Existing
+# Fix: Fetch Products Stuck Forever + Progress Bar Not Moving
 
 ## Root Cause
 
-Two problems are causing the zero count:
+Two issues are causing the permanent "Fetching all categories from eBay..." spinner:
 
-1. **Edge function not deployed** -- The `admin-catalog-items` function is returning a 404, so the summary call fails silently.
-2. **Duplicate queries with shared cache key** -- Both `SummaryCards` (line 76) and the main `CatalogCache` component (line 1046) use the query key `['catalog-cache-summary']`. The `SummaryCards` version runs first **without** the DB fallback, caches the failed/empty result, and the main component's version (which has the fallback) never actually executes because React Query reuses the cached result.
+### 1. No builder sources enabled
+The `catalog_builder_sources` table has only ONE row: `phones/ebay`, and it's **disabled** (`enabled: false`). When you click "Start Fetching" with "All categories", the worker queries for enabled sources, finds none, and returns `{ status: "no_sources" }` immediately.
 
-## Fix
+### 2. Frontend never detects this failure
+The `startFetch` function (line 238) only stops the spinner if `worker_result.items_upserted` exists. But `no_sources` returns neither `items_upserted` nor throws an error -- so `isFetching` stays `true` forever, and the progress bar stays at 0/100.
 
-### 1. Consolidate into one query with DB fallback (in `SummaryCards`)
+## Fix Plan
 
-Move the robust fetcher (with DB fallback) into `SummaryCards` since it runs first, and have it export the `total_count` for the footer. Remove the duplicate query from the main `CatalogCache` component entirely.
+### Step 1: Handle all worker response statuses in the frontend
 
-### 2. Redeploy the edge function
+Update `startFetch` in `CatalogCache.tsx` to check for error/empty statuses from the worker (`no_sources`, `paused`, `no_active_sources`, etc.) and surface them as error states instead of hanging forever.
 
-Deploy `admin-catalog-items` so the primary path works again.
+```text
+After line 237:
+- If worker_result has items_upserted --> done (existing logic)
+- If worker_result.status is "no_sources" or similar --> show error: "No builder sources configured"
+- If no recognizable result at all --> show error: "Unexpected response"
+```
 
-### 3. Pass total count from SummaryCards to parent
+### Step 2: Seed builder sources for all categories
 
-`SummaryCards` already fetches summary data. It will expose `total_count` via an `onTotalCount` callback prop so the `ItemsTable` footer can display it.
+Insert enabled builder sources for all major AfriShop categories so "All categories" and individual category fetches actually work. This covers: electronics, clothing, toys, home, beauty, sports, vehicles, phones, health.
+
+Each source will be an eBay provider row with `enabled: true` and appropriate category keys matching the existing `ALL_CATEGORIES` array.
+
+### Step 3: Add a timeout to the polling loop
+
+Add a safety timeout (e.g., 5 minutes) to the polling interval so it never hangs indefinitely, even if the worker silently fails.
 
 ## Technical Details
 
 ### File: `src/pages/admin/CatalogCache.tsx`
 
-**SummaryCards** (line 74-116):
-- Update the `queryFn` to include the DB fallback (same pattern already written at line 1048-1059)
-- Add an `onTotalCount` callback prop that fires when data loads
-- Call `onTotalCount(total_count)` inside a `useEffect`
+**startFetch function (lines 236-250):**
+After the `postAction` call, add handling for non-success worker results:
 
-**CatalogCache** (line 1042-1086):
-- Remove the duplicate `useQuery` for `['catalog-cache-summary']` (lines 1046-1062)
-- Add a `useState` for `totalCount` and pass its setter to `SummaryCards` via `onTotalCount`
-- Pass `totalCount` state to `ItemsTable` (same as now)
+```typescript
+const workerResult = result?.worker_result;
+if (workerResult?.items_upserted !== undefined) {
+  // existing success handling...
+} else if (workerResult?.status === 'no_sources' || workerResult?.status === 'no_active_sources') {
+  setFetchProgress({
+    status: 'error',
+    message: 'No builder sources configured for this category/provider. Add sources in builder settings.',
+    itemsFetched: 0, target: quantity, newUnique: 0, duplicates: 0,
+  });
+  setIsFetching(false);
+} else if (workerResult?.status === 'paused') {
+  setFetchProgress({
+    status: 'error',
+    message: 'Builder is currently paused. Resume it from settings.',
+    itemsFetched: 0, target: quantity, newUnique: 0, duplicates: 0,
+  });
+  setIsFetching(false);
+}
+// else: worker is running async, polling will pick up completion
+```
 
-### Edge function deployment
-- Redeploy `admin-catalog-items` to fix the 404
+**Polling timeout (lines 177-216):**
+Add a `startTime` ref and check elapsed time in the poll interval. After 5 minutes, auto-stop with error.
+
+### Database: Seed builder sources
+
+```sql
+INSERT INTO catalog_builder_sources (provider, category_key, enabled, priority)
+VALUES
+  ('ebay', 'electronics', true, 10),
+  ('ebay', 'clothing', true, 10),
+  ('ebay', 'toys', true, 10),
+  ('ebay', 'home', true, 10),
+  ('ebay', 'beauty', true, 10),
+  ('ebay', 'sports', true, 10),
+  ('ebay', 'vehicles', true, 10),
+  ('ebay', 'health', true, 10)
+ON CONFLICT DO NOTHING;
+
+-- Also enable the existing phones source
+UPDATE catalog_builder_sources SET enabled = true WHERE category_key = 'phones';
+```
+
+### Summary of changes
+- **`src/pages/admin/CatalogCache.tsx`**: Handle `no_sources`/`paused` worker responses, add 5-min polling timeout
+- **Database migration**: Seed and enable builder sources for all categories
 

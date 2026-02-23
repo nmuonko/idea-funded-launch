@@ -21,6 +21,9 @@ import {
   Hand,
   Archive,
   Info,
+  Search,
+  ChevronLeft,
+  Circle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -50,6 +53,8 @@ interface Conversation {
   customer_name?: string;
   customer_email?: string;
   agent_name?: string;
+  last_message_preview?: string;
+  has_unread?: boolean;
 }
 
 type TabValue = 'active' | 'closed';
@@ -66,6 +71,8 @@ export default function SupportInbox() {
   const [claiming, setClaiming] = useState(false);
   const [currentAgentName, setCurrentAgentName] = useState<string>('');
   const [activeTab, setActiveTab] = useState<TabValue>('active');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSidebar, setShowSidebar] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -90,7 +97,7 @@ export default function SupportInbox() {
     fetchAgentName();
   }, [user]);
 
-  // Load conversations based on active tab
+  // Load conversations with batch profile loading
   const loadConversations = async (tab: TabValue = activeTab) => {
     try {
       setLoading(true);
@@ -106,34 +113,58 @@ export default function SupportInbox() {
 
       if (error) throw error;
 
-      // Enrich with customer and agent info
-      const enriched = await Promise.all(
-        (data || []).map(async (conv) => {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name, email')
-            .eq('user_id', conv.user_id)
-            .single();
+      const convs = data || [];
+      if (convs.length === 0) {
+        setConversations([]);
+        setLoading(false);
+        return;
+      }
 
-          let agentName = null;
-          if (conv.assigned_agent_id) {
-            const { data: agentProfile } = await supabase
-              .from('profiles')
-              .select('full_name, email')
-              .eq('user_id', conv.assigned_agent_id)
-              .single();
-            agentName = agentProfile?.full_name || agentProfile?.email || 'Agent';
-          }
+      // Batch: collect all unique user IDs (customers + agents)
+      const customerIds = [...new Set(convs.map(c => c.user_id))];
+      const agentIds = [...new Set(convs.map(c => c.assigned_agent_id).filter(Boolean))] as string[];
+      const allUserIds = [...new Set([...customerIds, ...agentIds])];
 
-          return {
-            ...conv,
-            status: conv.status as Conversation['status'],
-            customer_name: profile?.full_name || 'Unknown',
-            customer_email: profile?.email || '',
-            agent_name: agentName,
-          } as Conversation;
-        })
-      );
+      // Single batch query for all profiles
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('user_id, full_name, email')
+        .in('user_id', allUserIds);
+
+      const profileMap = new Map<string, { full_name: string | null; email: string | null }>();
+      (profiles || []).forEach(p => profileMap.set(p.user_id, p));
+
+      // Batch: get last message for each conversation (preview + unread detection)
+      const convIds = convs.map(c => c.id);
+      const { data: lastMessages } = await supabase
+        .from('support_messages')
+        .select('conversation_id, content, sender_type, created_at')
+        .in('conversation_id', convIds)
+        .order('created_at', { ascending: false });
+
+      // Build last-message map (first occurrence per conversation_id = latest)
+      const lastMsgMap = new Map<string, { content: string; sender_type: string }>();
+      (lastMessages || []).forEach(m => {
+        if (!lastMsgMap.has(m.conversation_id)) {
+          lastMsgMap.set(m.conversation_id, { content: m.content, sender_type: m.sender_type });
+        }
+      });
+
+      const enriched: Conversation[] = convs.map(conv => {
+        const customerProfile = profileMap.get(conv.user_id);
+        const agentProfile = conv.assigned_agent_id ? profileMap.get(conv.assigned_agent_id) : null;
+        const lastMsg = lastMsgMap.get(conv.id);
+        
+        return {
+          ...conv,
+          status: conv.status as Conversation['status'],
+          customer_name: customerProfile?.full_name || 'Unknown',
+          customer_email: customerProfile?.email || '',
+          agent_name: agentProfile ? (agentProfile.full_name || agentProfile.email || 'Agent') : null,
+          last_message_preview: lastMsg?.content?.substring(0, 60) || '',
+          has_unread: lastMsg?.sender_type === 'user' && conv.status !== 'closed',
+        } as Conversation;
+      });
 
       setConversations(enriched);
     } catch (error) {
@@ -146,25 +177,16 @@ export default function SupportInbox() {
   useEffect(() => {
     loadConversations(activeTab);
 
-    // Subscribe to conversation changes
     const channel = supabase
       .channel('support_conversations_admin')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'support_conversations',
-        },
-        () => {
-          loadConversations(activeTab);
-        }
+        { event: '*', schema: 'public', table: 'support_conversations' },
+        () => { loadConversations(activeTab); }
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [activeTab]);
 
   // Load messages for selected conversation
@@ -177,23 +199,16 @@ export default function SupportInbox() {
         .select('*')
         .eq('conversation_id', selectedConv.id)
         .order('created_at', { ascending: true });
-
       setMessages((data || []) as Message[]);
     };
 
     loadMessages();
 
-    // Subscribe to new messages
     const channel = supabase
       .channel(`support_messages_admin_${selectedConv.id}`)
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'support_messages',
-          filter: `conversation_id=eq.${selectedConv.id}`,
-        },
+        { event: 'INSERT', schema: 'public', table: 'support_messages', filter: `conversation_id=eq.${selectedConv.id}` },
         (payload) => {
           const newMessage = payload.new as Message;
           setMessages((prev) => {
@@ -204,42 +219,24 @@ export default function SupportInbox() {
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [selectedConv?.id]);
 
   const claimConversation = async () => {
     if (!selectedConv || !user) return;
-
     setClaiming(true);
     try {
       const { error } = await supabase
         .from('support_conversations')
-        .update({
-          status: 'assigned',
-          assigned_agent_id: user.id,
-        })
+        .update({ status: 'assigned', assigned_agent_id: user.id })
         .eq('id', selectedConv.id);
-
       if (error) throw error;
-
-      setSelectedConv({ 
-        ...selectedConv, 
-        status: 'assigned', 
-        assigned_agent_id: user.id,
-        agent_name: currentAgentName 
-      });
-      
-      toast({ title: 'Conversation claimed', description: `You are now handling this conversation` });
+      setSelectedConv({ ...selectedConv, status: 'assigned', assigned_agent_id: user.id, agent_name: currentAgentName });
+      toast({ title: 'Conversation claimed' });
       loadConversations();
     } catch (error) {
       console.error('Error claiming conversation:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to claim conversation',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'Failed to claim conversation', variant: 'destructive' });
     } finally {
       setClaiming(false);
     }
@@ -247,51 +244,30 @@ export default function SupportInbox() {
 
   const sendMessage = async () => {
     if (!selectedConv || !inputValue.trim() || !user) return;
-
-    // Must claim first if not assigned
     if (selectedConv.status === 'waiting_agent') {
-      toast({
-        title: 'Claim first',
-        description: 'Please claim this conversation before replying',
-        variant: 'destructive',
-      });
+      toast({ title: 'Claim first', description: 'Please claim this conversation before replying', variant: 'destructive' });
       return;
     }
-
-    // Can only reply if you're the assigned agent
     if (selectedConv.assigned_agent_id !== user.id) {
-      toast({
-        title: 'Not assigned',
-        description: 'This conversation is assigned to another agent',
-        variant: 'destructive',
-      });
+      toast({ title: 'Not assigned', description: 'This conversation is assigned to another agent', variant: 'destructive' });
       return;
     }
-
     setSending(true);
     try {
-      // Insert agent message with agent name in meta
       await supabase.from('support_messages').insert({
         conversation_id: selectedConv.id,
         sender_type: 'agent',
         content: inputValue.trim(),
         meta: { agent_name: currentAgentName },
       });
-
-      // Update last_message_at
       await supabase
         .from('support_conversations')
         .update({ last_message_at: new Date().toISOString() })
         .eq('id', selectedConv.id);
-
       setInputValue('');
     } catch (error) {
       console.error('Error sending message:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to send message',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'Failed to send message', variant: 'destructive' });
     } finally {
       setSending(false);
     }
@@ -299,22 +275,17 @@ export default function SupportInbox() {
 
   const closeConversation = async () => {
     if (!selectedConv) return;
-
     try {
-      // Insert system message before closing
       await supabase.from('support_messages').insert({
         conversation_id: selectedConv.id,
         sender_type: 'system',
         content: 'This conversation has been resolved. Send a new message if you need further help.',
         meta: { closed_by: currentAgentName },
       });
-
-      // Update conversation status
       await supabase
         .from('support_conversations')
         .update({ status: 'closed' })
         .eq('id', selectedConv.id);
-
       setSelectedConv(null);
       loadConversations();
       toast({ title: 'Conversation closed' });
@@ -326,17 +297,13 @@ export default function SupportInbox() {
   const getStatusBadge = (status: string, agentName?: string | null) => {
     switch (status) {
       case 'waiting_agent':
-        return <Badge variant="destructive" className="animate-pulse">Unclaimed</Badge>;
+        return <Badge variant="destructive" className="animate-pulse text-xs">Unclaimed</Badge>;
       case 'assigned':
-        return (
-          <Badge variant="default" className="bg-green-600">
-            {agentName || 'Assigned'}
-          </Badge>
-        );
+        return <Badge variant="default" className="bg-green-600 text-xs">{agentName || 'Assigned'}</Badge>;
       case 'closed':
-        return <Badge variant="secondary">Closed</Badge>;
+        return <Badge variant="secondary" className="text-xs">Closed</Badge>;
       default:
-        return <Badge variant="secondary">{status}</Badge>;
+        return <Badge variant="secondary" className="text-xs">{status}</Badge>;
     }
   };
 
@@ -345,25 +312,57 @@ export default function SupportInbox() {
     setSelectedConv(null);
   };
 
-  const isClosed = selectedConv?.status === 'closed';
+  const handleSelectConv = (conv: Conversation) => {
+    setSelectedConv(conv);
+    // On mobile, hide sidebar when selecting
+    if (window.innerWidth < 768) {
+      setShowSidebar(false);
+    }
+  };
 
+  // Filter conversations by search
+  const filteredConversations = searchQuery.trim()
+    ? conversations.filter(c =>
+        (c.customer_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (c.customer_email || '').toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : conversations;
+
+  const isClosed = selectedConv?.status === 'closed';
   const isMyConversation = selectedConv?.assigned_agent_id === user?.id;
   const canClaim = selectedConv?.status === 'waiting_agent';
   const canReply = selectedConv?.status === 'assigned' && isMyConversation;
 
+  const waitingCount = conversations.filter(c => c.status === 'waiting_agent').length;
+
   return (
     <div className="flex h-[calc(100vh-120px)]">
-      {/* Conversations List */}
-      <div className="w-80 border-r flex flex-col">
-        <div className="p-4 border-b">
-          <div className="flex items-center justify-between mb-3">
+      {/* Conversations Sidebar */}
+      <div className={cn(
+        'border-r flex flex-col bg-background transition-all duration-200',
+        showSidebar ? 'w-full md:w-96' : 'w-0 overflow-hidden md:w-96 md:overflow-visible'
+      )}>
+        <div className="p-4 border-b space-y-3">
+          <div className="flex items-center justify-between">
             <h2 className="font-semibold flex items-center gap-2">
               <MessageCircle className="h-5 w-5" />
               Support Inbox
+              {waitingCount > 0 && (
+                <Badge variant="destructive" className="text-xs">{waitingCount}</Badge>
+              )}
             </h2>
             <Button variant="ghost" size="icon" onClick={() => loadConversations()}>
               <RefreshCw className="h-4 w-4" />
             </Button>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search customers..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 h-9 text-sm"
+            />
           </div>
           <Tabs value={activeTab} onValueChange={handleTabChange}>
             <TabsList className="w-full">
@@ -384,9 +383,14 @@ export default function SupportInbox() {
             <div className="flex items-center justify-center p-8">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
-          ) : conversations.length === 0 ? (
+          ) : filteredConversations.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground">
-              {activeTab === 'active' ? (
+              {searchQuery ? (
+                <>
+                  <Search className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>No results for "{searchQuery}"</p>
+                </>
+              ) : activeTab === 'active' ? (
                 <>
                   <CheckCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
                   <p>No active conversations</p>
@@ -400,23 +404,41 @@ export default function SupportInbox() {
             </div>
           ) : (
             <div className="divide-y">
-              {conversations.map((conv) => (
+              {filteredConversations.map((conv) => (
                 <button
                   key={conv.id}
                   className={cn(
-                    'w-full p-4 text-left hover:bg-muted/50 transition-colors',
+                    'w-full p-3 text-left hover:bg-muted/50 transition-colors',
                     selectedConv?.id === conv.id && 'bg-muted'
                   )}
-                  onClick={() => setSelectedConv(conv)}
+                  onClick={() => handleSelectConv(conv)}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-medium truncate">{conv.customer_name}</span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {conv.has_unread && (
+                        <Circle className="h-2 w-2 fill-primary text-primary shrink-0" />
+                      )}
+                      <span className={cn(
+                        'truncate text-sm',
+                        conv.has_unread ? 'font-semibold' : 'font-medium'
+                      )}>
+                        {conv.customer_name}
+                      </span>
+                    </div>
                     {getStatusBadge(conv.status, conv.agent_name)}
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  {conv.last_message_preview && (
+                    <p className={cn(
+                      'text-xs truncate mb-1',
+                      conv.has_unread ? 'text-foreground/80' : 'text-muted-foreground'
+                    )}>
+                      {conv.last_message_preview}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Clock className="h-3 w-3" />
                     {format(new Date(conv.last_message_at), 'MMM d, HH:mm')}
-                    <Badge variant="outline" className="text-xs">
+                    <Badge variant="outline" className="text-[10px] px-1 py-0">
                       {conv.language.toUpperCase()}
                     </Badge>
                   </div>
@@ -428,37 +450,39 @@ export default function SupportInbox() {
       </div>
 
       {/* Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div className={cn(
+        'flex-1 flex flex-col min-w-0',
+        !showSidebar ? 'flex' : 'hidden md:flex'
+      )}>
         {selectedConv ? (
           <>
             {/* Chat Header */}
-            <div className="p-4 border-b flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold">{selectedConv.customer_name}</h3>
-                <p className="text-sm text-muted-foreground">{selectedConv.customer_email}</p>
+            <div className="p-3 md:p-4 border-b flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="md:hidden shrink-0"
+                  onClick={() => setShowSidebar(true)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <div className="min-w-0">
+                  <h3 className="font-semibold truncate">{selectedConv.customer_name}</h3>
+                  <p className="text-sm text-muted-foreground truncate">{selectedConv.customer_email}</p>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 {getStatusBadge(selectedConv.status, selectedConv.agent_name)}
-                
                 {canClaim && (
-                  <Button 
-                    variant="default" 
-                    size="sm" 
-                    onClick={claimConversation}
-                    disabled={claiming}
-                  >
-                    {claiming ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Hand className="mr-2 h-4 w-4" />
-                    )}
+                  <Button variant="default" size="sm" onClick={claimConversation} disabled={claiming}>
+                    {claiming ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Hand className="mr-1 h-4 w-4" />}
                     Claim
                   </Button>
                 )}
-                
                 {isMyConversation && (
                   <Button variant="outline" size="sm" onClick={closeConversation}>
-                    <XCircle className="mr-2 h-4 w-4" />
+                    <XCircle className="mr-1 h-4 w-4" />
                     Close
                   </Button>
                 )}
@@ -471,7 +495,6 @@ export default function SupportInbox() {
                 {messages.map((msg) => {
                   const agentName = msg.meta?.agent_name;
                   
-                  // System messages render differently
                   if (msg.sender_type === 'system') {
                     return (
                       <div key={msg.id} className="flex justify-center my-4">
@@ -535,7 +558,7 @@ export default function SupportInbox() {
             </ScrollArea>
 
             {/* Input */}
-            <div className="p-4 border-t">
+            <div className="p-3 md:p-4 border-t">
               {isClosed ? (
                 <p className="text-sm text-muted-foreground text-center py-2">
                   This conversation is closed. It will reopen if the customer sends a new message.
@@ -561,11 +584,7 @@ export default function SupportInbox() {
                       disabled={sending || !canReply}
                     />
                     <Button onClick={sendMessage} disabled={sending || !inputValue.trim() || !canReply}>
-                      {sending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
+                      {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     </Button>
                   </div>
                 </>

@@ -248,14 +248,14 @@ export default function Auth() {
                 )}
               </div>
               <CardTitle className="text-2xl font-bold text-foreground">
-                {isUpdatePassword ? 'Set New Password' : isResetPassword ? 'Reset Password' : 'Admin Sign In'}
+                {isUpdatePassword ? 'Set New Password' : isResetPassword ? 'Reset Password' : 'Administration'}
               </CardTitle>
               <CardDescription className="text-muted-foreground">
                 {isUpdatePassword
                   ? 'Enter your new password below'
                   : isResetPassword 
                     ? 'Enter your email to receive a password reset link' 
-                    : 'Enter your credentials to access the dashboard'}
+                    : 'Restricted area — authorized personnel only'}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -394,11 +394,19 @@ export default function Auth() {
           </Card>
 
           {/* Footer note */}
-          <p className="text-xs text-center text-muted-foreground/60 animate-fade-in" style={{ animationDelay: '0.3s' }}>
-            Access restricted to authorized administrators only.
-            <br />
-            Contact support if you need assistance.
-          </p>
+          <div className="text-xs text-center text-muted-foreground/60 animate-fade-in space-y-2" style={{ animationDelay: '0.3s' }}>
+            <p>
+              This portal is for administrators only.
+              <br />
+              Contact support if you need assistance.
+            </p>
+            <Link 
+              to="/shop-auth" 
+              className="inline-block text-primary hover:text-primary/80 underline underline-offset-2 transition-colors"
+            >
+              Customer? Sign in here →
+            </Link>
+          </div>
         </div>
       </main>
     </div>

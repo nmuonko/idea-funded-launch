@@ -236,6 +236,8 @@ interface CatalogItem {
   description?: string | null;
   brand?: string | null;
   category?: string | null;
+  categoryKey?: string | null;
+  vehiclesSubkey?: string | null;
   condition?: string;
   attributes?: Record<string, string>;
   variants?: Array<{
@@ -558,12 +560,15 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ========== DB-FIRST: Check catalog_items + variants in PARALLEL ==========
+    // ========== DB-FIRST: Check catalog_items + variants + media in PARALLEL ==========
     console.log(`[DETAIL_DB] correlationId=${correlationId} id=${fullProductId} checking...`);
     
-    const [dbItemResult, cachedVariantsResult] = await Promise.all([
+    // Also fetch from catalog_item_media for full gallery images
+    const mediaProvider = internalProvider === "rainforest" ? "amazon" : internalProvider;
+    const [dbItemResult, cachedVariantsResult, mediaResult] = await Promise.all([
       db.from("catalog_items").select("*").eq("id", fullProductId).maybeSingle(),
       getCachedVariants(),
+      db.from("catalog_item_media").select("image_urls,image_count").eq("provider", mediaProvider).eq("provider_item_id", productId!).gt("expires_at", new Date().toISOString()).maybeSingle(),
     ]);
 
     const dbItem = dbItemResult.data;
@@ -576,6 +581,22 @@ Deno.serve(async (req: Request) => {
         .then(() => {})
         .catch(() => {});
       const item = mapDbItemToResponse(dbItem);
+      
+      // Merge media gallery images if the item only has 1 image but media table has more
+      const mediaData = mediaResult?.data;
+      if (mediaData?.image_urls && Array.isArray(mediaData.image_urls) && mediaData.image_urls.length > item.images.length) {
+        const mediaImages = (mediaData.image_urls as string[]).filter((url: string) => typeof url === "string" && url.length > 0);
+        if (mediaImages.length > item.images.length) {
+          console.log(`[CATALOG_PRODUCT] merging ${mediaImages.length} media images (was ${item.images.length}) for ${fullProductId}`);
+          // Use media images as the full gallery, keeping existing main image if present
+          const mainImg = item.images[0];
+          const merged = mainImg && !mediaImages.includes(mainImg) ? [mainImg, ...mediaImages] : mediaImages;
+          item.images = merged;
+          item.imageUrls = merged;
+          item.mainImageUrl = merged[0] || null;
+          item.imageUrl = merged[0] || null;
+        }
+      }
       
       const blockCheck = isDisallowedItem({
         title: item.title,
@@ -593,8 +614,8 @@ Deno.serve(async (req: Request) => {
         item.variants = cachedVariantsResult;
       }
       
-      // ALWAYS return DB item when found — don't fall through to live fetch
-      // which may fail (expired listings) and lose the gallery we already have
+      // Always return DB item — live fetch may fail (expired API keys, rate limits, etc.)
+      // and losing existing data is worse than showing fewer images
       const variantsCacheStatus = cachedVariantsResult ? "HIT" : "MISS";
       console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: externalProvider, id: productId, dbHit: true, variantsCacheHit: !!cachedVariantsResult, liveFetch: false, variantsCount: cachedVariantsResult?.length ?? 0, imageCount: item.images?.length ?? 0, totalMs: Date.now() - startTime }));
       

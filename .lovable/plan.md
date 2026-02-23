@@ -1,41 +1,21 @@
 
+# Product Gallery Fix — Summary
 
-# Fix Product Gallery: Missing Interface Fields Crash the Backend
+## Changes Made
 
-## Root Cause
+### 1. Interface Fix (TypeScript compilation)
+Added `categoryKey` and `vehiclesSubkey` to the `CatalogItem` interface — these were missing and causing a compile error.
 
-The `catalog-product` backend function **crashes on startup** due to a TypeScript compilation error. The logs show only "shutdown" messages -- the function never processes a single request.
+### 2. Media Table Integration
+Added parallel query to `catalog_item_media` table when fetching product details. eBay items with full galleries stored there now merge into the response.
 
-**The bug:** When we added `categoryKey` and `vehiclesSubkey` to the response in `mapDbItemToResponse()`, we forgot to add these fields to the `CatalogItem` TypeScript interface. Deno's strict TypeScript rejects object literals with extra properties from a function with an explicit return type, causing a compile-time crash.
+### 3. DB-First Return (stability fix)
+The function now always returns the DB item immediately when found, instead of falling through to a live Rainforest fetch that currently fails (402 — API payment expired).
 
-```text
-mapDbItemToResponse() returns { ..., categoryKey, vehiclesSubkey }
-                                      ^^^^^^^^^   ^^^^^^^^^^^^^^^
-                    These fields don't exist in the CatalogItem interface (lines 222-250)
-                    = TypeScript compile error = function won't start
-```
+## Root Cause of Single Images
+- **Amazon items**: Only 1 image stored in `catalog_items.images`. The Rainforest API (which would fetch full galleries live) is currently returning HTTP 402 (payment required).
+- **eBay items**: Many have full galleries (9+ images) already stored in `catalog_items.images` — these now display correctly.
 
-This is why **every product** shows only one image -- the API call fails entirely, so the frontend falls back to the single search thumbnail passed via navigation state.
-
-## Fix
-
-Add the two missing fields to the `CatalogItem` interface:
-
-**File:** `supabase/functions/catalog-product/index.ts` (lines 222-250)
-
-Add after the existing `category` field:
-```typescript
-categoryKey?: string | null;
-vehiclesSubkey?: string | null;
-```
-
-That's it. One interface update fixes everything -- the function will compile, boot, and return full gallery data again.
-
-## Technical Details
-
-| File | Change |
-|------|--------|
-| `supabase/functions/catalog-product/index.ts` | Add `categoryKey` and `vehiclesSubkey` to `CatalogItem` interface (2 lines) |
-
-No frontend changes needed -- the frontend already handles these fields correctly (lines 294-295 in ProductDetails.tsx).
-
+## Next Steps
+- Renew the Rainforest API subscription to restore live Amazon product detail fetches with full galleries.
+- Consider a batch job to populate `catalog_items.images` for Amazon products using `catalog_item_media` data.

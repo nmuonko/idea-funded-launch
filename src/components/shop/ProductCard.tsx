@@ -122,11 +122,8 @@ export function ProductCard({ product, className, compact = false, coverImage = 
           src={resizeImageUrl(product.imageUrl || '/placeholder.svg', IMAGE_SIZE_THUMB)}
           alt={product.title}
           className={cn(
-            "w-full h-full transition-transform duration-200 group-hover:scale-105",
-            compact && coverImage
-              ? "object-contain p-2"
-              : "object-contain mix-blend-multiply",
-            !coverImage && (compact ? "p-3" : "p-3 sm:p-4")
+            "w-full h-full object-contain transition-transform duration-200 group-hover:scale-105",
+            compact ? "p-1.5" : "p-2 sm:p-3"
           )}
           loading="lazy"
         />

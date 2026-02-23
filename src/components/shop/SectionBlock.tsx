@@ -34,8 +34,17 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
   }
 
   if (mode === 'static-grid') {
+    const getProductLink = (product: Product) => {
+      const provider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider?.toLowerCase();
+      let pid = product.id;
+      if (pid.toLowerCase().startsWith('amazon_')) pid = pid.slice(7);
+      else if (pid.toLowerCase().startsWith('rainforest_')) pid = pid.slice(11);
+      else if (pid.toLowerCase().startsWith('ebay_')) pid = pid.slice(5);
+      return `/product/${provider || 'amazon'}/${encodeURIComponent(pid)}`;
+    };
+
     return (
-      <div className="bg-[#1a1d23] border border-white/[0.1] rounded-2xl p-3 sm:p-4 shadow-md">
+      <div className="bg-[#1a1d23] border border-white/[0.1] rounded-2xl p-3 sm:p-4 shadow-md shadow-black/20">
         {title && !hideTitle && (
           <div className="flex items-center justify-between mb-3 px-1">
             <h2 className="text-lg font-semibold text-white/95">{title}</h2>
@@ -48,8 +57,25 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
           </div>
         )}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 xl:grid-cols-8 gap-2">
-          {items.slice(0, 16).map((product) => (
-            <ProductCard key={product.id} product={product} compact coverImage />
+          {items.slice(0, 16).map((product, idx) => (
+            <Link
+              key={`${product.id}-${idx}`}
+              to={getProductLink(product)}
+              state={{ product }}
+              className="group flex flex-col"
+            >
+              <div className="aspect-square rounded-lg bg-white overflow-hidden p-1.5 border border-gray-100 shadow-sm">
+                <img
+                  src={product.imageUrl || '/placeholder.svg'}
+                  alt={product.title}
+                  className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105"
+                  loading="lazy"
+                />
+              </div>
+              <p className="mt-1 text-[11px] text-white/70 line-clamp-2 leading-tight">
+                {product.title}
+              </p>
+            </Link>
           ))}
         </div>
       </div>

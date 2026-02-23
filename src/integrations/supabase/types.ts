@@ -935,6 +935,7 @@ export type Database = {
       }
       catalog_builder_state: {
         Row: {
+          cooldown_until: string | null
           current_offset: number
           exhausted: boolean
           last_error: string | null
@@ -943,6 +944,7 @@ export type Database = {
           total_ingested: number
         }
         Insert: {
+          cooldown_until?: string | null
           current_offset?: number
           exhausted?: boolean
           last_error?: string | null
@@ -951,6 +953,7 @@ export type Database = {
           total_ingested?: number
         }
         Update: {
+          cooldown_until?: string | null
           current_offset?: number
           exhausted?: boolean
           last_error?: string | null

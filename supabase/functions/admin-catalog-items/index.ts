@@ -131,14 +131,20 @@ async function handleSummary(url: URL) {
 
 async function handleList(url: URL) {
   const sb = serviceClient();
-  const limit = clamp(parseInt(url.searchParams.get("limit") || "50"), 1, 200);
+  const limit = clamp(parseInt(url.searchParams.get("limit") || "50"), 1, 50); // Guardrail 5: max 50
   const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0"));
+
+  // Guardrail 5: Selective columns only — no select("*")
+  const ADMIN_LIST_COLUMNS = "id, provider, provider_product_id, category_key, unified_category, title, image_url, product_url, price_usd, currency, in_stock, is_active, status_reason, fail_count, last_seen_at, last_checked_at, price_updated_at, data_updated_at, first_seen_at, popularity_score";
+
+  // Guardrail 5: Only use count when explicitly requested or on first page with no offset
+  const wantCount = url.searchParams.get("count") !== "false" && offset === 0;
 
   let query = sb
     .from("catalog_items")
     .select(
-      "id, provider, provider_product_id, category_key, unified_category, title, image_url, product_url, price_usd, currency, in_stock, is_active, status_reason, fail_count, last_seen_at, last_checked_at, price_updated_at, data_updated_at, first_seen_at, popularity_score",
-      { count: "exact" }
+      ADMIN_LIST_COLUMNS,
+      wantCount ? { count: "exact" } : {}
     );
 
   // Filters

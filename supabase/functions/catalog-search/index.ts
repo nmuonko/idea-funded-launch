@@ -1557,6 +1557,15 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // ─── GUARDRAIL 2: Sampled popularity events (1-in-5 searches, first 10 results) ──
+    if (finalItems.length > 0 && Math.random() < 0.2) {
+      const popEvents = finalItems.slice(0, 10).map((item: any) => ({
+        product_id: item.id,
+        delta: 1,
+      }));
+      supabase.from("product_popularity_events").insert(popEvents).then(() => {}).catch(() => {});
+    }
+
     // ─── AUTO-CACHE: Upsert live provider items into catalog_items (fire-and-forget) ──
     const allProviderItems = [...amazonItems, ...ebayItems];
     const usedLive = allProviderItems.length > 0;

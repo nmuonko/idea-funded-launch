@@ -554,6 +554,12 @@ Deno.serve(async (req: Request) => {
     const dbItem = dbItemResult.data;
 
     if (dbItem) {
+      // Guardrail 2: Direct +3 popularity increment (product detail = low volume)
+      db.from("catalog_items")
+        .update({ popularity_score: (dbItem.popularity_score || 0) + 3 })
+        .eq("id", fullProductId)
+        .then(() => {})
+        .catch(() => {});
       const item = mapDbItemToResponse(dbItem);
       
       const blockCheck = isDisallowedItem({

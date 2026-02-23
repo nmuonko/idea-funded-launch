@@ -97,6 +97,7 @@ export function AdminLayout() {
         { to: '/admin/cache-settings', icon: Database, label: language === 'fr' ? 'Cache' : 'Cache', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/catalog-cache', icon: Archive, label: language === 'fr' ? 'Cache Catalogue' : 'Catalog Cache', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/auto-learning', icon: Brain, label: 'Auto-Learning', exact: false, permission: 'can_view_settings' as const },
+        { to: '/admin/catalog-builder', icon: Hammer, label: language === 'fr' ? 'Constructeur' : 'Catalog Builder', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/health', icon: Activity, label: t.sidebar.health || 'Health', exact: false, permission: 'can_view_dashboard' as const },
         { to: '/admin/audit-log', icon: Shield, label: t.sidebar.auditLog, exact: false, permission: 'can_view_dashboard' as const },
         { to: '/admin/search-relevancy', icon: Search, label: language === 'fr' ? 'Pertinence Recherche' : 'Search Relevancy', exact: false, permission: 'can_view_dashboard' as const },

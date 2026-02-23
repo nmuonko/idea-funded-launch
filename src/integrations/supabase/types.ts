@@ -790,6 +790,184 @@ export type Database = {
           },
         ]
       }
+      catalog_builder_goals: {
+        Row: {
+          achieved_ebay: number
+          achieved_rainforest: number
+          achieved_total: number
+          continuous: boolean
+          created_at: string
+          created_by: string | null
+          end_at: string
+          goal_ebay: number
+          goal_rainforest: number
+          goal_total: number
+          id: string
+          last_error: string | null
+          last_run_at: string | null
+          start_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          achieved_ebay?: number
+          achieved_rainforest?: number
+          achieved_total?: number
+          continuous?: boolean
+          created_at?: string
+          created_by?: string | null
+          end_at: string
+          goal_ebay?: number
+          goal_rainforest?: number
+          goal_total?: number
+          id?: string
+          last_error?: string | null
+          last_run_at?: string | null
+          start_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          achieved_ebay?: number
+          achieved_rainforest?: number
+          achieved_total?: number
+          continuous?: boolean
+          created_at?: string
+          created_by?: string | null
+          end_at?: string
+          goal_ebay?: number
+          goal_rainforest?: number
+          goal_total?: number
+          id?: string
+          last_error?: string | null
+          last_run_at?: string | null
+          start_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      catalog_builder_runs: {
+        Row: {
+          duplicates_skipped: number
+          duration_ms: number
+          finished_at: string | null
+          goal_id: string | null
+          id: string
+          items_upserted: number
+          new_unique_items: number
+          provider: string
+          rate_limited_count: number
+          sources_processed: number
+          started_at: string
+        }
+        Insert: {
+          duplicates_skipped?: number
+          duration_ms?: number
+          finished_at?: string | null
+          goal_id?: string | null
+          id?: string
+          items_upserted?: number
+          new_unique_items?: number
+          provider: string
+          rate_limited_count?: number
+          sources_processed?: number
+          started_at?: string
+        }
+        Update: {
+          duplicates_skipped?: number
+          duration_ms?: number
+          finished_at?: string | null
+          goal_id?: string | null
+          id?: string
+          items_upserted?: number
+          new_unique_items?: number
+          provider?: string
+          rate_limited_count?: number
+          sources_processed?: number
+          started_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catalog_builder_runs_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_builder_goals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      catalog_builder_sources: {
+        Row: {
+          category_key: string
+          created_at: string
+          enabled: boolean
+          id: string
+          priority: number
+          provider: string
+          source_type: string
+          source_value: string
+          updated_at: string
+        }
+        Insert: {
+          category_key: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          priority?: number
+          provider: string
+          source_type: string
+          source_value: string
+          updated_at?: string
+        }
+        Update: {
+          category_key?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          priority?: number
+          provider?: string
+          source_type?: string
+          source_value?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      catalog_builder_state: {
+        Row: {
+          current_offset: number
+          exhausted: boolean
+          last_error: string | null
+          last_run_at: string | null
+          source_id: string
+          total_ingested: number
+        }
+        Insert: {
+          current_offset?: number
+          exhausted?: boolean
+          last_error?: string | null
+          last_run_at?: string | null
+          source_id: string
+          total_ingested?: number
+        }
+        Update: {
+          current_offset?: number
+          exhausted?: boolean
+          last_error?: string | null
+          last_run_at?: string | null
+          source_id?: string
+          total_ingested?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catalog_builder_state_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: true
+            referencedRelation: "catalog_builder_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       catalog_cache: {
         Row: {
           amazon_domain: string | null
@@ -1179,6 +1357,7 @@ export type Database = {
           data_updated_at: string | null
           expires_at: string | null
           fail_count: number | null
+          first_seen_at: string | null
           id: string
           image_url: string | null
           images: Json | null
@@ -1216,6 +1395,7 @@ export type Database = {
           data_updated_at?: string | null
           expires_at?: string | null
           fail_count?: number | null
+          first_seen_at?: string | null
           id?: string
           image_url?: string | null
           images?: Json | null
@@ -1253,6 +1433,7 @@ export type Database = {
           data_updated_at?: string | null
           expires_at?: string | null
           fail_count?: number | null
+          first_seen_at?: string | null
           id?: string
           image_url?: string | null
           images?: Json | null
@@ -3776,6 +3957,27 @@ export type Database = {
         }
         Relationships: []
       }
+      product_popularity_events: {
+        Row: {
+          created_at: string
+          delta: number
+          id: string
+          product_id: string
+        }
+        Insert: {
+          created_at?: string
+          delta?: number
+          id?: string
+          product_id: string
+        }
+        Update: {
+          created_at?: string
+          delta?: number
+          id?: string
+          product_id?: string
+        }
+        Relationships: []
+      }
       product_recommendations: {
         Row: {
           context: string
@@ -3926,6 +4128,33 @@ export type Database = {
           window_key?: string
           window_start?: string
           window_type?: string
+        }
+        Relationships: []
+      }
+      provider_health_status: {
+        Row: {
+          consecutive_failures: number
+          healthy: boolean
+          provider: string
+          reason: string | null
+          unhealthy_until: string | null
+          updated_at: string
+        }
+        Insert: {
+          consecutive_failures?: number
+          healthy?: boolean
+          provider: string
+          reason?: string | null
+          unhealthy_until?: string | null
+          updated_at?: string
+        }
+        Update: {
+          consecutive_failures?: number
+          healthy?: boolean
+          provider?: string
+          reason?: string | null
+          unhealthy_until?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -5438,6 +5667,7 @@ export type Database = {
           user_id: string
         }[]
       }
+      aggregate_popularity_scores: { Args: never; Returns: Json }
       can_access_ticket: {
         Args: { p_ticket_assigned_to: string; p_user_id: string }
         Returns: boolean

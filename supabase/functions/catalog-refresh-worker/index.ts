@@ -54,8 +54,10 @@ const BUILDER_MAX_REQUESTS_PER_RUN = Math.min(
 ); // ~30 with defaults
 const BUILDER_ITEMS_PER_PAGE = 100;
 const BUILDER_PAGES_PER_SOURCE = 3;
-const BUILDER_DUPLICATE_THRESHOLD = 0.7; // 70% duplicates = exhausted
 const BUILDER_EXHAUSTION_COOLDOWN_DAYS = 7; // Guardrail 7: temporary exhaustion
+const BUILDER_CONSECUTIVE_ZERO_THRESHOLD = 5; // Only exhaust after 5 consecutive pages with 0 new items
+const BUILDER_OFFSET_JUMP = 500; // Jump forward when duplicates are high instead of exhausting
+const BUILDER_SORT_MODES = ["newlyListed", "endingSoonest", "price"] as const;
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -118,7 +120,7 @@ async function getEbayToken(supabase: any): Promise<string> {
 
 // ─── eBay Search (with offset support) ───────────────────────────────────────
 
-async function searchEbay(token: string, query: string, limit = 20, offset = 0): Promise<{ items: any[]; total: number }> {
+async function searchEbay(token: string, query: string, limit = 20, offset = 0, sort?: string): Promise<{ items: any[]; total: number }> {
   const env = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
   const params = new URLSearchParams({
     q: query,
@@ -126,6 +128,9 @@ async function searchEbay(token: string, query: string, limit = 20, offset = 0):
     offset: String(offset),
     filter: "buyingOptions:{FIXED_PRICE}",
   });
+  if (sort) {
+    params.set("sort", sort);
+  }
 
   const res = await fetch(`${EBAY_ENDPOINTS[env].browse}/item_summary/search?${params}`, {
     headers: {
@@ -158,7 +163,7 @@ async function searchEbay(token: string, query: string, limit = 20, offset = 0):
 
 // ─── eBay Category Browse (using category_ids) ──────────────────────────────
 
-async function searchEbayByCategory(token: string, categoryId: string, limit = 20, offset = 0): Promise<{ items: any[]; total: number }> {
+async function searchEbayByCategory(token: string, categoryId: string, limit = 20, offset = 0, sort?: string): Promise<{ items: any[]; total: number }> {
   const env = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
   const params = new URLSearchParams({
     category_ids: categoryId,
@@ -166,6 +171,9 @@ async function searchEbayByCategory(token: string, categoryId: string, limit = 2
     offset: String(offset),
     filter: "buyingOptions:{FIXED_PRICE}",
   });
+  if (sort) {
+    params.set("sort", sort);
+  }
 
   const res = await fetch(`${EBAY_ENDPOINTS[env].browse}/item_summary/search?${params}`, {
     headers: {
@@ -686,8 +694,13 @@ async function runSeedBackfill(supabase: any, ebayToken: string) {
 
 // ─── Catalog Builder Mode ────────────────────────────────────────────────────
 
+function nextSortMode(current: string): string {
+  const idx = BUILDER_SORT_MODES.indexOf(current as any);
+  return BUILDER_SORT_MODES[(idx + 1) % BUILDER_SORT_MODES.length];
+}
+
 async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilter?: string) {
-  console.log("[WORKER] === CATALOG BUILDER MODE ===");
+  console.log("[WORKER] === CATALOG BUILDER MODE (v2 — sort rotation + smart exhaustion) ===");
   const runStart = Date.now();
   const now = new Date().toISOString();
   let requestsThisRun = 0;
@@ -708,7 +721,6 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
     .maybeSingle();
 
   if (campaign) {
-    // Check if window expired
     if (new Date(campaign.end_at) < new Date() && !campaign.continuous) {
       await supabase.from("catalog_builder_goals").update({
         status: "completed",
@@ -717,8 +729,6 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
       console.log("[BUILDER] Campaign window expired, marking completed");
       return { status: "campaign_expired" };
     }
-
-    // Check if goal met (non-continuous only)
     if (!campaign.continuous && campaign.achieved_total >= campaign.goal_total) {
       await supabase.from("catalog_builder_goals").update({
         status: "completed",
@@ -741,7 +751,7 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
     return { status: "paused" };
   }
 
-  // Get builder sources (enabled, not exhausted), round-robin by category
+  // Get builder sources (enabled), round-robin by category
   let sourcesQuery = supabase
     .from("catalog_builder_sources")
     .select("*, catalog_builder_state(*)")
@@ -759,7 +769,7 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
     return { status: "no_sources", error: srcErr?.message };
   }
 
-  // Guardrail 7: Filter out exhausted sources (respect cooldown_until for temporary exhaustion)
+  // Filter out exhausted sources (respect cooldown)
   const activeSources: any[] = [];
   for (const s of sources) {
     const state = s.catalog_builder_state?.[0];
@@ -767,19 +777,21 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
       activeSources.push(s);
       continue;
     }
-    // If cooldown_until has passed, RESET exhaustion in DB and include source
     if (state.cooldown_until && new Date(state.cooldown_until) <= new Date()) {
+      // Cooldown expired — reset and rotate sort mode
+      const newSort = nextSortMode(state.sort_mode || "newlyListed");
       await supabase.from("catalog_builder_state").update({
         exhausted: false,
         cooldown_until: null,
         last_error: null,
-        current_offset: 0, // reset offset for fresh crawl
+        current_offset: 0,
+        sort_mode: newSort,
+        consecutive_zero_new_pages: 0,
       }).eq("source_id", s.id);
-      console.log(`[BUILDER] Source ${s.id} cooldown expired, reset to healthy`);
+      console.log(`[BUILDER] Source ${s.id} cooldown expired, reset with sort=${newSort}`);
       activeSources.push(s);
       continue;
     }
-    // Still in cooldown, skip
   }
 
   if (activeSources.length === 0) {
@@ -794,25 +806,23 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
   });
 
   for (const source of shuffled) {
-    // Guardrail 3: Time budget check — stop cleanly when < RESERVE remaining
     const timeRemaining = BUILDER_TIME_BUDGET_MS - (Date.now() - runStart);
     if (timeRemaining < BUILDER_RESERVE_MS) {
       console.log(`[BUILDER] Time budget: ${timeRemaining}ms remaining < ${BUILDER_RESERVE_MS}ms reserve, stopping cleanly`);
       break;
     }
-
-    // Request budget check
     if (requestsThisRun >= BUILDER_MAX_REQUESTS_PER_RUN) {
       console.log("[BUILDER] Request budget reached, stopping");
       break;
     }
-
     if (rateLimited) break;
 
     const state = source.catalog_builder_state?.[0];
     let currentOffset = state?.current_offset || 0;
     let sourceIngested = 0;
     let emptyPages = 0;
+    let consecutiveZeroNew = state?.consecutive_zero_new_pages || 0;
+    const sortMode = state?.sort_mode || "newlyListed";
 
     // Ensure state row exists
     if (!state) {
@@ -821,8 +831,12 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
         current_offset: 0,
         total_ingested: 0,
         exhausted: false,
+        sort_mode: "newlyListed",
+        consecutive_zero_new_pages: 0,
       }, { onConflict: "source_id" });
     }
+
+    console.log(`[BUILDER] Source ${source.id} cat=${source.category_key} sort=${sortMode} offset=${currentOffset}`);
 
     // Fetch up to BUILDER_PAGES_PER_SOURCE pages
     for (let page = 0; page < BUILDER_PAGES_PER_SOURCE; page++) {
@@ -835,12 +849,11 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
         let total: number;
 
         if (source.source_type === "ebay_category") {
-          // Guardrail 5: Use category_ids param for real category browsing
-          const result = await searchEbayByCategory(ebayToken, source.source_value, BUILDER_ITEMS_PER_PAGE, currentOffset);
+          const result = await searchEbayByCategory(ebayToken, source.source_value, BUILDER_ITEMS_PER_PAGE, currentOffset, sortMode);
           items = result.items;
           total = result.total;
         } else {
-          const result = await searchEbay(ebayToken, source.source_value, BUILDER_ITEMS_PER_PAGE, currentOffset);
+          const result = await searchEbay(ebayToken, source.source_value, BUILDER_ITEMS_PER_PAGE, currentOffset, sortMode);
           items = result.items;
           total = result.total;
         }
@@ -849,28 +862,30 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
         if (items.length === 0) {
           emptyPages++;
           if (emptyPages >= 2) {
-            // Mark exhausted
+            const cooldownUntil = new Date(Date.now() + BUILDER_EXHAUSTION_COOLDOWN_DAYS * 86400000).toISOString();
+            await supabase.from("catalog_builder_state").upsert({
+              source_id: source.id,
+              exhausted: true,
+              cooldown_until: cooldownUntil,
+              last_run_at: now,
+              last_error: "empty_pages",
+              consecutive_zero_new_pages: consecutiveZeroNew,
+            }, { onConflict: "source_id" });
+            break;
+          }
+          continue;
+        }
+
+        // Check if offset >= total (truly exhausted the listing space)
+        if (currentOffset >= total) {
           const cooldownUntil = new Date(Date.now() + BUILDER_EXHAUSTION_COOLDOWN_DAYS * 86400000).toISOString();
           await supabase.from("catalog_builder_state").upsert({
             source_id: source.id,
             exhausted: true,
             cooldown_until: cooldownUntil,
             last_run_at: now,
-            last_error: "empty_pages",
-          }, { onConflict: "source_id" });
-          break;
-          }
-          continue;
-        }
-
-        // Check if offset >= total
-        if (currentOffset >= total) {
-        const cooldownUntil = new Date(Date.now() + BUILDER_EXHAUSTION_COOLDOWN_DAYS * 86400000).toISOString();
-        await supabase.from("catalog_builder_state").upsert({
-            source_id: source.id,
-            exhausted: true,
-            cooldown_until: cooldownUntil,
-            last_run_at: now,
+            last_error: "offset_exceeded_total",
+            consecutive_zero_new_pages: consecutiveZeroNew,
           }, { onConflict: "source_id" });
           break;
         }
@@ -884,11 +899,12 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
 
         const productIds = upsertRows.map((r: any) => r.provider_product_id);
 
-        // Upsert all (updates existing, inserts new — first_seen_at has default now() and is never updated on conflict)
         const { error: upsertErr } = await supabase
           .from("catalog_items")
           .upsert(upsertRows, { onConflict: "provider,provider_product_id" });
 
+        let newItems = 0;
+        let duplicateCount = 0;
         let duplicateRatio = 0;
 
         if (upsertErr) {
@@ -896,7 +912,7 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
         } else {
           totalUpserted += upsertRows.length;
 
-          // Guardrail 6: Accurate unique counting — query first_seen_at >= run start time
+          // Accurate unique counting — query first_seen_at >= run start time
           const runStartIso = new Date(runStart).toISOString();
           const { count: newCount } = await supabase
             .from("catalog_items")
@@ -905,8 +921,8 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
             .in("provider_product_id", productIds)
             .gte("first_seen_at", runStartIso);
 
-          const newItems = newCount ?? 0;
-          const duplicateCount = productIds.length - newItems;
+          newItems = newCount ?? 0;
+          duplicateCount = productIds.length - newItems;
           duplicateRatio = productIds.length > 0 ? duplicateCount / productIds.length : 0;
 
           totalNewUnique += newItems;
@@ -914,33 +930,56 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
           sourceIngested += newItems;
         }
 
-        // Advance offset
-        currentOffset += items.length;
+        // ── SMART EXHAUSTION LOGIC (v2) ──
+        if (newItems === 0) {
+          consecutiveZeroNew++;
+        } else {
+          consecutiveZeroNew = 0; // Reset on any discovery
+        }
 
-        // Update state
+        // Strategy based on duplicate ratio:
+        if (consecutiveZeroNew >= BUILDER_CONSECUTIVE_ZERO_THRESHOLD) {
+          // 5+ consecutive pages with zero new → truly exhausted for this sort
+          const newSort = nextSortMode(sortMode);
+          const cooldownUntil = new Date(Date.now() + BUILDER_EXHAUSTION_COOLDOWN_DAYS * 86400000).toISOString();
+          console.log(`[BUILDER] Source ${source.id} exhausted after ${consecutiveZeroNew} zero-new pages, will rotate to sort=${newSort} on reset`);
+          await supabase.from("catalog_builder_state").upsert({
+            source_id: source.id,
+            exhausted: true,
+            cooldown_until: cooldownUntil,
+            last_run_at: now,
+            last_error: `exhausted_${consecutiveZeroNew}_zero_pages_sort_${sortMode}`,
+            sort_mode: newSort, // Pre-set next sort for when cooldown expires
+            consecutive_zero_new_pages: consecutiveZeroNew,
+          }, { onConflict: "source_id" });
+          break;
+        } else if (duplicateRatio > 0.9 && newItems === 0) {
+          // >90% duplicates and zero new: JUMP forward instead of exhausting
+          const jumpAmount = BUILDER_OFFSET_JUMP;
+          currentOffset += jumpAmount;
+          console.log(`[BUILDER] Source ${source.id} high duplicates (${(duplicateRatio * 100).toFixed(0)}%), jumping offset +${jumpAmount} to ${currentOffset}`);
+        } else {
+          // Normal: advance offset by items received
+          currentOffset += items.length;
+        }
+
+        // Persist state after each page
         await supabase.from("catalog_builder_state").upsert({
           source_id: source.id,
           current_offset: currentOffset,
           total_ingested: (state?.total_ingested || 0) + sourceIngested,
           last_run_at: now,
           last_error: null,
+          consecutive_zero_new_pages: consecutiveZeroNew,
         }, { onConflict: "source_id" });
 
-        // Guardrail 7: Uniqueness gate — temporary exhaustion with cooldown
-        if (duplicateRatio > BUILDER_DUPLICATE_THRESHOLD) {
-          const cooldownUntil = new Date(Date.now() + BUILDER_EXHAUSTION_COOLDOWN_DAYS * 86400000).toISOString();
-          console.log(`[BUILDER] Source ${source.id} exhausted (${(duplicateRatio * 100).toFixed(0)}% duplicates), cooldown until ${cooldownUntil}`);
-          await supabase.from("catalog_builder_state").upsert({
-            source_id: source.id,
-            exhausted: true,
-            cooldown_until: cooldownUntil,
-            last_run_at: now,
-            last_error: `exhausted_duplicates_${(duplicateRatio * 100).toFixed(0)}pct`,
-          }, { onConflict: "source_id" });
+        // For newlyListed sort, cap at 500 then move on (don't reset to 0 mid-run — causes loops)
+        if (sortMode === "newlyListed" && currentOffset > 500) {
+          console.log(`[BUILDER] Source ${source.id} newlyListed: offset ${currentOffset} > 500, moving to next source`);
           break;
         }
 
-        // Guardrail 4: Delay with jitter to avoid thundering herd
+        // Delay with jitter
         const jitter = Math.floor(Math.random() * 400);
         await new Promise(r => setTimeout(r, BUILDER_DELAY_MS + jitter));
 
@@ -957,6 +996,7 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
             current_offset: currentOffset,
             last_run_at: now,
             last_error: "rate_limited",
+            consecutive_zero_new_pages: consecutiveZeroNew,
           }, { onConflict: "source_id" });
           break;
         }
@@ -967,6 +1007,7 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
           current_offset: currentOffset,
           last_run_at: now,
           last_error: msg,
+          consecutive_zero_new_pages: consecutiveZeroNew,
         }, { onConflict: "source_id" });
         break;
       }

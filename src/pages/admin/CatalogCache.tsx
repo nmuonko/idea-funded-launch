@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -19,7 +19,7 @@ import {
   Database, Package, AlertTriangle, XCircle, Clock, ChevronLeft, ChevronRight,
   RefreshCw, Power, PowerOff, Search, RotateCcw, ExternalLink,
   Play, Zap, Timer, TrendingUp, ChevronDown, Heart, Activity,
-  StopCircle, ArrowUpDown, Plus, Loader2, CheckCircle
+  StopCircle, Plus, Loader2, CheckCircle, Rocket
 } from 'lucide-react';
 
 const ALL_CATEGORIES = [
@@ -71,30 +71,12 @@ async function postAction(action: string, body: Record<string, unknown>) {
 }
 
 // ── Summary Cards ────────────────────────────────────────────────────────────
-// Known named categories (filter out numeric eBay IDs)
-const NAMED_CATEGORIES = new Set([
-  'phones', 'electronics', 'audio_music', 'gaming', 'vehicles', 'home_garden',
-  'toys', 'sporting_goods', 'jewelry_watches', 'parts_accessories', 'refurbished',
-  'clothing', 'shoes_sneakers', 'cameras_photo', 'beauty_health', 'collectibles',
-  'electronics_phones', 'electronics_gaming', 'electronics_audio', 'electronics_computers',
-  'electronics_accessories', 'electronics_tv', 'vehicles_cars_trucks', 'clothing_shoes_accessories',
-  'business_industrial', 'computers', 'motors', 'general',
-]);
-
-function isNamedCategory(key: string): boolean {
-  return NAMED_CATEGORIES.has(key) || !/^\d+$/.test(key);
-}
-
-function SummaryCards() {
+function SummaryCards({ totalCount }: { totalCount?: number }) {
   const { data, isLoading } = useQuery({
     queryKey: ['catalog-cache-summary'],
     queryFn: () => invokeAdmin({ mode: 'summary' }),
     staleTime: 60_000,
   });
-
-  // Filter thin categories to only named ones
-  const namedThinCategories = (data?.thin_categories ?? []).filter((c: any) => isNamedCategory(c.category_key));
-  const allHealthy = namedThinCategories.length === 0;
 
   if (isLoading) {
     return (
@@ -106,70 +88,50 @@ function SummaryCards() {
     );
   }
 
+  const total = data?.total_count ?? 0;
   const cards = [
-    { label: 'Total', value: data?.total_count ?? 0, icon: Database, color: 'text-foreground' },
+    { label: 'Total', value: total, icon: Database, color: 'text-foreground' },
     { label: 'Active', value: data?.active_count ?? 0, icon: Package, color: 'text-green-600' },
     { label: 'Inactive', value: data?.inactive_count ?? 0, icon: PowerOff, color: 'text-muted-foreground' },
-    { label: 'Dead (≥3 fails)', value: data?.dead_count ?? 0, icon: XCircle, color: 'text-destructive' },
+    { label: 'Added 24h', value: data?.added_24h ?? 0, icon: Rocket, color: 'text-blue-500' },
     { label: 'Stale Price', value: data?.stale_price_count ?? 0, icon: Clock, color: 'text-orange-500' },
-    { label: 'Thin (<2k)', value: namedThinCategories.length, icon: AlertTriangle, color: allHealthy ? 'text-green-600' : 'text-yellow-600' },
+    { label: 'Dead (≥3 fails)', value: data?.dead_count ?? 0, icon: XCircle, color: 'text-destructive' },
   ];
 
   return (
-    <>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {cards.map((c) => (
-          <Card key={c.label}>
-            <CardContent className="pt-4 pb-3 px-4 flex items-center gap-3">
-              <c.icon className={`h-5 w-5 ${c.color} shrink-0`} />
-              <div>
-                <p className="text-2xl font-bold">{c.value.toLocaleString()}</p>
-                <p className="text-xs text-muted-foreground">{c.label}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {allHealthy ? (
-        <Card className="mt-4 border-green-500/30">
-          <CardContent className="py-3 px-4 flex items-center gap-2">
-            <CheckCircle className="h-4 w-4 text-green-600" />
-            <span className="text-sm text-green-700 dark:text-green-400 font-medium">All named categories healthy (≥2,000 active items)</span>
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      {cards.map((c) => (
+        <Card key={c.label}>
+          <CardContent className="pt-4 pb-3 px-4 flex items-center gap-3">
+            <c.icon className={`h-5 w-5 ${c.color} shrink-0`} />
+            <div>
+              <p className="text-2xl font-bold">{c.value.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">{c.label}</p>
+            </div>
           </CardContent>
         </Card>
-      ) : (
-        <Card className="mt-4">
-          <CardHeader className="py-3 px-4">
-            <CardTitle className="text-sm font-medium">Thin Categories (&lt;2,000 active)</CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-3">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="text-xs">Category</TableHead>
-                  <TableHead className="text-xs text-right">Active Items</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {namedThinCategories.map((c: any) => (
-                  <TableRow key={c.category_key}>
-                    <TableCell className="text-xs py-1.5">{c.category_key}</TableCell>
-                    <TableCell className="text-xs text-right py-1.5 font-mono">{c.active_count.toLocaleString()}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-    </>
+      ))}
+    </div>
   );
 }
 
-// ── Run Control Buttons ─────────────────────────────────────────────────────
-function RunControls() {
+// ── Fetch Products ──────────────────────────────────────────────────────────
+function FetchProducts() {
   const queryClient = useQueryClient();
+  const [category, setCategory] = useState('');
+  const [provider, setProvider] = useState('ebay');
+  const [quantity, setQuantity] = useState(100);
+  const [isFetching, setIsFetching] = useState(false);
+  const [fetchProgress, setFetchProgress] = useState<{
+    status: 'running' | 'done' | 'error';
+    message: string;
+    itemsFetched: number;
+    target: number;
+    newUnique: number;
+    duplicates: number;
+  } | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const [campaignOpen, setCampaignOpen] = useState(false);
   const [campaignForm, setCampaignForm] = useState({
     run_window_days: 7,
@@ -179,23 +141,107 @@ function RunControls() {
     continuous: true,
   });
 
-  const [maxItemsTarget, setMaxItemsTarget] = useState(100);
-
-  const { data: status, isLoading: statusLoading } = useQuery({
+  const { data: status } = useQuery({
     queryKey: ['builder-status'],
     queryFn: () => invokeAdmin({ mode: 'builder-status' }),
     staleTime: 15_000,
-    refetchInterval: 30_000,
+    refetchInterval: isFetching ? 5_000 : 30_000,
   });
 
-  const runBuilderMut = useMutation({
-    mutationFn: (provider: string) => postAction('run-builder', { provider, max_items_target: maxItemsTarget }),
-    onSuccess: (data) => {
-      toast.success(`Builder run started for ${data?.provider || 'provider'}`);
-      queryClient.invalidateQueries({ queryKey: ['builder-status'] });
-    },
-    onError: (err: any) => toast.error(err.message || 'Failed to start builder'),
-  });
+  const health = status?.provider_health;
+  const healthMap = Array.isArray(health) 
+    ? health.reduce((acc: any, h: any) => { acc[h.provider] = h; return acc; }, {})
+    : health || {};
+  const ebayHealthy = !healthMap.ebay || healthMap.ebay.healthy !== false;
+  const amazonHealthy = !healthMap.rainforest || healthMap.rainforest.healthy !== false;
+
+  // Poll for progress when fetching
+  useEffect(() => {
+    if (!isFetching) return;
+    
+    pollRef.current = setInterval(async () => {
+      try {
+        const result = await invokeAdmin({ mode: 'builder-status' });
+        queryClient.setQueryData(['builder-status'], result);
+        
+        // Check recent runs for completion
+        const recentRuns = result?.recent_runs || [];
+        if (recentRuns.length > 0) {
+          const latest = recentRuns[0];
+          if (latest.finished_at) {
+            const finishedAt = new Date(latest.finished_at).getTime();
+            const now = Date.now();
+            // If finished within last 30 seconds, treat as our run completing
+            if (now - finishedAt < 30_000) {
+              setFetchProgress({
+                status: 'done',
+                message: `Fetched ${latest.items_upserted} items from ${latest.provider}`,
+                itemsFetched: latest.items_upserted,
+                target: quantity,
+                newUnique: latest.new_unique_items,
+                duplicates: latest.duplicates_skipped,
+              });
+              setIsFetching(false);
+              queryClient.invalidateQueries({ queryKey: ['catalog-cache-summary'] });
+              queryClient.invalidateQueries({ queryKey: ['catalog-cache-list'] });
+            }
+          }
+        }
+      } catch (e) {
+        // ignore polling errors
+      }
+    }, 5_000);
+    
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [isFetching, quantity, queryClient]);
+
+  const startFetch = async () => {
+    setIsFetching(true);
+    setFetchProgress({
+      status: 'running',
+      message: `Fetching ${category || 'all categories'} from ${provider === 'rainforest' ? 'Amazon' : 'eBay'}...`,
+      itemsFetched: 0,
+      target: quantity,
+      newUnique: 0,
+      duplicates: 0,
+    });
+
+    try {
+      const result = await postAction('run-builder', {
+        provider,
+        category_key: category || undefined,
+        max_items_target: quantity,
+      });
+      
+      // If the worker returned immediately with results
+      const workerResult = result?.worker_result;
+      if (workerResult?.items_upserted !== undefined) {
+        setFetchProgress({
+          status: 'done',
+          message: `Fetched ${workerResult.items_upserted} items from ${provider === 'rainforest' ? 'Amazon' : 'eBay'}`,
+          itemsFetched: workerResult.items_upserted ?? 0,
+          target: quantity,
+          newUnique: workerResult.new_unique_items ?? 0,
+          duplicates: workerResult.duplicates_skipped ?? 0,
+        });
+        setIsFetching(false);
+        queryClient.invalidateQueries({ queryKey: ['catalog-cache-summary'] });
+        queryClient.invalidateQueries({ queryKey: ['catalog-cache-list'] });
+      }
+    } catch (err: any) {
+      setFetchProgress({
+        status: 'error',
+        message: err.message || 'Failed to start fetch',
+        itemsFetched: 0,
+        target: quantity,
+        newUnique: 0,
+        duplicates: 0,
+      });
+      setIsFetching(false);
+    }
+  };
 
   const startCampaignMut = useMutation({
     mutationFn: (form: typeof campaignForm) => postAction('start-campaign', form),
@@ -217,51 +263,65 @@ function RunControls() {
   });
 
   const campaign = status?.campaign;
-  const health = status?.provider_health;
-  const ebayHealthy = !health?.ebay || health.ebay.healthy !== false;
-  const amazonHealthy = !health?.rainforest || health.rainforest.healthy !== false;
 
   return (
     <div className="space-y-4">
-      {/* Run Buttons */}
       <Card>
         <CardHeader className="py-3 px-4">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Zap className="h-4 w-4" /> Builder Controls
+            <Zap className="h-4 w-4" /> Fetch Products
           </CardTitle>
         </CardHeader>
-        <CardContent className="px-4 pb-4">
+        <CardContent className="px-4 pb-4 space-y-4">
+          {/* Controls Row */}
           <div className="flex flex-wrap gap-3 items-end">
             <div className="flex flex-col gap-1">
-              <Label className="text-xs text-muted-foreground">Items to fetch</Label>
+              <Label className="text-xs text-muted-foreground">Category</Label>
+              <Select value={category || '_all'} onValueChange={(v) => setCategory(v === '_all' ? '' : v)}>
+                <SelectTrigger className="h-9 w-44 text-xs">
+                  <SelectValue placeholder="All categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_all">All categories</SelectItem>
+                  {ALL_CATEGORIES.map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs text-muted-foreground">Provider</Label>
+              <Select value={provider} onValueChange={setProvider}>
+                <SelectTrigger className="h-9 w-32 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ebay">eBay</SelectItem>
+                  <SelectItem value="rainforest">Amazon</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs text-muted-foreground">Quantity</Label>
               <Input
                 type="number"
-                className="h-9 w-24 text-xs"
-                value={maxItemsTarget}
+                className="h-9 w-28 text-xs"
+                value={quantity}
                 min={10}
-                max={1000}
-                onChange={(e) => setMaxItemsTarget(Math.max(10, Math.min(1000, +e.target.value)))}
+                max={10000}
+                onChange={(e) => setQuantity(Math.max(10, Math.min(10000, +e.target.value)))}
               />
             </div>
-            <Button
-              size="sm"
-              onClick={() => runBuilderMut.mutate('ebay')}
-              disabled={runBuilderMut.isPending}
-              className="gap-2"
-            >
-              <Play className="h-3.5 w-3.5" /> Run eBay Builder Now
-              {!ebayHealthy && <Badge variant="destructive" className="text-[9px] ml-1">Unhealthy</Badge>}
-            </Button>
 
             <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => runBuilderMut.mutate('rainforest')}
-              disabled={runBuilderMut.isPending || !amazonHealthy}
+              onClick={startFetch}
+              disabled={isFetching || (provider === 'ebay' && !ebayHealthy) || (provider === 'rainforest' && !amazonHealthy)}
               className="gap-2"
             >
-              <Play className="h-3.5 w-3.5" /> Run Amazon Builder Now
-              {!amazonHealthy && <Badge variant="destructive" className="text-[9px] ml-1">Down</Badge>}
+              {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              Start Fetching
             </Button>
 
             <Dialog open={campaignOpen} onOpenChange={setCampaignOpen}>
@@ -274,79 +334,95 @@ function RunControls() {
                 <DialogHeader>
                   <DialogTitle>Start Campaign Window</DialogTitle>
                   <DialogDescription>
-                    Set goals and timeframe for automated catalog building. The builder will run every 10 minutes until goals are met or the window expires.
+                    Set goals and timeframe for automated catalog building. The builder will run every 10 minutes until goals are met.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <Label className="text-xs">Window (days)</Label>
-                      <Input
-                        type="number"
-                        value={campaignForm.run_window_days}
-                        onChange={(e) => setCampaignForm(f => ({ ...f, run_window_days: +e.target.value }))}
-                      />
+                      <Input type="number" value={campaignForm.run_window_days} onChange={(e) => setCampaignForm(f => ({ ...f, run_window_days: +e.target.value }))} />
                     </div>
                     <div>
                       <Label className="text-xs">Total Goal</Label>
-                      <Input
-                        type="number"
-                        value={campaignForm.goal_total_items}
-                        onChange={(e) => setCampaignForm(f => ({ ...f, goal_total_items: +e.target.value }))}
-                      />
+                      <Input type="number" value={campaignForm.goal_total_items} onChange={(e) => setCampaignForm(f => ({ ...f, goal_total_items: +e.target.value }))} />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <Label className="text-xs">eBay Goal</Label>
-                      <Input
-                        type="number"
-                        value={campaignForm.goal_ebay_items}
-                        onChange={(e) => setCampaignForm(f => ({ ...f, goal_ebay_items: +e.target.value }))}
-                      />
+                      <Input type="number" value={campaignForm.goal_ebay_items} onChange={(e) => setCampaignForm(f => ({ ...f, goal_ebay_items: +e.target.value }))} />
                     </div>
                     <div>
                       <Label className="text-xs">Amazon Goal</Label>
-                      <Input
-                        type="number"
-                        value={campaignForm.goal_amazon_items}
-                        onChange={(e) => setCampaignForm(f => ({ ...f, goal_amazon_items: +e.target.value }))}
-                      />
+                      <Input type="number" value={campaignForm.goal_amazon_items} onChange={(e) => setCampaignForm(f => ({ ...f, goal_amazon_items: +e.target.value }))} />
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Switch
-                      checked={campaignForm.continuous}
-                      onCheckedChange={(v) => setCampaignForm(f => ({ ...f, continuous: v }))}
-                    />
+                    <Switch checked={campaignForm.continuous} onCheckedChange={(v) => setCampaignForm(f => ({ ...f, continuous: v }))} />
                     <Label className="text-xs">Continuous mode (keep going past goal)</Label>
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button
-                    onClick={() => startCampaignMut.mutate(campaignForm)}
-                    disabled={startCampaignMut.isPending}
-                  >
-                    Start Campaign
-                  </Button>
+                  <Button onClick={() => startCampaignMut.mutate(campaignForm)} disabled={startCampaignMut.isPending}>Start Campaign</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
           </div>
 
-          {/* Provider Health */}
-          {health && (
-            <div className="flex gap-4 mt-3 text-xs">
-              <span className="flex items-center gap-1">
-                <Activity className={`h-3 w-3 ${ebayHealthy ? 'text-green-500' : 'text-destructive'}`} />
-                eBay: {ebayHealthy ? 'Healthy' : health.ebay?.reason || 'Unhealthy'}
-              </span>
-              <span className="flex items-center gap-1">
-                <Activity className={`h-3 w-3 ${amazonHealthy ? 'text-green-500' : 'text-destructive'}`} />
-                Amazon: {amazonHealthy ? 'Healthy' : health.rainforest?.reason || 'Down'}
-              </span>
-            </div>
+          {/* Progress Panel */}
+          {fetchProgress && (
+            <Card className={`border ${
+              fetchProgress.status === 'done' ? 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20' : 
+              fetchProgress.status === 'error' ? 'border-destructive/50 bg-destructive/5' : 
+              'border-primary/30'
+            }`}>
+              <CardContent className="py-3 px-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  {fetchProgress.status === 'running' && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+                  {fetchProgress.status === 'done' && <CheckCircle className="h-4 w-4 text-green-600" />}
+                  {fetchProgress.status === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
+                  <span className="text-sm font-medium">{fetchProgress.message}</span>
+                </div>
+                
+                {fetchProgress.status === 'running' && (
+                  <div>
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                      <span>Progress</span>
+                      <span>{fetchProgress.itemsFetched} / {fetchProgress.target} items</span>
+                    </div>
+                    <Progress value={fetchProgress.target ? (fetchProgress.itemsFetched / fetchProgress.target) * 100 : 0} className="h-2" />
+                  </div>
+                )}
+
+                {fetchProgress.status === 'done' && (
+                  <div className="flex gap-4 text-xs text-muted-foreground">
+                    <span>New unique: <span className="font-mono text-green-600">{fetchProgress.newUnique}</span></span>
+                    <span>Duplicates: <span className="font-mono">{fetchProgress.duplicates}</span></span>
+                    <span>Total fetched: <span className="font-mono font-semibold">{fetchProgress.itemsFetched}</span></span>
+                  </div>
+                )}
+
+                {fetchProgress.status === 'done' && (
+                  <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => setFetchProgress(null)}>
+                    Dismiss
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
           )}
+
+          {/* Provider Health */}
+          <div className="flex gap-4 text-xs">
+            <span className="flex items-center gap-1">
+              <Activity className={`h-3 w-3 ${ebayHealthy ? 'text-green-500' : 'text-destructive'}`} />
+              eBay: {ebayHealthy ? 'Healthy' : healthMap.ebay?.reason || 'Unhealthy'}
+            </span>
+            <span className="flex items-center gap-1">
+              <Activity className={`h-3 w-3 ${amazonHealthy ? 'text-green-500' : 'text-destructive'}`} />
+              Amazon: {amazonHealthy ? 'Healthy' : healthMap.rainforest?.reason || 'Down'}
+            </span>
+          </div>
         </CardContent>
       </Card>
 
@@ -358,46 +434,30 @@ function RunControls() {
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <TrendingUp className="h-4 w-4 text-primary" /> Campaign Progress
               </CardTitle>
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => cancelCampaignMut.mutate()}
-                disabled={cancelCampaignMut.isPending}
-                className="gap-1 h-7"
-              >
+              <Button size="sm" variant="destructive" onClick={() => cancelCampaignMut.mutate()} disabled={cancelCampaignMut.isPending} className="gap-1 h-7">
                 <StopCircle className="h-3 w-3" /> Cancel
               </Button>
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-4 space-y-3">
             <div className="grid grid-cols-3 gap-4">
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span>Total</span>
-                  <span>{(campaign.achieved_total ?? 0).toLocaleString()} / {(campaign.goal_total ?? 0).toLocaleString()}</span>
+              {[
+                { label: 'Total', achieved: campaign.achieved_total ?? 0, goal: campaign.goal_total ?? 0 },
+                { label: 'eBay', achieved: campaign.achieved_ebay ?? 0, goal: campaign.goal_ebay ?? 0 },
+                { label: 'Amazon', achieved: campaign.achieved_rainforest ?? 0, goal: campaign.goal_rainforest ?? 0 },
+              ].map(({ label, achieved, goal }) => (
+                <div key={label}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span>{label}</span>
+                    <span>{achieved.toLocaleString()} / {goal.toLocaleString()}</span>
+                  </div>
+                  <Progress value={goal ? (achieved / goal) * 100 : 0} />
                 </div>
-                <Progress value={campaign.goal_total ? (campaign.achieved_total / campaign.goal_total) * 100 : 0} />
-              </div>
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span>eBay</span>
-                  <span>{(campaign.achieved_ebay ?? 0).toLocaleString()} / {(campaign.goal_ebay ?? 0).toLocaleString()}</span>
-                </div>
-                <Progress value={campaign.goal_ebay ? (campaign.achieved_ebay / campaign.goal_ebay) * 100 : 0} />
-              </div>
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span>Amazon</span>
-                  <span>{(campaign.achieved_rainforest ?? 0).toLocaleString()} / {(campaign.goal_rainforest ?? 0).toLocaleString()}</span>
-                </div>
-                <Progress value={campaign.goal_rainforest ? (campaign.achieved_rainforest / campaign.goal_rainforest) * 100 : 0} />
-              </div>
+              ))}
             </div>
             {campaign.end_at && (
               <p className="text-xs text-muted-foreground">
-                ⏱ Window ends: {new Date(campaign.end_at).toLocaleDateString()} ({
-                  Math.max(0, Math.ceil((new Date(campaign.end_at).getTime() - Date.now()) / 86400000))
-                }d remaining)
+                ⏱ Window ends: {new Date(campaign.end_at).toLocaleDateString()} ({Math.max(0, Math.ceil((new Date(campaign.end_at).getTime() - Date.now()) / 86400000))}d remaining)
                 {campaign.continuous && <Badge variant="outline" className="ml-2 text-[9px]">Continuous</Badge>}
               </p>
             )}
@@ -438,7 +498,6 @@ function SearchInsights() {
               </div>
             ) : (
               <div className="grid md:grid-cols-2 gap-6">
-                {/* Top Queries */}
                 <div>
                   <h4 className="text-xs font-semibold mb-2 text-muted-foreground uppercase">Top Searched Queries</h4>
                   <div className="space-y-1.5">
@@ -457,8 +516,6 @@ function SearchInsights() {
                     )}
                   </div>
                 </div>
-
-                {/* Popular Products */}
                 <div>
                   <h4 className="text-xs font-semibold mb-2 text-muted-foreground uppercase">Most Popular Products</h4>
                   <div className="space-y-1.5">
@@ -487,7 +544,7 @@ function SearchInsights() {
 }
 
 // ── Items Table ──────────────────────────────────────────────────────────────
-function ItemsTable() {
+function ItemsTable({ totalCount }: { totalCount: number }) {
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [appliedFilters, setAppliedFilters] = useState<Filters>(defaultFilters);
@@ -511,10 +568,7 @@ function ItemsTable() {
   }, []);
 
   const buildParams = useCallback((): Record<string, string> => {
-    const p: Record<string, string> = {
-      mode: 'list',
-      limit: String(PAGE_SIZE),
-    };
+    const p: Record<string, string> = { mode: 'list', limit: String(PAGE_SIZE) };
     if (cursor) p.cursor = cursor;
     if (cursorId) p.cursor_id = cursorId;
     if (appliedFilters.category_key) p.category_key = appliedFilters.category_key;
@@ -537,6 +591,7 @@ function ItemsTable() {
 
   const items = data?.items ?? [];
   const hasMore = data?.has_more ?? false;
+  const pageNum = cursorStack.length + 1;
 
   const goNext = useCallback(() => {
     if (data?.next_cursor) {
@@ -556,8 +611,7 @@ function ItemsTable() {
   }, [cursorStack]);
 
   const actionMutation = useMutation({
-    mutationFn: ({ action, body }: { action: string; body: Record<string, unknown> }) =>
-      postAction(action, body),
+    mutationFn: ({ action, body }: { action: string; body: Record<string, unknown> }) => postAction(action, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['catalog-cache-list'] });
       queryClient.invalidateQueries({ queryKey: ['catalog-cache-summary'] });
@@ -566,19 +620,12 @@ function ItemsTable() {
     onError: (err: any) => toast.error(err.message || 'Action failed'),
   });
 
-  const handleDeactivate = (item: any) =>
-    actionMutation.mutate({ action: 'deactivate', body: { id: item.id } });
-  const handleReactivate = (item: any) =>
-    actionMutation.mutate({ action: 'reactivate', body: { id: item.id } });
-  const handleForceRefresh = (item: any) =>
-    actionMutation.mutate({
-      action: 'force_refresh',
-      body: {
-        category_key: item.category_key || item.unified_category,
-        provider: item.provider,
-        query: item.title?.slice(0, 80),
-      },
-    });
+  const handleDeactivate = (item: any) => actionMutation.mutate({ action: 'deactivate', body: { id: item.id } });
+  const handleReactivate = (item: any) => actionMutation.mutate({ action: 'reactivate', body: { id: item.id } });
+  const handleForceRefresh = (item: any) => actionMutation.mutate({
+    action: 'force_refresh',
+    body: { category_key: item.category_key || item.unified_category, provider: item.provider, query: item.title?.slice(0, 80) },
+  });
 
   const fmtDate = (d: string | null) => {
     if (!d) return '—';
@@ -586,66 +633,46 @@ function ItemsTable() {
     const now = Date.now();
     const diffH = Math.round((now - date.getTime()) / 3600000);
     if (diffH < 24) return `${diffH}h ago`;
-    const diffD = Math.round(diffH / 24);
-    return `${diffD}d ago`;
+    return `${Math.round(diffH / 24)}d ago`;
   };
 
   return (
     <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Cached Products</h2>
+        <span className="text-sm text-muted-foreground font-mono">~{totalCount.toLocaleString()} total</span>
+      </div>
+
       {/* Filters */}
       <Card>
         <CardContent className="pt-4 pb-3 px-4">
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
-            <Select
-              value={filters.category_key || '_all'}
-              onValueChange={(v) => setFilters((f) => ({ ...f, category_key: v === '_all' ? '' : v }))}
-            >
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
+            <Select value={filters.category_key || '_all'} onValueChange={(v) => setFilters((f) => ({ ...f, category_key: v === '_all' ? '' : v }))}>
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Category" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="_all">All Categories</SelectItem>
-                {ALL_CATEGORIES.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
+                {ALL_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
-
-            <Select
-              value={filters.provider || '_all'}
-              onValueChange={(v) => setFilters((f) => ({ ...f, provider: v === '_all' ? '' : v }))}
-            >
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder="Provider" />
-              </SelectTrigger>
+            <Select value={filters.provider || '_all'} onValueChange={(v) => setFilters((f) => ({ ...f, provider: v === '_all' ? '' : v }))}>
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Provider" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="_all">All Providers</SelectItem>
                 <SelectItem value="amazon">Amazon</SelectItem>
                 <SelectItem value="ebay">eBay</SelectItem>
               </SelectContent>
             </Select>
-
-            <Select
-              value={filters.is_active || '_all'}
-              onValueChange={(v) => setFilters((f) => ({ ...f, is_active: v === '_all' ? '' : v }))}
-            >
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
+            <Select value={filters.is_active || '_all'} onValueChange={(v) => setFilters((f) => ({ ...f, is_active: v === '_all' ? '' : v }))}>
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Status" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="_all">All</SelectItem>
                 <SelectItem value="true">Active</SelectItem>
                 <SelectItem value="false">Inactive</SelectItem>
               </SelectContent>
             </Select>
-
-            <Select
-              value={filters.sort_by || '_default'}
-              onValueChange={(v) => setFilters((f) => ({ ...f, sort_by: v === '_default' ? '' : v }))}
-            >
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
+            <Select value={filters.sort_by || '_default'} onValueChange={(v) => setFilters((f) => ({ ...f, sort_by: v === '_default' ? '' : v }))}>
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Sort by" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="_default">Default</SelectItem>
                 <SelectItem value="newest">Newest Added</SelectItem>
@@ -654,14 +681,8 @@ function ItemsTable() {
                 <SelectItem value="popularity">Most Popular</SelectItem>
               </SelectContent>
             </Select>
-
-            <Select
-              value={filters.date_preset || '_all'}
-              onValueChange={(v) => setFilters((f) => ({ ...f, date_preset: v === '_all' ? '' : v }))}
-            >
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder="Date Added" />
-              </SelectTrigger>
+            <Select value={filters.date_preset || '_all'} onValueChange={(v) => setFilters((f) => ({ ...f, date_preset: v === '_all' ? '' : v }))}>
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Date Added" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="_all">All Time</SelectItem>
                 <SelectItem value="24h">Last 24h</SelectItem>
@@ -669,39 +690,13 @@ function ItemsTable() {
                 <SelectItem value="30d">Last 30 days</SelectItem>
               </SelectContent>
             </Select>
-
-            <Input
-              placeholder="Search title…"
-              className="h-9 text-xs"
-              value={filters.q}
-              onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
-              onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
-            />
-
-            <Input
-              placeholder="Stale price (days)"
-              type="number"
-              className="h-9 text-xs"
-              value={filters.stale_price_days}
-              onChange={(e) => setFilters((f) => ({ ...f, stale_price_days: e.target.value }))}
-            />
-
-            <Input
-              placeholder="Not seen (days)"
-              type="number"
-              className="h-9 text-xs"
-              value={filters.not_seen_days}
-              onChange={(e) => setFilters((f) => ({ ...f, not_seen_days: e.target.value }))}
-            />
+            <Input placeholder="Search title…" className="h-9 text-xs" value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && applyFilters()} />
+            <Input placeholder="Stale price (days)" type="number" className="h-9 text-xs" value={filters.stale_price_days} onChange={(e) => setFilters((f) => ({ ...f, stale_price_days: e.target.value }))} />
+            <Input placeholder="Not seen (days)" type="number" className="h-9 text-xs" value={filters.not_seen_days} onChange={(e) => setFilters((f) => ({ ...f, not_seen_days: e.target.value }))} />
           </div>
-
           <div className="flex gap-2 mt-3">
-            <Button size="sm" onClick={applyFilters} className="gap-1">
-              <Search className="h-3.5 w-3.5" /> Apply
-            </Button>
-            <Button size="sm" variant="outline" onClick={resetFilters} className="gap-1">
-              <RotateCcw className="h-3.5 w-3.5" /> Reset
-            </Button>
+            <Button size="sm" onClick={applyFilters} className="gap-1"><Search className="h-3.5 w-3.5" /> Apply</Button>
+            <Button size="sm" variant="outline" onClick={resetFilters} className="gap-1"><RotateCcw className="h-3.5 w-3.5" /> Reset</Button>
             {isFetching && <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground self-center ml-2" />}
           </div>
         </CardContent>
@@ -740,96 +735,41 @@ function ItemsTable() {
                   : items.length === 0
                   ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
-                        No items found
-                      </TableCell>
+                      <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">No items found</TableCell>
                     </TableRow>
                   )
                   : items.map((item: any) => (
                     <TableRow key={item.id} className={!item.is_active ? 'opacity-60' : ''}>
                       <TableCell className="p-2">
                         {item.image_url ? (
-                          <img
-                            src={item.image_url}
-                            alt=""
-                            className="w-10 h-10 object-cover rounded"
-                            loading="lazy"
-                          />
+                          <img src={item.image_url} alt="" className="w-10 h-10 object-cover rounded" loading="lazy" />
                         ) : (
                           <div className="w-10 h-10 bg-muted rounded" />
                         )}
                       </TableCell>
                       <TableCell className="max-w-[200px]">
-                        <a
-                          href={item.product_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs hover:underline line-clamp-2 flex items-start gap-1"
-                        >
+                        <a href={item.product_url} target="_blank" rel="noopener noreferrer" className="text-xs hover:underline line-clamp-2 flex items-start gap-1">
                           <span className="line-clamp-2">{item.title || '—'}</span>
                           <ExternalLink className="h-3 w-3 shrink-0 mt-0.5 text-muted-foreground" />
                         </a>
                       </TableCell>
                       <TableCell className="text-xs">{item.category_key || item.unified_category || '—'}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-[10px]">{item.provider}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right text-xs font-mono">
-                        {item.price_usd != null ? `$${Number(item.price_usd).toFixed(2)}` : '—'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={item.in_stock ? 'default' : 'secondary'} className="text-[10px]">
-                          {item.in_stock ? 'Yes' : 'No'}
-                        </Badge>
-                      </TableCell>
+                      <TableCell><Badge variant="outline" className="text-[10px]">{item.provider}</Badge></TableCell>
+                      <TableCell className="text-right text-xs font-mono">{item.price_usd != null ? `$${Number(item.price_usd).toFixed(2)}` : '—'}</TableCell>
+                      <TableCell><Badge variant={item.in_stock ? 'default' : 'secondary'} className="text-[10px]">{item.in_stock ? 'Yes' : 'No'}</Badge></TableCell>
                       <TableCell className="text-xs text-muted-foreground">{fmtDate(item.first_seen_at)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{fmtDate(item.last_seen_at)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{fmtDate(item.price_updated_at)}</TableCell>
-                      <TableCell className="text-xs text-center">
-                        {item.fail_count > 0 ? (
-                          <Badge variant="destructive" className="text-[10px]">{item.fail_count}</Badge>
-                        ) : '0'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={item.is_active ? 'default' : 'secondary'}
-                          className="text-[10px]"
-                        >
-                          {item.status_reason || (item.is_active ? 'active' : 'inactive')}
-                        </Badge>
-                      </TableCell>
+                      <TableCell className="text-xs text-center">{item.fail_count > 0 ? <Badge variant="destructive" className="text-[10px]">{item.fail_count}</Badge> : '0'}</TableCell>
+                      <TableCell><Badge variant={item.is_active ? 'default' : 'secondary'} className="text-[10px]">{item.status_reason || (item.is_active ? 'active' : 'inactive')}</Badge></TableCell>
                       <TableCell>
                         <div className="flex gap-1">
                           {item.is_active ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 text-[10px]"
-                              onClick={() => handleDeactivate(item)}
-                              disabled={actionMutation.isPending}
-                            >
-                              <PowerOff className="h-3 w-3" />
-                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-[10px]" onClick={() => handleDeactivate(item)} disabled={actionMutation.isPending}><PowerOff className="h-3 w-3" /></Button>
                           ) : (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 text-[10px]"
-                              onClick={() => handleReactivate(item)}
-                              disabled={actionMutation.isPending}
-                            >
-                              <Power className="h-3 w-3" />
-                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-[10px]" onClick={() => handleReactivate(item)} disabled={actionMutation.isPending}><Power className="h-3 w-3" /></Button>
                           )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 px-2 text-[10px]"
-                            onClick={() => handleForceRefresh(item)}
-                            disabled={actionMutation.isPending}
-                          >
-                            <RefreshCw className="h-3 w-3" />
-                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-[10px]" onClick={() => handleForceRefresh(item)} disabled={actionMutation.isPending}><RefreshCw className="h-3 w-3" /></Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -838,26 +778,17 @@ function ItemsTable() {
             </Table>
           </div>
 
-          {/* Cursor Pagination */}
+          {/* Footer with total and page */}
           <div className="flex items-center justify-between px-4 py-3 border-t">
             <p className="text-xs text-muted-foreground">
-              Showing {items.length} items{cursorStack.length > 0 ? ` · Page ${cursorStack.length + 1}` : ''}
+              Showing {items.length} of ~{totalCount.toLocaleString()} items
+              {' · '}Page {pageNum}
             </p>
             <div className="flex gap-1">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={cursorStack.length === 0}
-                onClick={goPrev}
-              >
+              <Button size="sm" variant="outline" disabled={cursorStack.length === 0} onClick={goPrev}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!hasMore}
-                onClick={goNext}
-              >
+              <Button size="sm" variant="outline" disabled={!hasMore} onClick={goNext}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
@@ -868,7 +799,7 @@ function ItemsTable() {
   );
 }
 
-// ── Builder Sources (merged from CatalogBuilder) ────────────────────────────
+// ── Builder Sources (collapsible, advanced) ─────────────────────────────────
 function BuilderSources() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -896,9 +827,7 @@ function BuilderSources() {
 
   const addSourceMutation = useMutation({
     mutationFn: async (source: typeof newSource) => {
-      const { error } = await supabase
-        .from('catalog_builder_sources' as any)
-        .insert(source);
+      const { error } = await supabase.from('catalog_builder_sources' as any).insert(source);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -911,10 +840,7 @@ function BuilderSources() {
 
   const toggleSourceMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
-      const { error } = await supabase
-        .from('catalog_builder_sources' as any)
-        .update({ enabled })
-        .eq('id', id);
+      const { error } = await supabase.from('catalog_builder_sources' as any).update({ enabled }).eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['catalog-builder-sources'] }),
@@ -922,16 +848,9 @@ function BuilderSources() {
 
   const resetProgressMutation = useMutation({
     mutationFn: async (sourceId: string) => {
-      const { error } = await supabase
-        .from('catalog_builder_state' as any)
-        .upsert({
-          source_id: sourceId,
-          current_offset: 0,
-          total_ingested: 0,
-          exhausted: false,
-          last_run_at: null,
-          last_error: null,
-        }, { onConflict: 'source_id' });
+      const { error } = await supabase.from('catalog_builder_state' as any).upsert({
+        source_id: sourceId, current_offset: 0, total_ingested: 0, exhausted: false, last_run_at: null, last_error: null,
+      }, { onConflict: 'source_id' });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -958,7 +877,6 @@ function BuilderSources() {
         </CollapsibleTrigger>
         <CollapsibleContent>
           <CardContent className="px-4 pb-4 space-y-4">
-            {/* Add Source */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <Select value={newSource.category_key || '_none'} onValueChange={(v) => setNewSource(s => ({ ...s, category_key: v === '_none' ? '' : v }))}>
                 <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Category" /></SelectTrigger>
@@ -981,22 +899,11 @@ function BuilderSources() {
                   <SelectItem value="ebay_category">eBay Category</SelectItem>
                 </SelectContent>
               </Select>
-              <Input
-                placeholder="Query or Category ID"
-                className="h-9 text-xs"
-                value={newSource.source_value}
-                onChange={(e) => setNewSource(s => ({ ...s, source_value: e.target.value }))}
-              />
-              <Button
-                size="sm"
-                onClick={() => newSource.category_key && newSource.source_value && addSourceMutation.mutate(newSource)}
-                disabled={!newSource.category_key || !newSource.source_value || addSourceMutation.isPending}
-              >
+              <Input placeholder="Query or Category ID" className="h-9 text-xs" value={newSource.source_value} onChange={(e) => setNewSource(s => ({ ...s, source_value: e.target.value }))} />
+              <Button size="sm" onClick={() => newSource.category_key && newSource.source_value && addSourceMutation.mutate(newSource)} disabled={!newSource.category_key || !newSource.source_value || addSourceMutation.isPending}>
                 {addSourceMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add'}
               </Button>
             </div>
-
-            {/* Sources Table */}
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -1016,55 +923,25 @@ function BuilderSources() {
                 <TableBody>
                   {isLoading ? (
                     Array.from({ length: 3 }).map((_, i) => (
-                      <TableRow key={i}>
-                        {Array.from({ length: 10 }).map((_, j) => (
-                          <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
-                        ))}
-                      </TableRow>
+                      <TableRow key={i}>{Array.from({ length: 10 }).map((_, j) => <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>)}</TableRow>
                     ))
                   ) : !sources?.length ? (
-                    <TableRow>
-                      <TableCell colSpan={10} className="text-center py-6 text-muted-foreground text-xs">
-                        No sources configured
-                      </TableCell>
-                    </TableRow>
+                    <TableRow><TableCell colSpan={10} className="text-center py-6 text-muted-foreground text-xs">No sources configured</TableCell></TableRow>
                   ) : (
                     sources.map((src: any) => {
                       const state = src.catalog_builder_state?.[0];
                       return (
                         <TableRow key={src.id} className={!src.enabled ? 'opacity-50' : ''}>
-                          <TableCell>
-                            <Switch
-                              checked={src.enabled}
-                              onCheckedChange={(v) => toggleSourceMutation.mutate({ id: src.id, enabled: v })}
-                            />
-                          </TableCell>
+                          <TableCell><Switch checked={src.enabled} onCheckedChange={(v) => toggleSourceMutation.mutate({ id: src.id, enabled: v })} /></TableCell>
                           <TableCell className="text-xs">{src.category_key}</TableCell>
                           <TableCell><Badge variant="outline" className="text-[10px]">{src.provider}</Badge></TableCell>
                           <TableCell className="text-xs">{src.source_type}</TableCell>
                           <TableCell className="text-xs max-w-[150px] truncate">{src.source_value}</TableCell>
                           <TableCell className="text-right text-xs font-mono">{state?.current_offset || 0}</TableCell>
                           <TableCell className="text-right text-xs font-mono">{state?.total_ingested || 0}</TableCell>
-                          <TableCell>
-                            {state?.exhausted ? (
-                              <Badge variant="secondary" className="text-[10px]">Exhausted</Badge>
-                            ) : (
-                              <Badge variant="default" className="text-[10px]">Active</Badge>
-                            )}
-                          </TableCell>
+                          <TableCell>{state?.exhausted ? <Badge variant="secondary" className="text-[10px]">Exhausted</Badge> : <Badge variant="default" className="text-[10px]">Active</Badge>}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{fmtDate(state?.last_run_at)}</TableCell>
-                          <TableCell>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2"
-                              onClick={() => resetProgressMutation.mutate(src.id)}
-                              disabled={resetProgressMutation.isPending}
-                              title="Reset progress"
-                            >
-                              <RotateCcw className="h-3 w-3" />
-                            </Button>
-                          </TableCell>
+                          <TableCell><Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => resetProgressMutation.mutate(src.id)} disabled={resetProgressMutation.isPending} title="Reset progress"><RotateCcw className="h-3 w-3" /></Button></TableCell>
                         </TableRow>
                       );
                     })
@@ -1079,8 +956,8 @@ function BuilderSources() {
   );
 }
 
-// ── Recent Builder Runs ─────────────────────────────────────────────────────
-function RecentRuns() {
+// ── Recent Fetch History ────────────────────────────────────────────────────
+function RecentFetchHistory() {
   const [open, setOpen] = useState(false);
 
   const { data: runs, isLoading } = useQuery({
@@ -1109,7 +986,7 @@ function RecentRuns() {
         <CollapsibleTrigger asChild>
           <CardHeader className="py-3 px-4 cursor-pointer hover:bg-muted/50 transition-colors">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Activity className="h-4 w-4" /> Recent Runs
+              <Activity className="h-4 w-4" /> Recent Fetch History
               <ChevronDown className={`h-4 w-4 ml-auto transition-transform ${open ? 'rotate-180' : ''}`} />
             </CardTitle>
           </CardHeader>
@@ -1133,18 +1010,10 @@ function RecentRuns() {
                 <TableBody>
                   {isLoading ? (
                     Array.from({ length: 3 }).map((_, i) => (
-                      <TableRow key={i}>
-                        {Array.from({ length: 8 }).map((_, j) => (
-                          <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
-                        ))}
-                      </TableRow>
+                      <TableRow key={i}>{Array.from({ length: 8 }).map((_, j) => <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>)}</TableRow>
                     ))
                   ) : !runs?.length ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center py-6 text-muted-foreground text-xs">
-                        No runs yet
-                      </TableCell>
-                    </TableRow>
+                    <TableRow><TableCell colSpan={8} className="text-center py-6 text-muted-foreground text-xs">No fetch history yet</TableCell></TableRow>
                   ) : (
                     runs.map((run: any) => (
                       <TableRow key={run.id}>
@@ -1153,11 +1022,7 @@ function RecentRuns() {
                         <TableCell className="text-right text-xs font-mono">{run.items_upserted}</TableCell>
                         <TableCell className="text-right text-xs font-mono text-green-600">{run.new_unique_items}</TableCell>
                         <TableCell className="text-right text-xs font-mono text-muted-foreground">{run.duplicates_skipped}</TableCell>
-                        <TableCell className="text-right text-xs font-mono">
-                          {run.rate_limited_count > 0 ? (
-                            <Badge variant="destructive" className="text-[10px]">{run.rate_limited_count}</Badge>
-                          ) : '0'}
-                        </TableCell>
+                        <TableCell className="text-right text-xs font-mono">{run.rate_limited_count > 0 ? <Badge variant="destructive" className="text-[10px]">{run.rate_limited_count}</Badge> : '0'}</TableCell>
                         <TableCell className="text-right text-xs font-mono">{run.sources_processed}</TableCell>
                         <TableCell className="text-right text-xs font-mono">{(run.duration_ms / 1000).toFixed(1)}s</TableCell>
                       </TableRow>
@@ -1177,6 +1042,14 @@ function RecentRuns() {
 export default function CatalogCache() {
   const { language } = useLanguage();
 
+  // Get total count from summary for the items table footer
+  const { data: summaryData } = useQuery({
+    queryKey: ['catalog-cache-summary'],
+    queryFn: () => invokeAdmin({ mode: 'summary' }),
+    staleTime: 60_000,
+  });
+  const totalCount = summaryData?.total_count ?? 0;
+
   return (
     <div className="space-y-6">
       <div>
@@ -1191,11 +1064,11 @@ export default function CatalogCache() {
       </div>
 
       <SummaryCards />
-      <RunControls />
-      <BuilderSources />
-      <RecentRuns />
+      <FetchProducts />
       <SearchInsights />
-      <ItemsTable />
+      <ItemsTable totalCount={totalCount} />
+      <RecentFetchHistory />
+      <BuilderSources />
     </div>
   );
 }

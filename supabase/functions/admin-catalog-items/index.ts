@@ -346,6 +346,9 @@ async function handleAction(req: Request, action: string) {
 
   if (action === "run-builder") {
     const provider = body.provider || "ebay";
+    const categoryKey = body.category_key || undefined;
+    const maxItemsTarget = body.max_items_target || 100;
+
     // Check provider health first
     const { data: health } = await sb
       .from("provider_health_status")
@@ -361,17 +364,24 @@ async function handleAction(req: Request, action: string) {
     const workerUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/catalog-refresh-worker`;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+    const workerBody: Record<string, unknown> = { 
+      mode: "catalog-builder", 
+      provider,
+      max_items_target: maxItemsTarget,
+    };
+    if (categoryKey) workerBody.category_key = categoryKey;
+
     const res = await fetch(workerUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${serviceKey}`,
       },
-      body: JSON.stringify({ mode: "catalog-builder", provider }),
+      body: JSON.stringify(workerBody),
     });
 
     const result = await res.json();
-    return json({ success: true, worker_result: result });
+    return json({ success: true, worker_result: result, provider });
   }
 
   if (action === "start-campaign") {

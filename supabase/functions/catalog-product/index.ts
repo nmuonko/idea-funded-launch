@@ -517,7 +517,7 @@ Deno.serve(async (req: Request) => {
   const internalProvider = (provider === "amazon" || provider === "rainforest" || !provider) ? "rainforest" : provider;
   const fullProductId = internalProvider === "rainforest" 
     ? `amazon_${productId}` 
-    : `${internalProvider}:${productId}`;
+    : `${internalProvider}_${productId}`;
 
   try {
     // Create SDK-free DB client
@@ -565,13 +565,14 @@ Deno.serve(async (req: Request) => {
     
     // Also fetch from catalog_item_media for full gallery images
     const mediaProvider = internalProvider === "rainforest" ? "amazon" : internalProvider;
-    const [dbItemResult, cachedVariantsResult, mediaResult] = await Promise.all([
+    const [dbItemResult, dbItemByProviderResult, cachedVariantsResult, mediaResult] = await Promise.all([
       db.from("catalog_items").select("*").eq("id", fullProductId).maybeSingle(),
+      db.from("catalog_items").select("*").eq("provider", internalProvider === "rainforest" ? "amazon" : internalProvider).eq("provider_product_id", productId!).maybeSingle(),
       getCachedVariants(),
       db.from("catalog_item_media").select("image_urls,image_count").eq("provider", mediaProvider).eq("provider_item_id", productId!).gt("expires_at", new Date().toISOString()).maybeSingle(),
     ]);
 
-    const dbItem = dbItemResult.data;
+    const dbItem = dbItemResult.data || dbItemByProviderResult.data;
 
     if (dbItem) {
       // Guardrail 2: Direct +3 popularity increment (product detail = low volume)
@@ -598,6 +599,54 @@ Deno.serve(async (req: Request) => {
         }
       }
       
+      // ========== eBay Gallery Enrichment: fetch full gallery if only 0-1 images ==========
+      if (dbItem.provider === "ebay" && (item.images?.length || 0) <= 1) {
+        try {
+          console.log(`[GALLERY_ENRICH] eBay item ${productId} has ${item.images?.length ?? 0} images, fetching live gallery...`);
+          const liveResult = await getEbayItem(db, productId!);
+          const liveItem = liveResult?.item;
+          console.log(`[GALLERY_ENRICH] live result for ${productId}: found=${!!liveItem}, images=${liveItem?.images?.length ?? 0}, debug=${JSON.stringify(liveResult?.debug || {})}`);
+          if (liveItem && Array.isArray(liveItem.images) && liveItem.images.length > (item.images?.length || 0)) {
+            const enrichedImages = upgradeGalleryImages(liveItem.images, "ebay");
+            if (enrichedImages.length > (item.images?.length || 0)) {
+              console.log(`[GALLERY_ENRICH] enriched ${productId}: ${item.images?.length ?? 0} → ${enrichedImages.length} images`);
+              item.images = enrichedImages;
+              item.imageUrls = enrichedImages;
+              item.mainImageUrl = enrichedImages[0] || item.mainImageUrl;
+              item.imageUrl = enrichedImages[0] || item.imageUrl;
+
+              // Persist enriched gallery back to catalog_items (fire-and-forget)
+              // Use dbItem.id (the actual DB row ID, which may be UUID) not fullProductId
+              const dbRowId = dbItem.id || fullProductId;
+              db.from("catalog_items")
+                .update({ 
+                  images: enrichedImages, 
+                  image_url: enrichedImages[0] || dbItem.image_url,
+                  updated_at: new Date().toISOString() 
+                })
+                .eq("id", dbRowId)
+                .then(() => console.log(`[GALLERY_ENRICH] persisted ${enrichedImages.length} images for ${dbRowId}`))
+                .catch((e: any) => console.warn(`[GALLERY_ENRICH] persist failed: ${e}`));
+
+              // Also persist to catalog_item_media for future use
+              db.from("catalog_item_media")
+                .upsert({
+                  provider: "ebay",
+                  provider_item_id: productId!,
+                  image_urls: enrichedImages,
+                  image_count: enrichedImages.length,
+                  fetched_at: new Date().toISOString(),
+                  expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                }, { onConflict: "provider,provider_item_id" })
+                .then(() => {})
+                .catch((e: any) => console.warn(`[GALLERY_ENRICH] media persist failed: ${e}`));
+            }
+          }
+        } catch (e) {
+          console.warn(`[GALLERY_ENRICH] live fetch failed for ${productId}, returning DB data as-is: ${e}`);
+        }
+      }
+
       const blockCheck = isDisallowedItem({
         title: item.title,
         productUrl: item.productUrl,

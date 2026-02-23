@@ -505,10 +505,16 @@ export function determineShippingCategory(input: CategoryDetectionInput): Catego
   }
 
   // Determine if this requires a manual quote
-  // ALL vehicles require a quote regardless of price, confidence, or store.
-  // Only exclusion keywords (parts, accessories, toys) bypass this.
+  // Vehicles require a quote, but ONLY if confidence is strong enough.
+  // Items that merely mention a car brand (e.g. "Honda Generator") should NOT
+  // be flagged as vehicles. We require either:
+  //   - A car-marketplace store hint (CARVANA, CARGURUS, etc.) — already handled above
+  //   - A vehicle URL pattern AND keyword match
+  //   - Strong keyword-only match (score >= 3.0) indicating multiple vehicle signals
   const isVehicle = finalCategory === 'vehicle';
-  const requiresQuote = isVehicle && !hasVehicleExclusion;
+  const hasStrongVehicleSignal = bestScore >= 3.0 || 
+    (categoryScores['vehicle'].keywords.includes('url_vehicle_pattern') && bestScore >= 1.5);
+  const requiresQuote = isVehicle && !hasVehicleExclusion && hasStrongVehicleSignal;
 
   return {
     category: finalCategory,

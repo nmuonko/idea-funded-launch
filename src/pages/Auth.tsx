@@ -212,7 +212,7 @@ export default function Auth() {
             <img 
               src={afrishopLogo} 
               alt="AfriShop - From USA to You" 
-              className="h-28 md:h-36 w-auto drop-shadow-[0_0_30px_rgba(59,130,246,0.4)]"
+              className="h-28 md:h-36 w-auto rounded-2xl"
             />
           </div>
 

@@ -81,7 +81,7 @@ export default function Onboarding() {
     <div className="min-h-screen bg-black flex flex-col">
       {/* Header */}
       <header className="p-4 flex items-center justify-between">
-        <img src={afrishopLogo} alt="AfriShop" className="h-8" />
+        <img src={afrishopLogo} alt="AfriShop" className="h-8 rounded-md" />
         <Button
           variant="ghost"
           size="sm"

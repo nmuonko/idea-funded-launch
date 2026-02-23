@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Brain, TrendingUp, RefreshCw, Ban, CheckCircle, Clock, Search, Zap, Upload, Activity, AlertTriangle, Rocket, Database, Square } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { supabase } from "@/integrations/supabase/client";
 
 interface SearchLogAgg {
   q_norm: string;
@@ -208,13 +209,33 @@ export default function AutoLearning() {
       setBackfillStatus(result.data);
       if (showToast) toast.success("Status refreshed");
     } catch (err: any) {
-      console.error("Failed to fetch backfill status:", err);
-      if (showToast) toast.error("Failed to refresh status");
+      console.warn("Edge fn failed, using DB fallback for category counts", err);
+      try {
+        const { data: cats } = await supabase.rpc('admin_catalog_category_counts');
+        if (cats) {
+          setBackfillStatus({
+            queue: { queued: 0, running: 0 },
+            categories: cats as any,
+          });
+          if (showToast) toast.success("Status refreshed (from database)");
+        } else if (showToast) {
+          toast.error("Failed to refresh status");
+        }
+      } catch (dbErr) {
+        console.error("DB fallback also failed:", dbErr);
+        if (showToast) toast.error("Failed to refresh status");
+      }
     }
     setRefreshingStatus(false);
   };
 
   useEffect(() => { fetchBackfillStatus(); }, []);
+
+  // Auto-refresh category counts every 60 seconds
+  useEffect(() => {
+    const interval = setInterval(() => fetchBackfillStatus(), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const statusBadge = (status: string) => {
     const map: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; icon: any }> = {

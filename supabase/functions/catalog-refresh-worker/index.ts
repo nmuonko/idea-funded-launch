@@ -799,11 +799,17 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
     return { status: "all_exhausted" };
   }
 
-  // Round-robin: sort by category to diversify
-  const shuffled = [...activeSources].sort((a: any, b: any) => {
-    if (a.category_key !== b.category_key) return a.category_key.localeCompare(b.category_key);
-    return a.priority - b.priority;
-  });
+  // Prioritize category sources over seed queries, shuffle within groups
+  const categorySources = activeSources.filter((s: any) => s.source_type === "ebay_category");
+  const seedSources = activeSources.filter((s: any) => s.source_type !== "ebay_category");
+  const shuffleArr = (arr: any[]) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  };
+  const shuffled = [...shuffleArr([...categorySources]), ...shuffleArr([...seedSources])];
 
   for (const source of shuffled) {
     const timeRemaining = BUILDER_TIME_BUDGET_MS - (Date.now() - runStart);
@@ -899,32 +905,27 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
 
         const productIds = upsertRows.map((r: any) => r.provider_product_id);
 
+        // PREFETCH: check which IDs already exist BEFORE upserting
+        const { data: existingRows } = await supabase
+          .from("catalog_items")
+          .select("provider_product_id")
+          .eq("provider", "ebay")
+          .in("provider_product_id", productIds);
+
+        const existingSet = new Set((existingRows || []).map((r: any) => r.provider_product_id));
+        const newItems = productIds.filter((id: string) => !existingSet.has(id)).length;
+        const duplicateCount = productIds.length - newItems;
+        const duplicateRatio = productIds.length > 0 ? duplicateCount / productIds.length : 0;
+
+        // NOW upsert
         const { error: upsertErr } = await supabase
           .from("catalog_items")
           .upsert(upsertRows, { onConflict: "provider,provider_product_id" });
-
-        let newItems = 0;
-        let duplicateCount = 0;
-        let duplicateRatio = 0;
 
         if (upsertErr) {
           console.error(`[BUILDER] Upsert error source ${source.id}:`, upsertErr.message);
         } else {
           totalUpserted += upsertRows.length;
-
-          // Accurate unique counting — query first_seen_at >= run start time
-          const runStartIso = new Date(runStart).toISOString();
-          const { count: newCount } = await supabase
-            .from("catalog_items")
-            .select("id", { count: "exact", head: true })
-            .eq("provider", "ebay")
-            .in("provider_product_id", productIds)
-            .gte("first_seen_at", runStartIso);
-
-          newItems = newCount ?? 0;
-          duplicateCount = productIds.length - newItems;
-          duplicateRatio = productIds.length > 0 ? duplicateCount / productIds.length : 0;
-
           totalNewUnique += newItems;
           totalDuplicatesSkipped += duplicateCount;
           sourceIngested += newItems;
@@ -956,7 +957,7 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
         } else if (duplicateRatio > 0.9 && newItems === 0) {
           // >90% duplicates and zero new: JUMP forward instead of exhausting
           const jumpAmount = BUILDER_OFFSET_JUMP;
-          currentOffset += jumpAmount;
+          currentOffset = Math.min(currentOffset + jumpAmount, Math.max(0, total - BUILDER_ITEMS_PER_PAGE));
           console.log(`[BUILDER] Source ${source.id} high duplicates (${(duplicateRatio * 100).toFixed(0)}%), jumping offset +${jumpAmount} to ${currentOffset}`);
         } else {
           // Normal: advance offset by items received

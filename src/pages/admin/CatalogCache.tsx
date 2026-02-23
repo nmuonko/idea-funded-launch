@@ -444,25 +444,32 @@ function ItemsTable() {
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [appliedFilters, setAppliedFilters] = useState<Filters>(defaultFilters);
-  const [page, setPage] = useState(0);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [cursorId, setCursorId] = useState<string | null>(null);
+  const [cursorStack, setCursorStack] = useState<Array<{ cursor: string | null; cursorId: string | null }>>([]);
 
   const applyFilters = useCallback(() => {
     setAppliedFilters({ ...filters });
-    setPage(0);
+    setCursor(null);
+    setCursorId(null);
+    setCursorStack([]);
   }, [filters]);
 
   const resetFilters = useCallback(() => {
     setFilters(defaultFilters);
     setAppliedFilters(defaultFilters);
-    setPage(0);
+    setCursor(null);
+    setCursorId(null);
+    setCursorStack([]);
   }, []);
 
   const buildParams = useCallback((): Record<string, string> => {
     const p: Record<string, string> = {
       mode: 'list',
       limit: String(PAGE_SIZE),
-      offset: String(page * PAGE_SIZE),
     };
+    if (cursor) p.cursor = cursor;
+    if (cursorId) p.cursor_id = cursorId;
     if (appliedFilters.category_key) p.category_key = appliedFilters.category_key;
     if (appliedFilters.provider) p.provider = appliedFilters.provider;
     if (appliedFilters.is_active) p.is_active = appliedFilters.is_active;
@@ -472,18 +479,34 @@ function ItemsTable() {
     if (appliedFilters.sort_by) p.sort_by = appliedFilters.sort_by;
     if (appliedFilters.date_preset) p.date_preset = appliedFilters.date_preset;
     return p;
-  }, [page, appliedFilters]);
+  }, [cursor, cursorId, appliedFilters]);
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['catalog-cache-list', appliedFilters, page],
+    queryKey: ['catalog-cache-list', appliedFilters, cursor, cursorId],
     queryFn: () => invokeAdmin(buildParams()),
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   });
 
   const items = data?.items ?? [];
-  const totalCount = data?.total_count ?? 0;
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+  const hasMore = data?.has_more ?? false;
+
+  const goNext = useCallback(() => {
+    if (data?.next_cursor) {
+      setCursorStack(s => [...s, { cursor, cursorId }]);
+      setCursor(data.next_cursor);
+      setCursorId(data.next_cursor_id);
+    }
+  }, [data, cursor, cursorId]);
+
+  const goPrev = useCallback(() => {
+    if (cursorStack.length > 0) {
+      const prev = cursorStack[cursorStack.length - 1];
+      setCursorStack(s => s.slice(0, -1));
+      setCursor(prev.cursor);
+      setCursorId(prev.cursorId);
+    }
+  }, [cursorStack]);
 
   const actionMutation = useMutation({
     mutationFn: ({ action, body }: { action: string; body: Record<string, unknown> }) =>
@@ -768,25 +791,25 @@ function ItemsTable() {
             </Table>
           </div>
 
-          {/* Pagination */}
+          {/* Cursor Pagination */}
           <div className="flex items-center justify-between px-4 py-3 border-t">
             <p className="text-xs text-muted-foreground">
-              {totalCount.toLocaleString()} items · Page {page + 1} of {Math.max(1, totalPages)}
+              Showing {items.length} items{cursorStack.length > 0 ? ` · Page ${cursorStack.length + 1}` : ''}
             </p>
             <div className="flex gap-1">
               <Button
                 size="sm"
                 variant="outline"
-                disabled={page === 0}
-                onClick={() => setPage((p) => p - 1)}
+                disabled={cursorStack.length === 0}
+                onClick={goPrev}
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                disabled={page >= totalPages - 1}
-                onClick={() => setPage((p) => p + 1)}
+                disabled={!hasMore}
+                onClick={goNext}
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>

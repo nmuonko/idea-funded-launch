@@ -14,8 +14,7 @@ import afrishopLogo from '@/assets/afrishop-logo.png';
 import { isLovablePreview } from '@/lib/environment';
 import { NetworkBlockedBanner } from '@/components/NetworkBlockedBanner';
 
-// Lazy load diagnostics panel - allow in DEV, ?debug=true, or after auth error
-const SupabaseDiagnostics = lazy(() => import('@/components/admin/SupabaseDiagnostics'));
+// SupabaseDiagnostics removed (dead code)
 const isDev = import.meta.env.DEV;
 
 export default function Auth() {
@@ -226,24 +225,7 @@ export default function Auth() {
             />
           )}
 
-          {/* Diagnostics Panel - DEV, ?debug=true, or after auth error (but not if network blocked banner shown) */}
-          {showDiagnosticsPanel && !networkBlocked && (
-            <Suspense fallback={<div className="animate-pulse h-32 bg-muted/20 rounded-lg" />}>
-              <SupabaseDiagnostics />
-            </Suspense>
-          )}
-          
-          {/* Show Run Diagnostics button if there was an auth error but panel is hidden */}
-          {authError && !showDiagnosticsPanel && !networkBlocked && (
-            <Button
-              variant="outline"
-              className="w-full border-amber-500/50 text-amber-500 hover:bg-amber-500/10"
-              onClick={() => setShowDiagnosticsPanel(true)}
-            >
-              <Stethoscope className="mr-2 h-4 w-4" />
-              Run Diagnostics
-            </Button>
-          )}
+          {/* Diagnostics panel removed */}
 
           {/* Preview Environment Warning */}
           {inPreview && (

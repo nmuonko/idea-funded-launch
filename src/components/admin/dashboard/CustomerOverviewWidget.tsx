@@ -37,57 +37,73 @@ export function CustomerOverviewWidget() {
   const loadTopCustomers = async () => {
     setLoading(true);
     try {
-      // Get all non-admin profiles
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('user_id, full_name, email, country, created_at')
-        .order('created_at', { ascending: false });
-
+      // Get admin user IDs to exclude
       const { data: adminRoles } = await supabase
         .from('user_roles')
         .select('user_id')
         .eq('role', 'admin');
-
       const adminIds = new Set(adminRoles?.map(r => r.user_id) || []);
-      const customerProfiles = profiles?.filter(p => !adminIds.has(p.user_id)) || [];
 
-      // Count new this month
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      startOfMonth.setHours(0, 0, 0, 0);
-      const newCount = customerProfiles.filter(p => new Date(p.created_at) >= startOfMonth).length;
-      setNewThisMonth(newCount);
-      setTotalCustomers(customerProfiles.length);
-
-      // Get order stats
-      const customerIds = customerProfiles.map(p => p.user_id);
+      // Get order stats - top spenders (limited query, not full table scan)
       const { data: orderStats } = await supabase
         .from('orders')
         .select('user_id, total_usd')
-        .in('user_id', customerIds)
-        .in('status', ['PAID', 'PROCESSING', 'SHIPPED', 'COMPLETED', 'READY_FOR_PICKUP']);
+        .in('status', ['PAID', 'PROCESSING', 'SHIPPED', 'COMPLETED', 'READY_FOR_PICKUP'])
+        .limit(500);
 
       const statsMap = new Map<string, { count: number; total: number }>();
       orderStats?.forEach(order => {
+        if (adminIds.has(order.user_id)) return;
         const existing = statsMap.get(order.user_id) || { count: 0, total: 0 };
         existing.count += 1;
         existing.total += order.total_usd || 0;
         statsMap.set(order.user_id, existing);
       });
 
-      // Combine and sort by total spent
-      const customersWithStats: CustomerSummary[] = customerProfiles.map(p => ({
-        user_id: p.user_id,
-        full_name: p.full_name,
-        email: p.email,
-        country: p.country,
-        order_count: statsMap.get(p.user_id)?.count || 0,
-        total_spent: statsMap.get(p.user_id)?.total || 0,
-      }));
+      // Sort by total spent and take top 5 user IDs
+      const topUserIds = [...statsMap.entries()]
+        .sort((a, b) => b[1].total - a[1].total)
+        .slice(0, 5)
+        .map(([uid]) => uid);
 
-      // Sort by total spent and take top 5
-      customersWithStats.sort((a, b) => b.total_spent - a.total_spent);
-      setCustomers(customersWithStats.slice(0, 5));
+      // Only fetch profiles for top 5
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('user_id, full_name, email, country')
+        .in('user_id', topUserIds);
+
+      // Get total customer count (lightweight)
+      const { count: totalCount } = await supabase
+        .from('profiles')
+        .select('user_id', { count: 'exact', head: true });
+
+      // Get new this month count
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+      const { count: newCount } = await supabase
+        .from('profiles')
+        .select('user_id', { count: 'exact', head: true })
+        .gte('created_at', startOfMonth.toISOString());
+
+      setTotalCustomers((totalCount || 0) - (adminRoles?.length || 0));
+      setNewThisMonth(newCount || 0);
+
+      const profileMap = new Map(profiles?.map(p => [p.user_id, p]) || []);
+      const customersWithStats: CustomerSummary[] = topUserIds.map(uid => {
+        const p = profileMap.get(uid);
+        const s = statsMap.get(uid)!;
+        return {
+          user_id: uid,
+          full_name: p?.full_name || null,
+          email: p?.email || null,
+          country: p?.country || null,
+          order_count: s.count,
+          total_spent: s.total,
+        };
+      });
+
+      setCustomers(customersWithStats);
     } catch (error) {
       console.error('Error loading customers:', error);
     } finally {

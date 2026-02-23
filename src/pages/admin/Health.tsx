@@ -35,13 +35,7 @@ interface HealthCheck {
   details?: string;
 }
 
-interface EdgeFunctionStats {
-  name: string;
-  invocations: number;
-  errors: number;
-  errorRate: number;
-  avgLatency: number;
-}
+// EdgeFunctionStats interface removed — was showing fabricated data
 
 interface SystemHealthData {
   circuits: Record<string, { state: 'CLOSED' | 'OPEN' | 'HALF_OPEN'; failures: number; isAvailable: boolean }>;
@@ -70,7 +64,7 @@ export default function AdminHealth() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [healthChecks, setHealthChecks] = useState<HealthCheck[]>([]);
-  const [edgeFunctionStats, setEdgeFunctionStats] = useState<EdgeFunctionStats[]>([]);
+  // edgeFunctionStats removed — was fabricated data
   const [systemHealth, setSystemHealth] = useState<SystemHealthData | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const { toast } = useToast();
@@ -195,71 +189,14 @@ export default function AdminHealth() {
       setSystemHealth(systemHealthResult.value);
     }
 
-    // Get edge function stats
-    await loadEdgeFunctionStats();
+    // Edge function stats removed — was fabricated data
 
     setLastRefresh(new Date());
     setLoading(false);
     setRefreshing(false);
   };
 
-  const loadEdgeFunctionStats = async () => {
-    try {
-      const [ordersResult, paymentsResult] = await Promise.all([
-        supabase
-          .from('orders')
-          .select('id, status, created_at, maisha_payment_status')
-          .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-          .order('created_at', { ascending: false })
-          .limit(100),
-        supabase
-          .from('maisha_payments')
-          .select('id, status, created_at')
-          .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-          .order('created_at', { ascending: false })
-          .limit(100),
-      ]);
-
-      const orderCount = ordersResult.data?.length || 0;
-      const paymentCount = paymentsResult.data?.length || 0;
-      const failedPayments = paymentsResult.data?.filter(p => p.status === 'failed').length || 0;
-
-      const stats: EdgeFunctionStats[] = [
-        {
-          name: 'mobile-checkout',
-          invocations: orderCount,
-          errors: 0,
-          errorRate: 0,
-          avgLatency: 450
-        },
-        {
-          name: 'payment-callback',
-          invocations: paymentCount,
-          errors: failedPayments,
-          errorRate: paymentCount > 0 ? (failedPayments / paymentCount) * 100 : 0,
-          avgLatency: 320
-        },
-        {
-          name: 'extract-price',
-          invocations: orderCount * 2,
-          errors: Math.floor(orderCount * 0.05),
-          errorRate: 5,
-          avgLatency: 2100
-        },
-        {
-          name: 'send-payment-confirmation',
-          invocations: paymentsResult.data?.filter(p => p.status === 'paid').length || 0,
-          errors: 0,
-          errorRate: 0,
-          avgLatency: 890
-        },
-      ];
-
-      setEdgeFunctionStats(stats);
-    } catch (err) {
-      console.error('Error loading edge function stats:', err);
-    }
-  };
+  // loadEdgeFunctionStats removed — was showing fabricated latency/error data
 
   const getStatusIcon = (status: HealthCheck['status']) => {
     switch (status) {
@@ -402,55 +339,7 @@ export default function AdminHealth() {
             ))}
           </div>
 
-          {/* Edge Function Performance */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Zap className="h-5 w-5" />
-                {t.health?.edgeFunctionPerformance || 'Edge Function Performance'}
-              </CardTitle>
-              <CardDescription>
-                {t.health?.last24Hours || 'Last 24 hours activity (estimated)'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {edgeFunctionStats.map((func) => (
-                  <div key={func.name} className="flex items-center justify-between p-4 rounded-lg border bg-card">
-                    <div className="flex items-center gap-4">
-                      <div className="p-2 rounded-full bg-primary/10">
-                        <Zap className="h-4 w-4 text-primary" />
-                      </div>
-                      <div>
-                        <p className="font-medium">{func.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {func.invocations} {t.health?.invocations || 'invocations'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-6 text-sm">
-                      <div className="text-center">
-                        <p className={`font-semibold ${func.errorRate > 10 ? 'text-red-500' : func.errorRate > 5 ? 'text-yellow-500' : 'text-emerald-500'}`}>
-                          {func.errorRate.toFixed(1)}%
-                        </p>
-                        <p className="text-xs text-muted-foreground">{t.health?.errorRate || 'Error Rate'}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className={`font-semibold ${func.avgLatency > 3000 ? 'text-red-500' : func.avgLatency > 1000 ? 'text-yellow-500' : 'text-emerald-500'}`}>
-                          {func.avgLatency}ms
-                        </p>
-                        <p className="text-xs text-muted-foreground">{t.health?.avgLatency || 'Avg Latency'}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="font-semibold">{func.errors}</p>
-                        <p className="text-xs text-muted-foreground">{t.health?.errors || 'Errors'}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          {/* Edge Function Performance card removed — was showing fabricated stats */}
 
           {/* Quick Stats */}
           <div className="grid gap-4 md:grid-cols-3">

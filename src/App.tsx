@@ -52,11 +52,7 @@ const ThemeSettings = lazy(() => import("./pages/admin/ThemeSettings"));
 const AdminAccessDenied = lazy(() => import("./pages/admin/AccessDenied"));
 const AuditLog = lazy(() => import("./pages/admin/AuditLog"));
 const QuoteRequests = lazy(() => import("./pages/admin/QuoteRequests"));
-const PriceConfirmations = lazy(() => import("./pages/admin/PriceConfirmations"));
-const TransferProofs = lazy(() => import("./pages/admin/TransferProofs"));
 const AdminHealth = lazy(() => import("./pages/admin/Health"));
-const BankTransferSettings = lazy(() => import("./pages/admin/BankTransferSettings"));
-const CacheSettings = lazy(() => import("./pages/admin/CacheSettings"));
 const CatalogSourcesSettings = lazy(() => import("./pages/admin/CatalogSourcesSettings"));
 const CarsSettings = lazy(() => import("./pages/admin/CarsSettings"));
 const HomeRecipes = lazy(() => import("./pages/admin/HomeRecipes"));
@@ -383,11 +379,7 @@ const App = () => {
                   <ServiceZones />
                 </AdminRouteGuard>
               } />
-              <Route path="cache-settings" element={
-                <AdminRouteGuard requiredPermission="can_view_settings">
-                  <CacheSettings />
-                </AdminRouteGuard>
-              } />
+              {/* cache-settings route removed — merged into catalog-sources */}
               <Route path="catalog-cache" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <CatalogCache />

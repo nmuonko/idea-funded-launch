@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { toast } from '@/hooks/use-toast';
 import { 
@@ -29,8 +31,30 @@ import {
   Search,
   Layers,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Trash2,
+  Loader2,
+  ShieldCheck
 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { format } from 'date-fns';
 
 interface PrewarmJob {
@@ -120,11 +144,51 @@ const DEFAULT_SETTINGS: CatalogSettings = {
   ebay_home_cache_ttl_seconds: 1800,
 };
 
+const CANONICAL_CATEGORIES = [
+  { key: 'electronics', label: 'Electronics' },
+  { key: 'vehicles', label: 'Vehicles' },
+  { key: 'home_garden', label: 'Home & Garden' },
+  { key: 'clothing_shoes_accessories', label: 'Clothing & Shoes' },
+  { key: 'toys', label: 'Toys' },
+  { key: 'sporting_goods', label: 'Sporting Goods' },
+  { key: 'business_industrial', label: 'Business & Industrial' },
+  { key: 'jewelry_watches', label: 'Jewelry & Watches' },
+  { key: 'refurbished', label: 'Refurbished' },
+  { key: 'parts_accessories', label: 'Parts & Accessories' },
+  { key: 'beauty_health', label: 'Beauty & Health' },
+  { key: 'cameras_photo', label: 'Cameras & Photo' },
+  { key: 'collectibles', label: 'Collectibles' },
+];
+
+interface CategoryOverride {
+  category_key: string;
+  max_item_age_days: number | null;
+  price_refresh_days: number | null;
+  availability_refresh_days: number | null;
+  db_min_results: number | null;
+  enabled: boolean;
+}
+
 export default function CatalogSourcesSettings() {
   const { language } = useLanguage();
+  const { session } = useAuth();
   const queryClient = useQueryClient();
   const [settings, setSettings] = useState<CatalogSettings>(DEFAULT_SETTINGS);
   const [isDirty, setIsDirty] = useState(false);
+  
+  // Cache settings state (merged from CacheSettings)
+  const [searchTtlDays, setSearchTtlDays] = useState(2);
+  const [categoriesTtlDays, setCategoriesTtlDays] = useState(1);
+  const [maxItemAgeDays, setMaxItemAgeDays] = useState(30);
+  const [priceRefreshDays, setPriceRefreshDays] = useState(3);
+  const [availRefreshDays, setAvailRefreshDays] = useState(3);
+  const [dbMinResults, setDbMinResults] = useState(5);
+  const [categoryOverrides, setCategoryOverrides] = useState<CategoryOverride[]>(
+    CANONICAL_CATEGORIES.map(c => ({
+      category_key: c.key, max_item_age_days: null, price_refresh_days: null,
+      availability_refresh_days: null, db_min_results: null, enabled: true,
+    }))
+  );
   
   // Prewarm job polling state
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -142,6 +206,107 @@ export default function CatalogSourcesSettings() {
       return data as SettingRow[];
     },
   });
+
+  // Cache settings queries (merged from CacheSettings)
+  const { data: cacheSettings } = useQuery({
+    queryKey: ['catalog-cache-settings'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('catalog_cache_settings').select('*').eq('key', 'default').maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+  const { data: globalTtl } = useQuery({
+    queryKey: ['admin-ttl-settings'],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke('admin-catalog-settings', { method: 'GET' });
+      if (error) throw error;
+      return data;
+    },
+  });
+  const { data: catOverridesData } = useQuery({
+    queryKey: ['catalog-category-ttl'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('catalog_category_ttl' as any).select('*');
+      if (error) throw error;
+      return data as any[];
+    },
+  });
+  useEffect(() => {
+    if (cacheSettings) {
+      setSearchTtlDays(Math.round((cacheSettings.search_expires_minutes ?? 2880) / 1440));
+      setCategoriesTtlDays(Math.round((cacheSettings.home_expires_minutes ?? 1440) / 1440));
+    }
+  }, [cacheSettings]);
+  useEffect(() => {
+    if (globalTtl?.raw) {
+      const map = new Map<string, string>();
+      for (const r of globalTtl.raw) map.set(r.key, r.value);
+      setMaxItemAgeDays(parseInt(map.get('global_max_item_age_days') || '30', 10));
+      setPriceRefreshDays(parseInt(map.get('global_price_refresh_days') || '3', 10));
+      setAvailRefreshDays(parseInt(map.get('global_availability_refresh_days') || '3', 10));
+      setDbMinResults(parseInt(map.get('db_search_min_results') || '5', 10));
+    }
+  }, [globalTtl]);
+  useEffect(() => {
+    if (catOverridesData) {
+      setCategoryOverrides(prev => prev.map(c => {
+        const ov = catOverridesData.find((d: any) => d.category_key === c.category_key);
+        return ov ? { ...c, ...ov } : c;
+      }));
+    }
+  }, [catOverridesData]);
+
+  // Cache mutations
+  const clearCacheMutation = useMutation({
+    mutationFn: async () => { const { data, error } = await supabase.rpc('admin_clear_search_cache'); if (error) throw error; return data; },
+    onSuccess: (data: any) => { toast({ title: language === 'fr' ? 'Cache vidé' : 'Cache cleared', description: `catalog=${data.deleted_catalog_cache}, proxy=${data.deleted_search_proxy_cache}` }); },
+    onError: (error: any) => { toast({ title: 'Error', description: error.message, variant: 'destructive' }); },
+  });
+  const saveResponseCacheMutation = useMutation({
+    mutationFn: async () => {
+      const searchExpiresMin = searchTtlDays * 1440;
+      const homeExpiresMin = categoriesTtlDays * 1440;
+      const { error } = await supabase.from('catalog_cache_settings').upsert({ key: 'default', search_expires_minutes: searchExpiresMin, search_stale_minutes: Math.floor(searchExpiresMin * 0.5), home_expires_minutes: homeExpiresMin, home_stale_minutes: Math.floor(homeExpiresMin * 0.5), offers_expires_minutes: homeExpiresMin, offers_stale_minutes: Math.floor(homeExpiresMin * 0.5), negative_expires_seconds: 120, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if (error) throw error;
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['catalog-cache-settings'] }); toast({ title: language === 'fr' ? 'Cache réponse sauvegardé' : 'Response cache saved' }); },
+    onError: (error: any) => { toast({ title: 'Error', description: error.message, variant: 'destructive' }); },
+  });
+  const saveGlobalTtlMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('admin-catalog-settings', { method: 'POST', body: { updates: { global_max_item_age_days: String(maxItemAgeDays), global_price_refresh_days: String(priceRefreshDays), global_availability_refresh_days: String(availRefreshDays), db_search_min_results: String(dbMinResults) } } });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.message || 'Failed');
+      return data;
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['admin-ttl-settings'] }); toast({ title: language === 'fr' ? 'Paramètres TTL sauvegardés' : 'TTL Settings saved' }); },
+    onError: (error: any) => { toast({ title: 'Error', description: error.message, variant: 'destructive' }); },
+  });
+  const saveCategoryOverridesMutation = useMutation({
+    mutationFn: async () => {
+      const toSave = categoryOverrides.filter(c => c.max_item_age_days != null || c.price_refresh_days != null || c.availability_refresh_days != null || c.db_min_results != null || !c.enabled);
+      if (toSave.length === 0) return;
+      const { data, error } = await supabase.functions.invoke('admin-catalog-settings', { method: 'PUT', body: { categoryOverrides: toSave } });
+      if (error) throw error;
+      if (!data?.success) throw new Error('Failed to save overrides');
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['catalog-category-ttl'] }); toast({ title: language === 'fr' ? 'Overrides sauvegardés' : 'Category overrides saved' }); },
+    onError: (error: any) => { toast({ title: 'Error', description: error.message, variant: 'destructive' }); },
+  });
+  const applyGlobalToAllMutation = useMutation({
+    mutationFn: async () => { const { data, error } = await supabase.functions.invoke('admin-catalog-settings', { method: 'DELETE' }); if (error) throw error; return data; },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['catalog-category-ttl'] });
+      setCategoryOverrides(CANONICAL_CATEGORIES.map(c => ({ category_key: c.key, max_item_age_days: null, price_refresh_days: null, availability_refresh_days: null, db_min_results: null, enabled: true })));
+      toast({ title: language === 'fr' ? 'Overrides effacés' : 'All overrides cleared' });
+    },
+    onError: (error: any) => { toast({ title: 'Error', description: error.message, variant: 'destructive' }); },
+  });
+  const updateOverride = (key: string, field: string, value: any) => {
+    setCategoryOverrides(prev => prev.map(c => c.category_key === key ? { ...c, [field]: value } : c));
+  };
+  const priceRefreshWarning = priceRefreshDays > maxItemAgeDays;
 
   useEffect(() => {
     if (rawSettings) {
@@ -1013,33 +1178,153 @@ export default function CatalogSourcesSettings() {
         </CardContent>
       </Card>
 
-      {/* Cache TTLs - Redirect to Cache Tab */}
-      <Card>
+      {/* ═══ Cache & Performance (merged from CacheSettings) ═══ */}
+      <Card className="border-primary/20">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <Clock className="h-5 w-5" />
-            {language === 'fr' ? 'Durée du Cache' : 'Cache Duration'}
+            <ShieldCheck className="h-5 w-5 text-primary" />
+            {language === 'fr' ? 'Rétention & Rafraîchissement (Global)' : 'Item Retention & Refresh (Global)'}
           </CardTitle>
-          <CardDescription>
-            {language === 'fr'
-              ? "Les paramètres de cache sont gérés dans l'onglet Cache & Performance."
-              : 'Cache settings are managed in the Cache & Performance tab.'}
-          </CardDescription>
+          <CardDescription>{language === 'fr' ? 'Paramètres globaux sauf override par catégorie.' : 'Global settings unless overridden per category.'}</CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50 border">
-            <AlertCircle className="h-5 w-5 text-muted-foreground mt-0.5" />
-            <div className="text-sm">
-              <p className="font-medium text-foreground">
-                {language === 'fr' ? 'Paramètres centralisés' : 'Centralized Settings'}
-              </p>
-              <p className="text-muted-foreground">
-                {language === 'fr' 
-                  ? "Les TTL du cache (recherche, accueil, offres, négatif) sont maintenant contrôlés depuis l'onglet 'Cache & Performance' du panneau admin."
-                  : "Cache TTLs (search, home, offers, negative) are now controlled from the 'Cache & Performance' tab in the admin panel."}
-              </p>
+        <CardContent className="space-y-6">
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label>{language === 'fr' ? 'Garder les items (jours)' : 'Keep items (days)'}</Label>
+              <Input type="number" min={7} max={90} value={maxItemAgeDays} onChange={e => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) setMaxItemAgeDays(v); }} />
+            </div>
+            <div className="space-y-2">
+              <Label>{language === 'fr' ? 'Rafraîchir prix (jours)' : 'Refresh prices (days)'}</Label>
+              <Input type="number" min={1} max={14} value={priceRefreshDays} onChange={e => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) setPriceRefreshDays(v); }} />
+              {priceRefreshWarning && <p className="text-xs text-destructive">⚠️ Refresh &gt; retention</p>}
+            </div>
+            <div className="space-y-2">
+              <Label>{language === 'fr' ? 'Rafraîchir disponibilité (jours)' : 'Refresh availability (days)'}</Label>
+              <Input type="number" min={1} max={14} value={availRefreshDays} onChange={e => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) setAvailRefreshDays(v); }} />
+            </div>
+            <div className="space-y-2">
+              <Label>{language === 'fr' ? 'Min résultats DB' : 'Min DB results'}</Label>
+              <Input type="number" min={3} max={50} value={dbMinResults} onChange={e => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) setDbMinResults(v); }} />
             </div>
           </div>
+          <Button size="lg" onClick={() => saveGlobalTtlMutation.mutate()} disabled={saveGlobalTtlMutation.isPending || priceRefreshWarning} className="gap-2">
+            {saveGlobalTtlMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            {language === 'fr' ? '💾 Sauvegarder Global' : '💾 Save Global Settings'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Per-Category Overrides */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg flex items-center gap-2"><Settings2 className="h-5 w-5" />{language === 'fr' ? 'Overrides par Catégorie' : 'Per-Category Overrides'}</CardTitle>
+              <CardDescription>{language === 'fr' ? 'Vide = hérite du global.' : 'Empty = inherits global.'}</CardDescription>
+            </div>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1"><RefreshCw className="h-3.5 w-3.5" />{language === 'fr' ? 'Réinitialiser' : 'Reset All'}</Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{language === 'fr' ? 'Effacer overrides ?' : 'Clear all overrides?'}</AlertDialogTitle>
+                  <AlertDialogDescription>{language === 'fr' ? 'Héritera du global.' : 'All will inherit global.'}</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{language === 'fr' ? 'Annuler' : 'Cancel'}</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => applyGlobalToAllMutation.mutate()}>{language === 'fr' ? 'Confirmer' : 'Confirm'}</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Category</TableHead>
+                  <TableHead className="text-center">Max Age</TableHead>
+                  <TableHead className="text-center">Price</TableHead>
+                  <TableHead className="text-center">Avail</TableHead>
+                  <TableHead className="text-center">Min DB</TableHead>
+                  <TableHead className="text-center">On</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {CANONICAL_CATEGORIES.map(cat => {
+                  const ov = categoryOverrides.find(c => c.category_key === cat.key)!;
+                  return (
+                    <TableRow key={cat.key}>
+                      <TableCell className="font-medium text-sm">{cat.label}</TableCell>
+                      <TableCell className="text-center"><Input type="number" min={7} max={90} className="w-16 mx-auto text-center h-8" placeholder={String(maxItemAgeDays)} value={ov.max_item_age_days ?? ''} onChange={e => updateOverride(cat.key, 'max_item_age_days', e.target.value ? parseInt(e.target.value, 10) : null)} /></TableCell>
+                      <TableCell className="text-center"><Input type="number" min={1} max={14} className="w-16 mx-auto text-center h-8" placeholder={String(priceRefreshDays)} value={ov.price_refresh_days ?? ''} onChange={e => updateOverride(cat.key, 'price_refresh_days', e.target.value ? parseInt(e.target.value, 10) : null)} /></TableCell>
+                      <TableCell className="text-center"><Input type="number" min={1} max={14} className="w-16 mx-auto text-center h-8" placeholder={String(availRefreshDays)} value={ov.availability_refresh_days ?? ''} onChange={e => updateOverride(cat.key, 'availability_refresh_days', e.target.value ? parseInt(e.target.value, 10) : null)} /></TableCell>
+                      <TableCell className="text-center"><Input type="number" min={3} max={50} className="w-16 mx-auto text-center h-8" placeholder={String(dbMinResults)} value={ov.db_min_results ?? ''} onChange={e => updateOverride(cat.key, 'db_min_results', e.target.value ? parseInt(e.target.value, 10) : null)} /></TableCell>
+                      <TableCell className="text-center"><Switch checked={ov.enabled} onCheckedChange={v => updateOverride(cat.key, 'enabled', v)} /></TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+          <div className="pt-4">
+            <Button size="lg" onClick={() => saveCategoryOverridesMutation.mutate()} disabled={saveCategoryOverridesMutation.isPending} className="gap-2">
+              {saveCategoryOverridesMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {language === 'fr' ? '💾 Sauvegarder Overrides' : '💾 Save Overrides'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Response Cache TTL */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2"><Clock className="h-5 w-5" />{language === 'fr' ? 'Cache Réponse API' : 'API Response Cache'}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2"><Search className="h-4 w-4 text-primary" />{language === 'fr' ? 'Cache Recherche (jours)' : 'Search Cache (days)'}</Label>
+              <Input type="number" min={1} max={30} value={searchTtlDays} onChange={e => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 1) setSearchTtlDays(v); }} />
+            </div>
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2"><Home className="h-4 w-4 text-primary" />{language === 'fr' ? 'Cache Accueil (jours)' : 'Home Cache (days)'}</Label>
+              <Input type="number" min={1} max={30} value={categoriesTtlDays} onChange={e => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 1) setCategoriesTtlDays(v); }} />
+            </div>
+          </div>
+          <Button onClick={() => saveResponseCacheMutation.mutate()} disabled={saveResponseCacheMutation.isPending} className="gap-2">
+            {saveResponseCacheMutation.isPending && <RefreshCw className="h-4 w-4 animate-spin" />}
+            {language === 'fr' ? 'Enregistrer' : 'Save'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Clear Cache */}
+      <Card className="border-destructive/30">
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2 text-destructive"><Trash2 className="h-5 w-5" />{language === 'fr' ? 'Vider le Cache' : 'Clear Search Cache'}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" className="gap-2 border-destructive/30 text-destructive" disabled={clearCacheMutation.isPending}>
+                {clearCacheMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                {language === 'fr' ? 'Vider' : 'Clear Cache'}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{language === 'fr' ? 'Vider le cache ?' : 'Clear cache?'}</AlertDialogTitle>
+                <AlertDialogDescription>{language === 'fr' ? 'Supprime les résultats cachés.' : 'Removes cached results.'}</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{language === 'fr' ? 'Annuler' : 'Cancel'}</AlertDialogCancel>
+                <AlertDialogAction onClick={() => clearCacheMutation.mutate()}>{language === 'fr' ? 'Vider' : 'Clear'}</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </CardContent>
       </Card>
 

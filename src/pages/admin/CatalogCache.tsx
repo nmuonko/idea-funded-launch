@@ -591,13 +591,27 @@ function SearchInsights() {
 }
 
 // ── Items Table ──────────────────────────────────────────────────────────────
-function ItemsTable({ totalCount }: { totalCount: number }) {
+function ItemsTable({ totalCount: parentTotalCount }: { totalCount: number }) {
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [appliedFilters, setAppliedFilters] = useState<Filters>(defaultFilters);
   const [cursor, setCursor] = useState<string | null>(null);
   const [cursorId, setCursorId] = useState<string | null>(null);
   const [cursorStack, setCursorStack] = useState<Array<{ cursor: string | null; cursorId: string | null }>>([]);
+
+  // Independent DB count - always works regardless of edge function
+  const { data: dbCountData } = useQuery({
+    queryKey: ['catalog-items-db-count'],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from('catalog_items')
+        .select('*', { count: 'exact', head: true });
+      if (error) console.error('[ItemsTable] DB count error:', error);
+      return count ?? 0;
+    },
+    staleTime: 60_000,
+  });
+  const totalCount = dbCountData && dbCountData > 0 ? dbCountData : parentTotalCount;
 
   const applyFilters = useCallback(() => {
     setAppliedFilters({ ...filters });
@@ -631,7 +645,24 @@ function ItemsTable({ totalCount }: { totalCount: number }) {
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['catalog-cache-list', appliedFilters, cursor, cursorId],
-    queryFn: () => invokeAdmin(buildParams()),
+    queryFn: async () => {
+      try {
+        return await invokeAdmin(buildParams());
+      } catch (e) {
+        console.warn('[ItemsTable] Edge fn failed, using DB fallback for items', e);
+        // Fallback: direct DB query for items
+        let query = supabase.from('catalog_items').select('id, provider, provider_product_id, category_key, unified_category, title, image_url, product_url, price_usd, currency, in_stock, is_active, status_reason, fail_count, last_seen_at, last_checked_at, price_updated_at, data_updated_at, first_seen_at, popularity_score');
+        if (appliedFilters.category_key) query = query.eq('category_key', appliedFilters.category_key);
+        if (appliedFilters.provider) query = query.eq('provider', appliedFilters.provider);
+        if (appliedFilters.is_active === 'true') query = query.eq('is_active', true);
+        else if (appliedFilters.is_active === 'false') query = query.eq('is_active', false);
+        if (appliedFilters.q) query = query.ilike('title', `%${appliedFilters.q}%`);
+        query = query.order('first_seen_at', { ascending: false }).limit(PAGE_SIZE);
+        const { data: items, error } = await query;
+        if (error) console.error('[ItemsTable] DB fallback error:', error);
+        return { items: items || [], has_more: (items?.length || 0) >= PAGE_SIZE, next_cursor: null, next_cursor_id: null };
+      }
+    },
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   });

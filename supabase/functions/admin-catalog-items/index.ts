@@ -131,21 +131,12 @@ async function handleSummary(url: URL) {
 
 async function handleList(url: URL) {
   const sb = serviceClient();
-  const limit = clamp(parseInt(url.searchParams.get("limit") || "50"), 1, 50); // Guardrail 5: max 50
-  const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0"));
+  const limit = clamp(parseInt(url.searchParams.get("limit") || "50"), 1, 50);
 
-  // Guardrail 5: Selective columns only — no select("*")
+  // Guardrail 1: Cursor-based pagination — no offset, no exact COUNT
   const ADMIN_LIST_COLUMNS = "id, provider, provider_product_id, category_key, unified_category, title, image_url, product_url, price_usd, currency, in_stock, is_active, status_reason, fail_count, last_seen_at, last_checked_at, price_updated_at, data_updated_at, first_seen_at, popularity_score";
 
-  // Guardrail 5: Only use count when explicitly requested or on first page with no offset
-  const wantCount = url.searchParams.get("count") !== "false" && offset === 0;
-
-  let query = sb
-    .from("catalog_items")
-    .select(
-      ADMIN_LIST_COLUMNS,
-      wantCount ? { count: "exact" } : {}
-    );
+  let query = sb.from("catalog_items").select(ADMIN_LIST_COLUMNS);
 
   // Filters
   const categoryKey = url.searchParams.get("category_key");
@@ -191,30 +182,55 @@ async function handleList(url: URL) {
   const q = url.searchParams.get("q");
   if (q) query = query.ilike("title", `%${q}%`);
 
-  // Sorting
+  // Sorting + cursor-based pagination
   const sortBy = url.searchParams.get("sort_by") || "newest";
+  const cursor = url.searchParams.get("cursor"); // ISO date or number
+  const cursorId = url.searchParams.get("cursor_id"); // tie-breaker
+
+  // Determine sort column and apply cursor filter
+  let sortCol: string;
+  let sortAsc = false;
   switch (sortBy) {
-    case "recently_seen":
-      query = query.order("last_seen_at", { ascending: false, nullsFirst: false });
-      break;
-    case "highest_price":
-      query = query.order("price_usd", { ascending: false, nullsFirst: false });
-      break;
-    case "popularity":
-      query = query.order("popularity_score", { ascending: false, nullsFirst: false });
-      break;
+    case "recently_seen": sortCol = "last_seen_at"; break;
+    case "highest_price": sortCol = "price_usd"; break;
+    case "popularity": sortCol = "popularity_score"; break;
+    case "oldest": sortCol = "first_seen_at"; sortAsc = true; break;
     case "newest":
-    default:
-      query = query.order("first_seen_at", { ascending: false, nullsFirst: false });
-      break;
+    default: sortCol = "first_seen_at"; break;
   }
 
-  query = query.range(offset, offset + limit - 1);
+  // Apply cursor: items after the cursor position
+  if (cursor && cursorId) {
+    if (sortAsc) {
+      // For ascending: get items > cursor, or = cursor but id > cursorId
+      query = query.or(`${sortCol}.gt.${cursor},and(${sortCol}.eq.${cursor},id.gt.${cursorId})`);
+    } else {
+      // For descending: get items < cursor, or = cursor but id > cursorId
+      query = query.or(`${sortCol}.lt.${cursor},and(${sortCol}.eq.${cursor},id.gt.${cursorId})`);
+    }
+  }
 
-  const { data: items, count: total_count, error } = await query;
+  query = query
+    .order(sortCol, { ascending: sortAsc, nullsFirst: false })
+    .order("id", { ascending: true }) // tie-breaker
+    .limit(limit + 1); // fetch one extra to detect "has more"
+
+  const { data: rawItems, error } = await query;
   if (error) return json({ error: error.message }, 500);
 
-  return json({ items: items || [], total_count: total_count ?? 0 });
+  const items = (rawItems || []).slice(0, limit);
+  const hasMore = (rawItems || []).length > limit;
+
+  // Build next_cursor from last item
+  let next_cursor: string | null = null;
+  let next_cursor_id: string | null = null;
+  if (hasMore && items.length > 0) {
+    const last = items[items.length - 1] as any;
+    next_cursor = last[sortCol] ?? null;
+    next_cursor_id = last.id;
+  }
+
+  return json({ items, has_more: hasMore, next_cursor, next_cursor_id });
 }
 
 async function handleBuilderStatus() {

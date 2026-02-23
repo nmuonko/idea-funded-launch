@@ -1,45 +1,41 @@
 
 
-# Fix Two Critical Issues: Broken Product API + Vehicle Detection
+# Fix Product Gallery: Missing Interface Fields Crash the Backend
 
-## Issue 1: Product Gallery Completely Broken (CRITICAL)
+## Root Cause
 
-### Root Cause
-The `catalog-product` edge function has a **fatal compilation error** and is not running at all. The variable `raw` is declared twice with `const` in `mapDbItemToResponse()`:
+The `catalog-product` backend function **crashes on startup** due to a TypeScript compilation error. The logs show only "shutdown" messages -- the function never processes a single request.
 
-- Line 261: `const raw = item.raw as Record<string, any> | null;` (for image fallback)
-- Line 283: `const raw = item.raw as Record<string, any> | null;` (for variant extraction)
+**The bug:** When we added `categoryKey` and `vehiclesSubkey` to the response in `mapDbItemToResponse()`, we forgot to add these fields to the `CatalogItem` TypeScript interface. Deno's strict TypeScript rejects object literals with extra properties from a function with an explicit return type, causing a compile-time crash.
 
-This causes `SyntaxError: Identifier 'raw' has already been declared` on every request. The function crashes before returning any data, so the frontend gets no product details and falls back to the single search thumbnail.
+```text
+mapDbItemToResponse() returns { ..., categoryKey, vehiclesSubkey }
+                                      ^^^^^^^^^   ^^^^^^^^^^^^^^^
+                    These fields don't exist in the CatalogItem interface (lines 222-250)
+                    = TypeScript compile error = function won't start
+```
 
-### Fix
-Remove the duplicate `const raw` declaration on line 283. The first declaration on line 261 is already in scope for the entire function body.
+This is why **every product** shows only one image -- the API call fails entirely, so the frontend falls back to the single search thumbnail passed via navigation state.
 
-**File:** `supabase/functions/catalog-product/index.ts`
-- Line 283: Change `const raw = item.raw as Record<string, any> | null;` to just remove it (the `raw` variable from line 261 is already available)
+## Fix
 
-## Issue 2: Vehicle Detection - Remove $5,000 Price Floor
+Add the two missing fields to the `CatalogItem` interface:
 
-### Problem
-The fallback heuristic in `isVehicleProduct()` requires price >= $5,000. But used motorcycles, old cars, and some boats can be under $5K. Meanwhile, the primary DB category check handles all properly-categorized items regardless of price.
+**File:** `supabase/functions/catalog-product/index.ts` (lines 222-250)
 
-### Fix
-- Remove the `$5,000` price floor from the fallback heuristic entirely
-- The fallback already requires ALL THREE of: year + brand + body type, which is strict enough
-- The DB category check (primary path) has no price requirement and works perfectly
+Add after the existing `category` field:
+```typescript
+categoryKey?: string | null;
+vehiclesSubkey?: string | null;
+```
 
-**File:** `src/pages/shop/ProductDetails.tsx`
-- Remove line 36: `if ((product.priceUsd || 0) < 5000) return false;`
+That's it. One interface update fixes everything -- the function will compile, boot, and return full gallery data again.
 
-## Summary of Changes
+## Technical Details
 
 | File | Change |
 |------|--------|
-| `supabase/functions/catalog-product/index.ts` | Remove duplicate `const raw` declaration (line 283) to fix fatal crash |
-| `src/pages/shop/ProductDetails.tsx` | Remove $5,000 price floor from vehicle fallback heuristic |
+| `supabase/functions/catalog-product/index.ts` | Add `categoryKey` and `vehiclesSubkey` to `CatalogItem` interface (2 lines) |
 
-## Expected Outcome
-1. Product details API starts working again -- all galleries load with full images
-2. Vehicles at any price point are correctly detected (via DB category or strict title heuristic)
-3. Non-vehicle items like laptops remain unaffected (no brand/body-type match)
+No frontend changes needed -- the frontend already handles these fields correctly (lines 294-295 in ProductDetails.tsx).
 

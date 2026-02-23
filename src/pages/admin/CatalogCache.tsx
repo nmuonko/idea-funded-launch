@@ -82,9 +82,11 @@ function SummaryCards({ onTotalCount }: { onTotalCount?: (count: number) => void
         console.warn('[CatalogCache] summary edge fn failed, using DB fallback', e);
       }
       // Fallback: direct DB count
-      const { count } = await supabase
+      const { count, error } = await supabase
         .from('catalog_items')
         .select('*', { count: 'exact', head: true });
+      console.log('[CatalogCache] DB fallback count:', count, 'error:', error);
+      if (error) console.error('[CatalogCache] DB fallback failed:', error);
       return { total_count: count ?? 0 };
     },
     staleTime: 60_000,

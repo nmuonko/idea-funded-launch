@@ -33,8 +33,8 @@ import { round2 } from "../_shared/settings-cache.ts";
 import { sanitizePaymentError } from "../_shared/errorSanitizer.ts";
 
 // Valid provider selections
-type ProviderSelection = 'pawapay' | 'stripe' | 'bank_transfer';
-const VALID_PROVIDERS: ProviderSelection[] = ['pawapay', 'stripe', 'bank_transfer'];
+type ProviderSelection = 'pawapay' | 'stripe';
+const VALID_PROVIDERS: ProviderSelection[] = ['pawapay', 'stripe'];
 
 // Payment statuses for state machine
 type PaymentAttemptStatus = 'pending' | 'processing' | 'paid' | 'failed' | 'expired' | 'cancelled';
@@ -79,8 +79,8 @@ serve(async (req) => {
         ok: false,
         success: false,
         code: 'INVALID_PROVIDER',
-        message: 'Invalid payment provider. Choose: pawapay, stripe, or bank_transfer.',
-        message_fr: 'Fournisseur de paiement invalide. Choisissez: pawapay, stripe, ou bank_transfer.',
+        message: 'Invalid payment provider. Choose: pawapay or stripe.',
+        message_fr: 'Fournisseur de paiement invalide. Choisissez: pawapay ou stripe.',
         valid_providers: VALID_PROVIDERS,
       }, 200);
     }
@@ -455,12 +455,10 @@ serve(async (req) => {
             })
             .eq('id', checkout_session_id);
 
-          // Update order status
           await supabase
             .from('orders')
             .update({
               status: 'PENDING_PAYMENT',
-              maisha_payment_status: 'PENDING',
             })
             .eq('id', orderId);
 
@@ -688,85 +686,6 @@ serve(async (req) => {
           message_fr: 'Une erreur s\'est produite lors du traitement de votre paiement par carte.',
         }, 200);
       }
-    }
-
-    // -------------------- BANK_TRANSFER --------------------
-    if (provider === 'bank_transfer') {
-      console.log('[PAYMENT_FLOW] BANK_TRANSFER_SELECTED', {
-        order_id: orderId,
-        user_id: user.id.slice(0, 8) + '***',
-        checkout_session_id,
-        amount,
-        currency,
-      });
-
-      // Fetch bank transfer settings
-      const { data: bankSettings } = await supabase
-        .from('settings')
-        .select('bank_name, bank_account_holder, bank_account_number, bank_iban, bank_swift, bank_address, bank_instructions_en, bank_instructions_fr')
-        .limit(1)
-        .maybeSingle();
-
-      const transferReference = `AFRISHOP-${orderId.slice(0, 8).toUpperCase()}`;
-
-      const bankTransferInfo = {
-        bank_name: bankSettings?.bank_name || 'Contact support for bank details',
-        beneficiary_name: bankSettings?.bank_account_holder || 'AfriShop USA LLC',
-        account_number_or_iban: bankSettings?.bank_account_number || bankSettings?.bank_iban || '',
-        swift_bic: bankSettings?.bank_swift || '',
-        reference: transferReference,
-        instructions_en: bankSettings?.bank_instructions_en || 'Please transfer the exact amount and include your order ID in the reference.',
-        instructions_fr: bankSettings?.bank_instructions_fr || 'Veuillez transférer le montant exact et inclure votre numéro de commande dans la référence.',
-      };
-
-      // Update payment_attempt
-      await supabase
-        .from('payment_attempts')
-        .update({
-          provider_ref: transferReference,
-          status: 'pending',
-        })
-        .eq('id', paymentAttempt!.id);
-
-      // Update checkout session
-      await supabase
-        .from('checkout_sessions')
-        .update({
-          status: 'initiated',
-          provider_triggered_at: new Date().toISOString(),
-        })
-        .eq('id', checkout_session_id);
-
-      // Update order status
-      await supabase
-        .from('orders')
-        .update({
-          status: 'PENDING_PAYMENT',
-          maisha_payment_status: 'PENDING_BANK_TRANSFER',
-          payment_notes: `Awaiting bank transfer. Reference: ${transferReference}`,
-        })
-        .eq('id', orderId);
-
-      console.log('[PAYMENT_FLOW] BANK_TRANSFER_INITIATED', {
-        order_id: orderId,
-        reference: transferReference,
-        payment_attempt_id: paymentAttempt!.id,
-      });
-
-      return jsonResponse({
-        success: true,
-        provider: 'bank_transfer',
-        payment_attempt_id: paymentAttempt!.id,
-        order_id: orderId,
-        checkout_session_id,
-        reference: transferReference,
-        bank_transfer: bankTransferInfo,
-        status: 'pending_user_confirmation',
-        message: 'Please complete the bank transfer and upload proof of payment.',
-        message_fr: 'Veuillez effectuer le virement bancaire et télécharger la preuve de paiement.',
-        amount,
-        currency,
-      });
     }
 
     // Should never reach here

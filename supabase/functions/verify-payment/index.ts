@@ -172,9 +172,6 @@ serve(async (req) => {
 
     const { orderId, status, description, transactionRefId, operatorRefId } = validationResult.data;
 
-    // Authorization check
-    const webhookSecret = Deno.env.get('MAISHAPAY_WEBHOOK_SECRET');
-    const signature = req.headers.get('x-webhook-signature');
     const authHeader = req.headers.get('authorization');
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -182,12 +179,6 @@ serve(async (req) => {
     let isAuthorized = false;
     let authMethod = 'none';
     let authenticatedUserId: string | null = null;
-
-    // Webhook signature
-    if (webhookSecret && signature) {
-      isAuthorized = await verifyWebhookSignature(rawBody, signature, webhookSecret);
-      if (isAuthorized) authMethod = 'webhook';
-    }
 
     // JWT token
     if (!isAuthorized && authHeader?.startsWith('Bearer ')) {
@@ -221,7 +212,7 @@ serve(async (req) => {
     // Fetch order
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('id, status, user_id, total_usd, total_cdf, maisha_transaction_id, normalized_currency, exchange_rate_used')
+      .select('id, status, user_id, total_usd, total_cdf, normalized_currency, exchange_rate_used')
       .eq('id', orderId)
       .single();
 
@@ -280,7 +271,7 @@ serve(async (req) => {
     if (normalizedStatus === 'paid') {
       const { data: rpcResult, error: rpcError } = await supabase.rpc('finalize_paid_order', {
         p_order_id: orderId,
-        p_payment_ref: transactionRefId || order.maisha_transaction_id,
+        p_payment_ref: transactionRefId || '',
         p_operator_ref: operatorRefId || null,
         p_trace_id: traceId,
       });
@@ -298,7 +289,7 @@ serve(async (req) => {
       // Fetch updated order
       const { data: updatedOrder } = await supabase
         .from('orders')
-        .select('id, status, total_usd, total_cdf, maisha_transaction_id, maisha_payment_status, operator_ref_id')
+        .select('id, status, total_usd, total_cdf, operator_ref_id')
         .eq('id', orderId)
         .single();
 
@@ -317,7 +308,6 @@ serve(async (req) => {
             totalCdf: updatedOrder?.total_cdf,
             currency: expectedCurrency,
             exchangeRate: order.exchange_rate_used || 2500,
-            transactionRef: updatedOrder?.maisha_transaction_id,
             operatorRef: updatedOrder?.operator_ref_id,
           },
           authMethod,
@@ -327,21 +317,9 @@ serve(async (req) => {
 
     } else {
       // Failed/cancelled - keep as PENDING_PAYMENT for retry
-      const maishapayStatus = normalizedStatus === 'failed' ? 'FAILED' : normalizedStatus === 'cancelled' ? 'CANCELLED' : 'PENDING';
-      
       await supabase.from('orders').update({
-        maisha_payment_status: maishapayStatus,
-        maisha_status_code: String(status),
-        maisha_description: description || null,
         updated_at: new Date().toISOString(),
       }).eq('id', orderId);
-
-      await supabase.from('maisha_payments').update({
-        status: normalizedStatus,
-        maishapay_status: maishapayStatus,
-        maishapay_description: description || null,
-        updated_at: new Date().toISOString(),
-      }).eq('order_id', orderId);
 
       const orderRef = orderId.substring(0, 8).toUpperCase();
 

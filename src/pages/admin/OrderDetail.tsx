@@ -372,8 +372,7 @@ export default function AdminOrderDetail() {
                       order?.status === 'PROCESSING' || 
                       order?.status === 'SHIPPED' || 
                       order?.status === 'READY_FOR_PICKUP' || 
-                      order?.status === 'COMPLETED' ||
-                      order?.maisha_payment_status === 'SUCCESS';
+                      order?.status === 'COMPLETED';
 
   if (loading) {
     return (
@@ -439,7 +438,7 @@ export default function AdminOrderDetail() {
               <strong>Created:</strong> {new Date(order.created_at).toLocaleString()}
             </div>
             <div>
-              <strong>Payment Transaction:</strong> {order.maisha_transaction_id || 'N/A'}
+              <strong>Payment Transaction:</strong> {order.operator_ref_id || 'N/A'}
             </div>
 
             {/* Quick Status Actions with Email Notifications - Always show for any order */}

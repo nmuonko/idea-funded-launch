@@ -50,11 +50,6 @@ const SERVICE_CONFIGS: Record<string, Partial<CircuitConfig>> = {
     recoveryTimeMs: 30_000,
     timeoutMs: 10_000,
   },
-  'maishapay': {
-    failureThreshold: 3,
-    recoveryTimeMs: 60_000,
-    timeoutMs: 20_000,           // MaishaPay can be slow
-  },
   'openai': {
     failureThreshold: 5,
     recoveryTimeMs: 30_000,

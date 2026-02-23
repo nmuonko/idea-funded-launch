@@ -341,7 +341,7 @@ export default function AdminOrders() {
       order.profiles?.phone || '',
       order.shipping_city || '',
       order.status,
-      order.maisha_payment_status || '',
+      order.status,
       order.payment_verified_at ? 'Yes' : 'No',
       Number(order.item_total_usd || 0).toFixed(2),
       Number(order.service_fee_usd || 0).toFixed(2),
@@ -385,7 +385,7 @@ export default function AdminOrders() {
     const selectedOrdersData = orders.filter(o => selectedOrders.has(o.id));
     const paidStatuses = ['PAID', 'PROCESSING', 'SHIPPED', 'READY_FOR_PICKUP', 'COMPLETED'];
     const paidOrders = selectedOrdersData.filter(o => 
-      paidStatuses.includes(o.status) || o.maisha_payment_status === 'SUCCESS'
+      paidStatuses.includes(o.status)
     );
 
     if (paidOrders.length === 0) {

@@ -219,14 +219,6 @@ verify_jwt = false
 [functions.cleanup-expired-data]
 verify_jwt = false
 
-[functions.create-bank-transfer-view-link]
-verify_jwt = false
-
-[functions.create-manual-transfer-session]
-verify_jwt = false
-
-[functions.create-payment-link]
-verify_jwt = false
 
 [functions.create-referrer]
 verify_jwt = false
@@ -252,14 +244,6 @@ verify_jwt = false
 [functions.get-ai-actions-for-review]
 verify_jwt = false
 
-[functions.get-bank-transfer-settings]
-verify_jwt = false
-
-[functions.get-bank-transfer-view]
-verify_jwt = false
-
-[functions.get-manual-transfer-page]
-verify_jwt = false
 
 [functions.get-my-price-confirmations]
 verify_jwt = false
@@ -342,8 +326,6 @@ verify_jwt = false
 [functions.mobile-verify-payment]
 verify_jwt = false
 
-[functions.notify-large-bank-transfer]
-verify_jwt = false
 
 [functions.notify-new-submission]
 verify_jwt = false
@@ -516,8 +498,6 @@ verify_jwt = false
 [functions.stripe-verify-checkout-session]
 verify_jwt = false
 
-[functions.submit-bank-transfer-proof]
-verify_jwt = false
 
 [functions.submit-price-confirmation]
 verify_jwt = false
@@ -546,14 +526,7 @@ verify_jwt = false
 [functions.update-profile]
 verify_jwt = false
 
-[functions.upload-manual-transfer-proof]
-verify_jwt = false
-
-[functions.verify-maisha-payment]
-verify_jwt = false
 
 [functions.verify-payment]
 verify_jwt = false
 
-[functions.web-maisha-callback]
-verify_jwt = false

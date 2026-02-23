@@ -40,7 +40,7 @@ export default function OrderDetail() {
 
       const { data, error } = await supabase
         .from('orders')
-        .select('*, order_items(*), maisha_payments(*)')
+        .select('*, order_items(*)')
         .eq('id', id)
         .eq('user_id', user.id)
         .maybeSingle();
@@ -201,7 +201,7 @@ export default function OrderDetail() {
     );
   }
 
-  const payment = order.maisha_payments?.[0];
+  
 
   return (
     <div className="container mx-auto py-8 px-4 max-w-4xl">
@@ -280,43 +280,6 @@ export default function OrderDetail() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Payment Info */}
-        {payment && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {language === 'fr' ? 'Informations de paiement' : 'Payment Information'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2 text-sm">
-                {payment.confirmation_code && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      {language === 'fr' ? 'Code de confirmation' : 'Confirmation Code'}
-                    </span>
-                    <span className="font-mono font-semibold">{payment.confirmation_code}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">
-                    {language === 'fr' ? 'Statut' : 'Status'}
-                  </span>
-                  <span className="capitalize">{payment.status}</span>
-                </div>
-                {payment.paid_at && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      {language === 'fr' ? 'Date de paiement' : 'Payment Date'}
-                    </span>
-                    <span>{new Date(payment.paid_at).toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US')}</span>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Tracking Info */}
         {order.tracking_number && (
@@ -416,7 +379,7 @@ export default function OrderDetail() {
             </Button>
           )}
           
-          {(order.status === 'PENDING_PAYMENT' || order.maisha_payment_status === 'failed') && (
+          {order.status === 'PENDING_PAYMENT' && (
             <Button 
               onClick={retryPayment}
               disabled={retrying}
@@ -432,15 +395,6 @@ export default function OrderDetail() {
                   {language === 'fr' ? 'Réessayer le paiement' : 'Retry Payment'}
                 </>
               )}
-            </Button>
-          )}
-          {payment?.confirmation_code && (
-            <Button 
-              variant="outline"
-              onClick={() => navigate(`/track-order?code=${payment.confirmation_code}`)}
-            >
-              <Truck className="h-4 w-4 mr-2" />
-              {language === 'fr' ? 'Suivre la commande' : 'Track Order'}
             </Button>
           )}
         </div>

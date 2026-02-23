@@ -686,7 +686,7 @@ export default function AdminOrders() {
   // Count paid orders in selection
   const paidStatuses = ['PAID', 'PROCESSING', 'SHIPPED', 'READY_FOR_PICKUP', 'COMPLETED'];
   const selectedPaidCount = filteredOrders.filter(o => 
-    selectedOrders.has(o.id) && (paidStatuses.includes(o.status) || o.maisha_payment_status === 'SUCCESS')
+    selectedOrders.has(o.id) && paidStatuses.includes(o.status)
   ).length;
 
   return (

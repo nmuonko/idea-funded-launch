@@ -14,7 +14,8 @@ interface PaymentData {
   failedPayments: number;
   successRate: number;
   totalRevenue: number;
-  maishaPayRevenue: number;
+  pawapayRevenue: number;
+  stripeRevenue: number;
 }
 
 interface PaymentsBreakdownProps {
@@ -29,7 +30,8 @@ export function PaymentsBreakdown({ dateRange, embedded }: PaymentsBreakdownProp
     failedPayments: 0,
     successRate: 0,
     totalRevenue: 0,
-    maishaPayRevenue: 0,
+    pawapayRevenue: 0,
+    stripeRevenue: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -39,33 +41,35 @@ export function PaymentsBreakdown({ dateRange, embedded }: PaymentsBreakdownProp
 
   const loadPaymentData = async () => {
     try {
-      // Get payment records from maisha_payments
-      const { data: payments, error: paymentError } = await supabase
-        .from('maisha_payments')
-        .select('status, amount_usd');
+      let query = supabase
+        .from('payment_attempts')
+        .select('status, amount, provider');
 
-      if (paymentError) throw paymentError;
+      if (dateRange?.from) {
+        query = query.gte('created_at', dateRange.from.toISOString());
+      }
+      if (dateRange?.to) {
+        query = query.lte('created_at', dateRange.to.toISOString());
+      }
 
-      // Get paid orders for revenue
-      const { data: orders, error: orderError } = await supabase
-        .from('orders')
-        .select('total_usd, payment_verified_at, maisha_transaction_id');
+      const { data: attempts, error } = await query;
+      if (error) throw error;
 
-      if (orderError) throw orderError;
-
-      const totalPayments = payments?.length || 0;
-      const successfulPayments = payments?.filter(p => p.status === 'success' || p.status === 'paid').length || 0;
-      const failedPayments = payments?.filter(p => p.status === 'failed').length || 0;
+      const all = attempts || [];
+      const totalPayments = all.length;
+      const paid = all.filter(a => a.status === 'paid' || a.status === 'success');
+      const failed = all.filter(a => a.status === 'failed' || a.status === 'expired');
+      const successfulPayments = paid.length;
+      const failedPayments = failed.length;
       const successRate = totalPayments > 0 ? Math.round((successfulPayments / totalPayments) * 100) : 0;
 
-      // Total revenue from paid orders
-      const paidOrders = orders?.filter(o => o.payment_verified_at) || [];
-      const totalRevenue = paidOrders.reduce((sum, o) => sum + Number(o.total_usd || 0), 0);
-
-      // MaishaPay revenue (orders with maisha_transaction_id)
-      const maishaPayRevenue = paidOrders
-        .filter(o => o.maisha_transaction_id)
-        .reduce((sum, o) => sum + Number(o.total_usd || 0), 0);
+      const totalRevenue = paid.reduce((sum, a) => sum + Number(a.amount || 0), 0);
+      const pawapayRevenue = paid
+        .filter(a => a.provider === 'pawapay')
+        .reduce((sum, a) => sum + Number(a.amount || 0), 0);
+      const stripeRevenue = paid
+        .filter(a => a.provider === 'stripe')
+        .reduce((sum, a) => sum + Number(a.amount || 0), 0);
 
       setData({
         totalPayments,
@@ -73,7 +77,8 @@ export function PaymentsBreakdown({ dateRange, embedded }: PaymentsBreakdownProp
         failedPayments,
         successRate,
         totalRevenue,
-        maishaPayRevenue,
+        pawapayRevenue,
+        stripeRevenue,
       });
     } catch (error) {
       console.error('Error loading payment data:', error);
@@ -141,16 +146,16 @@ export function PaymentsBreakdown({ dateRange, embedded }: PaymentsBreakdownProp
         <div className="flex items-center justify-between p-2 rounded-lg bg-primary/5">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-primary" />
-            <span className="text-sm">Mobile Money</span>
+            <span className="text-sm">PawaPay</span>
           </div>
-          <span className="font-semibold">{formatUSD(data.maishaPayRevenue)}</span>
+          <span className="font-semibold">{formatUSD(data.pawapayRevenue)}</span>
         </div>
         <div className="flex items-center justify-between p-2 rounded-lg bg-muted/30">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-muted-foreground" />
-            <span className="text-sm">Other</span>
+            <div className="w-2 h-2 rounded-full bg-blue-500" />
+            <span className="text-sm">Stripe</span>
           </div>
-          <span className="font-semibold">{formatUSD(data.totalRevenue - data.maishaPayRevenue)}</span>
+          <span className="font-semibold">{formatUSD(data.stripeRevenue)}</span>
         </div>
       </div>
     </div>

@@ -72,31 +72,41 @@ async function postAction(action: string, body: Record<string, unknown>) {
 
 // ── Summary Cards ────────────────────────────────────────────────────────────
 function SummaryCards({ onTotalCount }: { onTotalCount?: (count: number) => void }) {
+  // Always use direct DB count for accuracy (edge function can return stale counts)
+  const { data: dbCount } = useQuery({
+    queryKey: ['catalog-items-total-count'],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from('catalog_items')
+        .select('*', { count: 'exact', head: true });
+      if (error) console.error('[CatalogCache] DB count error:', error);
+      return count ?? 0;
+    },
+    staleTime: 60_000,
+  });
+
   const { data, isLoading } = useQuery({
     queryKey: ['catalog-cache-summary'],
     queryFn: async () => {
       try {
         const result = await invokeAdmin({ mode: 'summary' });
-        if (result?.total_count != null) return result;
+        if (result) return result;
       } catch (e) {
         console.warn('[CatalogCache] summary edge fn failed, using DB fallback', e);
       }
-      // Fallback: direct DB count
-      const { count, error } = await supabase
-        .from('catalog_items')
-        .select('*', { count: 'exact', head: true });
-      console.log('[CatalogCache] DB fallback count:', count, 'error:', error);
-      if (error) console.error('[CatalogCache] DB fallback failed:', error);
-      return { total_count: count ?? 0 };
+      return {};
     },
     staleTime: 60_000,
   });
 
+  // Merge: always prefer the direct DB count over edge function's total_count
+  const totalCount = dbCount && dbCount > 0 ? dbCount : (data?.total_count ?? 0);
+
   useEffect(() => {
-    if (data?.total_count != null && onTotalCount) {
-      onTotalCount(data.total_count);
+    if (totalCount > 0 && onTotalCount) {
+      onTotalCount(totalCount);
     }
-  }, [data?.total_count, onTotalCount]);
+  }, [totalCount, onTotalCount]);
 
   if (isLoading) {
     return (
@@ -108,9 +118,8 @@ function SummaryCards({ onTotalCount }: { onTotalCount?: (count: number) => void
     );
   }
 
-  const total = data?.total_count ?? 0;
   const cards = [
-    { label: 'Total', value: total, icon: Database, color: 'text-foreground' },
+    { label: 'Total', value: totalCount, icon: Database, color: 'text-foreground' },
     { label: 'Active', value: data?.active_count ?? 0, icon: Package, color: 'text-green-600' },
     { label: 'Inactive', value: data?.inactive_count ?? 0, icon: PowerOff, color: 'text-muted-foreground' },
     { label: 'Added 24h', value: data?.added_24h ?? 0, icon: Rocket, color: 'text-blue-500' },

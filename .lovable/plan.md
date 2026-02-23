@@ -1,67 +1,137 @@
 
 
-# Fix Mobile Web Responsiveness -- Product Detail Page
+# Fix Catalog Builder: Accurate Counting + Discovery Strategy
 
 ## Problem
 
-When opening AfriShop on a mobile browser (Safari/Chrome on iPhone), the product detail page overflows horizontally, causing:
-- Text cut off on the right (title, prices, description)
-- User must pinch-to-zoom to see the full content
-- "Add to Cart" button extends beyond viewport
-- Prices like "$24999.00" and "$2499.90" are clipped
+The catalog builder runs every 10 minutes but reports `new_unique_items: 0` despite processing pages of items. Two root causes:
 
-This happens because content overflows the viewport width with no containment, and long text (titles, descriptions, prices) has no word-wrapping or overflow protection.
+1. **Unreliable "new unique" measurement**: The current method queries `first_seen_at >= runStart` after upsert, which is timing-dependent and can miscount. This causes all downstream decisions (jump, exhaust, consecutive-zero tracking) to be based on bad data.
 
-## Root Causes
+2. **Source starvation**: Alphabetical sorting + 45s time budget means category-based sources (the best discovery tool) rarely execute before the budget runs out.
 
-1. **No horizontal overflow containment** on the page wrapper -- long titles or descriptions push content wider than the viewport.
-2. **Product title** (`h1`) has no `break-words` or `overflow-wrap` -- long product names like "2018 GMC Yukon Denali Sport Utility 4D" overflow.
-3. **PriceBreakdown** prices can overflow when values are large (e.g. "$24999.00") -- the price `span` needs `flex-shrink-0` and the label side needs `min-w-0` to allow proper flex wrapping.
-4. **Description** uses `whitespace-pre-line` which can cause overflow with long unbroken strings (URLs, VINs, etc.).
-5. **Support chat bubble** (visible at bottom-right in screenshots) overlaps content.
+## Changes
 
-## Fixes
+### 1. Replace unique counting with prefetch-existing-IDs method
 
-### 1. ProductDetails.tsx -- Add overflow containment and word-breaking
+**File:** `supabase/functions/catalog-refresh-worker/index.ts` (lines 893-931)
 
-**File:** `src/pages/shop/ProductDetails.tsx`
+**Before:** Upsert first, then query `first_seen_at >= runStart` to count new items.
 
-- Line 547: Add `overflow-x-hidden` to the root `div` to prevent any horizontal scroll on the entire page.
-- Line 639: Add `break-words` class to the product title `h1` so long titles wrap properly instead of overflowing.
-- Line 786: Change `whitespace-pre-line` to `whitespace-pre-line break-words` on the description paragraph so long text wraps.
+**After:** Before upserting, query which `provider_product_id` values already exist. Compute `newItems` from the set difference. Then upsert. This is deterministic and immune to timing issues.
 
-### 2. PriceBreakdown.tsx -- Prevent price value clipping
-
-**File:** `src/components/shop/PriceBreakdown.tsx`
-
-For every price row that uses `flex justify-between`:
-- Add `min-w-0` to the label span (left side) so it can shrink.
-- Add `flex-shrink-0` to the price span (right side) so the price value is never clipped.
-
-This affects lines: 65-70, 72-85, 103-108, 153-166, 168-181, and the total rows.
-
-### 3. Global CSS -- Safety net for mobile
-
-**File:** `src/index.css`
-
-Add a global rule to prevent horizontal overflow on the html/body level:
-
-```css
-html, body {
-  overflow-x: hidden;
-  width: 100%;
-}
+```text
+Current flow:  upsert -> query first_seen_at -> hope timing works
+New flow:      query existing IDs -> compute diff -> upsert -> use real count
 ```
 
-This prevents any rogue element from causing horizontal scroll on mobile browsers.
+### 2. Prioritize category sources over seed queries
 
-## Summary of Changes
+**File:** `supabase/functions/catalog-refresh-worker/index.ts` (lines 802-806)
 
-| File | Change | Why |
-|------|--------|-----|
-| `src/pages/shop/ProductDetails.tsx` | Add `overflow-x-hidden` to root div | Prevent horizontal scroll |
-| `src/pages/shop/ProductDetails.tsx` | Add `break-words` to title h1 | Wrap long product names |
-| `src/pages/shop/ProductDetails.tsx` | Add `break-words` to description | Wrap long descriptions with URLs/VINs |
-| `src/components/shop/PriceBreakdown.tsx` | Add `min-w-0` on labels, `flex-shrink-0` on prices | Prevent price clipping |
-| `src/index.css` | Add `overflow-x: hidden` on html/body | Global safety net for mobile |
+**Before:** Sort all sources alphabetically by `category_key`.
+
+**After:** Sort with `ebay_category` sources first, then seed queries, then by priority, with randomization within each group to avoid always hitting the same sources.
+
+```text
+Current:  all sources sorted alphabetically (category sources starved)
+New:      category sources first -> seed queries -> shuffled within groups
+```
+
+### 3. Initialize 7 sources with NULL state
+
+**Migration SQL:** Insert state rows for sources that have never been initialized, so they actually get picked up by the builder.
+
+```sql
+INSERT INTO catalog_builder_state (source_id, current_offset, exhausted, consecutive_zero_new_pages, sort_mode)
+SELECT s.id, 0, false, 0, 'newlyListed'
+FROM catalog_builder_sources s
+LEFT JOIN catalog_builder_state st ON st.source_id = s.id
+WHERE st.source_id IS NULL;
+```
+
+### 4. Safe offset jump guard
+
+**File:** `supabase/functions/catalog-refresh-worker/index.ts` (line 958-959)
+
+Add a guard so offset never jumps past `total`:
+
+```text
+currentOffset = Math.min(currentOffset + BUILDER_OFFSET_JUMP, Math.max(0, total - BUILDER_ITEMS_PER_PAGE))
+```
+
+### 5. Fix deploy timeout
+
+The previous deployment timed out. The redeploy of the edge function with these changes should resolve it since no structural changes are needed (same file, same function name).
+
+## Technical Details
+
+### Prefetch pattern (replaces lines 900-931)
+
+```typescript
+// BEFORE upsert: check which IDs already exist
+const productIds = upsertRows.map((r: any) => r.provider_product_id);
+
+const { data: existingRows } = await supabase
+  .from("catalog_items")
+  .select("provider_product_id")
+  .eq("provider", "ebay")
+  .in("provider_product_id", productIds);
+
+const existingSet = new Set((existingRows || []).map((r: any) => r.provider_product_id));
+const newItems = productIds.filter((id: string) => !existingSet.has(id)).length;
+const duplicateCount = productIds.length - newItems;
+const duplicateRatio = productIds.length > 0 ? duplicateCount / productIds.length : 0;
+
+// THEN upsert
+const { error: upsertErr } = await supabase
+  .from("catalog_items")
+  .upsert(upsertRows, { onConflict: "provider,provider_product_id" });
+```
+
+### Source ordering (replaces lines 802-806)
+
+```typescript
+// Prioritize category sources, then shuffle within groups
+const categorySources = activeSources.filter((s: any) => s.source_type === "ebay_category");
+const seedSources = activeSources.filter((s: any) => s.source_type !== "ebay_category");
+
+// Shuffle each group to avoid always processing the same ones first
+const shuffle = (arr: any[]) => arr.sort(() => Math.random() - 0.5);
+const shuffled = [...shuffle(categorySources), ...shuffle(seedSources)];
+```
+
+## Files Modified
+
+| File | What Changes |
+|------|-------------|
+| `supabase/functions/catalog-refresh-worker/index.ts` | Prefetch IDs, source priority, safe jump guard |
+| Database migration | Initialize NULL state rows for 7 sources |
+
+## Expected Outcome
+
+After 3 cron cycles (~30 min):
+- `catalog_builder_runs` should show `new_unique_items > 0`
+- Category sources should appear in logs as processed
+- `total_ingested` should start incrementing
+- Sources should not all exhaust on first page
+
+## Verification SQL (run after 30 min)
+
+```sql
+-- Check recent builder runs show new items
+SELECT started_at, new_unique_items, duplicates_skipped, sources_processed, duration_ms
+FROM catalog_builder_runs
+ORDER BY started_at DESC
+LIMIT 5;
+
+-- Check sources are progressing
+SELECT s.category_key, s.source_type, st.current_offset, st.total_ingested, 
+       st.exhausted, st.consecutive_zero_new_pages, st.sort_mode
+FROM catalog_builder_sources s
+JOIN catalog_builder_state st ON st.source_id = s.id
+WHERE s.enabled = true
+ORDER BY st.total_ingested DESC
+LIMIT 20;
+```
 

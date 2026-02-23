@@ -45,7 +45,7 @@ export default function SplashScreen({ onComplete, duration = 2500 }: SplashScre
           <img 
             src={afrishopLogo} 
             alt="AfriShop" 
-            className="h-20 md:h-24 w-auto rounded-xl"
+            className="h-20 md:h-24 w-auto brightness-0 invert"
           />
         </div>
 

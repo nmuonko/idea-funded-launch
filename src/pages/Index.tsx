@@ -41,7 +41,7 @@ export default function Index() {
             <img 
               src={afrishopLogo} 
               alt="AfriShop - From USA to You" 
-              className="h-16 md:h-20 w-auto rounded-xl"
+              className="h-16 md:h-20 w-auto brightness-0 invert"
             />
           </div>
 

@@ -349,7 +349,7 @@ export default function ShopAuth() {
               className="w-full max-w-sm text-center space-y-8"
             >
               <div className="space-y-4">
-                <img src={afrishopLogo} alt="AfriShop" className="h-16 mx-auto rounded-xl" />
+                <img src={afrishopLogo} alt="AfriShop" className="h-16 mx-auto brightness-0 invert" />
                 <h1 className="text-2xl font-bold text-white">
                   {auth.welcome || 'Welcome to AfriShop'}
                 </h1>

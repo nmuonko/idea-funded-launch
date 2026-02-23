@@ -1,58 +1,54 @@
 
 
-# Regression Fixes -- Exact Changes
+# Fix Remaining MaishaPay References in Admin Dashboard
 
-## Fix 1: CRITICAL -- verify-payment crash on failed payments
+## Issues Found
 
-**File:** `supabase/functions/verify-payment/index.ts`, line 333
+### 1. PaymentsBreakdown.tsx -- Still queries maisha_payments table
 
-Change `paymentStatus: maishapayStatus` to `paymentStatus: normalizedStatus`
+**File:** `src/components/admin/dashboard/PaymentsBreakdown.tsx`
 
-Then redeploy the `verify-payment` edge function.
+The admin dashboard payments breakdown widget still:
+- Queries the `maisha_payments` table for payment stats (lines 42-45)
+- Queries `maisha_transaction_id` from orders (line 52)
+- Calculates `maishaPayRevenue` based on `maisha_transaction_id` (lines 65-68)
 
-## Fix 2: CRITICAL -- Stripe redirect to wrong route
+**Fix:** Rewrite to use `payment_attempts` table instead:
+- Query `payment_attempts` for total/successful/failed counts
+- For revenue breakdown, use `payment_attempts.provider` to distinguish PawaPay vs Stripe revenue
+- Remove `maishaPayRevenue` field, replace with `pawapayRevenue` and `stripeRevenue`
 
-**File:** `src/pages/shop/CardPayment.tsx`
+### 2. admin/Orders.tsx line 689 -- Legacy maisha_payment_status check
 
-- Line 121: Change `/shop/payment-success?order_id=` to `/payment-success-shop?order_id=`
-- Line 133: Change `/shop/payment-success?order_id=` to `/payment-success-shop?order_id=`
+**File:** `src/pages/admin/Orders.tsx`, line 689
 
-## Fix 3: Remove legacy paths from environment.ts
+The bulk receipt download eligibility check still includes `o.maisha_payment_status === 'SUCCESS'` as a fallback for detecting paid orders.
 
-**File:** `src/lib/environment.ts`, line 31
+**Fix:** Remove the `|| o.maisha_payment_status === 'SUCCESS'` condition. The `paidStatuses` array already covers all valid paid statuses via `o.status`.
 
-Remove `/bank-transfer`, `/manual-transfer`, `/maishapay` from the `excludedPaths` array.
+## Changes
 
-## Fix 4: Clean up translation strings (all 4 languages)
+### PaymentsBreakdown.tsx (full rewrite of data loading)
 
-**File:** `src/lib/i18n/translations.ts`
+- Replace `maisha_payments` query with `payment_attempts` query
+- Change interface: replace `maishaPayRevenue` with `pawapayRevenue` and `stripeRevenue`
+- Update revenue breakdown UI to show "PawaPay" and "Stripe" instead of "Mobile Money" and "Other"
+- Query payment_attempts with `status in ('paid', 'success')` for successful payments
+- For revenue, join with orders or use payment_attempts amount directly
 
-| Line | Old | New |
-|------|-----|-----|
-| 384 | `Pay with Mobile Money, Card, or Bank Transfer` | `Pay with Mobile Money or Card` |
-| 428 | `card, mobile money, or bank transfer` | `card or mobile money` |
-| 1846 | `Bank Transfer` | `Payments` |
-| 1944 | `Track and manage MaishaPay transactions` | `Track and manage payment transactions` |
-| 1954 | `View and manage MaishaPay payment records` | `View and manage payment records` |
-| 1959 | `MaishaPay Ref` | `Payment Ref` |
-| 2411 | `Virement bancaire` | `Paiements` |
-| 2509 | `transactions MaishaPay` | `transactions de paiement` |
-| 2518 | `paiement MaishaPay` | `paiement` |
-| 2523 | `Réf MaishaPay` | `Réf paiement` |
-| 2960 | `Uhamisho wa benki` | `Malipo` |
-| 3058 | `shughuli za MaishaPay` | `shughuli za malipo` |
-| 3067 | `malipo za MaishaPay` | `malipo` |
-| 3072 | `Ref ya MaishaPay` | `Ref ya malipo` |
-| 3509 | `Virement bancaire` | `Mafuta` |
-| 3607 | `transactions ya MaishaPay` | `transactions ya mafuta` |
-| 3616 | `mafuta ya MaishaPay` | `mafuta` |
-| 3621 | `Réf MaishaPay` | `Réf mafuta` |
+### admin/Orders.tsx (one-line fix)
+
+- Line 689: Change from:
+  ```
+  selectedOrders.has(o.id) && (paidStatuses.includes(o.status) || o.maisha_payment_status === 'SUCCESS')
+  ```
+  to:
+  ```
+  selectedOrders.has(o.id) && paidStatuses.includes(o.status)
+  ```
 
 ## Execution Order
 
-1. Fix verify-payment (line 333)
-2. Fix CardPayment.tsx (lines 121, 133)
-3. Update environment.ts (line 31)
-4. Update translations.ts (18 lines across 4 languages)
-5. Deploy verify-payment edge function
+1. Fix `admin/Orders.tsx` line 689 (one-line change)
+2. Rewrite `PaymentsBreakdown.tsx` to use `payment_attempts` table
 

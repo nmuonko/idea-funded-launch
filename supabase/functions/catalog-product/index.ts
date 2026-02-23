@@ -90,6 +90,77 @@ function upgradeGalleryImages(images: string[], provider: string): string[] {
   return upgraded;
 }
 
+/**
+ * Scrape gallery images from an eBay listing page HTML.
+ * Extracts images from JSON-LD structured data or meta tags.
+ * Used as fallback when eBay Browse API is rate-limited (429).
+ */
+async function scrapeEbayGallery(productUrl: string | null, itemId: string): Promise<string[]> {
+  if (!productUrl && !itemId) return [];
+  
+  const parts = itemId.split("|");
+  const numericId = parts.length >= 2 ? parts[1] : itemId.replace(/\D/g, "");
+  const url = productUrl || `https://www.ebay.com/itm/${numericId}`;
+  
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      redirect: "follow",
+    });
+    
+    if (!res.ok) {
+      console.warn(`[GALLERY_SCRAPE] HTTP ${res.status} for ${url}`);
+      return [];
+    }
+    
+    const html = await res.text();
+    const seen = new Set<string>();
+    const images: string[] = [];
+    
+    const addImage = (imgUrl: string) => {
+      if (!imgUrl || !imgUrl.includes("ebayimg.com")) return;
+      // Normalize to high-res s-l1600
+      const normalized = imgUrl.replace(/\/s-l\d+\./, "/s-l1600.");
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        images.push(normalized);
+      }
+    };
+    
+    // Strategy 1: Extract from eBay's JS image array (most reliable for gallery)
+    // eBay embeds image data in patterns like "imageUrl":"https://i.ebayimg.com/..."
+    const jsImgMatches = html.matchAll(/"(?:imageUrl|originalImg|maxImageUrl|image)"\s*:\s*"(https?:\/\/i\.ebayimg\.com\/images\/g\/[^"]+)"/gi);
+    for (const match of jsImgMatches) addImage(match[1]);
+    
+    // Strategy 2: Extract ALL ebayimg URLs from the page (catches JS-embedded ones)
+    const allEbayImgs = html.matchAll(/https:\/\/i\.ebayimg\.com\/images\/g\/[A-Za-z0-9_~-]+\/s-l\d+\.(?:jpg|png|webp)/gi);
+    for (const match of allEbayImgs) addImage(match[0]);
+    
+    // Strategy 3: JSON-LD structured data
+    const jsonLdMatches = html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
+    for (const match of jsonLdMatches) {
+      try {
+        const json = JSON.parse(match[1]);
+        const extractImg = (obj: any) => {
+          if (Array.isArray(obj?.image)) obj.image.forEach((i: any) => addImage(typeof i === "string" ? i : i?.contentUrl || i?.url || ""));
+          else if (typeof obj?.image === "string") addImage(obj.image);
+        };
+        if (Array.isArray(json)) json.forEach(extractImg); else extractImg(json);
+      } catch { /* skip */ }
+    }
+    
+    console.log(`[GALLERY_SCRAPE] found ${images.length} unique images for item ${numericId}`);
+    return images;
+  } catch (e) {
+    console.warn(`[GALLERY_SCRAPE] error: ${e}`);
+    return [];
+  }
+}
+
 function validateAsin(asin: string): string | null {
   if (!asin || asin.length === 0) return "ASIN is required";
   if (asin.length !== 10) return `ASIN must be 10 characters (got ${asin.length})`;
@@ -601,49 +672,71 @@ Deno.serve(async (req: Request) => {
       
       // ========== eBay Gallery Enrichment: fetch full gallery if only 0-1 images ==========
       if (dbItem.provider === "ebay" && (item.images?.length || 0) <= 1) {
+        let enrichedImages: string[] = [];
+        
         try {
-          console.log(`[GALLERY_ENRICH] eBay item ${productId} has ${item.images?.length ?? 0} images, fetching live gallery...`);
+          console.log(`[GALLERY_ENRICH] eBay item ${productId} has ${item.images?.length ?? 0} images, trying API...`);
           const liveResult = await getEbayItem(db, productId!);
           const liveItem = liveResult?.item;
-          console.log(`[GALLERY_ENRICH] live result for ${productId}: found=${!!liveItem}, images=${liveItem?.images?.length ?? 0}, debug=${JSON.stringify(liveResult?.debug || {})}`);
+          const wasRateLimited = liveResult?.debug?.httpStatus === 429;
+          
           if (liveItem && Array.isArray(liveItem.images) && liveItem.images.length > (item.images?.length || 0)) {
-            const enrichedImages = upgradeGalleryImages(liveItem.images, "ebay");
-            if (enrichedImages.length > (item.images?.length || 0)) {
-              console.log(`[GALLERY_ENRICH] enriched ${productId}: ${item.images?.length ?? 0} → ${enrichedImages.length} images`);
-              item.images = enrichedImages;
-              item.imageUrls = enrichedImages;
-              item.mainImageUrl = enrichedImages[0] || item.mainImageUrl;
-              item.imageUrl = enrichedImages[0] || item.imageUrl;
-
-              // Persist enriched gallery back to catalog_items (fire-and-forget)
-              // Use dbItem.id (the actual DB row ID, which may be UUID) not fullProductId
-              const dbRowId = dbItem.id || fullProductId;
-              db.from("catalog_items")
-                .update({ 
-                  images: enrichedImages, 
-                  image_url: enrichedImages[0] || dbItem.image_url,
-                  updated_at: new Date().toISOString() 
-                })
-                .eq("id", dbRowId)
-                .then(() => console.log(`[GALLERY_ENRICH] persisted ${enrichedImages.length} images for ${dbRowId}`))
-                .catch((e: any) => console.warn(`[GALLERY_ENRICH] persist failed: ${e}`));
-
-              // Also persist to catalog_item_media for future use
-              db.from("catalog_item_media")
-                .upsert({
-                  provider: "ebay",
-                  provider_item_id: productId!,
-                  image_urls: enrichedImages,
-                  image_count: enrichedImages.length,
-                  fetched_at: new Date().toISOString(),
-                  expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-                }, { onConflict: "provider,provider_item_id" })
-                .then(() => {})
-                .catch((e: any) => console.warn(`[GALLERY_ENRICH] media persist failed: ${e}`));
+            enrichedImages = upgradeGalleryImages(liveItem.images, "ebay");
+            console.log(`[GALLERY_ENRICH] API success for ${productId}: ${enrichedImages.length} images`);
+          } else if (wasRateLimited || !liveItem) {
+            // Fallback: scrape gallery from eBay listing page
+            console.log(`[GALLERY_ENRICH] API ${wasRateLimited ? '429 rate-limited' : 'no result'}, trying page scrape for ${productId}...`);
+            const scrapedImages = await scrapeEbayGallery(item.productUrl || dbItem.product_url, productId!);
+            if (scrapedImages.length > (item.images?.length || 0)) {
+              enrichedImages = upgradeGalleryImages(scrapedImages, "ebay");
+              console.log(`[GALLERY_ENRICH] scrape success for ${productId}: ${enrichedImages.length} images`);
             }
           }
         } catch (e) {
-          console.warn(`[GALLERY_ENRICH] live fetch failed for ${productId}, returning DB data as-is: ${e}`);
+          console.warn(`[GALLERY_ENRICH] API failed for ${productId}, trying scrape fallback: ${e}`);
+          try {
+            const scrapedImages = await scrapeEbayGallery(item.productUrl || dbItem.product_url, productId!);
+            if (scrapedImages.length > (item.images?.length || 0)) {
+              enrichedImages = upgradeGalleryImages(scrapedImages, "ebay");
+              console.log(`[GALLERY_ENRICH] scrape fallback success for ${productId}: ${enrichedImages.length} images`);
+            }
+          } catch (scrapeErr) {
+            console.warn(`[GALLERY_ENRICH] scrape also failed for ${productId}: ${scrapeErr}`);
+          }
+        }
+        
+        // Apply enriched images if we got more than what we had
+        if (enrichedImages.length > (item.images?.length || 0)) {
+          console.log(`[GALLERY_ENRICH] enriched ${productId}: ${item.images?.length ?? 0} → ${enrichedImages.length} images`);
+          item.images = enrichedImages;
+          item.imageUrls = enrichedImages;
+          item.mainImageUrl = enrichedImages[0] || item.mainImageUrl;
+          item.imageUrl = enrichedImages[0] || item.imageUrl;
+
+          // Persist enriched gallery back to catalog_items (fire-and-forget)
+          const dbRowId = dbItem.id || fullProductId;
+          db.from("catalog_items")
+            .update({ 
+              images: enrichedImages, 
+              image_url: enrichedImages[0] || dbItem.image_url,
+              updated_at: new Date().toISOString() 
+            })
+            .eq("id", dbRowId)
+            .then(() => console.log(`[GALLERY_ENRICH] persisted ${enrichedImages.length} images for ${dbRowId}`))
+            .catch((e: any) => console.warn(`[GALLERY_ENRICH] persist failed: ${e}`));
+
+          // Also persist to catalog_item_media for future use
+          db.from("catalog_item_media")
+            .upsert({
+              provider: "ebay",
+              provider_item_id: productId!,
+              image_urls: enrichedImages,
+              image_count: enrichedImages.length,
+              fetched_at: new Date().toISOString(),
+              expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            }, { onConflict: "provider,provider_item_id" })
+            .then(() => {})
+            .catch((e: any) => console.warn(`[GALLERY_ENRICH] media persist failed: ${e}`));
         }
       }
 

@@ -21,26 +21,40 @@ import { resizeImageUrl, IMAGE_SIZE_HERO, IMAGE_SIZE_THUMB } from '@/lib/imageRe
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
-function looksLikeVehicleListing(title: string, priceUsd?: number): boolean {
-  // Price floor: no actual vehicle costs less than $2,000
-  if (priceUsd !== undefined && priceUsd < 2000) return false;
+/**
+ * Determine if a product is a vehicle listing.
+ * PRIMARY: uses authoritative categoryKey from the database (zero false positives).
+ * FALLBACK: strict title heuristic only for items without category data.
+ */
+function isVehicleProduct(product: { title: string; priceUsd?: number; categoryKey?: string | null; vehiclesSubkey?: string | null }): boolean {
+  // PRIMARY: authoritative DB category — definitive, no guessing
+  if (product.categoryKey?.startsWith('vehicle')) return true;
+  if (product.vehiclesSubkey) return true;
 
-  const lower = title.toLowerCase();
+  // FALLBACK: title heuristic for items missing category data
+  // Intentionally very strict: requires ALL of price >= $5,000 + year + brand + body type
+  if ((product.priceUsd || 0) < 5000) return false;
+
+  const lower = product.title.toLowerCase();
+
+  // Exclusions: accessories, parts, toys, etc.
   const exclusions = ['charger', 'mount', 'holder', 'brake pad', 'oil filter',
     'toy car', 'diecast', 'model car', 'rc car', 'hot wheels', 'key fob',
     'floor mat', 'seat cover', 'car wash', 'phone holder', 'emblem', 'badge',
-    'washer bottle', 'wiper', 'antenna', 'mirror cover', 'mud flap',
-    'stereo', 'radio', 'navigation', 'carplay', 'android auto', 'headunit',
-    'head unit', 'media player', 'dashcam', 'dash cam', 'speaker', 'amplifier',
+    'stereo', 'radio', 'navigation', 'dashcam', 'dash cam', 'speaker', 'amplifier',
     'subwoofer', 'gps', 'bluetooth', 'adapter', 'cable', 'obd', 'scanner',
-    'led light', 'light bar', 'fog light', 'backup camera', 'reverse camera',
-    'tablet', 'touchscreen', 'display', 'screen protector', 'car cover',
-    'air freshener', 'cup holder', 'trunk organizer', 'sun visor',
+    'tablet', 'touchscreen', 'display', 'laptop', 'computer', 'macbook', 'dell',
+    'hp ', 'lenovo', 'asus', 'acer', 'msi', 'razer', 'thinkpad', 'chromebook',
     'generator', 'lawn mower', 'power washer', 'pressure washer', 'engine oil',
     'helmet', 'jacket', 'gloves', 'boots', 'gear', 'accessories', 'parts',
-    'cover', 'case', 'protector', 'sticker', 'decal', 'poster', 'print',
-    'miniature', 'collectible', 'figurine', 'keychain', 'ornament'];
+    'cover', 'case', 'protector', 'sticker', 'decal', 'watch', 'rolex',
+    'omega', 'breitling', 'cartier', 'jewelry', 'necklace', 'ring', 'bracelet',
+    'miniature', 'collectible', 'figurine', 'keychain', 'ornament', 'poster'];
   if (exclusions.some(e => lower.includes(e))) return false;
+
+  // "For Toyota", "Compatible with", "Fits" = accessory
+  const accessoryPatterns = /\b(compatible\s+with|fits|replacement\s+for|designed\s+for|made\s+for|for\s+(toyota|honda|ford|chevrolet|chevy|nissan|bmw|mercedes|audi|tesla|jeep|hyundai|kia|subaru|mazda|volkswagen|lexus|porsche|dodge|ram|gmc))\b/i;
+  if (accessoryPatterns.test(product.title)) return false;
 
   const brands = ['toyota', 'honda', 'ford', 'chevrolet', 'chevy', 'nissan',
     'bmw', 'mercedes', 'audi', 'tesla', 'jeep', 'hyundai', 'kia', 'subaru',
@@ -48,24 +62,15 @@ function looksLikeVehicleListing(title: string, priceUsd?: number): boolean {
     'land rover', 'range rover', 'volvo', 'buick', 'cadillac', 'lincoln',
     'ducati', 'harley', 'kawasaki', 'yamaha', 'suzuki', 'indian'];
 
-  const forBrandPattern = new RegExp(
-    '\\bfor\\s+(' + brands.join('|') + ')\\b', 'i'
-  );
-  if (forBrandPattern.test(title)) return false;
-
-  // "Compatible with", "Fits" patterns = accessory, not a vehicle
-  const accessoryPatterns = /\b(compatible\s+with|fits|replacement\s+for|designed\s+for|made\s+for)\b/i;
-  if (accessoryPatterns.test(title)) return false;
-
   const bodyTypes = ['sedan', 'suv', 'truck', 'coupe', 'hatchback', 'convertible',
     'minivan', 'wagon', 'pickup', 'crossover', '4x4', 'motorcycle'];
-  const hasYear = /\b(19|20)\d{2}\b/.test(title);
+
+  const hasYear = /\b(19|20)\d{2}\b/.test(product.title);
   const hasBrand = brands.some(b => lower.includes(b));
   const hasBodyType = bodyTypes.some(b => lower.includes(b));
-  
-  // Require BOTH year AND (brand OR body type) — single signal is not enough
-  // Also require price >= $2000 when price is known (already checked above)
-  return hasYear && (hasBrand || hasBodyType);
+
+  // Require ALL THREE: year + brand + body type
+  return hasYear && hasBrand && hasBodyType;
 }
 
 interface ProductData {
@@ -80,6 +85,8 @@ interface ProductData {
   inStock: boolean;
   productUrl?: string;
   brand?: string;
+  categoryKey?: string | null;
+  vehiclesSubkey?: string | null;
   variants?: Array<{
     asin?: string;
     title?: string;
@@ -130,7 +137,7 @@ export default function ProductDetailsPage() {
     (location.state as any)?.categoryKey?.includes('vehicle') ||
     (location.state as any)?.subtabKey?.includes('vehicle')
   );
-  const isVehicle = isVehicleFromState || (product ? looksLikeVehicleListing(product.title, product.priceUsd) : false);
+  const isVehicle = isVehicleFromState || (product ? isVehicleProduct(product) : false);
 
   // Safe accessors
   const safeImages = useMemo(() => {
@@ -286,6 +293,8 @@ export default function ProductDetailsPage() {
             inStock: item.in_stock !== false,
             productUrl: item.product_url || item.productUrl || prev?.productUrl,
             brand: item.brand || prev?.brand,
+            categoryKey: item.categoryKey || prev?.categoryKey || null,
+            vehiclesSubkey: item.vehiclesSubkey || prev?.vehiclesSubkey || null,
             variants: item.variants || undefined,
           };
         });

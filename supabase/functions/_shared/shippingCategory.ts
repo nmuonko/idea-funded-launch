@@ -21,6 +21,7 @@ export interface CategoryDetectionInput {
   url?: string;
   store?: string;
   existingCategory?: string | null;
+  categoryKey?: string | null; // Authoritative DB category (e.g. 'vehicles', 'vehicles_cars_trucks')
 }
 
 export interface CategoryDetectionResult {
@@ -341,6 +342,17 @@ function getCategoryFromUrl(url: string): { category: ShippingCategoryKey; weigh
  * @returns Category detection result with confidence score and requiresQuote flag
  */
 export function determineShippingCategory(input: CategoryDetectionInput): CategoryDetectionResult {
+  // DEFINITIVE: If DB categoryKey says it's a vehicle, trust it completely
+  if (input.categoryKey?.startsWith('vehicle')) {
+    return {
+      category: 'vehicle',
+      confidence: 1.0,
+      matchedKeywords: ['db_category_key'],
+      requiresQuote: true,
+      isEstimated: false,
+    };
+  }
+
   // If category already exists, respect it
   if (input.existingCategory) {
     const isVehicle = input.existingCategory === 'vehicle';

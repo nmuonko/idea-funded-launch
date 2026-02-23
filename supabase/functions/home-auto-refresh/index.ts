@@ -27,6 +27,14 @@ serve(async (req) => {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
+  // Auth: require internal cron key or service_role
+  const cronKey = req.headers.get("x-internal-cron-key");
+  const authHeader = req.headers.get("authorization") ?? "";
+  const isServiceRole = authHeader.includes("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9") && authHeader.includes("service_role");
+  if (cronKey !== "afrishop-internal-cron-2026" && !isServiceRole) {
+    return json({ ok: false, error: "unauthorized" }, 401);
+  }
+
   const env = "production";
   const results: Record<string, unknown> = { env, ts: Date.now() };
 

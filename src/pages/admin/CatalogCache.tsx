@@ -19,7 +19,7 @@ import {
   Database, Package, AlertTriangle, XCircle, Clock, ChevronLeft, ChevronRight,
   RefreshCw, Power, PowerOff, Search, RotateCcw, ExternalLink,
   Play, Zap, Timer, TrendingUp, ChevronDown, Heart, Activity,
-  StopCircle, Plus, Loader2, CheckCircle, Rocket
+  StopCircle, Plus, Loader2, CheckCircle, Rocket, Download, Upload
 } from 'lucide-react';
 
 const ALL_CATEGORIES = [
@@ -1124,6 +1124,135 @@ function RecentFetchHistory() {
     </Collapsible>
   );
 }
+// ── Data Sync (Export/Import) ─────────────────────────────────────────────────
+function DataSync() {
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState('');
+  const [importProgress, setImportProgress] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = async () => {
+    setExporting(true);
+    setExportProgress('Starting export...');
+    try {
+      const allItems: any[] = [];
+      let page = 0;
+      let totalPages = 1;
+
+      while (page < totalPages) {
+        setExportProgress(`Fetching page ${page + 1}${totalPages > 1 ? ` of ${totalPages}` : ''}...`);
+        const { data, error } = await supabase.functions.invoke(
+          `catalog-data-sync?mode=export&page=${page}&pageSize=5000`,
+          { method: 'GET' }
+        );
+        if (error) throw error;
+        totalPages = data.totalPages;
+        allItems.push(...(data.items || []));
+        page++;
+      }
+
+      setExportProgress(`Preparing download (${allItems.length} items)...`);
+      const blob = new Blob([JSON.stringify({ items: allItems, exportedAt: new Date().toISOString(), total: allItems.length })], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `catalog-items-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${allItems.length} items`);
+      setExportProgress('');
+    } catch (e: any) {
+      toast.error(`Export failed: ${e.message}`);
+      setExportProgress('');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImport = async (file: File) => {
+    setImporting(true);
+    setImportProgress('Reading file...');
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      const items = json.items || json;
+      if (!Array.isArray(items) || items.length === 0) {
+        throw new Error('No items found in file');
+      }
+
+      // Send in chunks of 2000 to avoid request size limits
+      const chunkSize = 2000;
+      let totalInserted = 0;
+      let totalSkipped = 0;
+
+      for (let i = 0; i < items.length; i += chunkSize) {
+        const chunk = items.slice(i, i + chunkSize);
+        setImportProgress(`Importing ${i + 1}–${Math.min(i + chunkSize, items.length)} of ${items.length}...`);
+        const { data, error } = await supabase.functions.invoke(
+          'catalog-data-sync?mode=import',
+          { method: 'POST', body: { items: chunk } }
+        );
+        if (error) throw error;
+        totalInserted += data.inserted || 0;
+        totalSkipped += data.skipped || 0;
+      }
+
+      toast.success(`Import complete: ${totalInserted} inserted, ${totalSkipped} skipped`);
+      setImportProgress('');
+    } catch (e: any) {
+      toast.error(`Import failed: ${e.message}`);
+      setImportProgress('');
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Database className="h-4 w-4" />
+          Data Sync (Export / Import)
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-muted-foreground mb-4">
+          Export items from this environment as JSON, then import into another (e.g. Live) via the published admin panel.
+        </p>
+        <div className="flex flex-wrap gap-3 items-center">
+          <Button onClick={handleExport} disabled={exporting || importing} variant="outline">
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
+            {exporting ? 'Exporting...' : 'Export All Items (JSON)'}
+          </Button>
+
+          <Button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={exporting || importing}
+            variant="outline"
+          >
+            {importing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
+            {importing ? 'Importing...' : 'Import Items (JSON)'}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleImport(f);
+            }}
+          />
+        </div>
+        {(exportProgress || importProgress) && (
+          <p className="text-xs text-muted-foreground mt-2">{exportProgress || importProgress}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 export default function CatalogCache() {
@@ -1144,6 +1273,7 @@ export default function CatalogCache() {
       </div>
 
       <SummaryCards onTotalCount={setTotalCount} />
+      <DataSync />
       <FetchProducts />
       <SearchInsights />
       <ItemsTable totalCount={totalCount} />

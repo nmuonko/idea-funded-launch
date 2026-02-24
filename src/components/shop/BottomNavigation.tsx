@@ -63,12 +63,12 @@ export function BottomNavigation() {
                 }
               }}
               className={cn(
-                "flex flex-col items-center justify-center flex-1 py-2 transition-colors",
+                "flex flex-col items-center justify-center flex-1 min-h-[44px] min-w-[44px] py-2 transition-colors",
                 active ? "text-blue-500" : "text-white/60 hover:text-white/80"
               )}
             >
               <div className="relative">
-                <Icon className={cn("h-5 w-5", active && "scale-110")} />
+                <Icon className={cn("h-6 w-6", active && "scale-110")} />
                 {showBadge && (
                   <span className="absolute -top-1 -right-2 bg-blue-500 text-white text-[10px] font-bold rounded-full h-4 min-w-[16px] flex items-center justify-center px-1">
                     {badgeCount > 99 ? '99+' : badgeCount}

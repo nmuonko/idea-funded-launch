@@ -1177,7 +1177,7 @@ async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number,
 
   let query = supabase
     .from("catalog_items")
-    .select("id, provider, provider_product_id, fail_count, category_key")
+    .select("id, provider, provider_product_id, fail_count, category_key, price_usd")
     .eq("is_active", true)
     .eq("provider", "ebay")
     .or(`last_checked_at.is.null,last_checked_at.lt.${sevenDaysAgo}`)
@@ -1191,13 +1191,13 @@ async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number,
   const { data: items, error } = await query;
   if (error || !items?.length) {
     console.log(`[WORKER] Link check: no items to check (${error?.message || "empty"})`);
-    return { checked: 0, active: 0, deactivated: 0, errors: 0 };
+    return { checked: 0, active: 0, deactivated: 0, errors: 0, priceUpdates: 0 };
   }
 
   console.log(`[WORKER] Link check: checking ${items.length} items`);
   const env = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
   const now = new Date().toISOString();
-  let checked = 0, active = 0, deactivated = 0, errors = 0;
+  let checked = 0, active = 0, deactivated = 0, errors = 0, priceUpdates = 0;
 
   for (const item of items) {
     try {
@@ -1235,12 +1235,32 @@ async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number,
         await updateProviderHealth(supabase, "ebay", false, "429_rate_limited");
         break;
       } else if (res.ok) {
-        await supabase.from("catalog_items").update({
+        // Parse response to detect price changes
+        const updateFields: Record<string, unknown> = {
           fail_count: 0,
           last_checked_at: now,
           status_reason: "active",
           updated_at: now,
-        }).eq("id", item.id);
+        };
+
+        try {
+          const body = await res.json();
+          const currentPrice = body?.price?.value ? parseFloat(body.price.value) : null;
+          if (currentPrice && !isNaN(currentPrice) && item.price_usd) {
+            const storedPrice = parseFloat(String(item.price_usd));
+            if (Math.abs(currentPrice - storedPrice) >= 0.01) {
+              updateFields.price_usd = currentPrice;
+              updateFields.price_updated_at = now;
+              updateFields.data_updated_at = now;
+              priceUpdates++;
+              console.log(`[WORKER] Price updated ${item.id}: $${storedPrice} -> $${currentPrice}`);
+            }
+          }
+        } catch {
+          // Price parse failed — still mark active
+        }
+
+        await supabase.from("catalog_items").update(updateFields).eq("id", item.id);
         active++;
       } else {
         errors++;
@@ -1253,7 +1273,7 @@ async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number,
     await new Promise(r => setTimeout(r, RATE_LIMIT_DELAY_MS));
   }
 
-  const result = { checked, active, deactivated, errors };
+  const result = { checked, active, deactivated, errors, priceUpdates };
   console.log("[WORKER] Link check complete:", JSON.stringify(result));
   return result;
 }

@@ -699,7 +699,7 @@ function nextSortMode(current: string): string {
   return BUILDER_SORT_MODES[(idx + 1) % BUILDER_SORT_MODES.length];
 }
 
-async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilter?: string, customQuery?: string) {
+async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilter?: string, customQuery?: string, maxItemsTarget?: number) {
   console.log(`[WORKER] === CATALOG BUILDER MODE (v2 — sort rotation + smart exhaustion)${customQuery ? ` custom_query="${customQuery}"` : ''} ===`);
   const runStart = Date.now();
   const now = new Date().toISOString();
@@ -753,8 +753,9 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
 
   // ── CUSTOM QUERY MODE: bypass source rotation, search directly ──
   if (customQuery) {
-    console.log(`[BUILDER] Custom query mode: "${customQuery}" provider=${providerFilter || "ebay"}`);
-    const maxPages = Math.min(40, Math.ceil((100) / BUILDER_ITEMS_PER_PAGE) * 10); // up to 40 pages
+    const target = maxItemsTarget || 100;
+    const maxPages = Math.min(40, Math.ceil(target / BUILDER_ITEMS_PER_PAGE) + 2); // enough pages + small buffer
+    console.log(`[BUILDER] Custom query mode: "${customQuery}" provider=${providerFilter || "ebay"} target=${target} maxPages=${maxPages}`);
     let totalUpsertedCQ = 0;
     let totalNewUniqueCQ = 0;
     let totalDupsCQ = 0;
@@ -765,6 +766,11 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
       const timeRemaining = BUILDER_TIME_BUDGET_MS - (Date.now() - runStart);
       if (timeRemaining < BUILDER_RESERVE_MS) break;
       if (requestsCQ >= BUILDER_MAX_REQUESTS_PER_RUN) break;
+      // Stop once we've fetched enough items
+      if (totalUpsertedCQ >= target) {
+        console.log(`[BUILDER] Custom query target reached: ${totalUpsertedCQ} >= ${target}`);
+        break;
+      }
 
       try {
         const { items, total } = await searchEbay(ebayToken, customQuery, BUILDER_ITEMS_PER_PAGE, offset);
@@ -1168,12 +1174,14 @@ Deno.serve(async (req) => {
   let mode = "queue";
   let provider: string | undefined;
   let customQuery: string | undefined;
+  let maxItemsTarget: number | undefined;
   try {
     const body = await req.json().catch(() => ({}));
     maxJobs = body.maxJobs || 10;
     mode = body.mode || "queue";
     provider = body.provider;
     customQuery = body.custom_query;
+    maxItemsTarget = body.max_items_target;
   } catch { /* defaults */ }
 
   const url = new URL(req.url);
@@ -1188,7 +1196,7 @@ Deno.serve(async (req) => {
     const ebayToken = await getEbayToken(supabase);
 
     if (mode === "catalog-builder") {
-      results.builder = await runCatalogBuilder(supabase, ebayToken, provider, customQuery);
+      results.builder = await runCatalogBuilder(supabase, ebayToken, provider, customQuery, maxItemsTarget);
     } else if (mode === "seed-backfill") {
       results.seedBackfill = await runSeedBackfill(supabase, ebayToken);
     } else {

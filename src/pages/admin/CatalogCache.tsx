@@ -72,35 +72,64 @@ async function postAction(action: string, body: Record<string, unknown>) {
 
 // ── Summary Cards ────────────────────────────────────────────────────────────
 function SummaryCards({ onTotalCount }: { onTotalCount?: (count: number) => void }) {
-  // Always use direct DB count for accuracy (edge function can return stale counts)
-  const { data: dbCount } = useQuery({
-    queryKey: ['catalog-items-total-count'],
+  const queryClient = useQueryClient();
+  const STALE = 60_000;
+
+  const { data: totalCount = 0 } = useQuery({
+    queryKey: ['catalog-summary-total'],
     queryFn: async () => {
-      const { count, error } = await supabase
-        .from('catalog_items')
-        .select('*', { count: 'exact', head: true });
-      if (error) console.error('[CatalogCache] DB count error:', error);
+      const { count } = await supabase.from('catalog_items').select('*', { count: 'exact', head: true });
       return count ?? 0;
     },
-    staleTime: 60_000,
+    staleTime: STALE,
   });
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['catalog-cache-summary'],
+  const { data: activeCount = 0 } = useQuery({
+    queryKey: ['catalog-summary-active'],
     queryFn: async () => {
-      try {
-        const result = await invokeAdmin({ mode: 'summary' });
-        if (result) return result;
-      } catch (e) {
-        console.warn('[CatalogCache] summary edge fn failed, using DB fallback', e);
-      }
-      return {};
+      const { count } = await supabase.from('catalog_items').select('*', { count: 'exact', head: true }).eq('is_active', true);
+      return count ?? 0;
     },
-    staleTime: 60_000,
+    staleTime: STALE,
   });
 
-  // Merge: always prefer the direct DB count over edge function's total_count
-  const totalCount = dbCount && dbCount > 0 ? dbCount : (data?.total_count ?? 0);
+  const { data: inactiveCount = 0 } = useQuery({
+    queryKey: ['catalog-summary-inactive'],
+    queryFn: async () => {
+      const { count } = await supabase.from('catalog_items').select('*', { count: 'exact', head: true }).eq('is_active', false);
+      return count ?? 0;
+    },
+    staleTime: STALE,
+  });
+
+  const { data: added24h = 0 } = useQuery({
+    queryKey: ['catalog-summary-added24h'],
+    queryFn: async () => {
+      const yesterday = new Date(Date.now() - 86400000).toISOString();
+      const { count } = await supabase.from('catalog_items').select('*', { count: 'exact', head: true }).gte('first_seen_at', yesterday);
+      return count ?? 0;
+    },
+    staleTime: STALE,
+  });
+
+  const { data: stalePriceCount = 0 } = useQuery({
+    queryKey: ['catalog-summary-stale-price'],
+    queryFn: async () => {
+      const staleDate = new Date(Date.now() - 20 * 86400000).toISOString();
+      const { count } = await supabase.from('catalog_items').select('*', { count: 'exact', head: true }).eq('is_active', true).lt('price_updated_at', staleDate);
+      return count ?? 0;
+    },
+    staleTime: STALE,
+  });
+
+  const { data: deadCount = 0 } = useQuery({
+    queryKey: ['catalog-summary-dead'],
+    queryFn: async () => {
+      const { count } = await supabase.from('catalog_items').select('*', { count: 'exact', head: true }).gte('fail_count', 3);
+      return count ?? 0;
+    },
+    staleTime: STALE,
+  });
 
   useEffect(() => {
     if (totalCount > 0 && onTotalCount) {
@@ -108,38 +137,73 @@ function SummaryCards({ onTotalCount }: { onTotalCount?: (count: number) => void
     }
   }, [totalCount, onTotalCount]);
 
-  if (isLoading) {
-    return (
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-24" />
-        ))}
-      </div>
-    );
-  }
+  // Link check state
+  const [isChecking, setIsChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<{ checked: number; active: number; deactivated: number; errors: number } | null>(null);
+
+  const runLinkCheck = async () => {
+    setIsChecking(true);
+    setCheckResult(null);
+    try {
+      const result = await postAction('run-link-check', { batch_size: 50 });
+      const wr = result?.worker_result?.linkCheck || result?.worker_result || {};
+      setCheckResult({
+        checked: wr.checked ?? 0,
+        active: wr.active ?? 0,
+        deactivated: wr.deactivated ?? 0,
+        errors: wr.errors ?? 0,
+      });
+      // Refresh all summary counts
+      queryClient.invalidateQueries({ queryKey: ['catalog-summary-active'] });
+      queryClient.invalidateQueries({ queryKey: ['catalog-summary-inactive'] });
+      queryClient.invalidateQueries({ queryKey: ['catalog-summary-dead'] });
+      queryClient.invalidateQueries({ queryKey: ['catalog-cache-list'] });
+      toast.success(`Link check complete: ${wr.deactivated ?? 0} items deactivated`);
+    } catch (e: any) {
+      toast.error(e.message || 'Link check failed');
+    } finally {
+      setIsChecking(false);
+    }
+  };
 
   const cards = [
     { label: 'Total', value: totalCount, icon: Database, color: 'text-foreground' },
-    { label: 'Active', value: data?.active_count ?? 0, icon: Package, color: 'text-green-600' },
-    { label: 'Inactive', value: data?.inactive_count ?? 0, icon: PowerOff, color: 'text-muted-foreground' },
-    { label: 'Added 24h', value: data?.added_24h ?? 0, icon: Rocket, color: 'text-blue-500' },
-    { label: 'Stale Price', value: data?.stale_price_count ?? 0, icon: Clock, color: 'text-orange-500' },
-    { label: 'Dead (≥3 fails)', value: data?.dead_count ?? 0, icon: XCircle, color: 'text-destructive' },
+    { label: 'Active', value: activeCount, icon: Package, color: 'text-green-600' },
+    { label: 'Inactive', value: inactiveCount, icon: PowerOff, color: 'text-muted-foreground' },
+    { label: 'Added 24h', value: added24h, icon: Rocket, color: 'text-blue-500' },
+    { label: 'Stale Price', value: stalePriceCount, icon: Clock, color: 'text-orange-500' },
+    { label: 'Dead (≥3 fails)', value: deadCount, icon: XCircle, color: 'text-destructive' },
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-      {cards.map((c) => (
-        <Card key={c.label}>
-          <CardContent className="pt-4 pb-3 px-4 flex items-center gap-3">
-            <c.icon className={`h-5 w-5 ${c.color} shrink-0`} />
-            <div>
-              <p className="text-2xl font-bold">{c.value.toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground">{c.label}</p>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {cards.map((c) => (
+          <Card key={c.label}>
+            <CardContent className="pt-4 pb-3 px-4 flex items-center gap-3">
+              <c.icon className={`h-5 w-5 ${c.color} shrink-0`} />
+              <div>
+                <p className="text-2xl font-bold">{c.value.toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">{c.label}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      {/* Link Check */}
+      <div className="flex items-center gap-3">
+        <Button size="sm" variant="outline" onClick={runLinkCheck} disabled={isChecking} className="gap-2">
+          {isChecking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+          {isChecking ? 'Checking Links…' : 'Check Dead Links (50 items)'}
+        </Button>
+        {checkResult && (
+          <span className="text-xs text-muted-foreground">
+            Checked: <span className="font-mono">{checkResult.checked}</span> ·
+            Active: <span className="font-mono text-green-600">{checkResult.active}</span> ·
+            Deactivated: <span className="font-mono text-destructive">{checkResult.deactivated}</span>
+          </span>
+        )}
+      </div>
     </div>
   );
 }

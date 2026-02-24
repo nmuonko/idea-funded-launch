@@ -462,6 +462,32 @@ async function handleAction(req: Request, action: string) {
     return json({ success: true });
   }
 
+  if (action === "run-link-check") {
+    const batchSize = body.batch_size || 50;
+    const categoryKey = body.category_key || undefined;
+
+    const workerUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/catalog-refresh-worker`;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    const workerBody: Record<string, unknown> = {
+      mode: "link-check",
+      batch_size: Math.min(batchSize, 200),
+    };
+    if (categoryKey) workerBody.category_key = categoryKey;
+
+    const res = await fetch(workerUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify(workerBody),
+    });
+
+    const result = await res.json();
+    return json({ success: true, worker_result: result });
+  }
+
   return json({ error: "unknown action" }, 400);
 }
 

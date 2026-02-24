@@ -1168,6 +1168,96 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
   return runResult;
 }
 
+// ─── Link Check Mode ─────────────────────────────────────────────────────────
+
+async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number, categoryKey?: string) {
+  console.log(`[WORKER] === LINK CHECK MODE === batch=${batchSize} category=${categoryKey || "all"}`);
+
+  const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+
+  let query = supabase
+    .from("catalog_items")
+    .select("id, provider, provider_product_id, fail_count, category_key")
+    .eq("is_active", true)
+    .eq("provider", "ebay")
+    .or(`last_checked_at.is.null,last_checked_at.lt.${sevenDaysAgo}`)
+    .order("last_checked_at", { ascending: true, nullsFirst: true })
+    .limit(batchSize);
+
+  if (categoryKey) {
+    query = query.eq("category_key", categoryKey);
+  }
+
+  const { data: items, error } = await query;
+  if (error || !items?.length) {
+    console.log(`[WORKER] Link check: no items to check (${error?.message || "empty"})`);
+    return { checked: 0, active: 0, deactivated: 0, errors: 0 };
+  }
+
+  console.log(`[WORKER] Link check: checking ${items.length} items`);
+  const env = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
+  const now = new Date().toISOString();
+  let checked = 0, active = 0, deactivated = 0, errors = 0;
+
+  for (const item of items) {
+    try {
+      const itemUrl = `${EBAY_ENDPOINTS[env].browse}/item/${item.provider_product_id}`;
+      const res = await fetch(itemUrl, {
+        headers: {
+          "Authorization": `Bearer ${ebayToken}`,
+          "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+        },
+      });
+
+      checked++;
+
+      if (res.status === 404 || res.status === 410) {
+        const failCount = (item.fail_count || 0) + 1;
+        if (failCount >= DEACTIVATE_FAIL_THRESHOLD) {
+          await supabase.from("catalog_items").update({
+            is_active: false,
+            status_reason: "provider_unavailable",
+            fail_count: failCount,
+            last_checked_at: now,
+            updated_at: now,
+          }).eq("id", item.id);
+          deactivated++;
+        } else {
+          await supabase.from("catalog_items").update({
+            fail_count: failCount,
+            status_reason: "check_failed",
+            last_checked_at: now,
+            updated_at: now,
+          }).eq("id", item.id);
+        }
+      } else if (res.status === 429) {
+        console.warn("[WORKER] Link check: eBay 429, stopping");
+        await updateProviderHealth(supabase, "ebay", false, "429_rate_limited");
+        break;
+      } else if (res.ok) {
+        await supabase.from("catalog_items").update({
+          fail_count: 0,
+          last_checked_at: now,
+          status_reason: "active",
+          updated_at: now,
+        }).eq("id", item.id);
+        active++;
+      } else {
+        errors++;
+      }
+    } catch (err) {
+      console.error(`[WORKER] Link check error for ${item.id}:`, err instanceof Error ? err.message : err);
+      errors++;
+    }
+
+    await new Promise(r => setTimeout(r, RATE_LIMIT_DELAY_MS));
+  }
+
+  const result = { checked, active, deactivated, errors };
+  console.log("[WORKER] Link check complete:", JSON.stringify(result));
+  return result;
+}
+
 // ─── Main Handler ────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -1190,6 +1280,8 @@ Deno.serve(async (req) => {
   let provider: string | undefined;
   let customQuery: string | undefined;
   let maxItemsTarget: number | undefined;
+  let linkCheckBatchSize = 50;
+  let linkCheckCategory: string | undefined;
   try {
     const body = await req.json().catch(() => ({}));
     maxJobs = body.maxJobs || 10;
@@ -1197,6 +1289,8 @@ Deno.serve(async (req) => {
     provider = body.provider;
     customQuery = body.custom_query;
     maxItemsTarget = body.max_items_target;
+    linkCheckBatchSize = body.batch_size || 50;
+    linkCheckCategory = body.category_key;
   } catch { /* defaults */ }
 
   const url = new URL(req.url);
@@ -1214,6 +1308,8 @@ Deno.serve(async (req) => {
       results.builder = await runCatalogBuilder(supabase, ebayToken, provider, customQuery, maxItemsTarget);
     } else if (mode === "seed-backfill") {
       results.seedBackfill = await runSeedBackfill(supabase, ebayToken);
+    } else if (mode === "link-check") {
+      results.linkCheck = await runLinkCheck(supabase, ebayToken, Math.min(linkCheckBatchSize, 200), linkCheckCategory);
     } else {
       if (mode === "queue" || mode === "all") {
         results.queue = await processQueueJobs(supabase, ebayToken, maxJobs);

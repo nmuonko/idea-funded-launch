@@ -1,96 +1,110 @@
 
 
-## Make Catalog Growth Automatic in Live
+## Speed Up the Admin Portal
 
-### Problem
-All catalog-building cron jobs (Auto-Learning, queue processor, stale refresh) only exist in the **Test** database. They call `_cron_call_refresh_worker`, which is hardcoded to the Test edge function URL. This means:
-- All 66K items accumulate in Test only
-- Live stays at 34K and only grows when you manually export/import
-- Even the `_cron_call_refresh_worker` function **in Live** still points to the Test URL -- so it would write to Test even if cron jobs existed in Live
+### Root Cause
 
-### Solution (3 steps)
+The admin dashboard fires **8+ separate database queries simultaneously** when it loads, and every widget manages its own loading state with raw `useEffect`/`useState`. Key issues:
 
-#### Step 1: Fix the helper function in Live
-Update `_cron_call_refresh_worker` in the Live database to point to the **Live** edge function URL (`igmkhxffnyzoogcqvdab`) instead of the Test URL (`wydajcvmdoaqvovncotu`).
+1. **No query caching**: Every navigation back to the dashboard re-fetches everything from scratch. TanStack Query is configured (2-min staleTime) but the dashboard doesn't use it.
+2. **Waterfall queries**: The Dashboard component itself runs 4 sequential queries (current period orders, order items, previous period orders, previous order items). CustomerOverviewWidget runs 4 more. PendingActionsSidebar runs 3. That's 11+ queries on every dashboard load.
+3. **30-second polling**: PendingActionsSidebar polls every 30 seconds with `setInterval`, hammering the database even when idle.
+4. **OrdersOverviewChart fetches ALL orders**: It queries all non-DRAFT orders without any date filter or limit, pulling the entire orders table.
+5. **ConversionFunnel also fetches all orders**: Same issue -- no limit, potentially thousands of rows.
+6. **Inactive tab content still fetches**: Both `ChartTabs` and `OperationalInsightsTabs` use Radix Tabs which mount all tab content eagerly, so hidden tabs (Shipping, Payments, Saved Carts, Conversion Funnel) all fetch data even though only one tab is visible.
 
-#### Step 2: Create catalog cron jobs in Live
-Add the same 4 catalog cron jobs that exist in Test:
+### Plan
 
-| Job | Schedule | Mode |
-|-----|----------|------|
-| Catalog Builder (Auto-Learning) | Every 10 min | `catalog-builder` |
-| Queue Processor | Every 30 min | `queue` (50 jobs) |
-| Stale Refresh | Every 6 hours | `stale` (20 jobs) |
-| Pool Fill | Daily at 3 AM | `pool-fill` |
+#### 1. Convert dashboard widgets to TanStack Query hooks
+Replace raw `useEffect`/`useState` with `useQuery` in all dashboard components. This gives us:
+- **2-minute caching**: Navigating away and back won't re-fetch
+- **Background refetch**: Data stays fresh without blocking the UI
+- **Deduplication**: Multiple components requesting the same data get one query
 
-Also add the `promote_popular_searches` and `aggregate_popularity_scores` jobs if missing in Live.
+**Files**: All 8 files in `src/components/admin/dashboard/`
 
-#### Step 3: One-time catch-up sync
-Do one final export/import to bring Live from 34K to 66K. After that, Live will grow independently from its own cron jobs.
+#### 2. Consolidate dashboard stats into a single query
+Replace the 4 sequential queries in `Dashboard.tsx` (current orders + items + previous orders + items) with a single backend function call or a single query that returns all needed stats.
+
+**File**: `src/pages/admin/Dashboard.tsx`
+
+#### 3. Fix OrdersOverviewChart to use date range
+Add date filtering and a row limit so it doesn't pull the entire orders table.
+
+**File**: `src/components/admin/dashboard/OrdersOverviewChart.tsx`
+
+#### 4. Replace 30s polling with longer refetchInterval
+Change PendingActionsSidebar from `setInterval(30s)` to TanStack Query's `refetchInterval: 120000` (2 minutes) -- enough to stay current without hammering the database.
+
+**File**: `src/components/admin/dashboard/PendingActionsSidebar.tsx`
+
+#### 5. Defer hidden tab content
+Only render tab content when the tab is active (using conditional rendering inside `TabsContent`) so Shipping, Saved Carts, and other hidden panels don't fire queries until clicked.
+
+**Files**: `src/components/admin/dashboard/ChartTabs.tsx`, `src/components/admin/dashboard/OperationalInsightsTabs.tsx`
 
 ### Technical Details
 
-**SQL for Live** (to be run in Cloud View with Live selected):
+**TanStack Query conversion pattern** (applied to each widget):
 
 ```text
--- Step 1: Fix the helper function URL
-CREATE OR REPLACE FUNCTION public._cron_call_refresh_worker(p_mode text, p_body jsonb DEFAULT '{}'::jsonb)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
-DECLARE
-  v_url text;
-  v_headers jsonb;
-BEGIN
-  v_url := 'https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/catalog-refresh-worker';
-  v_headers := jsonb_build_object(
-    'Content-Type', 'application/json',
-    'x-internal-cron-key', 'afrishop-internal-cron-2026'
-  );
-  PERFORM net.http_post(
-    url := v_url,
-    headers := v_headers,
-    body := p_body || jsonb_build_object('mode', p_mode)
-  );
-END;
-$$;
+// Before (every component)
+const [data, setData] = useState(initial);
+const [loading, setLoading] = useState(true);
+useEffect(() => { fetchData(); }, [deps]);
 
--- Step 2: Create catalog cron jobs
-SELECT cron.schedule('catalog-builder-campaign', '*/10 * * * *',
-  $$SELECT public._cron_call_refresh_worker('catalog-builder');$$
-);
-
-SELECT cron.schedule('catalog-refresh-worker-queue', '*/30 * * * *',
-  $$SELECT public._cron_call_refresh_worker('queue', '{"maxJobs":50}'::jsonb)$$
-);
-
-SELECT cron.schedule('catalog-refresh-stale-6h', '30 */6 * * *',
-  $$SELECT public._cron_call_refresh_worker('stale', '{"maxJobs":20}'::jsonb)$$
-);
-
-SELECT cron.schedule('catalog-pool-fill-daily', '0 3 * * *',
-  $$SELECT public._cron_call_refresh_worker('pool-fill', '{}'::jsonb)$$
-);
-
-SELECT cron.schedule('promote-popular-searches-6h', '0 */6 * * *',
-  $$SELECT public.promote_popular_searches(3, 24, true);$$
-);
-
-SELECT cron.schedule('aggregate-popularity-daily', '0 4 * * *',
-  $$SELECT public.aggregate_popularity_scores();$$
-);
+// After
+const { data, isLoading } = useQuery({
+  queryKey: ['admin', 'widget-name', deps],
+  queryFn: fetchData,
+  staleTime: 2 * 60 * 1000,
+});
 ```
 
-**Important caveat**: The `_cron_call_refresh_worker` function is defined via a migration, so every time you **Publish**, it will get overwritten back to the Test URL. To prevent this:
-- Update the migration source to use a dynamic approach (environment variable or a settings row), OR
-- After each publish, re-run the URL fix SQL in Live
+**Deferred tab rendering pattern**:
 
-To make this permanent, I will also update the `_cron_call_refresh_worker` migration to read the URL from an `admin_settings` row instead of hardcoding it, so it works correctly in both environments without post-publish fixups.
+```text
+// Before (all tabs mount and fetch)
+<TabsContent value="shipping"><ShippingMetrics /></TabsContent>
+
+// After (only active tab mounts)
+<TabsContent value="shipping" forceMount={undefined}>
+  {activeTab === 'shipping' && <ShippingMetrics />}
+</TabsContent>
+```
+
+**Consolidated dashboard stats** -- combine the 4 Dashboard.tsx queries into one function:
+
+```text
+// Single query that returns all KPI stats
+const loadStats = async () => {
+  const [currentOrders, previousOrders] = await Promise.all([
+    supabase.from('orders').select('id, status, total_usd, ...').gte(...).lte(...),
+    supabase.from('orders').select('id, status, total_usd, ...').gte(...).lte(...),
+  ]);
+  // Calculate all stats from the two parallel queries instead of 4 sequential ones
+};
+```
 
 ### Files to Modify
-- `supabase/functions/catalog-refresh-worker/index.ts` -- No changes needed (already works with any Supabase URL)
-- SQL migration -- Update `_cron_call_refresh_worker` to read URL from `admin_settings` or `environments` table instead of hardcoding
 
-### After Implementation
-- Live will independently grow its catalog via the same Auto-Learning and queue jobs
-- No more manual export/import needed
-- One final sync brings Live from 34K to 66K, then both environments run independently
+| File | Change |
+|------|--------|
+| `src/pages/admin/Dashboard.tsx` | Use `useQuery`, parallelize fetches |
+| `src/components/admin/dashboard/PendingActionsSidebar.tsx` | Use `useQuery` with `refetchInterval: 120000` |
+| `src/components/admin/dashboard/CustomerOverviewWidget.tsx` | Use `useQuery` |
+| `src/components/admin/dashboard/OrdersOverviewChart.tsx` | Use `useQuery`, add date filter + limit |
+| `src/components/admin/dashboard/ConversionFunnel.tsx` | Use `useQuery` |
+| `src/components/admin/dashboard/ChartTabs.tsx` | Defer inactive tab rendering |
+| `src/components/admin/dashboard/OperationalInsightsTabs.tsx` | Defer inactive tab rendering |
+| `src/components/admin/dashboard/ShippingMetrics.tsx` | Use `useQuery` |
+| `src/components/admin/dashboard/PaymentsBreakdown.tsx` | Use `useQuery` |
+| `src/components/admin/dashboard/SavedCartsReport.tsx` | Use `useQuery` |
+
+### Expected Impact
+
+- Dashboard load: **11+ sequential/parallel queries** reduced to **~4 parallel queries** (only visible widgets)
+- Return navigation: **instant** (cached for 2 minutes)
+- Polling: **30s** reduced to **2 minutes**
+- Chart data: **full table scan** reduced to **date-filtered + limited query**
 

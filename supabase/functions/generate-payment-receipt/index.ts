@@ -215,7 +215,7 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
 
     <div class="info-section">
       <h3>Payment Reference</h3>
-      <div class="transaction-id">${order.maisha_transaction_id || 'N/A'}</div>
+      <div class="transaction-id">${order.operator_ref_id || order.maisha_transaction_id || 'N/A'}</div>
     </div>
 
     <table>
@@ -369,8 +369,8 @@ serve(async (req) => {
           order_id: order.id,
           order_number: order.id.slice(0, 8).toUpperCase(),
           status: order.status,
-          payment_status: order.maisha_payment_status,
-          transaction_id: order.maisha_transaction_id,
+          payment_status: order.status === 'PAID' ? 'SUCCESS' : order.status,
+          transaction_id: order.operator_ref_id || order.maisha_transaction_id,
           paid_at: order.payment_verified_at || order.updated_at,
           customer: {
             name: profile?.full_name || profile?.name || 'Customer',

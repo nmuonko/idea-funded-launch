@@ -78,7 +78,7 @@ export function PaymentVerificationPanel({ order, onUpdate }: PaymentVerificatio
           Payment Verification
         </CardTitle>
         <CardDescription>
-          Verify bank transfer or manual payment
+          Verify manual payment
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

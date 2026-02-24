@@ -2,13 +2,11 @@
  * Payment Health Diagnostic Endpoint
  * 
  * Returns unified status for all payment providers without exposing secrets.
- * Use this to verify the AAB is hitting the correct backend.
  * 
  * Response includes:
  * - Backend environment info
  * - pawaPay config (env, base URL domain)
  * - Stripe config status
- * - Bank transfer config status
  * - Payment limits
  */
 
@@ -36,10 +34,6 @@ interface HealthResponse {
       enabled: boolean;
       configured: boolean;
     };
-    bank_transfer: {
-      enabled: boolean;
-      configured: boolean;
-    };
   };
   limits: {
     pawapayMaxUsd: number;
@@ -49,7 +43,6 @@ interface HealthResponse {
 }
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -65,14 +58,12 @@ Deno.serve(async (req) => {
   });
 
   try {
-    // Get environment variables
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     
     // pawaPay env detection
     const pawapayToken = Deno.env.get('PAWAPAY_API_TOKEN');
     const pawapayBaseUrl = Deno.env.get('PAWAPAY_BASE_URL') || '';
-    const pawapayEnv = Deno.env.get('PAWAPAY_ENV') || 'auto';
     
     // Stripe env detection
     const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
@@ -101,7 +92,6 @@ Deno.serve(async (req) => {
       const url = new URL(supabaseUrl);
       const projectId = url.hostname.split('.')[0];
       supabaseUrlMasked = `${projectId.slice(0, 4)}***${projectId.slice(-4)}.supabase.co`;
-      // Extract region from URL if available
       if (url.hostname.includes('supabase.co')) {
         region = 'supabase-cloud';
       }
@@ -109,21 +99,13 @@ Deno.serve(async (req) => {
       supabaseUrlMasked = 'invalid';
     }
 
-    // Create admin client to fetch settings
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     // Fetch payment settings
     const { data: paymentSettings } = await supabaseAdmin
       .from('payment_settings')
-      .select('mobile_money_max_usd, mobile_money_max_cdf, pawapay_enabled, stripe_enabled, bank_transfer_enabled')
+      .select('mobile_money_max_usd, mobile_money_max_cdf, pawapay_enabled, stripe_enabled')
       .single();
-
-    // Fetch bank transfer settings
-    const { data: bankSettings } = await supabaseAdmin
-      .from('bank_transfer_settings')
-      .select('is_active, bank_name, beneficiary_name')
-      .eq('is_active', true)
-      .maybeSingle();
 
     // Build response
     const response: HealthResponse = {
@@ -145,10 +127,6 @@ Deno.serve(async (req) => {
           enabled: paymentSettings?.stripe_enabled !== false,
           configured: !!stripeSecretKey && stripeSecretKey.startsWith('sk_'),
         },
-        bank_transfer: {
-          enabled: paymentSettings?.bank_transfer_enabled !== false,
-          configured: !!bankSettings && !!bankSettings.bank_name,
-        },
       },
       limits: {
         pawapayMaxUsd: paymentSettings?.mobile_money_max_usd || 5000,
@@ -162,7 +140,6 @@ Deno.serve(async (req) => {
       pawapayEnv: pawapayMode,
       pawapayDomain,
       stripeConfigured: response.providers.stripe.configured,
-      bankTransferConfigured: response.providers.bank_transfer.configured,
     });
 
     return new Response(

@@ -38,7 +38,7 @@ serve(async (req) => {
     // Get order with payment details
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('id, status, total_usd, total_cdf, maisha_transaction_id, maisha_payment_status, payment_verified_at')
+      .select('id, status, total_usd, total_cdf, maisha_payment_status, payment_verified_at')
       .eq('id', orderId)
       .eq('user_id', user.id)
       .maybeSingle();
@@ -69,11 +69,9 @@ serve(async (req) => {
 
     const responseBody = {
       success: true,
-      // camelCase for mobile app
       orderId: order.id,
       paymentStatus,
       orderStatus: order.status,
-      maishapayTransactionId: order.maisha_transaction_id,
       totalUsd: order.total_usd,
       totalCdf: order.total_cdf,
       paidAt: order.payment_verified_at,
@@ -81,7 +79,6 @@ serve(async (req) => {
       order_id: order.id,
       payment_status: paymentStatus,
       order_status: order.status,
-      maishapay_transaction_id: order.maisha_transaction_id,
       total_usd: order.total_usd,
       total_cdf: order.total_cdf,
       paid_at: order.payment_verified_at,

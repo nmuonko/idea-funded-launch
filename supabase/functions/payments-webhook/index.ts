@@ -7,8 +7,6 @@
  * Supported providers:
  * - stripe: Stripe payment_intent events
  * - pawapay: pawaPay deposit callbacks
- * - maishapay: MaishaPay callbacks (delegates to existing handler)
- * - avadapay: Stub (returns 501)
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -125,25 +123,12 @@ Deno.serve(async (req) => {
       case 'pawapay':
         return await handlePawaPay(req, supabase);
       
-      case 'maishapay':
-        // Delegate to existing maishapay-callback function
-        // This maintains backwards compatibility
+      default:
+        console.error('[payments-webhook] Unknown provider:', provider);
         return new Response(
-          JSON.stringify({ 
-            success: false, 
-            error: 'Use dedicated /maishapay-callback endpoint' 
-          }),
+          JSON.stringify({ success: false, error: `Unknown provider: ${provider}` }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
-      
-      case 'avadapay':
-        console.log('[payments-webhook] AvadaPay webhook - NOT IMPLEMENTED');
-        return new Response(
-          JSON.stringify({ success: false, error: 'AvadaPay not implemented' }),
-          { status: 501, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      
-      default:
         console.error('[payments-webhook] Unknown provider:', provider);
         return new Response(
           JSON.stringify({ success: false, error: `Unknown provider: ${provider}` }),

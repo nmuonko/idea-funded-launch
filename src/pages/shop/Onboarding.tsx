@@ -30,7 +30,7 @@ const steps: OnboardingStep[] = [
     titleKey: 'onboardingStep2Title',
     descriptionKey: 'onboardingStep2Desc',
     defaultTitle: 'Easy Checkout',
-    defaultDescription: 'Pay with Mobile Money, Card, or Bank Transfer - whatever works for you',
+    defaultDescription: 'Pay with Mobile Money or Card - whatever works for you',
   },
   {
     icon: <Truck className="h-16 w-16 text-orange-400" />,

@@ -119,8 +119,6 @@ serve(async (req) => {
     
     if (order_id) {
       query = query.eq('id', order_id);
-    } else if (reference) {
-      query = query.eq('maisha_transaction_id', reference);
     }
 
     const { data: order, error: orderError } = await query.eq('user_id', user.id).single();
@@ -526,7 +524,6 @@ async function markOrderPaidAndNotify(
   // Update order status to PAID (canonical)
   const { error: orderError } = await supabase.from('orders').update({
     status: 'PAID',
-    maisha_payment_status: 'SUCCESS',
     payment_verified_at: now,
     updated_at: now,
   }).eq('id', order.id);

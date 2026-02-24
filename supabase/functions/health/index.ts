@@ -5,7 +5,6 @@
  * - Database connectivity
  * - Settings table has valid data
  * - Environment variables
- * - MaishaPay API config (optional)
  * 
  * GET /health
  * Returns: { status: "healthy" | "degraded" | "unhealthy", checks: {...} }
@@ -102,7 +101,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // Check 3: Optional API keys
-  const optionalVars = ["RESEND_API_KEY", "MAISHAPAY_PUBLIC_API_KEY", "MAISHAPAY_SECRET_API_KEY"];
+  const optionalVars = ["RESEND_API_KEY"];
   const missingOptional = optionalVars.filter((v) => !Deno.env.get(v));
 
   if (missingOptional.length > 0) {

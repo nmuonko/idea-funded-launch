@@ -52,9 +52,7 @@ serve(async (req) => {
     // Check if order can be retried
     const canRetry = (
       order.status === 'PENDING_PAYMENT' ||
-      order.maisha_payment_status === 'FAILED' ||
-      order.maisha_payment_status === 'CANCELLED' ||
-      order.maisha_payment_status === 'INIT_FAILED'
+      order.status === 'CANCELLED'
     );
 
     if (!canRetry) {
@@ -65,7 +63,7 @@ serve(async (req) => {
     }
 
     // Already paid?
-    if (order.status === 'PAID' || order.maisha_payment_status === 'SUCCESS') {
+    if (order.status === 'PAID') {
       return jsonResponse({ 
         error: 'ALREADY_PAID', 
         message: 'Order is already paid' 
@@ -96,7 +94,10 @@ serve(async (req) => {
       const secretsValid = validateProviderSecrets(provider);
       if (!secretsValid.valid) {
         console.error('[mobile-retry-payment] pawaPay secrets missing:', secretsValid.missing);
-        // Fall through to MaishaPay
+        return jsonResponse({ 
+          error: 'PROVIDER_CONFIG_ERROR', 
+          message: 'Payment provider is not properly configured. Please contact support.' 
+        }, 500);
       } else {
         try {
           const pawaConfig = getPawaPayConfig(provider);
@@ -128,10 +129,8 @@ serve(async (req) => {
               status: 'pending',
             });
 
-            // Update order status
             await supabase.from('orders').update({
               status: 'PENDING_PAYMENT',
-              maisha_payment_status: 'PENDING',
               updated_at: new Date().toISOString(),
             }).eq('id', order_id);
 
@@ -155,7 +154,11 @@ serve(async (req) => {
               },
             });
           } else {
-            console.warn('[mobile-retry-payment] pawaPay deposit failed, falling back to MaishaPay:', depositResult.error);
+            console.warn('[mobile-retry-payment] pawaPay deposit failed:', depositResult.error);
+            return jsonResponse({ 
+              error: 'PAYMENT_INIT_FAILED',
+              message: depositResult.error || 'Failed to initialize payment. Please try again.' 
+            }, 500);
           }
         } catch (pawaError: any) {
           console.error('[mobile-retry-payment] pawaPay error:', pawaError.message);

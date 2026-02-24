@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Save, CreditCard, Building2, Smartphone, DollarSign, AlertCircle } from 'lucide-react';
+import { Loader2, Save, CreditCard, Smartphone, DollarSign, AlertCircle } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -33,7 +33,6 @@ export default function PaymentLimitsContent() {
   const [mobileMoneyMaxUsd, setMobileMoneyMaxUsd] = useState(250);
   const [mobileMoneyMaxCdf, setMobileMoneyMaxCdf] = useState(1500000);
   const [stripeEnabled, setStripeEnabled] = useState(true);
-  const [bankTransferEnabled, setBankTransferEnabled] = useState(true);
   const [pawapayEnabled, setPawapayEnabled] = useState(true);
   
   const { toast } = useToast();
@@ -67,7 +66,6 @@ export default function PaymentLimitsContent() {
         setMobileMoneyMaxUsd(data.mobile_money_max_usd);
         setMobileMoneyMaxCdf(data.mobile_money_max_cdf);
         setStripeEnabled(data.stripe_enabled);
-        setBankTransferEnabled(data.bank_transfer_enabled);
         setPawapayEnabled(data.pawapay_enabled);
       }
     } catch (error: any) {
@@ -100,7 +98,6 @@ export default function PaymentLimitsContent() {
           mobile_money_max_usd: mobileMoneyMaxUsd,
           mobile_money_max_cdf: mobileMoneyMaxCdf,
           stripe_enabled: stripeEnabled,
-          bank_transfer_enabled: bankTransferEnabled,
           pawapay_enabled: pawapayEnabled,
           updated_at: new Date().toISOString(),
         })
@@ -165,8 +162,8 @@ export default function PaymentLimitsContent() {
           </CardTitle>
           <CardDescription>
             {language === 'fr' 
-              ? 'Les commandes dépassant ces limites devront utiliser Stripe ou Virement Bancaire' 
-              : 'Orders exceeding these limits will need to use Stripe or Bank Transfer'}
+              ? 'Les commandes dépassant ces limites devront utiliser Stripe' 
+              : 'Orders exceeding these limits will need to use Stripe'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -225,8 +222,8 @@ export default function PaymentLimitsContent() {
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
               {language === 'fr' 
-                ? `Commandes > $${mobileMoneyMaxUsd.toLocaleString()} ou FC ${mobileMoneyMaxCdf.toLocaleString()} seront redirigées vers Stripe (carte) ou Virement Bancaire en USD uniquement.` 
-                : `Orders > $${mobileMoneyMaxUsd.toLocaleString()} or FC ${mobileMoneyMaxCdf.toLocaleString()} will be redirected to Stripe (card) or Bank Transfer in USD only.`}
+                ? `Commandes > $${mobileMoneyMaxUsd.toLocaleString()} ou FC ${mobileMoneyMaxCdf.toLocaleString()} seront redirigées vers Stripe (carte).` 
+                : `Orders > $${mobileMoneyMaxUsd.toLocaleString()} or FC ${mobileMoneyMaxCdf.toLocaleString()} will be redirected to Stripe (card).`}
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -301,36 +298,6 @@ export default function PaymentLimitsContent() {
               />
             </div>
           </div>
-
-          {/* Bank Transfer */}
-          <div className="flex items-center justify-between p-4 rounded-lg border">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-500/10">
-                <Building2 className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="font-medium">
-                  {language === 'fr' ? 'Virement Bancaire' : 'Bank Transfer'}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {language === 'fr' 
-                    ? 'Virements bancaires manuels (grandes commandes, USD uniquement)' 
-                    : 'Manual bank transfers (large orders, USD only)'}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Badge variant={bankTransferEnabled ? 'default' : 'secondary'}>
-                {bankTransferEnabled 
-                  ? (language === 'fr' ? 'Actif' : 'Active') 
-                  : (language === 'fr' ? 'Inactif' : 'Inactive')}
-              </Badge>
-              <Switch 
-                checked={bankTransferEnabled} 
-                onCheckedChange={setBankTransferEnabled}
-              />
-            </div>
-          </div>
         </CardContent>
       </Card>
 
@@ -365,8 +332,8 @@ export default function PaymentLimitsContent() {
                 </p>
                 <p className="text-muted-foreground">
                   {language === 'fr' 
-                    ? `> $${mobileMoneyMaxUsd.toLocaleString()} USD ou > FC ${mobileMoneyMaxCdf.toLocaleString()} → Choix: Stripe ou Virement Bancaire (USD uniquement)` 
-                    : `> $${mobileMoneyMaxUsd.toLocaleString()} USD or > FC ${mobileMoneyMaxCdf.toLocaleString()} → Choice: Stripe or Bank Transfer (USD only)`}
+                    ? `> $${mobileMoneyMaxUsd.toLocaleString()} USD ou > FC ${mobileMoneyMaxCdf.toLocaleString()} → Stripe (carte)` 
+                    : `> $${mobileMoneyMaxUsd.toLocaleString()} USD or > FC ${mobileMoneyMaxCdf.toLocaleString()} → Stripe (card)`}
                 </p>
               </div>
             </div>
@@ -379,8 +346,8 @@ export default function PaymentLimitsContent() {
                 </p>
                 <p className="text-muted-foreground">
                   {language === 'fr' 
-                    ? 'Toujours → Choix: Stripe ou Virement Bancaire (USD uniquement)' 
-                    : 'Always → Choice: Stripe or Bank Transfer (USD only)'}
+                    ? 'Toujours → Stripe (carte)' 
+                    : 'Always → Stripe (card)'}
                 </p>
               </div>
             </div>

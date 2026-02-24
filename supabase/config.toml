@@ -144,6 +144,9 @@ verify_jwt = false
 [functions.catalog-collection]
 verify_jwt = false
 
+[functions.catalog-data-sync]
+verify_jwt = false
+
 [functions.catalog-debug-search]
 verify_jwt = false
 

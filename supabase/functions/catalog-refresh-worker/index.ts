@@ -699,8 +699,8 @@ function nextSortMode(current: string): string {
   return BUILDER_SORT_MODES[(idx + 1) % BUILDER_SORT_MODES.length];
 }
 
-async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilter?: string) {
-  console.log("[WORKER] === CATALOG BUILDER MODE (v2 — sort rotation + smart exhaustion) ===");
+async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilter?: string, customQuery?: string) {
+  console.log(`[WORKER] === CATALOG BUILDER MODE (v2 — sort rotation + smart exhaustion)${customQuery ? ` custom_query="${customQuery}"` : ''} ===`);
   const runStart = Date.now();
   const now = new Date().toISOString();
   let requestsThisRun = 0;
@@ -749,6 +749,98 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
   if (pausedSetting?.value === "true") {
     console.log("[BUILDER] Builder is paused");
     return { status: "paused" };
+  }
+
+  // ── CUSTOM QUERY MODE: bypass source rotation, search directly ──
+  if (customQuery) {
+    console.log(`[BUILDER] Custom query mode: "${customQuery}" provider=${providerFilter || "ebay"}`);
+    const maxPages = Math.min(40, Math.ceil((100) / BUILDER_ITEMS_PER_PAGE) * 10); // up to 40 pages
+    let totalUpsertedCQ = 0;
+    let totalNewUniqueCQ = 0;
+    let totalDupsCQ = 0;
+    let requestsCQ = 0;
+    let offset = 0;
+
+    for (let page = 0; page < maxPages; page++) {
+      const timeRemaining = BUILDER_TIME_BUDGET_MS - (Date.now() - runStart);
+      if (timeRemaining < BUILDER_RESERVE_MS) break;
+      if (requestsCQ >= BUILDER_MAX_REQUESTS_PER_RUN) break;
+
+      try {
+        const { items, total } = await searchEbay(ebayToken, customQuery, BUILDER_ITEMS_PER_PAGE, offset);
+        requestsCQ++;
+
+        if (items.length === 0 || offset >= total) break;
+
+        const categoryKey = "general"; // Will be auto-classified by ingestion guardrails
+        const upsertRows = items
+          .filter((item: any) => item.title && item.itemId)
+          .map((item: any) => buildUpsertRow(item, categoryKey, now));
+
+        if (upsertRows.length > 0) {
+          const productIds = upsertRows.map((r: any) => r.provider_product_id);
+          const { data: existingRows } = await supabase
+            .from("catalog_items")
+            .select("provider_product_id")
+            .eq("provider", "ebay")
+            .in("provider_product_id", productIds);
+
+          const existingSet = new Set((existingRows || []).map((r: any) => r.provider_product_id));
+          const newItems = productIds.filter((id: string) => !existingSet.has(id)).length;
+
+          const { error: upsertErr } = await supabase
+            .from("catalog_items")
+            .upsert(upsertRows, { onConflict: "provider,provider_product_id" });
+
+          if (!upsertErr) {
+            totalUpsertedCQ += upsertRows.length;
+            totalNewUniqueCQ += newItems;
+            totalDupsCQ += productIds.length - newItems;
+          } else {
+            console.error(`[BUILDER] Custom query upsert error:`, upsertErr.message);
+          }
+        }
+
+        offset += items.length;
+        const jitter = Math.floor(Math.random() * 400);
+        await new Promise(r => setTimeout(r, BUILDER_DELAY_MS + jitter));
+
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unknown";
+        if (msg.includes("RATE_LIMITED_429")) {
+          const retryAfterSec = (err as any).retryAfterSec;
+          await updateProviderHealth(supabase, providerFilter || "ebay", false, "429_rate_limited", retryAfterSec);
+          break;
+        }
+        console.error(`[BUILDER] Custom query error:`, msg);
+        break;
+      }
+    }
+
+    // Log run
+    const cqResult = {
+      items_upserted: totalUpsertedCQ,
+      new_unique_items: totalNewUniqueCQ,
+      duplicates_skipped: totalDupsCQ,
+      rate_limited_count: 0,
+      sources_processed: 1,
+      duration_ms: Date.now() - runStart,
+      custom_query: customQuery,
+    };
+    await supabase.from("catalog_builder_runs").insert({
+      goal_id: campaign?.id || null,
+      provider: providerFilter || "ebay",
+      started_at: new Date(runStart).toISOString(),
+      finished_at: new Date().toISOString(),
+      items_upserted: cqResult.items_upserted,
+      new_unique_items: cqResult.new_unique_items,
+      duplicates_skipped: cqResult.duplicates_skipped,
+      rate_limited_count: cqResult.rate_limited_count,
+      sources_processed: cqResult.sources_processed,
+      duration_ms: cqResult.duration_ms,
+    });
+    console.log("[BUILDER] Custom query complete:", JSON.stringify(cqResult));
+    return cqResult;
   }
 
   // Get builder sources (enabled), round-robin by category
@@ -1075,11 +1167,13 @@ Deno.serve(async (req) => {
   let maxJobs = 10;
   let mode = "queue";
   let provider: string | undefined;
+  let customQuery: string | undefined;
   try {
     const body = await req.json().catch(() => ({}));
     maxJobs = body.maxJobs || 10;
     mode = body.mode || "queue";
     provider = body.provider;
+    customQuery = body.custom_query;
   } catch { /* defaults */ }
 
   const url = new URL(req.url);
@@ -1094,7 +1188,7 @@ Deno.serve(async (req) => {
     const ebayToken = await getEbayToken(supabase);
 
     if (mode === "catalog-builder") {
-      results.builder = await runCatalogBuilder(supabase, ebayToken, provider);
+      results.builder = await runCatalogBuilder(supabase, ebayToken, provider, customQuery);
     } else if (mode === "seed-backfill") {
       results.seedBackfill = await runSeedBackfill(supabase, ebayToken);
     } else {

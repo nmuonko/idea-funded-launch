@@ -1,40 +1,60 @@
 
 
-## Fix Data Sync to Successfully Import All Missing Items
+## Fix Export to Download All 27,728 Items
 
 ### Problem
-The current export/import flow sends items with their Test-generated `id` (UUID primary key). When upserting into Live, this can cause **primary key conflicts** that silently fail entire chunks. The upsert targets `provider,provider_product_id` for deduplication, but the `id` field creates a separate constraint violation.
+The export only downloads 1,000 items because `supabase.functions.invoke()` may not reliably pass query parameters when they're appended to the function name string. This means the edge function likely receives `page=0` on every call, or `totalPages` resolves to 1, so the pagination loop only runs once.
 
 ### Solution
+Switch the export to use POST with a JSON body (instead of GET with query params) so parameters are reliably passed through `supabase.functions.invoke()`.
 
-#### 1. Strip `id` and auto-generated fields before import (Edge Function)
+### Changes
 
-In `supabase/functions/catalog-data-sync/index.ts`, before upserting each chunk, strip the `id`, `created_at`, and `updated_at` fields from every item. This lets the destination database generate its own primary keys while still deduplicating on `provider,provider_product_id`.
+#### 1. Edge Function (`supabase/functions/catalog-data-sync/index.ts`)
+- Read `mode`, `page`, and `pageSize` from the **request body** (POST) instead of URL search params
+- Both export and import will use POST method
+- Keep the same pagination logic (1,000 rows per page, ordered by `id`)
 
+#### 2. Admin UI (`src/pages/admin/CatalogCache.tsx`)
+- Change the export call from GET to POST, sending `{ mode: "export", page, pageSize: 1000 }` in the body
+- Change the import call similarly to send `{ mode: "import", items: chunk }` in the body
+- This ensures all parameters are reliably received by the edge function
+
+### Technical Details
+
+**Edge function change:**
 ```typescript
-// Before upsert, strip fields that should be auto-generated
-const cleanedChunk = chunk.map(item => {
-  const { id, created_at, updated_at, ...rest } = item;
-  return rest;
-});
+// Parse mode from body instead of URL params
+const body = await req.json();
+const mode = body.mode || "export";
+
+if (mode === "export") {
+  const page = body.page || 0;
+  const pageSize = Math.min(body.pageSize || 1000, 1000);
+  // ... same pagination logic
+}
 ```
 
-#### 2. Reduce chunk size to 200 for reliability
+**Client export call change:**
+```typescript
+const { data, error } = await supabase.functions.invoke(
+  'catalog-data-sync',
+  { method: 'POST', body: { mode: 'export', page, pageSize: 1000 } }
+);
+```
 
-Smaller chunks reduce the chance of timeouts and make error reporting more granular.
+**Client import call change:**
+```typescript
+const { data, error } = await supabase.functions.invoke(
+  'catalog-data-sync',
+  { method: 'POST', body: { mode: 'import', items: chunk } }
+);
+```
 
-#### 3. Add error details to the response
-
-Return the actual error messages so you can see what's failing instead of just incrementing an error counter.
-
-#### 4. Workflow after fix
-
-1. Publish the app (deploys the fixed edge function)
-2. Go to the **Live** admin panel at `/admin/catalog-cache`
-3. Click **"Import Items (JSON)"** and upload the same export file
-4. The system will skip the ~19,477 existing items and insert the ~8,251 missing ones
+### Expected Result
+The export will properly paginate through all 28 pages (1,000 items each) and download a complete JSON file with all 27,728 items. The import flow remains unchanged in behavior.
 
 ### Files to modify
-- `supabase/functions/catalog-data-sync/index.ts` — Strip `id`/timestamps from imports, reduce chunk size, improve error reporting
-- `src/pages/admin/CatalogCache.tsx` — Reduce client chunk size to 200, show error details in toast
+- `supabase/functions/catalog-data-sync/index.ts` -- Read params from body instead of URL
+- `src/pages/admin/CatalogCache.tsx` -- Send export/import params via POST body
 

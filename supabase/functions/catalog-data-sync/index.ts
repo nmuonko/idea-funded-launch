@@ -52,13 +52,13 @@ Deno.serve(async (req) => {
     if (mode === "export") {
       // Export ALL items as NDJSON (streamed)
       const page = parseInt(url.searchParams.get("page") || "0");
-      const pageSize = parseInt(url.searchParams.get("pageSize") || "5000");
-      const maxPage = Math.min(page, 100); // safety cap
-      const safePageSize = Math.min(pageSize, 5000);
+      const pageSize = parseInt(url.searchParams.get("pageSize") || "1000");
+      const maxPage = Math.min(page, 500); // safety cap
+      const safePageSize = Math.min(pageSize, 1000); // Supabase caps at 1000 rows per query
 
       const { data: items, error, count } = await supabase
         .from("catalog_items")
-        .select("id,provider,provider_product_id,title,brand,price_usd,image_url,product_url,category_key,condition,currency,in_stock,is_active,is_disallowed,rating,tags,unified_category,unified_subcategory,popularity_score,listing_type,buying_options,search_text,images,metadata,data_hash,first_seen_at,last_seen_at,price_updated_at,data_updated_at,last_checked_at,fail_count,parts_subkey,vehicles_subkey", { count: "exact" })
+        .select("*", { count: "exact" })
         .order("id")
         .range(maxPage * safePageSize, (maxPage + 1) * safePageSize - 1);
 

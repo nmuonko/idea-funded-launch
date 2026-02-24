@@ -1143,7 +1143,7 @@ function DataSync() {
       while (page < totalPages) {
         setExportProgress(`Fetching page ${page + 1}${totalPages > 1 ? ` of ${totalPages}` : ''}...`);
         const { data, error } = await supabase.functions.invoke(
-          `catalog-data-sync?mode=export&page=${page}&pageSize=5000`,
+          `catalog-data-sync?mode=export&page=${page}&pageSize=1000`,
           { method: 'GET' }
         );
         if (error) throw error;
@@ -1181,8 +1181,8 @@ function DataSync() {
         throw new Error('No items found in file');
       }
 
-      // Send in chunks of 2000 to avoid request size limits
-      const chunkSize = 2000;
+      // Send in chunks of 500 to stay within request size limits
+      const chunkSize = 500;
       let totalInserted = 0;
       let totalSkipped = 0;
 

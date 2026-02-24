@@ -1138,17 +1138,18 @@ function DataSync() {
     try {
       const allItems: any[] = [];
       let page = 0;
-      let totalPages = 1;
+      let keepGoing = true;
 
-      while (page < totalPages) {
-        setExportProgress(`Fetching page ${page + 1}${totalPages > 1 ? ` of ${totalPages}` : ''}...`);
+      while (keepGoing) {
+        setExportProgress(`Fetching page ${page + 1}... (${allItems.length} items so far)`);
         const { data, error } = await supabase.functions.invoke(
           'catalog-data-sync',
           { method: 'POST', body: { mode: 'export', page, pageSize: 1000 } }
         );
         if (error) throw error;
-        totalPages = data.totalPages;
-        allItems.push(...(data.items || []));
+        const items = data.items || [];
+        allItems.push(...items);
+        keepGoing = items.length === 1000;
         page++;
       }
 

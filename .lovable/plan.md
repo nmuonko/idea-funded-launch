@@ -1,80 +1,98 @@
 
 
-## Fix On-Demand Fetch: Quantity Limit, Duplicates, and Verification
+## Fix Summary Cards and Handle Obsolete Product Links
 
-### Problems Found
+### Problem 1: Summary Cards Show 0 for Everything Except Total
 
-1. **Fetching 100 instead of 10**: The target check `totalUpsertedCQ >= target` on line 770 counts ALL upserted rows (including duplicates that got upserted via `ON CONFLICT UPDATE`). So it counts 100 upserted rows instead of stopping at 10 new unique items. Also, `BUILDER_ITEMS_PER_PAGE = 100` means a single eBay API call already fetches 100 items, overshooting the target on the very first page.
+The `handleSummary` edge function runs 7+ sequential `count` queries taking 5+ seconds. The frontend catches errors silently and falls back to `{}`, which renders all counts as 0. Meanwhile, the direct DB count query for "Total" uses a separate, faster query that works fine.
 
-2. **42 duplicates still inserted**: The code detects duplicates for counting purposes but still upserts them (line 797-799). The upsert updates existing rows unnecessarily, and `totalUpsertedCQ` includes duplicate rows.
+**Fix**: Mirror the same direct-DB-count approach used for Total across all summary metrics. Replace the single slow edge function call with parallel direct Supabase client queries from the frontend (active, inactive, added 24h, stale price, dead). This is faster, more reliable, and eliminates the single-point-of-failure edge function call.
 
-3. **No persistent way to verify fetched items**: "View Fetched Products" button only works right after fetching (state resets on page reload). No time-based filter to see recently on-demand-fetched items.
+**Files**: `src/pages/admin/CatalogCache.tsx` (SummaryCards component, lines 74-145)
 
-### Fixes
+**Changes**:
+- Add separate `useQuery` hooks for each metric (active, inactive, dead, added_24h, stale_price) using direct `supabase.from('catalog_items').select('*', { count: 'exact', head: true })` with appropriate filters
+- Remove dependency on the `summary` edge function mode (keep it as optional fallback)
+- Run all count queries in parallel for speed
 
-#### Backend (`catalog-refresh-worker/index.ts`)
+### Problem 2: Obsolete/Dead Links Not Being Detected
 
-- **Skip duplicate upserts entirely**: Only upsert truly new items (filter out rows whose `provider_product_id` already exists before calling `.upsert()`). This prevents unnecessary DB writes and keeps the count accurate.
-- **Count only new unique items toward target**: Change `totalUpsertedCQ >= target` to track new unique items only, stopping precisely when the requested quantity of NEW items is reached.
-- **Use smaller page size for small targets**: When target <= 50, request only `target` items per eBay API call instead of always 100.
+The system already has a stale-refresh mechanism (`refreshStaleItems` in `catalog-refresh-worker`) that checks eBay item URLs and increments `fail_count` on 404/410 responses, deactivating items after 3 failures. However, this only runs when the worker is in `stale` mode and items have old `price_updated_at` dates.
 
-#### Frontend (`CatalogCache.tsx`)
+**What's missing**: There's no proactive link-checking for the 72K+ items that were bulk-ingested recently. They all show `fail_count: 0` and `is_active: true` because they've never been verified.
 
-- **Add a persistent "Recently Fetched" filter**: Add a `date_preset` dropdown in the Items Table with options like "Last 1 hour", "Today", "Last 7 days" that filters by `created_at` (first_seen_at). This works across page reloads.
-- **Move "View Fetched Products" into the Items Table toolbar**: Instead of a button that only shows after fetching, add a permanent date filter that auto-applies when coming from the fetch result.
+**Fix**: Add a new `link-check` mode to the catalog-refresh-worker that batch-validates product URLs by hitting the eBay Browse API `/item/{id}` endpoint. Items returning 404/410 get their `fail_count` incremented and are deactivated after 3 failures. Add a "Check Links" button in the admin UI to trigger this.
 
-### Technical Details
+**Files**:
+- `supabase/functions/catalog-refresh-worker/index.ts` -- Add `link-check` mode
+- `supabase/functions/admin-catalog-items/index.ts` -- Add `run-link-check` action
+- `src/pages/admin/CatalogCache.tsx` -- Add "Check Links" button and show results
 
-**Backend -- only upsert new items** (lines 786-804):
+### Problem 3: Summary Cards Should Reflect Real Data
 
-```text
-// Before: upserts ALL items including duplicates
-const { error: upsertErr } = await supabase
-  .from("catalog_items")
-  .upsert(upsertRows, { onConflict: "provider,provider_product_id" });
-totalUpsertedCQ += upsertRows.length;
+The DB currently shows: 72,993 total, 72,993 active, 0 inactive, 0 dead, 50,351 added in 24h. Once the direct-query approach works, these real numbers will display correctly.
 
-// After: filter to only new items, skip duplicates entirely
-const newRows = upsertRows.filter((r: any) => !existingSet.has(r.provider_product_id));
-if (newRows.length > 0) {
-  // Trim to not exceed target
-  const remaining = target - totalNewUniqueCQ;
-  const toInsert = newRows.slice(0, remaining);
-  await supabase.from("catalog_items")
-    .upsert(toInsert, { onConflict: "provider,provider_product_id" });
-  totalNewUniqueCQ += toInsert.length;
-}
-totalDupsCQ += existingSet.size;
-```
+---
 
-**Backend -- use target-aware page size**:
+### Detailed Technical Plan
+
+#### 1. Fix SummaryCards -- Direct DB Queries (CatalogCache.tsx)
+
+Replace the single `summary` edge function call with parallel direct queries:
 
 ```text
-const pageSize = Math.min(BUILDER_ITEMS_PER_PAGE, Math.max(20, target));
+// Each as its own useQuery with staleTime: 60_000
+const { data: activeCount } = useQuery({
+  queryKey: ['catalog-items-active-count'],
+  queryFn: async () => {
+    const { count } = await supabase.from('catalog_items')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_active', true);
+    return count ?? 0;
+  },
+});
+
+// Similar for: inactive, dead (fail_count >= 3), added_24h (first_seen_at >= 24h ago), stale_price
 ```
 
-**Backend -- stop on new unique target**:
+Remove the `invokeAdmin({ mode: 'summary' })` call entirely from SummaryCards.
 
-```text
-if (totalNewUniqueCQ >= target) {
-  console.log(`[BUILDER] Custom query target reached: ${totalNewUniqueCQ} new unique >= ${target}`);
-  break;
-}
-```
+#### 2. Add Link-Check Mode (catalog-refresh-worker)
 
-**Frontend -- permanent date filter in Items Table**: Add to the existing filters bar a "Date" dropdown with preset options (Last hour, Today, Last 7 days, Last 30 days) that maps to the existing `date_preset` filter parameter already supported by the backend.
+New function `runLinkCheck`:
+- Fetches a batch of active items (default 50, max 200) that haven't been checked recently (`last_checked_at` is null or older than 7 days)
+- For each item, calls the eBay Browse API `/item/{provider_product_id}`
+- On 404/410: increments `fail_count`, sets `status_reason = 'check_failed'`, deactivates if `fail_count >= 3`
+- On 200: resets `fail_count = 0`, updates `last_checked_at`, confirms `is_active = true`
+- On 429: stops immediately
+- Returns `{ checked, active, deactivated }`
+
+#### 3. Add Admin Action (admin-catalog-items)
+
+New action `run-link-check`:
+- Accepts optional `batch_size` (default 50) and optional `category_key`
+- Calls `catalog-refresh-worker` with `mode: 'link-check'`
+- Returns results to frontend
+
+#### 4. Add UI Controls (CatalogCache.tsx)
+
+In the SummaryCards area or as a new utility card:
+- "Check Links" button that triggers the link-check
+- Shows progress: "Checked X items: Y active, Z deactivated"
+- After completion, invalidates summary count queries to refresh the cards
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `supabase/functions/catalog-refresh-worker/index.ts` | Skip duplicate upserts, count only new uniques toward target, use smaller page size for small targets |
-| `src/pages/admin/CatalogCache.tsx` | Add permanent date filter dropdown in ItemsTable filters, improve "View Fetched Products" to apply date filter |
+| `src/pages/admin/CatalogCache.tsx` | Replace SummaryCards edge fn with direct DB queries; add "Check Links" button |
+| `supabase/functions/catalog-refresh-worker/index.ts` | Add `link-check` mode using existing `refreshStaleItems` pattern |
+| `supabase/functions/admin-catalog-items/index.ts` | Add `run-link-check` action handler |
 
-### Expected Result
+### Expected Results
 
-- Requesting 10 items will fetch and insert exactly 10 NEW unique items (or fewer if not enough exist)
-- Duplicates are detected but NOT re-inserted into the database
-- Items Table always shows a date filter dropdown to verify recently cached products
-- Works identically on Live environment after publish
+- Summary cards immediately show real counts (72,993 Active, 0 Inactive, 50,351 Added 24h, etc.)
+- "Check Links" lets you validate batches of products, auto-deactivating dead ones
+- Deactivated items show as "Inactive" in the summary and can be filtered in the Items Table
+- All changes deploy to Live on publish
 

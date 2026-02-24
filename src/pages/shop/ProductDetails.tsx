@@ -628,7 +628,7 @@ export default function ProductDetailsPage() {
 
               {safeImages.length > 1 && (
                 <div className="flex gap-2 overflow-x-auto pb-2">
-                  {safeImages.slice(0, 6).map((img, index) => (
+                  {safeImages.map((img, index) => (
                     <button
                       key={index}
                       onClick={() => setCurrentImageIndex(index)}

@@ -1143,8 +1143,8 @@ function DataSync() {
       while (page < totalPages) {
         setExportProgress(`Fetching page ${page + 1}${totalPages > 1 ? ` of ${totalPages}` : ''}...`);
         const { data, error } = await supabase.functions.invoke(
-          `catalog-data-sync?mode=export&page=${page}&pageSize=1000`,
-          { method: 'GET' }
+          'catalog-data-sync',
+          { method: 'POST', body: { mode: 'export', page, pageSize: 1000 } }
         );
         if (error) throw error;
         totalPages = data.totalPages;
@@ -1192,8 +1192,8 @@ function DataSync() {
         const chunk = items.slice(i, i + chunkSize);
         setImportProgress(`Importing ${i + 1}–${Math.min(i + chunkSize, items.length)} of ${items.length}...`);
         const { data, error } = await supabase.functions.invoke(
-          'catalog-data-sync?mode=import',
-          { method: 'POST', body: { items: chunk } }
+          'catalog-data-sync',
+          { method: 'POST', body: { mode: 'import', items: chunk } }
         );
         if (error) throw error;
         totalInserted += data.inserted || 0;

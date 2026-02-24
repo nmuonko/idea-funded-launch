@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Truck, CreditCard, ShoppingBag, Activity } from 'lucide-react';
@@ -11,6 +12,8 @@ interface OperationalInsightsTabsProps {
 }
 
 export function OperationalInsightsTabs({ dateRange }: OperationalInsightsTabsProps) {
+  const [activeTab, setActiveTab] = useState('payments');
+
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
       <CardHeader className="pb-2">
@@ -20,7 +23,7 @@ export function OperationalInsightsTabs({ dateRange }: OperationalInsightsTabsPr
         </div>
       </CardHeader>
       <CardContent>
-        <Tabs defaultValue="payments" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-3 bg-muted/50 mb-4">
             <TabsTrigger value="shipping" className="gap-2 text-sm">
               <Truck className="h-4 w-4" />
@@ -36,13 +39,13 @@ export function OperationalInsightsTabs({ dateRange }: OperationalInsightsTabsPr
             </TabsTrigger>
           </TabsList>
           <TabsContent value="shipping" className="mt-0">
-            <ShippingMetrics dateRange={dateRange} embedded />
+            {activeTab === 'shipping' && <ShippingMetrics dateRange={dateRange} embedded />}
           </TabsContent>
           <TabsContent value="payments" className="mt-0">
-            <PaymentsBreakdown dateRange={dateRange} embedded />
+            {activeTab === 'payments' && <PaymentsBreakdown dateRange={dateRange} embedded />}
           </TabsContent>
           <TabsContent value="carts" className="mt-0">
-            <SavedCartsReport embedded />
+            {activeTab === 'carts' && <SavedCartsReport embedded />}
           </TabsContent>
         </Tabs>
       </CardContent>

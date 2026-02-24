@@ -11,9 +11,11 @@ interface ChartTabsProps {
 }
 
 export function ChartTabs({ dateRange }: ChartTabsProps) {
+  const [activeTab, setActiveTab] = useState('orders');
+
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-      <Tabs defaultValue="orders" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <CardHeader className="pb-0">
           <TabsList className="grid w-full max-w-[320px] grid-cols-2 bg-muted/50">
             <TabsTrigger value="orders" className="gap-2 text-sm">
@@ -28,10 +30,10 @@ export function ChartTabs({ dateRange }: ChartTabsProps) {
         </CardHeader>
         <CardContent className="pt-4">
           <TabsContent value="orders" className="mt-0">
-            <OrdersOverviewChart dateRange={dateRange} embedded />
+            {activeTab === 'orders' && <OrdersOverviewChart dateRange={dateRange} embedded />}
           </TabsContent>
           <TabsContent value="funnel" className="mt-0">
-            <ConversionFunnel dateRange={dateRange} embedded />
+            {activeTab === 'funnel' && <ConversionFunnel dateRange={dateRange} embedded />}
           </TabsContent>
         </CardContent>
       </Tabs>

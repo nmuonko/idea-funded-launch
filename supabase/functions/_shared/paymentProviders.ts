@@ -212,9 +212,9 @@ export async function selectProviderByLimits(
       console.log('[PaymentRouter] Vehicle order - selected Stripe');
       return { success: true, provider: stripeProvider, currency: 'USD' };
     }
-    // Fallback to bank transfer (caller handles this)
-    console.log('[PaymentRouter] Vehicle order - no Stripe, will use bank transfer');
-    return { success: false, error: 'VEHICLE_BANK_TRANSFER_REQUIRED' };
+    // No Stripe available for vehicle order
+    console.log('[PaymentRouter] Vehicle order - no Stripe available');
+    return { success: false, error: 'VEHICLE_CARD_REQUIRED' };
   }
 
   // RULE 2: Regular orders use pawaPay mobile money

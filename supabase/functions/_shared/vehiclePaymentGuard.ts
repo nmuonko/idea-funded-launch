@@ -1,8 +1,8 @@
 /**
  * Vehicle Payment Guard
  * 
- * Detects vehicle orders and enforces USD currency for MaishaPay payments.
- * Vehicle orders MUST use USD currency (not CDF) to avoid payment gateway errors.
+ * Detects vehicle orders and enforces Stripe (card) payment.
+ * Vehicle orders MUST use USD currency via Stripe.
  */
 
 // Vehicle store identifiers
@@ -153,16 +153,12 @@ export async function fetchAndValidateVehicleQuotes(
   };
 }
 
-/**
- * Determine the payment currency for MaishaPay based on order value and vehicle status.
- * CRITICAL: Vehicle orders MUST use USD (not CDF) to avoid "devise" errors.
- * Regular high-value orders (non-vehicle) can use CDF.
- */
+// Legacy function kept for backward compatibility - vehicles always use USD via Stripe
 export function getPaymentCurrencyAndAmount(
   totalUsd: number,
-  totalCdf: number,
+  _totalCdf: number,
   isVehicle: boolean,
-  exchangeRate: number = 2500
+  _exchangeRate: number = 2500
 ): {
   currency: 'USD' | 'CDF';
   amount: number;
@@ -171,39 +167,14 @@ export function getPaymentCurrencyAndAmount(
   usedCdf: boolean;
   reason: string;
 } {
-  // VEHICLE ORDERS: Always use USD (MaishaPay "devise" error fix)
-  if (isVehicle) {
-    return {
-      currency: 'USD',
-      amount: round2(totalUsd),
-      amountFormatted: totalUsd.toFixed(2),
-      displayAmount: `$${totalUsd.toFixed(2)} USD`,
-      usedCdf: false,
-      reason: 'vehicle_order_usd_enforced',
-    };
-  }
-  
-  // High-value NON-vehicle orders: Use CDF to avoid MaishaPay USD limits
-  if (totalUsd >= HIGH_VALUE_USD_THRESHOLD) {
-    const cdfAmount = totalCdf > 0 ? Math.round(totalCdf) : Math.round(totalUsd * exchangeRate);
-    return {
-      currency: 'CDF',
-      amount: cdfAmount,
-      amountFormatted: cdfAmount.toString(),
-      displayAmount: `${cdfAmount.toLocaleString('fr-FR')} CDF (≈ $${totalUsd.toFixed(2)} USD)`,
-      usedCdf: true,
-      reason: `high_value_non_vehicle (>$${HIGH_VALUE_USD_THRESHOLD})`,
-    };
-  }
-  
-  // Regular orders under threshold: Use USD
+  // All vehicle and card payments use USD
   return {
     currency: 'USD',
     amount: round2(totalUsd),
     amountFormatted: totalUsd.toFixed(2),
     displayAmount: `$${totalUsd.toFixed(2)} USD`,
     usedCdf: false,
-    reason: 'regular_order',
+    reason: isVehicle ? 'vehicle_order_usd_enforced' : 'regular_order',
   };
 }
 

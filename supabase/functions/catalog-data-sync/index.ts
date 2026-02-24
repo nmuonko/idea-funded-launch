@@ -46,13 +46,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    const url = new URL(req.url);
-    const mode = url.searchParams.get("mode") || "export";
+    // Read mode from body (POST) for reliable parameter passing
+    const body = req.method === "POST" ? await req.json() : {};
+    const mode = body.mode || "export";
 
     if (mode === "export") {
-      // Export ALL items as NDJSON (streamed)
-      const page = parseInt(url.searchParams.get("page") || "0");
-      const pageSize = parseInt(url.searchParams.get("pageSize") || "1000");
+      const page = parseInt(String(body.page ?? 0));
+      const pageSize = parseInt(String(body.pageSize ?? 1000));
       const maxPage = Math.min(page, 500); // safety cap
       const safePageSize = Math.min(pageSize, 1000); // Supabase caps at 1000 rows per query
 
@@ -82,14 +82,6 @@ Deno.serve(async (req) => {
     }
 
     if (mode === "import") {
-      if (req.method !== "POST") {
-        return new Response(JSON.stringify({ error: "POST required for import" }), {
-          status: 405,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const body = await req.json();
       const items = body.items;
 
       if (!Array.isArray(items) || items.length === 0) {

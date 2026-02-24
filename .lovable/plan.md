@@ -1,65 +1,40 @@
 
 
-# Fix Product Gallery: Enrich eBay Items With Full Gallery on Detail View
+## Fix Data Sync to Successfully Import All Missing Items
 
-## Root Cause (Verified with Database Data)
+### Problem
+The current export/import flow sends items with their Test-generated `id` (UUID primary key). When upserting into Live, this can cause **primary key conflicts** that silently fail entire chunks. The upsert targets `provider,provider_product_id` for deduplication, but the `id` field creates a separate constraint violation.
 
-The backend function is working correctly -- it boots, processes requests, and returns data. The problem is a **data gap**:
+### Solution
 
-- **18,753 out of 23,300 eBay items** have an empty `images` array (`[]`) in the database
-- They only have a single `image_url` field (one thumbnail)
-- The current logic returns the DB record immediately when found, which means the live eBay API call (which would fetch 6-12 gallery images) is **never reached** for these items
+#### 1. Strip `id` and auto-generated fields before import (Edge Function)
 
-This is why every product shows just one picture -- the data simply isn't there yet.
+In `supabase/functions/catalog-data-sync/index.ts`, before upserting each chunk, strip the `id`, `created_at`, and `updated_at` fields from every item. This lets the destination database generate its own primary keys while still deduplicating on `provider,provider_product_id`.
 
-## Solution: Gallery Enrichment on First Detail View
-
-When a user views an eBay product that has 0-1 images, the function should:
-1. Fetch the full gallery from the eBay Browse API (already implemented in `getEbayItem`)
-2. Merge those images into the response
-3. Persist the enriched gallery back to `catalog_items` so subsequent views are instant
-
-This follows the existing "enrich on first view" pattern described in the project memory.
-
-## Technical Changes
-
-### File: `supabase/functions/catalog-product/index.ts`
-
-**Modify the DB-first return block (around lines 576-636):**
-
-Currently, when a DB item is found, it returns immediately. The change adds a conditional enrichment step for eBay items with sparse galleries:
-
-```text
-IF dbItem found AND provider is "ebay" AND images.length <= 1:
-  1. Call getEbayItem() to fetch live gallery from eBay API
-  2. If successful and returns more images:
-     - Merge live images into the response
-     - Upsert enriched images back to catalog_items (fire-and-forget)
-  3. If live fetch fails (expired listing, API error):
-     - Return the DB item as-is (graceful degradation)
-ELSE:
-  Return DB item immediately (no change to current behavior)
+```typescript
+// Before upsert, strip fields that should be auto-generated
+const cleanedChunk = chunk.map(item => {
+  const { id, created_at, updated_at, ...rest } = item;
+  return rest;
+});
 ```
 
-Key design decisions:
-- Only enriches items with 0-1 images (items already enriched are untouched)
-- Only for eBay (Amazon requires Rainforest API which is currently expired)
-- The live fetch adds ~200-500ms to the first view only; subsequent views are instant from DB
-- Failure is silent -- if the eBay listing expired, the user still sees the single image
+#### 2. Reduce chunk size to 200 for reliability
 
-### No Frontend Changes Needed
+Smaller chunks reduce the chance of timeouts and make error reporting more granular.
 
-The frontend (`ProductDetails.tsx`) already handles multi-image galleries correctly via the `safeImages` array. Once the backend returns more images, they will display automatically with thumbnails and swipe navigation.
+#### 3. Add error details to the response
 
-## Summary
+Return the actual error messages so you can see what's failing instead of just incrementing an error counter.
 
-| File | Change |
-|------|--------|
-| `supabase/functions/catalog-product/index.ts` | Add eBay gallery enrichment when DB item has 0-1 images (~30 lines in the DB-first block) |
+#### 4. Workflow after fix
 
-## Expected Outcome
-- First view of an eBay product: fetches full gallery (6-12 images), shows immediately, caches for future
-- Subsequent views: instant from DB with full gallery
-- Amazon products: unchanged (still 1 image until Rainforest API is renewed)
-- Already-enriched items: unchanged (no unnecessary API calls)
+1. Publish the app (deploys the fixed edge function)
+2. Go to the **Live** admin panel at `/admin/catalog-cache`
+3. Click **"Import Items (JSON)"** and upload the same export file
+4. The system will skip the ~19,477 existing items and insert the ~8,251 missing ones
+
+### Files to modify
+- `supabase/functions/catalog-data-sync/index.ts` — Strip `id`/timestamps from imports, reduce chunk size, improve error reporting
+- `src/pages/admin/CatalogCache.tsx` — Reduce client chunk size to 200, show error details in toast
 

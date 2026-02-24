@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
@@ -19,97 +20,85 @@ interface CustomerSummary {
   total_spent: number;
 }
 
+async function fetchCustomerOverview() {
+  // Get admin user IDs to exclude
+  const { data: adminRoles } = await supabase
+    .from('user_roles')
+    .select('user_id')
+    .eq('role', 'admin');
+  const adminIds = new Set(adminRoles?.map(r => r.user_id) || []);
+
+  // Get order stats - top spenders
+  const { data: orderStats } = await supabase
+    .from('orders')
+    .select('user_id, total_usd')
+    .in('status', ['PAID', 'PROCESSING', 'SHIPPED', 'COMPLETED', 'READY_FOR_PICKUP'])
+    .limit(500);
+
+  const statsMap = new Map<string, { count: number; total: number }>();
+  orderStats?.forEach(order => {
+    if (adminIds.has(order.user_id)) return;
+    const existing = statsMap.get(order.user_id) || { count: 0, total: 0 };
+    existing.count += 1;
+    existing.total += order.total_usd || 0;
+    statsMap.set(order.user_id, existing);
+  });
+
+  const topUserIds = [...statsMap.entries()]
+    .sort((a, b) => b[1].total - a[1].total)
+    .slice(0, 5)
+    .map(([uid]) => uid);
+
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  // Fetch profiles, total count, and new-this-month in parallel
+  const [profilesRes, totalRes, newRes] = await Promise.all([
+    topUserIds.length > 0
+      ? supabase.from('profiles').select('user_id, full_name, email, country').in('user_id', topUserIds)
+      : Promise.resolve({ data: [] as { user_id: string; full_name: string | null; email: string | null; country: string | null }[] }),
+    supabase.from('profiles').select('user_id', { count: 'exact', head: true }),
+    supabase.from('profiles').select('user_id', { count: 'exact', head: true }).gte('created_at', startOfMonth.toISOString()),
+  ]);
+
+  const profiles = (profilesRes.data || []) as { user_id: string; full_name: string | null; email: string | null; country: string | null }[];
+  const profileMap = new Map(profiles.map(p => [p.user_id, p]));
+  const customers: CustomerSummary[] = topUserIds.map(uid => {
+    const p = profileMap.get(uid);
+    const s = statsMap.get(uid)!;
+    return {
+      user_id: uid,
+      full_name: p?.full_name || null,
+      email: p?.email || null,
+      country: p?.country || null,
+      order_count: s.count,
+      total_spent: s.total,
+    };
+  });
+
+  return {
+    customers,
+    totalCustomers: (totalRes.count || 0) - (adminRoles?.length || 0),
+    newThisMonth: newRes.count || 0,
+  };
+}
+
 export function CustomerOverviewWidget() {
   const { language } = useLanguage();
   const t = getAdminTranslation(language);
   const navigate = useNavigate();
-
-  const [customers, setCustomers] = useState<CustomerSummary[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [totalCustomers, setTotalCustomers] = useState(0);
-  const [newThisMonth, setNewThisMonth] = useState(0);
 
-  useEffect(() => {
-    loadTopCustomers();
-  }, []);
+  const { data, isLoading: loading } = useQuery({
+    queryKey: ['admin', 'customer-overview'],
+    queryFn: fetchCustomerOverview,
+    staleTime: 2 * 60 * 1000,
+  });
 
-  const loadTopCustomers = async () => {
-    setLoading(true);
-    try {
-      // Get admin user IDs to exclude
-      const { data: adminRoles } = await supabase
-        .from('user_roles')
-        .select('user_id')
-        .eq('role', 'admin');
-      const adminIds = new Set(adminRoles?.map(r => r.user_id) || []);
-
-      // Get order stats - top spenders (limited query, not full table scan)
-      const { data: orderStats } = await supabase
-        .from('orders')
-        .select('user_id, total_usd')
-        .in('status', ['PAID', 'PROCESSING', 'SHIPPED', 'COMPLETED', 'READY_FOR_PICKUP'])
-        .limit(500);
-
-      const statsMap = new Map<string, { count: number; total: number }>();
-      orderStats?.forEach(order => {
-        if (adminIds.has(order.user_id)) return;
-        const existing = statsMap.get(order.user_id) || { count: 0, total: 0 };
-        existing.count += 1;
-        existing.total += order.total_usd || 0;
-        statsMap.set(order.user_id, existing);
-      });
-
-      // Sort by total spent and take top 5 user IDs
-      const topUserIds = [...statsMap.entries()]
-        .sort((a, b) => b[1].total - a[1].total)
-        .slice(0, 5)
-        .map(([uid]) => uid);
-
-      // Only fetch profiles for top 5
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('user_id, full_name, email, country')
-        .in('user_id', topUserIds);
-
-      // Get total customer count (lightweight)
-      const { count: totalCount } = await supabase
-        .from('profiles')
-        .select('user_id', { count: 'exact', head: true });
-
-      // Get new this month count
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      startOfMonth.setHours(0, 0, 0, 0);
-      const { count: newCount } = await supabase
-        .from('profiles')
-        .select('user_id', { count: 'exact', head: true })
-        .gte('created_at', startOfMonth.toISOString());
-
-      setTotalCustomers((totalCount || 0) - (adminRoles?.length || 0));
-      setNewThisMonth(newCount || 0);
-
-      const profileMap = new Map(profiles?.map(p => [p.user_id, p]) || []);
-      const customersWithStats: CustomerSummary[] = topUserIds.map(uid => {
-        const p = profileMap.get(uid);
-        const s = statsMap.get(uid)!;
-        return {
-          user_id: uid,
-          full_name: p?.full_name || null,
-          email: p?.email || null,
-          country: p?.country || null,
-          order_count: s.count,
-          total_spent: s.total,
-        };
-      });
-
-      setCustomers(customersWithStats);
-    } catch (error) {
-      console.error('Error loading customers:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const customers = data?.customers || [];
+  const totalCustomers = data?.totalCustomers || 0;
+  const newThisMonth = data?.newThisMonth || 0;
 
   const filteredCustomers = searchTerm
     ? customers.filter(c => 

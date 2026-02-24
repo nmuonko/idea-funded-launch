@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -8,10 +8,7 @@ import {
   AlertCircle, 
   CreditCard, 
   Package, 
-  MessageSquare, 
-  ArrowRight,
   RefreshCcw,
-  AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -27,63 +24,40 @@ interface ActionItem {
   route: string;
 }
 
+async function fetchPendingActions() {
+  const [unverifiedRes, unfulfilledRes, refundRes] = await Promise.all([
+    supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'PENDING_PAYMENT'),
+    supabase.from('orders').select('*', { count: 'exact', head: true }).in('status', ['PAID', 'PROCESSING']),
+    supabase.from('orders').select('*', { count: 'exact', head: true }).not('refund_issued_at', 'is', null),
+  ]);
+
+  return {
+    unverifiedPayments: unverifiedRes.count || 0,
+    unfulfilledOrders: unfulfilledRes.count || 0,
+    refundIssued: refundRes.count || 0,
+  };
+}
+
 export function PendingActionsSidebar() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
   const { language } = useLanguage();
   const t = getAdminTranslation(language);
-  const [stats, setStats] = useState({
-    unverifiedPayments: 0,
-    unfulfilledOrders: 0,
-    refundIssued: 0,
+
+  const { data: stats, isLoading: loading } = useQuery({
+    queryKey: ['admin', 'pending-actions'],
+    queryFn: fetchPendingActions,
+    staleTime: 2 * 60 * 1000,
+    refetchInterval: 120_000,
   });
 
-  useEffect(() => {
-    loadPendingActions();
-    const interval = setInterval(loadPendingActions, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const loadPendingActions = async () => {
-    try {
-      setLoading(true);
-
-      // Unverified payments - count orders pending payment
-      const { count: unverifiedCount } = await supabase
-        .from('orders')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'PENDING_PAYMENT');
-
-      // Unfulfilled orders
-      const { count: unfulfilledCount } = await supabase
-        .from('orders')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['PAID', 'PROCESSING']);
-
-      // Refund issued orders
-      const { count: refundCount } = await supabase
-        .from('orders')
-        .select('*', { count: 'exact', head: true })
-        .not('refund_issued_at', 'is', null);
-
-      setStats({
-        unverifiedPayments: unverifiedCount || 0,
-        unfulfilledOrders: unfulfilledCount || 0,
-        refundIssued: refundCount || 0,
-      });
-    } catch (error) {
-      console.error('Error loading pending actions:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const safeStats = stats || { unverifiedPayments: 0, unfulfilledOrders: 0, refundIssued: 0 };
 
   const actions: ActionItem[] = [
     {
       icon: CreditCard,
       label: t.dashboard.unverifiedPayments,
       description: t.dashboard.awaitingVerification,
-      count: stats.unverifiedPayments,
+      count: safeStats.unverifiedPayments,
       color: 'text-red-500',
       bgColor: 'bg-red-500/10',
       route: '/admin/payments?tab=pending',
@@ -92,7 +66,7 @@ export function PendingActionsSidebar() {
       icon: Package,
       label: t.dashboard.unfulfilledOrders,
       description: t.dashboard.paidNotShipped,
-      count: stats.unfulfilledOrders,
+      count: safeStats.unfulfilledOrders,
       color: 'text-orange-500',
       bgColor: 'bg-orange-500/10',
       route: '/admin/orders',
@@ -101,14 +75,14 @@ export function PendingActionsSidebar() {
       icon: RefreshCcw,
       label: 'Refunds Issued',
       description: 'Orders with refunds',
-      count: stats.refundIssued,
+      count: safeStats.refundIssued,
       color: 'text-yellow-500',
       bgColor: 'bg-yellow-500/10',
       route: '/admin/orders?status=refunded',
     },
   ];
 
-  const totalPending = Object.values(stats).reduce((sum, val) => sum + val, 0);
+  const totalPending = Object.values(safeStats).reduce((sum, val) => sum + val, 0);
 
   if (loading) {
     return (
@@ -120,7 +94,7 @@ export function PendingActionsSidebar() {
           </div>
         </CardHeader>
         <CardContent className="space-y-2">
-          {[1, 2, 3, 4].map((i) => (
+          {[1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-16 w-full" />
           ))}
         </CardContent>

@@ -136,57 +136,84 @@ async function handleList(url: URL) {
   // Guardrail 1: Cursor-based pagination — no offset, no exact COUNT
   const ADMIN_LIST_COLUMNS = "id, provider, provider_product_id, category_key, unified_category, title, image_url, product_url, price_usd, currency, in_stock, is_active, status_reason, fail_count, last_seen_at, last_checked_at, price_updated_at, data_updated_at, first_seen_at, popularity_score";
 
-  let query = sb.from("catalog_items").select(ADMIN_LIST_COLUMNS);
+  // Helper to apply shared filters to any query builder
+  function applyFilters(query: any) {
+    const categoryKey = url.searchParams.get("category_key");
+    if (categoryKey) query = query.eq("category_key", categoryKey);
 
-  // Filters
-  const categoryKey = url.searchParams.get("category_key");
-  if (categoryKey) query = query.eq("category_key", categoryKey);
+    const provider = url.searchParams.get("provider");
+    if (provider) query = query.eq("provider", provider);
 
-  const provider = url.searchParams.get("provider");
-  if (provider) query = query.eq("provider", provider);
+    const isActive = url.searchParams.get("is_active");
+    if (isActive === "true") query = query.eq("is_active", true);
+    else if (isActive === "false") query = query.eq("is_active", false);
 
-  const isActive = url.searchParams.get("is_active");
-  if (isActive === "true") query = query.eq("is_active", true);
-  else if (isActive === "false") query = query.eq("is_active", false);
+    const failMin = parseInt(url.searchParams.get("fail_min") || "0");
+    if (failMin > 0) query = query.gte("fail_count", failMin);
 
-  const failMin = parseInt(url.searchParams.get("fail_min") || "0");
-  if (failMin > 0) query = query.gte("fail_count", failMin);
-
-  const stalePriceDays = url.searchParams.get("stale_price_days");
-  if (stalePriceDays) {
-    const d = new Date(Date.now() - parseInt(stalePriceDays) * 86400000).toISOString();
-    query = query.lt("price_updated_at", d);
-  }
-
-  const notSeenDays = url.searchParams.get("not_seen_days");
-  if (notSeenDays) {
-    const d = new Date(Date.now() - parseInt(notSeenDays) * 86400000).toISOString();
-    query = query.lt("last_seen_at", d);
-  }
-
-  // Date range filters
-  const dateFrom = url.searchParams.get("date_from");
-  const dateTo = url.searchParams.get("date_to");
-  const datePreset = url.searchParams.get("date_preset");
-
-  if (datePreset) {
-    if (datePreset === "today") {
-      const todayStart = new Date();
-      todayStart.setUTCHours(0, 0, 0, 0);
-      query = query.gte("first_seen_at", todayStart.toISOString());
-    } else {
-      const presetMs: Record<string, number> = { "1h": 3600000, "24h": 86400000, "7d": 604800000, "30d": 2592000000 };
-      const ms = presetMs[datePreset];
-      if (ms) query = query.gte("first_seen_at", new Date(Date.now() - ms).toISOString());
+    const stalePriceDays = url.searchParams.get("stale_price_days");
+    if (stalePriceDays) {
+      const d = new Date(Date.now() - parseInt(stalePriceDays) * 86400000).toISOString();
+      query = query.lt("price_updated_at", d);
     }
-  } else {
-    if (dateFrom) query = query.gte("first_seen_at", dateFrom);
-    if (dateTo) query = query.lte("first_seen_at", dateTo);
+
+    const notSeenDays = url.searchParams.get("not_seen_days");
+    if (notSeenDays) {
+      const d = new Date(Date.now() - parseInt(notSeenDays) * 86400000).toISOString();
+      query = query.lt("last_seen_at", d);
+    }
+
+    const datePreset = url.searchParams.get("date_preset");
+    const dateFrom = url.searchParams.get("date_from");
+    const dateTo = url.searchParams.get("date_to");
+
+    if (datePreset) {
+      if (datePreset === "today") {
+        const todayStart = new Date();
+        todayStart.setUTCHours(0, 0, 0, 0);
+        query = query.gte("first_seen_at", todayStart.toISOString());
+      } else {
+        const presetMs: Record<string, number> = { "1h": 3600000, "24h": 86400000, "7d": 604800000, "30d": 2592000000 };
+        const ms = presetMs[datePreset];
+        if (ms) query = query.gte("first_seen_at", new Date(Date.now() - ms).toISOString());
+      }
+    } else {
+      if (dateFrom) query = query.gte("first_seen_at", dateFrom);
+      if (dateTo) query = query.lte("first_seen_at", dateTo);
+    }
+
+    const q = url.searchParams.get("q");
+    if (q) query = query.ilike("title", `%${q}%`);
+
+    return query;
   }
 
-  // Text search
-  const q = url.searchParams.get("q");
-  if (q) query = query.ilike("title", `%${q}%`);
+  // Check if any filter is active
+  const hasFilters = !!(
+    url.searchParams.get("category_key") ||
+    url.searchParams.get("provider") ||
+    url.searchParams.get("is_active") ||
+    url.searchParams.get("q") ||
+    url.searchParams.get("stale_price_days") ||
+    url.searchParams.get("not_seen_days") ||
+    url.searchParams.get("date_preset") ||
+    url.searchParams.get("date_from") ||
+    url.searchParams.get("date_to") ||
+    parseInt(url.searchParams.get("fail_min") || "0") > 0
+  );
+
+  // Get filtered count (only when filters are active, to avoid expensive unfiltered counts)
+  let filteredCount: number | null = null;
+  if (hasFilters) {
+    let countQuery = sb.from("catalog_items").select("*", { count: "exact", head: true });
+    countQuery = applyFilters(countQuery);
+    const { count } = await countQuery;
+    filteredCount = count ?? 0;
+  }
+
+  // Build data query
+  let query = sb.from("catalog_items").select(ADMIN_LIST_COLUMNS);
+  query = applyFilters(query);
 
   // Sorting + cursor-based pagination
   const sortBy = url.searchParams.get("sort_by") || "newest";
@@ -208,10 +235,8 @@ async function handleList(url: URL) {
   // Apply cursor: items after the cursor position
   if (cursor && cursorId) {
     if (sortAsc) {
-      // For ascending: get items > cursor, or = cursor but id > cursorId
       query = query.or(`${sortCol}.gt.${cursor},and(${sortCol}.eq.${cursor},id.gt.${cursorId})`);
     } else {
-      // For descending: get items < cursor, or = cursor but id > cursorId
       query = query.or(`${sortCol}.lt.${cursor},and(${sortCol}.eq.${cursor},id.gt.${cursorId})`);
     }
   }
@@ -236,7 +261,7 @@ async function handleList(url: URL) {
     next_cursor_id = last.id;
   }
 
-  return json({ items, has_more: hasMore, next_cursor, next_cursor_id });
+  return json({ items, has_more: hasMore, next_cursor, next_cursor_id, filtered_count: filteredCount });
 }
 
 async function handleBuilderStatus() {

@@ -720,7 +720,19 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
 
   const items = data?.items ?? [];
   const hasMore = data?.has_more ?? false;
+  const filteredCount = data?.filtered_count ?? null;
   const pageNum = cursorStack.length + 1;
+
+  // Check if any filter is active
+  const hasActiveFilters = !!(
+    appliedFilters.category_key || appliedFilters.provider || appliedFilters.is_active ||
+    appliedFilters.q || appliedFilters.stale_price_days || appliedFilters.not_seen_days ||
+    appliedFilters.sort_by || appliedFilters.date_preset
+  );
+
+  // Display count: filtered count when filters active, otherwise total
+  const displayCount = hasActiveFilters && filteredCount !== null ? filteredCount : totalCount;
+  const countLabel = hasActiveFilters && filteredCount !== null ? 'filtered' : 'total';
 
   const goNext = useCallback(() => {
     if (data?.next_cursor) {
@@ -770,7 +782,13 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Cached Products</h2>
-        <span className="text-sm text-muted-foreground font-mono">~{totalCount.toLocaleString()} total</span>
+        <span className="text-sm text-muted-foreground font-mono">
+          {hasActiveFilters && filteredCount !== null ? (
+            <><span className="text-foreground font-semibold">{displayCount.toLocaleString()}</span> filtered <span className="text-muted-foreground/60">/ {totalCount.toLocaleString()} total</span></>
+          ) : (
+            <>~{displayCount.toLocaleString()} {countLabel}</>
+          )}
+        </span>
       </div>
 
       {/* Filters */}

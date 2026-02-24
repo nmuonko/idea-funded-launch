@@ -17,7 +17,7 @@ const steps = [
     titleKey: 'howItWorks2Title',
     descKey: 'howItWorks2Desc',
     defaultTitle: 'Checkout',
-    defaultDesc: 'Pay securely with card, mobile money, or bank transfer.',
+    defaultDesc: 'Pay securely with card or mobile money.',
     color: 'text-green-400',
     bgColor: 'bg-green-500/20',
   },

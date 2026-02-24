@@ -59,11 +59,11 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
     
     setMarkingAsPaid(true);
     try {
-      const { error } = await supabase.functions.invoke('verify-maisha-payment', {
+      const { error } = await supabase.functions.invoke('verify-payment', {
         body: {
-          orderId,
+          order_id: orderId,
           manualOverride: true,
-          notes: 'Manual verification by admin - callback issue workaround'
+          notes: 'Manual verification by admin'
         }
       });
 

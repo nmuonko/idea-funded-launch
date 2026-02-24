@@ -20,7 +20,7 @@ import { createDeposit, getPawaPayConfig } from "../_shared/pawapayAdapter.ts";
 /**
  * Mobile Create Payment - PROVIDER-AGNOSTIC PAYMENT INITIALIZATION
  * 
- * Routes to the active payment provider (MaishaPay or pawaPay).
+ * Routes to the active payment provider (pawaPay).
  * 
  * Accepts EITHER:
  * - cartId: UUID of the DRAFT order (will use ALL active items)
@@ -284,7 +284,6 @@ serve(async (req) => {
         total_usd: grandTotalUsd,
         total_cdf: grandTotalCdf,
         exchange_rate_used: exchangeRate,
-        maisha_payment_status: 'PENDING',
       })
       .eq('id', draftOrderId)
       .select()

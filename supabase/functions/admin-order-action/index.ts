@@ -67,7 +67,8 @@ serve(async (req) => {
         orderUpdate.info_requested = true;
         break;
       case 'PAYMENT_VERIFIED':
-        orderUpdate.maisha_payment_status = 'verified';
+        orderUpdate.status = 'PAID';
+        orderUpdate.payment_verified_at = new Date().toISOString();
         break;
       case 'SHIPPED':
         orderUpdate.status = 'SHIPPED';

@@ -58,17 +58,35 @@ serve(async (req) => {
     // Use service role for database queries
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // If confirmation code is provided, look up via maisha_payments (public access allowed)
+    // If confirmation code is provided, look up via payment_attempts (public access allowed)
     if (confirmationCode) {
       console.log('[payment-status] Looking up by confirmation code');
       
-      const { data: payment, error: paymentError } = await supabaseAdmin
-        .from('maisha_payments')
-        .select('order_id, status, paid_at, amount_usd, amount_cdf, maisha_reference')
+      // Try payment_attempts first
+      const { data: attempt } = await supabaseAdmin
+        .from('payment_attempts')
+        .select('order_id, status')
         .eq('confirmation_code', confirmationCode.toUpperCase())
         .maybeSingle();
       
-      if (paymentError || !payment) {
+      // Fallback to maisha_payments for historical orders
+      let orderId: string | null = attempt?.order_id || null;
+      let paymentLookupStatus: string | null = attempt?.status || null;
+      
+      if (!orderId) {
+        const { data: legacyPayment } = await supabaseAdmin
+          .from('maisha_payments')
+          .select('order_id, status')
+          .eq('confirmation_code', confirmationCode.toUpperCase())
+          .maybeSingle();
+        
+        if (legacyPayment) {
+          orderId = legacyPayment.order_id;
+          paymentLookupStatus = legacyPayment.status;
+        }
+      }
+      
+      if (!orderId) {
         return new Response(JSON.stringify({
           success: false,
           error: 'Payment not found for this confirmation code'
@@ -82,18 +100,15 @@ serve(async (req) => {
       const { data: order } = await supabaseAdmin
         .from('orders')
         .select('id, status, created_at')
-        .eq('id', payment.order_id)
+        .eq('id', orderId)
         .maybeSingle();
       
-      // Return limited info for confirmation code lookup (public-safe)
       return new Response(JSON.stringify({
         success: true,
-        orderId: payment.order_id,
+        orderId,
         orderStatus: order?.status || 'UNKNOWN',
-        paymentStatus: payment.status === 'paid' ? 'paid' : payment.status === 'failed' ? 'failed' : 'pending',
-        paidAt: payment.paid_at,
+        paymentStatus: paymentLookupStatus === 'paid' ? 'paid' : paymentLookupStatus === 'failed' ? 'failed' : 'pending',
         createdAt: order?.created_at,
-        // Don't expose amounts or transaction IDs for unauthenticated requests
       }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -115,7 +130,7 @@ serve(async (req) => {
     // Build query for authenticated user
     let query = supabaseAdmin
       .from('orders')
-      .select('id, status, total_usd, total_cdf, maisha_transaction_id, maisha_payment_status, payment_verified_at, created_at, user_id');
+      .select('id, status, total_usd, total_cdf, maisha_payment_status, payment_verified_at, created_at, user_id');
 
     // Search by order ID or reference
     if (orderId) {
@@ -123,8 +138,8 @@ serve(async (req) => {
     } else if (reference) {
       // Reference format: AFRISHOP-{orderId}
       const extractedOrderId = reference.replace('AFRISHOP-', '').split('-')[0];
-      // Try both the extracted ID and the full reference
-      query = query.or(`id.eq.${extractedOrderId},maisha_transaction_id.eq.${reference}`);
+      // Try extracted ID
+      query = query.eq('id', extractedOrderId);
     }
 
     const { data: order, error: orderError } = await query.maybeSingle();
@@ -186,7 +201,6 @@ serve(async (req) => {
       paymentStatus,
       totalUsd: order.total_usd,
       totalCdf: order.total_cdf,
-      transactionId: order.maisha_transaction_id,
       paidAt: order.payment_verified_at,
       createdAt: order.created_at,
     }), {

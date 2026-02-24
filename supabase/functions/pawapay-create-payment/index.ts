@@ -180,8 +180,6 @@ serve(async (req) => {
 
     // Update order with payment reference
     await adminClient.from('orders').update({
-      maisha_transaction_id: reference,
-      maisha_payment_status: 'PENDING',
       normalized_currency: paymentCurrency,
       normalized_amount: paymentAmount,
     }).eq('id', orderId);

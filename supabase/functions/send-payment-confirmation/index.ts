@@ -44,14 +44,31 @@ serve(async (req) => {
       });
     }
 
-    // Get payment with confirmation code
-    const { data: payment } = await supabase
-      .from('maisha_payments')
+    // Get payment with confirmation code from payment_attempts first, then fallback to maisha_payments
+    let confirmationCode: string | null = null;
+    
+    const { data: attempt } = await supabase
+      .from('payment_attempts')
       .select('confirmation_code')
       .eq('order_id', orderId)
+      .eq('status', 'paid')
       .maybeSingle();
-
-    const confirmationCode = payment?.confirmation_code || `AFS-${orderId.slice(0, 4).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+    
+    if (attempt?.confirmation_code) {
+      confirmationCode = attempt.confirmation_code;
+    } else {
+      // Fallback to legacy maisha_payments for old orders
+      const { data: legacyPayment } = await supabase
+        .from('maisha_payments')
+        .select('confirmation_code')
+        .eq('order_id', orderId)
+        .maybeSingle();
+      confirmationCode = legacyPayment?.confirmation_code || null;
+    }
+    
+    if (!confirmationCode) {
+      confirmationCode = `AFS-${orderId.slice(0, 4).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+    }
 
     // Get user email from auth
     const { data: { user } } = await supabase.auth.admin.getUserById(order.user_id);

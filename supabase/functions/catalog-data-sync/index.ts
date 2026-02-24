@@ -56,9 +56,9 @@ Deno.serve(async (req) => {
       const maxPage = Math.min(page, 500); // safety cap
       const safePageSize = Math.min(pageSize, 1000); // Supabase caps at 1000 rows per query
 
-      const { data: items, error, count } = await supabase
+      const { data: items, error } = await supabase
         .from("catalog_items")
-        .select("*", { count: "exact" })
+        .select("*")
         .order("id")
         .range(maxPage * safePageSize, (maxPage + 1) * safePageSize - 1);
 
@@ -72,8 +72,6 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({
         page: maxPage,
         pageSize: safePageSize,
-        total: count ?? 0,
-        totalPages: Math.ceil((count ?? 0) / safePageSize),
         itemCount: items?.length ?? 0,
         items: items ?? [],
       }), {

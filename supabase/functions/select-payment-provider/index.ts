@@ -226,7 +226,7 @@ serve(async (req) => {
 
       // Return existing pending attempt for pawaPay
       if (provider === 'pawapay' && existingAttempt.provider_ref) {
-        const frontendUrl = Deno.env.get('FRONTEND_URL') || 'https://afri-shop.com';
+        const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
         const redirectUrl = `${frontendUrl}/payment-callback?orderId=${encodeURIComponent(orderId)}&provider=pawapay&depositId=${encodeURIComponent(existingAttempt.provider_ref)}`;
 
         return jsonResponse({
@@ -468,7 +468,7 @@ serve(async (req) => {
             payment_attempt_id: paymentAttempt!.id,
           });
 
-          const frontendUrl = Deno.env.get('FRONTEND_URL') || 'https://afri-shop.com';
+          const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
           const redirectUrl = `${frontendUrl}/payment-callback?orderId=${encodeURIComponent(orderId)}&provider=pawapay&depositId=${encodeURIComponent(depositResult.provider_deposit_id || '')}`;
 
           return jsonResponse({

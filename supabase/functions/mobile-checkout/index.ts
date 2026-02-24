@@ -23,18 +23,18 @@ import {
 import { createDeposit, getPawaPayConfig, ConfigMissingError } from "../_shared/pawapayAdapter.ts";
 
 // Payment method types
-type PaymentMethod = 'MOBILE_MONEY' | 'CARD' | 'BANK_TRANSFER';
+type PaymentMethod = 'MOBILE_MONEY' | 'CARD';
 
-// Payment flow types - MaishaPay REMOVED
-type PaymentFlow = 'PAWAPAY' | 'STRIPE' | 'BANK_TRANSFER' | 'CHOICE_REQUIRED';
+// Payment flow types
+type PaymentFlow = 'PAWAPAY' | 'STRIPE' | 'CHOICE_REQUIRED';
 
 // Payment method preference for large orders - ONLY VALID VALUES
-type PaymentMethodPreference = 'CARD' | 'BANK_TRANSFER';
-const VALID_PAYMENT_PREFERENCES: readonly string[] = ['CARD', 'BANK_TRANSFER'];
+type PaymentMethodPreference = 'CARD';
+const VALID_PAYMENT_PREFERENCES: readonly string[] = ['CARD'];
 
 // Structured available method for frontend (eliminates secondary API call)
 interface AvailableMethod {
-  method: 'MOBILE_MONEY' | 'CARD' | 'BANK_TRANSFER';
+  method: 'MOBILE_MONEY' | 'CARD';
   enabled: boolean;
   disabledReason: string | null;
 }
@@ -45,7 +45,6 @@ interface PaymentSettings {
   mobile_money_max_cdf: number;
   large_order_currency: string;
   stripe_enabled: boolean;
-  bank_transfer_enabled: boolean;
   pawapay_enabled: boolean;
 }
 
@@ -55,7 +54,6 @@ const DEFAULT_PAYMENT_SETTINGS: PaymentSettings = {
   mobile_money_max_cdf: 1500000,
   large_order_currency: 'USD',
   stripe_enabled: true,
-  bank_transfer_enabled: true,
   pawapay_enabled: true,
 };
 
@@ -83,7 +81,6 @@ async function getPaymentSettings(supabase: any): Promise<PaymentSettings> {
       mobile_money_max_cdf: Number(data.mobile_money_max_cdf) || DEFAULT_PAYMENT_SETTINGS.mobile_money_max_cdf,
       large_order_currency: data.large_order_currency || 'USD',
       stripe_enabled: data.stripe_enabled !== false,
-      bank_transfer_enabled: data.bank_transfer_enabled !== false,
       pawapay_enabled: data.pawapay_enabled !== false,
     };
   } catch (e: any) {
@@ -105,10 +102,9 @@ function isOverMobileMoneyLimit(
 }
 
 // Get available payment options for large orders
-function getLargeOrderOptions(paymentSettings: PaymentSettings): ('STRIPE' | 'BANK_TRANSFER')[] {
-  const options: ('STRIPE' | 'BANK_TRANSFER')[] = [];
+function getLargeOrderOptions(paymentSettings: PaymentSettings): ('STRIPE')[] {
+  const options: ('STRIPE')[] = [];
   if (paymentSettings.stripe_enabled) options.push('STRIPE');
-  if (paymentSettings.bank_transfer_enabled) options.push('BANK_TRANSFER');
   return options;
 }
 
@@ -149,15 +145,6 @@ function buildAvailableMethods(
   if (paymentSettings.stripe_enabled) {
     methods.push({
       method: 'CARD',
-      enabled: true,
-      disabledReason: null,
-    });
-  }
-
-  // BANK_TRANSFER - only show for large orders
-  if (paymentSettings.bank_transfer_enabled && isLargeOrder) {
-    methods.push({
-      method: 'BANK_TRANSFER',
       enabled: true,
       disabledReason: null,
     });
@@ -586,7 +573,7 @@ serve(async (req) => {
       const paymentMethodPreference = (body.payment_method_preference || '').toUpperCase();
       
       // ============================================
-      // VALIDATE payment_method_preference - ONLY CARD or BANK_TRANSFER accepted
+      // VALIDATE payment_method_preference - ONLY CARD accepted
       // ============================================
       if (paymentMethodPreference && !VALID_PAYMENT_PREFERENCES.includes(paymentMethodPreference)) {
         console.warn('[mobile-checkout] PAYMENT_METHOD_NOT_SUPPORTED', { 
@@ -761,79 +748,13 @@ serve(async (req) => {
           ok: false,
           success: false,
           code: 'CARD_NOT_AVAILABLE',
-          message: 'Card payments are not available. Please use Bank Transfer.',
-          message_fr: 'Les paiements par carte ne sont pas disponibles. Veuillez utiliser le virement bancaire.',
+          message: 'Card payments are not available. Please contact support.',
+          message_fr: 'Les paiements par carte ne sont pas disponibles. Veuillez contacter le support.',
         }, 200);
       }
       
-      // ============================================
-      // BANK_TRANSFER BRANCH
-      // ============================================
-      if (paymentMethodPreference === 'BANK_TRANSFER') {
-        if (!paymentSettings.bank_transfer_enabled) {
-          return jsonResponse({
-            ok: false,
-            success: false,
-            code: 'PAYMENT_METHOD_DISABLED',
-            message: 'Bank Transfer is currently disabled. Please use Card payment.',
-            message_fr: 'Le virement bancaire est actuellement désactivé. Veuillez utiliser le paiement par carte.',
-          }, 200);
-        }
-        
-        console.log('[mobile-checkout] CHECKOUT_BANK_TRANSFER (session reuse)', {
-          order_id: existingSession.order_id,
-          checkout_session_id: providedCheckoutSessionId,
-          payment_flow: 'BANK_TRANSFER',
-          amount: payable_amount,
-          currency: 'USD',
-        });
-        
-        // Fetch bank transfer settings
-        const { data: bankSettings } = await supabase
-          .from('settings')
-          .select('bank_name, bank_account_holder, bank_account_number, bank_iban, bank_swift, bank_address, bank_instructions_en, bank_instructions_fr')
-          .limit(1)
-          .maybeSingle();
-        
-        const bankTransferInfo = {
-          bank_name: bankSettings?.bank_name || 'Contact support for bank details',
-          account_holder: bankSettings?.bank_account_holder || '',
-          account_number: bankSettings?.bank_account_number || '',
-          iban: bankSettings?.bank_iban || '',
-          swift_code: bankSettings?.bank_swift || '',
-          bank_address: bankSettings?.bank_address || '',
-          instructions_en: bankSettings?.bank_instructions_en || 'Please transfer the exact amount and include your order ID in the reference.',
-          instructions_fr: bankSettings?.bank_instructions_fr || 'Veuillez transférer le montant exact et inclure votre numéro de commande dans la référence.',
-        };
-        
-        // Update order status to await bank transfer
-        await supabase.from('orders').update({
-          status: 'PENDING_PAYMENT',
-          maisha_payment_status: 'PENDING_BANK_TRANSFER',
-          payment_notes: 'Awaiting bank transfer',
-        }).eq('id', existingSession.order_id);
-        
-        // Update session status
-        await supabase.from('checkout_sessions').update({ 
-          status: 'bank_transfer_initiated',
-          updated_at: new Date().toISOString(),
-        }).eq('id', providedCheckoutSessionId);
-        
-        return jsonResponse({
-          success: true,
-          order_id: existingSession.order_id,
-          checkout_session_id: providedCheckoutSessionId,
-          payment_flow: 'BANK_TRANSFER' as PaymentFlow,
-          currency: 'USD',
-          amount: payable_amount,
-          confirmationId: existingSession.order_id.substring(0, 8).toUpperCase(),
-          bank_transfer: bankTransferInfo,
-          reference: `AFRISHOP-${existingSession.order_id.slice(0, 8).toUpperCase()}`,
-          message: 'Please complete the bank transfer and upload proof of payment.',
-          message_fr: 'Veuillez effectuer le virement bancaire et télécharger la preuve de paiement.',
-          totals_breakdown: storedTotals,
-        });
-      }
+      // BANK_TRANSFER removed — no longer supported
+      
       
       // No valid preference provided for session reuse
       return jsonResponse({
@@ -1301,7 +1222,6 @@ serve(async (req) => {
       mobile_money_max_usd: paymentSettings.mobile_money_max_usd,
       mobile_money_max_cdf: paymentSettings.mobile_money_max_cdf,
       stripe_enabled: paymentSettings.stripe_enabled,
-      bank_transfer_enabled: paymentSettings.bank_transfer_enabled,
       pawapay_enabled: paymentSettings.pawapay_enabled,
     });
 
@@ -1314,10 +1234,9 @@ serve(async (req) => {
       ''
     ).toString().toUpperCase();
     
-    // Map 'CARD' to 'CARD', anything else must match exactly
-    const paymentMethodPreference: '' | 'CARD' | 'BANK_TRANSFER' = 
-      rawPreference === 'CARD' ? 'CARD' : 
-      rawPreference === 'BANK_TRANSFER' ? 'BANK_TRANSFER' : '';
+    // Map 'CARD' to 'CARD', anything else is empty
+    const paymentMethodPreference: '' | 'CARD' = 
+      rawPreference === 'CARD' ? 'CARD' : '';
     
     // Log the preference parsing
     console.log('[mobile-checkout] PAYMENT_PREFERENCE_PARSED', {
@@ -1327,9 +1246,9 @@ serve(async (req) => {
     });
     
     // ============================================
-    // VALIDATE payment_method_preference - ONLY CARD or BANK_TRANSFER accepted
+    // VALIDATE payment_method_preference - ONLY CARD accepted
     // ============================================
-    if (rawPreference && !['CARD', 'BANK_TRANSFER', ''].includes(rawPreference)) {
+    if (rawPreference && !['CARD', ''].includes(rawPreference)) {
       console.warn('[mobile-checkout] PAYMENT_METHOD_NOT_SUPPORTED', { 
         provided: rawPreference,
         valid: VALID_PAYMENT_PREFERENCES 
@@ -1410,7 +1329,6 @@ serve(async (req) => {
         if (availableOptions.length === 0) {
           console.error('[mobile-checkout] NO_LARGE_ORDER_OPTIONS', {
             stripe_enabled: paymentSettings.stripe_enabled,
-            bank_transfer_enabled: paymentSettings.bank_transfer_enabled,
           });
           return jsonResponse({
             success: false,
@@ -1533,17 +1451,8 @@ serve(async (req) => {
         return jsonResponse({
           success: false,
           code: 'PAYMENT_METHOD_DISABLED',
-          message: 'Card payments are currently disabled. Please use Bank Transfer.',
+          message: 'Card payments are currently disabled. Please contact support.',
           error: 'Stripe is not enabled.',
-        }, 400);
-      }
-      
-      if (paymentMethodPreference === 'BANK_TRANSFER' && !paymentSettings.bank_transfer_enabled) {
-        return jsonResponse({
-          success: false,
-          code: 'PAYMENT_METHOD_DISABLED',
-          message: 'Bank Transfer is currently disabled. Please use Card payment.',
-          error: 'Bank Transfer is not enabled.',
         }, 400);
       }
       
@@ -1793,111 +1702,10 @@ serve(async (req) => {
         return jsonResponse({
           success: false,
           code: 'CARD_NOT_AVAILABLE',
-          message: 'Card payments are not available. Please use Bank Transfer.',
-          message_fr: 'Les paiements par carte ne sont pas disponibles. Veuillez utiliser le virement bancaire.',
+          message: 'Card payments are not available. Please contact support.',
+          message_fr: 'Les paiements par carte ne sont pas disponibles. Veuillez contacter le support.',
           error: 'Card payment provider not configured.',
         }, 503);
-      }
-      
-      // ============================================
-      // BANK_TRANSFER BRANCH for large orders with preference
-      // ============================================
-      if (paymentMethodPreference === 'BANK_TRANSFER') {
-        console.log('[router] preference=BANK_TRANSFER -> flow=BANK_TRANSFER, initiating');
-        
-        // Fetch bank transfer settings
-        const { data: bankSettings, error: bankSettingsError } = await supabase
-          .from('settings')
-          .select('bank_name, bank_account_holder, bank_account_number, bank_iban, bank_swift, bank_address, bank_instructions_en, bank_instructions_fr, support_email, support_whatsapp')
-          .limit(1)
-          .maybeSingle();
-        
-        if (bankSettingsError) {
-          console.error('[router] preference=BANK_TRANSFER -> settings_fetch_error', {
-            error: bankSettingsError.message,
-          });
-        }
-        
-        // Validate required bank details
-        const hasBankName = !!bankSettings?.bank_name;
-        const hasAccountNumber = !!bankSettings?.bank_account_number || !!bankSettings?.bank_iban;
-        const hasBankDetails = hasBankName && hasAccountNumber;
-        
-        if (!hasBankDetails) {
-          console.error('[router] preference=BANK_TRANSFER -> flow=BANK_TRANSFER, hasBankDetails=false', {
-            has_bank_name: hasBankName,
-            has_account_number: hasAccountNumber,
-          });
-          return jsonResponse({
-            success: false,
-            code: 'BANK_TRANSFER_NOT_CONFIGURED',
-            message: 'Bank transfer is not configured. Please contact support.',
-            message_fr: 'Le virement bancaire n\'est pas configuré. Veuillez contacter le support.',
-            error: 'Bank transfer settings are incomplete.',
-          }, 503);
-        }
-        
-        // Build bank transfer info
-        const transferReference = `AFRISHOP-${largeOrderCheckout.id.slice(0, 8).toUpperCase()}`;
-        const bankTransferInfo = {
-          bank_name: bankSettings.bank_name,
-          beneficiary_name: bankSettings.bank_account_holder || 'AfriShop USA LLC',
-          account_number_or_iban: bankSettings.bank_account_number || bankSettings.bank_iban || '',
-          iban: bankSettings.bank_iban || null,
-          swift_bic: bankSettings.bank_swift || '',
-          bank_address: bankSettings.bank_address || '',
-          instructions_en: bankSettings.bank_instructions_en || 'Please transfer the exact amount and include your order ID in the reference. After transfer, upload your proof of payment.',
-          instructions_fr: bankSettings.bank_instructions_fr || 'Veuillez transférer le montant exact et inclure votre numéro de commande dans la référence. Après le virement, téléchargez votre preuve de paiement.',
-          reference: transferReference,
-          support_email: bankSettings.support_email || 'nkadimisha@afrishop-usa.com',
-          support_whatsapp: bankSettings.support_whatsapp || null,
-        };
-        
-        console.log('[router] preference=BANK_TRANSFER -> flow=BANK_TRANSFER, hasBankDetails=true', {
-          order_id: largeOrderCheckout.id,
-          checkout_session_id: largeOrderSession?.id || null,
-          amount: totalsBreakdown.grand_total,
-          reference: transferReference,
-        });
-        
-        // Update order status
-        await supabase.from('orders').update({
-          status: 'PENDING_PAYMENT',
-          maisha_payment_status: 'PENDING_BANK_TRANSFER',
-          payment_notes: `Awaiting bank transfer. Reference: ${transferReference}`,
-        }).eq('id', largeOrderCheckout.id);
-        
-        // Update session status
-        if (largeOrderSession?.id) {
-          await supabase.from('checkout_sessions').update({ 
-            status: 'bank_transfer_initiated',
-            updated_at: new Date().toISOString(),
-          }).eq('id', largeOrderSession.id);
-        }
-        
-        return jsonResponse({
-          success: true,
-          order_id: largeOrderCheckout.id,
-          checkout_session_id: largeOrderSession?.id || null,
-          payment_flow: 'BANK_TRANSFER' as PaymentFlow,
-          currency: 'USD',
-          amount: totalsBreakdown.grand_total,
-          confirmationId: largeOrderCheckout.id.substring(0, 8).toUpperCase(),
-          reference: transferReference,
-          bank_transfer: bankTransferInfo,
-          message: 'Please complete the bank transfer and upload proof of payment.',
-          message_fr: 'Veuillez effectuer le virement bancaire et télécharger la preuve de paiement.',
-          totals_breakdown: {
-            subtotal: totalsBreakdown.subtotal_items,
-            shipping: totalsBreakdown.shipping_fee,
-            markup: totalsBreakdown.markup_fee,
-            taxes: totalsBreakdown.taxes_fee,
-            grand_total: totalsBreakdown.grand_total,
-            currency: 'USD',
-            cdf_equivalent: totalsBreakdown.cdf_equivalent,
-            exchange_rate: totalsBreakdown.exchange_rate,
-          },
-        });
       }
       
       // Should never reach here - preference was validated above
@@ -2228,9 +2036,7 @@ serve(async (req) => {
     if (paymentSettings.stripe_enabled) {
       availableProviders.push('stripe');
     }
-    if (paymentSettings.bank_transfer_enabled) {
-      availableProviders.push('bank_transfer');
-    }
+    
     
     // Log the payment flow decision
     console.log('[PAYMENT_FLOW] AWAITING_PROVIDER_SELECTION', {
@@ -2278,7 +2084,7 @@ serve(async (req) => {
         method: 'POST',
         required_fields: {
           checkout_session_id: checkoutSession?.id || null,
-          provider: 'pawapay | stripe | bank_transfer',
+          provider: 'pawapay | stripe',
           phone: 'required for pawapay',
         },
       },

@@ -145,7 +145,7 @@ function SummaryCards({ onTotalCount }: { onTotalCount?: (count: number) => void
 }
 
 // ── Fetch Products ──────────────────────────────────────────────────────────
-function FetchProducts() {
+function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: string; provider: string; count: number }) => void }) {
   const queryClient = useQueryClient();
   const [category, setCategory] = useState('');
   const [customQuery, setCustomQuery] = useState('');
@@ -273,6 +273,9 @@ function FetchProducts() {
         setIsFetching(false);
         queryClient.invalidateQueries({ queryKey: ['catalog-cache-summary'] });
         queryClient.invalidateQueries({ queryKey: ['catalog-cache-list'] });
+        queryClient.invalidateQueries({ queryKey: ['catalog-items-total-count'] });
+        queryClient.invalidateQueries({ queryKey: ['catalog-items-db-count'] });
+        onFetchComplete?.({ query: customQuery || category || 'all', provider, count: workerResult.items_upserted ?? 0 });
       } else if (workerResult?.status === 'no_sources' || workerResult?.status === 'no_active_sources') {
         setFetchProgress({
           status: 'error',
@@ -472,9 +475,18 @@ function FetchProducts() {
                 )}
 
                 {fetchProgress.status === 'done' && (
-                  <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => setFetchProgress(null)}>
-                    Dismiss
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="text-xs h-7 gap-1" onClick={() => {
+                      onFetchComplete?.({ query: customQuery || category || 'all', provider, count: fetchProgress.itemsFetched });
+                      const el = document.getElementById('items-table-section');
+                      if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    }}>
+                      <Search className="h-3 w-3" /> View Fetched Products
+                    </Button>
+                    <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => setFetchProgress(null)}>
+                      Dismiss
+                    </Button>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -612,7 +624,7 @@ function SearchInsights() {
 }
 
 // ── Items Table ──────────────────────────────────────────────────────────────
-function ItemsTable({ totalCount: parentTotalCount }: { totalCount: number }) {
+function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCount: number; externalFilter?: { q: string; provider: string; sort_by: string } | null }) {
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [appliedFilters, setAppliedFilters] = useState<Filters>(defaultFilters);
@@ -633,6 +645,24 @@ function ItemsTable({ totalCount: parentTotalCount }: { totalCount: number }) {
     staleTime: 60_000,
   });
   const totalCount = dbCountData && dbCountData > 0 ? dbCountData : parentTotalCount;
+
+  // React to external filter (from "View Fetched Products" button)
+  useEffect(() => {
+    if (externalFilter) {
+      const newFilters: Filters = {
+        ...defaultFilters,
+        q: externalFilter.q !== 'all' ? externalFilter.q : '',
+        provider: externalFilter.provider === 'rainforest' ? 'amazon' : externalFilter.provider,
+        sort_by: externalFilter.sort_by || 'newest',
+        date_preset: 'today',
+      };
+      setFilters(newFilters);
+      setAppliedFilters(newFilters);
+      setCursor(null);
+      setCursorId(null);
+      setCursorStack([]);
+    }
+  }, [externalFilter]);
 
   const applyFilters = useCallback(() => {
     setAppliedFilters({ ...filters });
@@ -736,7 +766,7 @@ function ItemsTable({ totalCount: parentTotalCount }: { totalCount: number }) {
   };
 
   return (
-    <div className="space-y-4">
+    <div id="items-table-section" className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Cached Products</h2>
@@ -1279,6 +1309,11 @@ function DataSync() {
 export default function CatalogCache() {
   const { language } = useLanguage();
   const [totalCount, setTotalCount] = useState(0);
+  const [viewFetchFilter, setViewFetchFilter] = useState<{ q: string; provider: string; sort_by: string } | null>(null);
+
+  const handleFetchComplete = useCallback((info: { query: string; provider: string; count: number }) => {
+    setViewFetchFilter({ q: info.query, provider: info.provider, sort_by: 'newest' });
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -1295,9 +1330,9 @@ export default function CatalogCache() {
 
       <SummaryCards onTotalCount={setTotalCount} />
       <DataSync />
-      <FetchProducts />
+      <FetchProducts onFetchComplete={handleFetchComplete} />
       <SearchInsights />
-      <ItemsTable totalCount={totalCount} />
+      <ItemsTable totalCount={totalCount} externalFilter={viewFetchFilter} />
       <RecentFetchHistory />
       <BuilderSources />
     </div>

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -83,6 +84,8 @@ const CART_STORAGE_KEY = 'afrishop_cart_v1';
 const PENDING_CHECKOUT_KEY = 'afrishop_pending_checkout_v1';
 const SAVED_STORAGE_KEY = 'afrishop_saved_items';
 const PENDING_CHECKOUT_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+const DELETED_IDS_STORAGE_KEY = 'afrishop_deleted_cart_ids_v1';
+const DELETED_TTL_MS = 5 * 60 * 1000; // 5 minutes (extended from 30s)
 
 export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const { user, session } = useAuth();
@@ -104,8 +107,30 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const [canProceedToPayment, setCanProceedToPayment] = useState(true);
   const [serverTotalUsd, setServerTotalUsd] = useState<number | null>(null);
 
-  // --- Race condition fix: track items being deleted with TTL ---
-  const deletedItemIdsRef = useRef<Map<string, number>>(new Map());
+  // --- Race condition fix: track items being deleted with TTL, persisted to sessionStorage ---
+  const deletedItemIdsRef = useRef<Map<string, number>>((() => {
+    try {
+      const stored = sessionStorage.getItem(DELETED_IDS_STORAGE_KEY);
+      if (stored) {
+        const entries: [string, number][] = JSON.parse(stored);
+        const now = Date.now();
+        return new Map(entries.filter(([, ts]) => now - ts < DELETED_TTL_MS));
+      }
+    } catch (e) {
+      console.error('[CART] Failed to parse deleted IDs from sessionStorage:', e);
+    }
+    return new Map();
+  })());
+
+  // Persist deletedItemIds to sessionStorage whenever it changes
+  const persistDeletedIds = useCallback(() => {
+    try {
+      const entries = Array.from(deletedItemIdsRef.current.entries());
+      sessionStorage.setItem(DELETED_IDS_STORAGE_KEY, JSON.stringify(entries));
+    } catch (e) {
+      console.error('[CART] Failed to persist deleted IDs:', e);
+    }
+  }, []);
 
   // --- Sync lock: prevent overlapping syncCart() calls ---
   const syncInProgressRef = useRef(false);
@@ -357,11 +382,11 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
 
         // CRITICAL: Filter out items that are currently being deleted locally (with TTL cleanup)
         const now = Date.now();
-        const DELETED_TTL_MS = 30_000; // 30 seconds
         // Clean up expired entries
         for (const [delId, ts] of deletedItemIdsRef.current) {
           if (now - ts > DELETED_TTL_MS) deletedItemIdsRef.current.delete(delId);
         }
+        persistDeletedIds();
         const serverFiltered = mappedItems.filter(item => !deletedItemIdsRef.current.has(item.id));
 
         // CRITICAL: Preserve optimistic local_ items not yet confirmed by server
@@ -497,8 +522,12 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const removeItem = async (id: string) => {
     // Track this ID as being deleted BEFORE any async work (with timestamp for TTL)
     deletedItemIdsRef.current.set(id, Date.now());
+    persistDeletedIds();
 
-    // Remove locally immediately
+    // Snapshot the item for potential rollback
+    const removedItem = items.find(item => item.id === id);
+
+    // Remove locally immediately (optimistic)
     setItems((prev) => prev.filter((item) => item.id !== id));
     // Also deselect
     setSelectedItemIds(prev => {
@@ -509,20 +538,29 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
 
     if (user && sessionRef.current && !id.startsWith('local_')) {
       try {
-        await supabase.functions.invoke('mobile-delete-cart-item', {
+        const { error } = await supabase.functions.invoke('mobile-delete-cart-item', {
           body: { cart_item_id: id },
         });
-        // Sync after confirmed deletion — filter still active via deletedItemIdsRef
+        if (error) throw error;
+        // Server confirmed deletion — remove from deleted IDs (it's gone for real)
+        deletedItemIdsRef.current.delete(id);
+        persistDeletedIds();
+        // Sync after confirmed deletion
         await syncCart();
       } catch (error) {
-        console.error('[CART] Failed to remove item:', error);
-      } finally {
-        // Keep in the map for 30s TTL — DON'T clear immediately to survive multiple sync cycles
-        // The TTL cleanup in syncCart will handle removal after 30 seconds
+        console.error('[CART] Failed to remove item from server:', error);
+        // ROLLBACK: restore the item to the UI since the server delete failed
+        if (removedItem) {
+          setItems(prev => {
+            // Only restore if it's not already back (e.g. from a sync)
+            if (prev.some(i => i.id === id)) return prev;
+            return [...prev, removedItem];
+          });
+          toast.error('Failed to remove item. Please try again.');
+        }
+        // Keep in deleted IDs map so it stays hidden until TTL expires
+        // This prevents the item from flickering back during syncs
       }
-    } else {
-      // Local-only item — keep for a short while in case of race conditions
-      // Will be cleaned up by TTL in syncCart
     }
   };
 

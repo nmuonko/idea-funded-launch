@@ -583,7 +583,7 @@ export default function ProductDetailsPage() {
             {/* Image Gallery */}
             <div className="space-y-4">
               <div
-                className="relative aspect-square bg-white/5 rounded-2xl overflow-hidden border border-white/10 cursor-pointer"
+                className="relative aspect-[4/3] sm:aspect-square bg-white/5 rounded-2xl overflow-hidden border border-white/10 cursor-pointer"
                 onClick={() => setLightboxOpen(true)}
               >
                 <AnimatePresence mode="wait">
@@ -596,7 +596,7 @@ export default function ProductDetailsPage() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="w-full h-full object-contain p-8"
+                    className="w-full h-full object-contain p-4 sm:p-8"
                   />
                 </AnimatePresence>
 

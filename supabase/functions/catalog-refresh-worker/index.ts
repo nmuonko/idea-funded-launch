@@ -754,8 +754,10 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
   // ── CUSTOM QUERY MODE: bypass source rotation, search directly ──
   if (customQuery) {
     const target = maxItemsTarget || 100;
-    const maxPages = Math.min(40, Math.ceil(target / BUILDER_ITEMS_PER_PAGE) + 2); // enough pages + small buffer
-    console.log(`[BUILDER] Custom query mode: "${customQuery}" provider=${providerFilter || "ebay"} target=${target} maxPages=${maxPages}`);
+    // Use target-aware page size: don't fetch 100 when we only need 10
+    const pageSize = Math.min(BUILDER_ITEMS_PER_PAGE, Math.max(20, target));
+    const maxPages = Math.min(40, Math.ceil(target / pageSize) + 2);
+    console.log(`[BUILDER] Custom query mode: "${customQuery}" provider=${providerFilter || "ebay"} target=${target} pageSize=${pageSize} maxPages=${maxPages}`);
     let totalUpsertedCQ = 0;
     let totalNewUniqueCQ = 0;
     let totalDupsCQ = 0;
@@ -766,14 +768,14 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
       const timeRemaining = BUILDER_TIME_BUDGET_MS - (Date.now() - runStart);
       if (timeRemaining < BUILDER_RESERVE_MS) break;
       if (requestsCQ >= BUILDER_MAX_REQUESTS_PER_RUN) break;
-      // Stop once we've fetched enough items
-      if (totalUpsertedCQ >= target) {
-        console.log(`[BUILDER] Custom query target reached: ${totalUpsertedCQ} >= ${target}`);
+      // Stop once we've reached the target of NEW UNIQUE items
+      if (totalNewUniqueCQ >= target) {
+        console.log(`[BUILDER] Custom query target reached: ${totalNewUniqueCQ} new unique >= ${target}`);
         break;
       }
 
       try {
-        const { items, total } = await searchEbay(ebayToken, customQuery, BUILDER_ITEMS_PER_PAGE, offset);
+        const { items, total } = await searchEbay(ebayToken, customQuery, pageSize, offset);
         requestsCQ++;
 
         if (items.length === 0 || offset >= total) break;
@@ -784,6 +786,7 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
           .map((item: any) => buildUpsertRow(item, categoryKey, now));
 
         if (upsertRows.length > 0) {
+          // Check which items already exist in DB
           const productIds = upsertRows.map((r: any) => r.provider_product_id);
           const { data: existingRows } = await supabase
             .from("catalog_items")
@@ -792,18 +795,30 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
             .in("provider_product_id", productIds);
 
           const existingSet = new Set((existingRows || []).map((r: any) => r.provider_product_id));
-          const newItems = productIds.filter((id: string) => !existingSet.has(id)).length;
+          
+          // Filter to only truly new items — skip duplicates entirely
+          const newRows = upsertRows.filter((r: any) => !existingSet.has(r.provider_product_id));
+          const dupCount = upsertRows.length - newRows.length;
+          totalDupsCQ += dupCount;
 
-          const { error: upsertErr } = await supabase
-            .from("catalog_items")
-            .upsert(upsertRows, { onConflict: "provider,provider_product_id" });
+          if (newRows.length > 0) {
+            // Trim to not exceed target
+            const remaining = target - totalNewUniqueCQ;
+            const toInsert = newRows.slice(0, remaining);
 
-          if (!upsertErr) {
-            totalUpsertedCQ += upsertRows.length;
-            totalNewUniqueCQ += newItems;
-            totalDupsCQ += productIds.length - newItems;
+            const { error: upsertErr } = await supabase
+              .from("catalog_items")
+              .upsert(toInsert, { onConflict: "provider,provider_product_id" });
+
+            if (!upsertErr) {
+              totalUpsertedCQ += toInsert.length;
+              totalNewUniqueCQ += toInsert.length;
+              console.log(`[BUILDER] Page ${page}: inserted ${toInsert.length} new, skipped ${dupCount} dups (total new: ${totalNewUniqueCQ}/${target})`);
+            } else {
+              console.error(`[BUILDER] Custom query upsert error:`, upsertErr.message);
+            }
           } else {
-            console.error(`[BUILDER] Custom query upsert error:`, upsertErr.message);
+            console.log(`[BUILDER] Page ${page}: all ${upsertRows.length} items are duplicates, skipping`);
           }
         }
 

@@ -814,6 +814,8 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
               <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Date Added" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="_all">All Time</SelectItem>
+                <SelectItem value="1h">Last 1 hour</SelectItem>
+                <SelectItem value="today">Today</SelectItem>
                 <SelectItem value="24h">Last 24h</SelectItem>
                 <SelectItem value="7d">Last 7 days</SelectItem>
                 <SelectItem value="30d">Last 30 days</SelectItem>

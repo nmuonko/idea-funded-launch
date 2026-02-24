@@ -170,9 +170,15 @@ async function handleList(url: URL) {
   const datePreset = url.searchParams.get("date_preset");
 
   if (datePreset) {
-    const presetMs: Record<string, number> = { "24h": 86400000, "7d": 604800000, "30d": 2592000000 };
-    const ms = presetMs[datePreset];
-    if (ms) query = query.gte("first_seen_at", new Date(Date.now() - ms).toISOString());
+    if (datePreset === "today") {
+      const todayStart = new Date();
+      todayStart.setUTCHours(0, 0, 0, 0);
+      query = query.gte("first_seen_at", todayStart.toISOString());
+    } else {
+      const presetMs: Record<string, number> = { "1h": 3600000, "24h": 86400000, "7d": 604800000, "30d": 2592000000 };
+      const ms = presetMs[datePreset];
+      if (ms) query = query.gte("first_seen_at", new Date(Date.now() - ms).toISOString());
+    }
   } else {
     if (dateFrom) query = query.gte("first_seen_at", dateFrom);
     if (dateTo) query = query.lte("first_seen_at", dateTo);

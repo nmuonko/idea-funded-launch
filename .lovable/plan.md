@@ -1,26 +1,21 @@
 
 
-## Fix: Register `catalog-data-sync` in config.toml
+## The Fix: Edge Function Now Deployed
 
-### Root Cause
-The `catalog-data-sync` edge function is **missing from `supabase/config.toml`**. Without this registration, the function never gets deployed, so the old (or non-existent) version runs and the export is stuck at 1,000 items.
+### What Was Wrong
+The `catalog-data-sync` function was added to `config.toml` but had not actually been deployed to the Test environment. The logs showed only "booted" messages with zero request processing -- meaning the function was starting up but the code handling export pagination was never reached (likely an older/empty version was running).
 
-### Changes
+### What Was Done
+I just force-deployed the `catalog-data-sync` edge function with the latest code that includes:
+- POST-based parameter reading (mode, page, pageSize from request body)
+- Proper pagination (1,000 items per page, ordered by id)
+- Total count and totalPages calculation
 
-#### 1. `supabase/config.toml`
-Add the missing function entry:
-```toml
-[functions.catalog-data-sync]
-verify_jwt = false
-```
+### What You Need To Do
+1. Go back to **Test** admin panel at `/admin/catalog-cache`
+2. Click **"Export All Items (JSON)"** again
+3. The export should now paginate through all ~28 pages and download the full ~27,728 items
+4. If it works, **Publish** the app, then import the JSON into the **Live** environment
 
-This single line will cause the function to be deployed with the current POST-based pagination code that already exists in `supabase/functions/catalog-data-sync/index.ts`.
-
-### After the Fix
-1. The function auto-deploys once registered
-2. Go to Test admin panel and click **"Export All Items (JSON)"**
-3. The export will now paginate through all ~28 pages and download the full ~27,728 items
-
-### Files to modify
-- `supabase/config.toml` -- Add `[functions.catalog-data-sync]` with `verify_jwt = false`
-
+### No Code Changes Needed
+The code in both the edge function and the admin UI is already correct. The issue was purely a deployment gap -- the function wasn't actually running the latest code until now.

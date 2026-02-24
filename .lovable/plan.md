@@ -1,98 +1,125 @@
 
 
-## Fix Summary Cards and Handle Obsolete Product Links
+## Daily Catalog Notifications, DB-First Search Priority, More Results, and Client Cache Behavior
 
-### Problem 1: Summary Cards Show 0 for Everything Except Total
+### Problem Summary
 
-The `handleSummary` edge function runs 7+ sequential `count` queries taking 5+ seconds. The frontend catches errors silently and falls back to `{}`, which renders all counts as 0. Meanwhile, the direct DB count query for "Total" uses a separate, faster query that works fine.
+1. **No daily notification** of catalog health (items added, total value, active count)
+2. **Users may be hitting live providers unnecessarily** when items exist in the 75K+ cached catalog -- need to verify and prioritize DB-first results
+3. **Search shows too few items** -- users see under 100 products when there could be many more from the cached catalog
+4. **Unclear what happens when users clear browser cache** -- need to verify the impact and ensure graceful recovery
 
-**Fix**: Mirror the same direct-DB-count approach used for Total across all summary metrics. Replace the single slow edge function call with parallel direct Supabase client queries from the frontend (active, inactive, added 24h, stale price, dead). This is faster, more reliable, and eliminates the single-point-of-failure edge function call.
+### What the Investigation Found
 
-**Files**: `src/pages/admin/CatalogCache.tsx` (SummaryCards component, lines 74-145)
+**Search Flow Analysis:**
+- The `catalog-search` backend already implements a "DB-First" strategy via `searchDbFirst()` -- it queries `catalog_items` before hitting live providers. However, `DB_MIN_RESULTS = 5` means it only returns DB results if it finds 5+, and the DB query limit is capped at `100`.
+- The DB-first results are then **merged** with live provider results (eBay + Amazon), but DB items only fill gaps -- they don't dominate.
+- `PAGE_SIZE = 100` on the frontend and `DEFAULT_LIMIT = 100` on the backend, with `MAX_PAGES = 5` (up to 500 items total). But auto-pagination/broadening doesn't always kick in aggressively enough.
 
-**Changes**:
-- Add separate `useQuery` hooks for each metric (active, inactive, dead, added_24h, stale_price) using direct `supabase.from('catalog_items').select('*', { count: 'exact', head: true })` with appropriate filters
-- Remove dependency on the `summary` edge function mode (keep it as optional fallback)
-- Run all count queries in parallel for speed
-
-### Problem 2: Obsolete/Dead Links Not Being Detected
-
-The system already has a stale-refresh mechanism (`refreshStaleItems` in `catalog-refresh-worker`) that checks eBay item URLs and increments `fail_count` on 404/410 responses, deactivating items after 3 failures. However, this only runs when the worker is in `stale` mode and items have old `price_updated_at` dates.
-
-**What's missing**: There's no proactive link-checking for the 72K+ items that were bulk-ingested recently. They all show `fail_count: 0` and `is_active: true` because they've never been verified.
-
-**Fix**: Add a new `link-check` mode to the catalog-refresh-worker that batch-validates product URLs by hitting the eBay Browse API `/item/{id}` endpoint. Items returning 404/410 get their `fail_count` incremented and are deactivated after 3 failures. Add a "Check Links" button in the admin UI to trigger this.
-
-**Files**:
-- `supabase/functions/catalog-refresh-worker/index.ts` -- Add `link-check` mode
-- `supabase/functions/admin-catalog-items/index.ts` -- Add `run-link-check` action
-- `src/pages/admin/CatalogCache.tsx` -- Add "Check Links" button and show results
-
-### Problem 3: Summary Cards Should Reflect Real Data
-
-The DB currently shows: 72,993 total, 72,993 active, 0 inactive, 0 dead, 50,351 added in 24h. Once the direct-query approach works, these real numbers will display correctly.
+**Client Cache Behavior:**
+- `localStorage` stores search results with 1-hour TTL (from server `ttlSeconds`). Clearing browser data removes this, causing fresh network requests. The in-memory LRU cache (100 entries) is also lost on page reload. This is **normal and expected** -- the next search just fetches fresh data from the server-side cache (7-day TTL) which responds in under 200ms on cache hit.
 
 ---
 
-### Detailed Technical Plan
+### Plan
 
-#### 1. Fix SummaryCards -- Direct DB Queries (CatalogCache.tsx)
+#### 1. Daily Catalog Health Notification (New Edge Function + Cron)
 
-Replace the single `summary` edge function call with parallel direct queries:
+Create a new `catalog-daily-report` edge function that:
+- Queries total active items, inactive items, dead links (fail_count >= 3), items added in last 24h
+- Calculates total value (SUM of price_usd for active items)
+- Sends an email to the admin using the existing `sendEmail` helper
+- Triggered daily at 8 AM via pg_cron
+
+**New file**: `supabase/functions/catalog-daily-report/index.ts`
 
 ```text
-// Each as its own useQuery with staleTime: 60_000
-const { data: activeCount } = useQuery({
-  queryKey: ['catalog-items-active-count'],
-  queryFn: async () => {
-    const { count } = await supabase.from('catalog_items')
-      .select('*', { count: 'exact', head: true })
-      .eq('is_active', true);
-    return count ?? 0;
-  },
-});
-
-// Similar for: inactive, dead (fail_count >= 3), added_24h (first_seen_at >= 24h ago), stale_price
+// Queries catalog_items for:
+// - Total active count
+// - Total inactive count
+// - Dead links (fail_count >= 3)
+// - Items added in last 24h
+// - Total value (SUM price_usd WHERE is_active = true)
+// Sends formatted HTML email via sendEmail() to admin
 ```
 
-Remove the `invokeAdmin({ mode: 'summary' })` call entirely from SummaryCards.
+**Cron setup**: pg_cron job calling the function daily at 8 AM UTC
 
-#### 2. Add Link-Check Mode (catalog-refresh-worker)
+#### 2. Maximize DB-First Results -- Show More Cached Products
 
-New function `runLinkCheck`:
-- Fetches a batch of active items (default 50, max 200) that haven't been checked recently (`last_checked_at` is null or older than 7 days)
-- For each item, calls the eBay Browse API `/item/{provider_product_id}`
-- On 404/410: increments `fail_count`, sets `status_reason = 'check_failed'`, deactivates if `fail_count >= 3`
-- On 200: resets `fail_count = 0`, updates `last_checked_at`, confirms `is_active = true`
-- On 429: stops immediately
-- Returns `{ checked, active, deactivated }`
+The DB-first search (`searchDbFirst.ts`) currently has `TARGET_RESULTS = 100` and a tight 800ms budget. Since we have 75K+ items, the DB should be the primary source for common queries.
 
-#### 3. Add Admin Action (admin-catalog-items)
+**Changes to `supabase/functions/_shared/searchDbFirst.ts`:**
+- Increase `TARGET_RESULTS` from 100 to 200 to pull more from the cached catalog
+- Increase Tier A limit from `limit` (100) to `Math.max(limit, 200)` for richer DB results
+- The DB query is already fast (<100ms for indexed ilike searches), so this won't impact latency
 
-New action `run-link-check`:
-- Accepts optional `batch_size` (default 50) and optional `category_key`
-- Calls `catalog-refresh-worker` with `mode: 'link-check'`
-- Returns results to frontend
+**Changes to `supabase/functions/catalog-search/index.ts`:**
+- When DB returns sufficient results (>= 50 items), skip live provider calls entirely to deliver sub-second responses. Currently, live providers are ALWAYS called even when DB has plenty of results.
+- Add a `DB_SUFFICIENT_THRESHOLD = 50`: if DB-first returns >= 50 items AND it's page 0, return immediately without waiting for providers. This ensures < 1 second responses for cached queries.
+- Still fire a background cache refresh (fire-and-forget) to keep the cache fresh.
 
-#### 4. Add UI Controls (CatalogCache.tsx)
+#### 3. Show More Products Per Search (Frontend)
 
-In the SummaryCards area or as a new utility card:
-- "Check Links" button that triggers the link-check
-- Shows progress: "Checked X items: Y active, Z deactivated"
-- After completion, invalidates summary count queries to refresh the cards
+**Changes to `src/pages/shop/SearchResults.tsx`:**
+- Lower `BROADEN_THRESHOLD` from 30 to 50 (trigger broadening more often to find more related items)
+- Increase `BROADEN_TARGET` from 200 to 300 (collect more related products before stopping)
+- These changes mean the frontend will more aggressively seek similar products when initial results are sparse
+
+#### 4. Client Cache Clearing -- Add Documentation Comment (No Code Change Needed)
+
+When a user clears their browser cache/localStorage:
+- The in-memory LRU cache and localStorage entries are wiped
+- The very next search fetches from the **server-side** 7-day search cache, which responds in <200ms for previously searched queries
+- The backend `catalog_items` DB (75K+ items) provides instant results via DB-first even for new queries
+- **No code change needed** -- the system already handles this gracefully. The server cache is independent of the client.
+
+### Technical Details
+
+**Daily Report Edge Function:**
+
+```text
+import { sendEmail, ADMIN_EMAIL } from "../_shared/email.ts";
+import { createAdminPostgrestClient } from "../_shared/postgrest.ts";
+
+// Run 5 parallel count queries (same pattern as SummaryCards frontend)
+const [activeRes, inactiveRes, deadRes, added24hRes, valueRes] = await Promise.all([
+  supabase.from("catalog_items").select("*", { count: "exact", head: true }).eq("is_active", true),
+  supabase.from("catalog_items").select("*", { count: "exact", head: true }).eq("is_active", false),
+  supabase.from("catalog_items").select("*", { count: "exact", head: true }).gte("fail_count", 3),
+  supabase.from("catalog_items").select("*", { count: "exact", head: true }).eq("is_active", true).gte("first_seen_at", twentyFourHoursAgo),
+  supabase.from("catalog_items").select("price_usd").eq("is_active", true),
+]);
+
+// Format and send via sendEmail()
+```
+
+**DB-Sufficient Fast Path (catalog-search):**
+
+```text
+// After DB-first returns, check if we have enough
+if (dbFallbackItems && dbFallbackItems.length >= DB_SUFFICIENT_THRESHOLD && !cursor) {
+  // Return DB results immediately -- sub-second response
+  // Fire background provider refresh (fire-and-forget)
+  return Response with dbFallbackItems;
+}
+```
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/pages/admin/CatalogCache.tsx` | Replace SummaryCards edge fn with direct DB queries; add "Check Links" button |
-| `supabase/functions/catalog-refresh-worker/index.ts` | Add `link-check` mode using existing `refreshStaleItems` pattern |
-| `supabase/functions/admin-catalog-items/index.ts` | Add `run-link-check` action handler |
+| `supabase/functions/catalog-daily-report/index.ts` | NEW -- daily catalog health email |
+| `supabase/functions/_shared/searchDbFirst.ts` | Increase TARGET_RESULTS to 200, increase Tier A limit |
+| `supabase/functions/catalog-search/index.ts` | Add DB-sufficient fast path (skip providers when DB has 50+ items) |
+| `src/pages/shop/SearchResults.tsx` | Increase BROADEN_TARGET to 300, lower BROADEN_THRESHOLD to 50 |
+| `supabase/config.toml` | Register catalog-daily-report function |
 
 ### Expected Results
 
-- Summary cards immediately show real counts (72,993 Active, 0 Inactive, 50,351 Added 24h, etc.)
-- "Check Links" lets you validate batches of products, auto-deactivating dead ones
-- Deactivated items show as "Inactive" in the summary and can be filtered in the Items Table
-- All changes deploy to Live on publish
+- Admin receives daily email: "75,501 active items | $112.6M total value | 1,234 added today | 0 dead links"
+- Users searching for cached items (e.g., "iphone 12") get results in < 1 second from DB
+- Live provider calls only happen when DB has fewer than 50 matching items
+- Search results show 200-300+ products for popular queries instead of < 100
+- Clearing browser cache has zero impact -- server cache delivers instant results on next search
 

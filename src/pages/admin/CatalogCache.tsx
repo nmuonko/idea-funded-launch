@@ -289,7 +289,9 @@ function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: 
                 duplicates: latest.duplicates_skipped,
               });
               setIsFetching(false);
-              queryClient.invalidateQueries({ queryKey: ['catalog-cache-summary'] });
+              queryClient.invalidateQueries({ queryKey: ['catalog-summary-total'] });
+              queryClient.invalidateQueries({ queryKey: ['catalog-summary-active'] });
+              queryClient.invalidateQueries({ queryKey: ['catalog-summary-added24h'] });
               queryClient.invalidateQueries({ queryKey: ['catalog-cache-list'] });
             }
           }
@@ -335,10 +337,11 @@ function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: 
           duplicates: workerResult.duplicates_skipped ?? 0,
         });
         setIsFetching(false);
-        queryClient.invalidateQueries({ queryKey: ['catalog-cache-summary'] });
-        queryClient.invalidateQueries({ queryKey: ['catalog-cache-list'] });
-        queryClient.invalidateQueries({ queryKey: ['catalog-items-total-count'] });
-        queryClient.invalidateQueries({ queryKey: ['catalog-items-db-count'] });
+        queryClient.invalidateQueries({ queryKey: ['catalog-summary-total'] });
+              queryClient.invalidateQueries({ queryKey: ['catalog-summary-active'] });
+              queryClient.invalidateQueries({ queryKey: ['catalog-summary-inactive'] });
+              queryClient.invalidateQueries({ queryKey: ['catalog-summary-added24h'] });
+              queryClient.invalidateQueries({ queryKey: ['catalog-cache-list'] });
         onFetchComplete?.({ query: customQuery || category || 'all', provider, count: workerResult.items_upserted ?? 0 });
       } else if (workerResult?.status === 'no_sources' || workerResult?.status === 'no_active_sources') {
         setFetchProgress({

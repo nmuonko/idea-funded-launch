@@ -348,6 +348,7 @@ async function handleAction(req: Request, action: string) {
     const provider = body.provider || "ebay";
     const categoryKey = body.category_key || undefined;
     const maxItemsTarget = body.max_items_target || 100;
+    const customQuery = body.custom_query || undefined;
 
     // Check provider health first
     const { data: health } = await sb
@@ -370,6 +371,7 @@ async function handleAction(req: Request, action: string) {
       max_items_target: maxItemsTarget,
     };
     if (categoryKey) workerBody.category_key = categoryKey;
+    if (customQuery) workerBody.custom_query = customQuery;
 
     const res = await fetch(workerUrl, {
       method: "POST",

@@ -148,6 +148,7 @@ function SummaryCards({ onTotalCount }: { onTotalCount?: (count: number) => void
 function FetchProducts() {
   const queryClient = useQueryClient();
   const [category, setCategory] = useState('');
+  const [customQuery, setCustomQuery] = useState('');
   const [provider, setProvider] = useState('ebay');
   const [quantity, setQuantity] = useState(100);
   const [isFetching, setIsFetching] = useState(false);
@@ -255,6 +256,7 @@ function FetchProducts() {
         provider,
         category_key: category || undefined,
         max_items_target: quantity,
+        custom_query: customQuery || undefined,
       });
       
       // If the worker returned immediately with results
@@ -325,20 +327,30 @@ function FetchProducts() {
       <Card>
         <CardHeader className="py-3 px-4">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Zap className="h-4 w-4" /> Fetch Products
+            <Zap className="h-4 w-4" /> On-Demand Fetch
           </CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-4 space-y-4">
           {/* Controls Row */}
           <div className="flex flex-wrap gap-3 items-end">
             <div className="flex flex-col gap-1">
-              <Label className="text-xs text-muted-foreground">Category</Label>
-              <Select value={category || '_all'} onValueChange={(v) => setCategory(v === '_all' ? '' : v)}>
+              <Label className="text-xs text-muted-foreground">Search Query</Label>
+              <Input
+                className="h-9 w-56 text-xs"
+                placeholder='e.g. "cellphones", "iPhone 16 Pro Max"'
+                value={customQuery}
+                onChange={(e) => setCustomQuery(e.target.value)}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs text-muted-foreground">Category (optional)</Label>
+              <Select value={category || '_auto'} onValueChange={(v) => setCategory(v === '_auto' ? '' : v)}>
                 <SelectTrigger className="h-9 w-44 text-xs">
-                  <SelectValue placeholder="All categories" />
+                  <SelectValue placeholder="Auto-detect" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="_all">All categories</SelectItem>
+                  <SelectItem value="_auto">Auto-detect</SelectItem>
                   {ALL_CATEGORIES.map((c) => (
                     <SelectItem key={c} value={c}>{c}</SelectItem>
                   ))}

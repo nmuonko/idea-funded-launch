@@ -1,57 +1,62 @@
 
-# Payment Redirect Fix: PawaPay and Stripe
+# Fix: Cart Deletion Bug, Mobile Image Cropping, and Payment Page Translation
 
-## Issues Found
+## Issue 1: Cart Deletion Bug (Critical)
 
-### 1. FRONTEND_URL Secret Mismatch (Medium Risk)
-The `select-payment-provider` function reads `FRONTEND_URL` (lines 229, 471) but the configured secret is named `FRONTEND_BASE_URL`. This means the fallback `https://afri-shop.com` (wrong domain) is always used for the `redirectUrl` field. While the web app ignores this (it navigates client-side), the mobile app may rely on it.
+**Root Cause:** When a logged-in user deletes a cart item, the system removes it from the screen instantly and then sends a server delete request. If that server request fails silently (e.g., expired auth token, network glitch), the item stays in the database. The "deleted item IDs" list is stored only in memory and survives for just 30 seconds. On page refresh, the memory is wiped and the item is fetched fresh from the server -- so it reappears.
 
-**Fix:** Change the code to read `FRONTEND_BASE_URL` instead of `FRONTEND_URL`, and update the fallback to `https://afrishop-usa.com`.
+Clearing cookies forces a fresh login, which gives a valid token, allowing the next delete to actually succeed.
 
-### 2. Legacy BANK_TRANSFER Still in mobile-checkout (Code Smell)
-`mobile-checkout/index.ts` (2,344 lines) still has `BANK_TRANSFER` in its type definitions and routing logic (lines 26-33). This was missed in the previous cleanup.
+**Fix:**
+- In `src/contexts/ShopCartContext.tsx`:
+  1. Persist `deletedItemIds` to `sessionStorage` (survives page refreshes within the same tab session, auto-clears when the tab closes)
+  2. On init, load deleted IDs from sessionStorage so they survive refreshes
+  3. When the server delete succeeds, immediately remove the ID from the persisted list (confirmed gone)
+  4. When the server delete **fails**, show a toast error and restore the item to the UI (rollback)
+  5. Extend the TTL from 30 seconds to 5 minutes to survive multiple sync cycles
 
-**Fix:** Remove `BANK_TRANSFER` from `PaymentFlow`, `PaymentMethodPreference`, and `VALID_PAYMENT_PREFERENCES` types. Remove any bank transfer routing paths.
+## Issue 2: Mobile Product Image Cropping
 
-### 3. Legacy MaishaPay in vehiclePaymentGuard.ts
-`_shared/vehiclePaymentGuard.ts` still references MaishaPay currency logic and `VEHICLE_BANK_TRANSFER_REQUIRED` error in `paymentProviders.ts` line 217.
+**Root Cause:** On the product detail page (`ProductDetails.tsx`), the image container uses `aspect-square` which on mobile phones creates a very tall square. The image inside uses `object-contain p-8` which is correct, but the `aspect-square` ratio combined with the full-width container on narrow screens makes the image area dominate the viewport, appearing as a "big giant cropped picture."
 
-**Fix:** Clean these references. Vehicle orders should use Stripe only; if Stripe is unavailable, return a clear "card payment unavailable" error instead of `VEHICLE_BANK_TRANSFER_REQUIRED`.
+The product cards on the grid (`ProductCard.tsx`) use `aspect-[4/3] sm:aspect-square` for non-compact mode which is already fine.
 
-### 4. Stale MaishaPay Secrets (10 secrets)
-There are 10+ `MAISHAPAY_*` and `MAISHA_*` secrets still configured. These are dead weight and could cause confusion.
+**Fix:**
+- In `src/pages/shop/ProductDetails.tsx`:
+  1. Change the hero image container from `aspect-square` to `aspect-[4/3] sm:aspect-square` on mobile -- this makes the image shorter on phones
+  2. Reduce padding from `p-8` to `p-4 sm:p-8` on mobile for better image utilization
 
-**Fix:** These cannot be cleaned by code changes, but noted for manual cleanup.
+## Issue 3: Payment Pending Page Translation
 
-## Implementation Plan
+**Root Cause:** The `PaymentPending.tsx` page has all text hardcoded in English with no i18n support.
 
-### Step 1: Fix FRONTEND_URL in select-payment-provider
-Update two lines in `supabase/functions/select-payment-provider/index.ts`:
-- Line 229: `Deno.env.get('FRONTEND_URL')` to `Deno.env.get('FRONTEND_BASE_URL')`
-- Line 471: Same change
-- Update fallback from `https://afri-shop.com` to `https://afrishop-usa.com`
+**Fix:**
+- Add translation keys for the payment pending page to `src/lib/i18n/translations.ts` for English, French, Swahili, and Lingala
+- Update `src/pages/shop/PaymentPending.tsx` to use the translation system with `useLanguage()` and `translations`
 
-### Step 2: Clean mobile-checkout types
-In `supabase/functions/mobile-checkout/index.ts`:
-- Remove `BANK_TRANSFER` from `PaymentFlow` type
-- Remove `BANK_TRANSFER` from `PaymentMethodPreference` type and `VALID_PAYMENT_PREFERENCES`
-- Remove `bank_transfer_enabled` references in `PaymentSettings`
+New translation keys needed:
+- `checkYourPhone` -- "Check Your Phone" / "Vérifiez votre téléphone"
+- `paymentRequestSent` -- "A payment request has been sent to your mobile phone" / "Une demande de paiement a été envoyée sur votre téléphone"
+- `ussdPrompt` -- "Please check your phone for the USSD prompt..." / "Veuillez vérifier votre téléphone..."
+- `requestExpiry` -- "The request will expire in a few minutes..." / "La demande expirera dans quelques minutes..."
+- `waitingConfirmation` -- "Waiting for confirmation..." / "En attente de confirmation..."
+- `havingTrouble` -- "Having trouble? Contact support via WhatsApp" / "Un problème ? Contactez le support via WhatsApp"
+- `amountToPay` -- "Amount to pay" / "Montant à payer"
+- `backToOrders` -- "Back to Orders" / "Retour aux commandes"
+- `tryAgain` -- "Try Again" / "Réessayer"
+- `backToCheckout` -- "Back to Checkout" / "Retour au paiement"
+- `orderProcessing` -- "We'll start processing your order right away." / "Nous commencerons à traiter votre commande immédiatement."
 
-### Step 3: Clean vehiclePaymentGuard.ts
-- Remove MaishaPay currency logic
-- Change `VEHICLE_BANK_TRANSFER_REQUIRED` to `VEHICLE_CARD_REQUIRED`
+## Technical Summary
 
-### Step 4: Clean paymentProviders.ts
-- Replace bank transfer fallback message with card-only error
+| File | Change |
+|------|--------|
+| `src/contexts/ShopCartContext.tsx` | Persist deleted IDs to sessionStorage; rollback on server failure; extend TTL to 5 min |
+| `src/pages/shop/ProductDetails.tsx` | Change hero image from `aspect-square` to `aspect-[4/3] sm:aspect-square`; reduce mobile padding |
+| `src/pages/shop/PaymentPending.tsx` | Add `useLanguage` + translation lookups for all hardcoded strings |
+| `src/lib/i18n/translations.ts` | Add payment pending keys to en, fr, sw, and ln sections |
 
-### Step 5: Redeploy affected edge functions
-- `select-payment-provider`
-- `mobile-checkout`
-
-## Technical Notes
-
-The actual web redirect flow (Checkout.tsx to /payment-pending or /card-payment) is structurally correct. The frontend navigates client-side based on the response from `select-payment-provider`:
-- PawaPay: `providerData.status === 'pending_user_confirmation'` navigates to `/payment-pending`
-- Stripe: `providerData.clientSecret` exists navigates to `/card-payment`
-
-The `redirectUrl` from the backend is only used by external/mobile deep links, not the web app. So if web redirects are "not working," it may also be a Stripe publishable key or PawaPay config issue. We should test the full flow after these fixes.
+## Risk Assessment
+- **Cart fix**: Low risk -- sessionStorage is well-supported and auto-clears. The rollback on failure is standard optimistic-update best practice.
+- **Image fix**: Low risk -- only changes CSS aspect ratio on mobile breakpoint.
+- **Translation**: Low risk -- additive change, English fallbacks ensure no breakage.

@@ -99,25 +99,33 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Batch upsert with ON CONFLICT DO NOTHING (in chunks of 500)
+      // Batch upsert in chunks of 200, stripping auto-generated fields
       let inserted = 0;
       let skipped = 0;
       let errors = 0;
-      const chunkSize = 500;
+      const errorDetails: string[] = [];
+      const chunkSize = 200;
 
       for (let i = 0; i < items.length; i += chunkSize) {
         const chunk = items.slice(i, i + chunkSize);
+        // Strip id, created_at, updated_at so destination DB generates its own
+        const cleanedChunk = chunk.map((item: Record<string, unknown>) => {
+          const { id, created_at, updated_at, ...rest } = item;
+          return rest;
+        });
         const { data, error: upsertErr } = await supabase
           .from("catalog_items")
-          .upsert(chunk, {
+          .upsert(cleanedChunk, {
             onConflict: "provider,provider_product_id",
             ignoreDuplicates: true,
           })
           .select("id");
 
         if (upsertErr) {
-          console.error(`[catalog-data-sync] Chunk ${i / chunkSize} error:`, upsertErr.message);
+          const msg = `Chunk ${Math.floor(i / chunkSize)}: ${upsertErr.message}`;
+          console.error(`[catalog-data-sync] ${msg}`);
           errors += chunk.length;
+          errorDetails.push(msg);
         } else {
           inserted += data?.length ?? 0;
           skipped += chunk.length - (data?.length ?? 0);
@@ -130,6 +138,7 @@ Deno.serve(async (req) => {
         inserted,
         skipped,
         errors,
+        errorDetails: errorDetails.length > 0 ? errorDetails.slice(0, 10) : undefined,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

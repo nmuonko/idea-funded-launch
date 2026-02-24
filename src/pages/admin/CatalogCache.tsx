@@ -1181,10 +1181,12 @@ function DataSync() {
         throw new Error('No items found in file');
       }
 
-      // Send in chunks of 500 to stay within request size limits
-      const chunkSize = 500;
+      // Send in chunks of 200 to stay within request size limits
+      const chunkSize = 200;
       let totalInserted = 0;
       let totalSkipped = 0;
+      let totalErrors = 0;
+      const allErrorDetails: string[] = [];
 
       for (let i = 0; i < items.length; i += chunkSize) {
         const chunk = items.slice(i, i + chunkSize);
@@ -1196,9 +1198,15 @@ function DataSync() {
         if (error) throw error;
         totalInserted += data.inserted || 0;
         totalSkipped += data.skipped || 0;
+        totalErrors += data.errors || 0;
+        if (data.errorDetails) allErrorDetails.push(...data.errorDetails);
       }
 
-      toast.success(`Import complete: ${totalInserted} inserted, ${totalSkipped} skipped`);
+      if (totalErrors > 0) {
+        toast.error(`Import done with ${totalErrors} errors: ${allErrorDetails.slice(0, 3).join('; ')}`);
+      } else {
+        toast.success(`Import complete: ${totalInserted} inserted, ${totalSkipped} skipped`);
+      }
       setImportProgress('');
     } catch (e: any) {
       toast.error(`Import failed: ${e.message}`);

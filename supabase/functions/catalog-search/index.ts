@@ -830,6 +830,80 @@ Deno.serve(async (req: Request) => {
     }
     timings.dbFirst = Date.now() - dbFirstStart;
 
+    // ─── DB-SUFFICIENT FAST PATH ──────────────────────────────────────────────
+    // If DB returned >= 50 items on page 0, skip live providers entirely for sub-second response.
+    // Fire a background cache refresh to keep data fresh.
+    const DB_SUFFICIENT_THRESHOLD = 50;
+    if (dbFallbackItems && dbFallbackItems.length >= DB_SUFFICIENT_THRESHOLD && isFirstPage && !cursor) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH: ${dbFallbackItems.length} items >= ${DB_SUFFICIENT_THRESHOLD} threshold — skipping providers`);
+
+      // Apply content filter + sort
+      const { allowed: dbFiltered } = filterDisallowedItems(
+        dbFallbackItems.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
+        `[DB_FAST_PATH] ${requestId}`
+      );
+      const dbFinal = postSortItems(postFilterItems(dbFiltered, catalogFilters), sort);
+
+      // Build response
+      const dbFastResponse = {
+        status: "success",
+        items: dbFinal,
+        total: dbFinal.length,
+        nextCursor: null,
+        hasMore: false,
+        query: qOriginal,
+        env: envName,
+        durationMs: Date.now() - startTime,
+        _dbFastPath: true,
+        _dbCount: dbCount,
+        meta: {
+          source: "db_fastpath",
+          isStale: false,
+          envUsed,
+          envRequested: envName,
+          correlationId: requestId,
+          ts: new Date().toISOString(),
+        },
+      };
+
+      // Cache the DB results for future requests (fire-and-forget)
+      setCache(supabase, "search", globalCacheKey, dbFastResponse, {
+        provider: "mixed", query: qNorm, category: categoryKey || undefined,
+        page: 1, pageSize: limit, amazonDomain: "amazon.com",
+      }).catch(() => {});
+
+      // Fire-and-forget background provider refresh to keep cache warm
+      (async () => {
+        try {
+          const bgId = requestId + "-dbfp-bg";
+          const { fetchAmazonItems } = await import("../_shared/amazonFetcher.ts");
+          const { fetchEbayItems } = await import("../_shared/ebayFetcher.ts");
+          await Promise.allSettled([
+            fetchAmazonItems({ supabase, query: providerQuery, settings, effectiveMode, mixerCursor, isVehicle: isVehicleQuery(qNorm), hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: bgId }),
+            fetchEbayItems({ supabase, query: providerQuery, effectiveMode, isVehicle: isVehicleQuery(qNorm), hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page: 1, limit, catalogFilters, requestId: bgId }),
+          ]);
+        } catch (e) {
+          console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_fastpath_bg_refresh_error:`, (e as Error).message);
+        }
+      })();
+
+      // Log search query for analytics
+      logSearchQuery(supabase, { qNorm, qOriginal, dbCount, liveCount: 0, categoryGuess: categoryKey || effectiveIntent.intentKey, source: "db_fastpath", requestId }).catch(() => {});
+
+      const dbFpHeaders = buildResponseHeaders(dbFinal.length, 3600, { cacheStatus: "DB_FAST_PATH", responseTimeMs: Date.now() - startTime });
+      dbFpHeaders["X-Results-Count"] = String(dbFinal.length);
+      dbFpHeaders["X-DB-Fast-Path"] = "true";
+      dbFpHeaders["X-Translate"] = translateStatus;
+      dbFpHeaders["X-Translate-Ms"] = String(translateMs);
+      if (translateProvider) dbFpHeaders["X-Translate-Provider"] = translateProvider;
+
+      timings.total = Date.now() - startTime;
+      return new Response(JSON.stringify(dbFastResponse), {
+        status: 200,
+        headers: dbFpHeaders,
+      });
+    }
+
     // ─── LAZY IMPORT PROVIDERS ────────────────────────────────────────────────
     const { fetchAmazonItems } = await import("../_shared/amazonFetcher.ts");
     const { fetchEbayItems } = await import("../_shared/ebayFetcher.ts");

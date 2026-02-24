@@ -138,6 +138,9 @@ verify_jwt = false
 [functions.catalog-categories]
 verify_jwt = false
 
+[functions.catalog-daily-report]
+verify_jwt = false
+
 [functions.catalog-category]
 verify_jwt = false
 

@@ -1,76 +1,103 @@
 
+Goal: make catalog ingestion from Preview/Test reliably land in Live, and eliminate the current mismatch caused by incomplete migrations and same-environment routing.
 
-# Route All Ingestion Data to Live Environment
+What I found
+1) The “Push All to Live” flow is currently a single long-running request:
+- `src/pages/admin/CatalogCache.tsx` calls `catalog-data-sync` with `mode: "push-to-live"`.
+- `supabase/functions/catalog-data-sync/index.ts` loops over all pages in one invocation.
+- This is prone to timeout/restarts on large datasets (your ~200k scale), so partial sync is very likely.
 
-## Problem
-Currently, edge functions use `SUPABASE_URL` from their runtime environment. When you trigger scraping or ingestion from the admin panel (which runs in Test), data gets written to the Test database. You want ALL catalog data to always go to Live -- never Test.
+2) The target URL currently points to the current environment (not Live):
+- `admin_settings.edge_function_base_url` is set to the current backend URL.
+- `catalog-data-sync` has a self-target guard and won’t truly push cross-environment if URL points to itself.
+- This directly explains “clicked bulk migrate but still mismatch.”
 
-## Solution
-Store the Live database credentials as secrets and modify all ingestion functions to write catalog data exclusively to the Live database, regardless of which environment triggers them.
+3) Ingestion entrypoints still default to local runtime environment:
+- `catalog-refresh-worker`, `catalog-car-scraper`, `catalog-prewarm-worker`, `catalog-amazon-ingest-worker`, `_shared/ebayFetcher` all write with local runtime credentials unless explicitly routed.
+- So Preview-triggered ingestion still fills Preview unless routed.
 
-## Steps
+Implementation plan (what I will change)
+Phase 1 — Make Live target explicit and safe
+1. Add a shared ingestion-target resolver helper (new shared file in `supabase/functions/_shared/`):
+- Reads `admin_settings.edge_function_base_url`.
+- Falls back to local base URL if missing.
+- Exposes:
+  - `targetBaseUrl`
+  - `isRemoteTarget` (target != current env)
+  - `assertNotSelfTargetForLivePush` for sync actions
+- Add structured logs so we can prove where writes are going.
 
-### 1. Add Two New Secrets
-- `LIVE_SUPABASE_URL` = the Live Supabase project URL
-- `LIVE_SUPABASE_SERVICE_ROLE_KEY` = the Live service role key
+2. Add admin action to read/update the ingestion target URL:
+- In `admin-catalog-items`, add actions:
+  - `get-ingestion-target`
+  - `set-ingestion-target`
+- Validate format (`https://.../functions/v1`) and prevent obviously invalid values.
+- This removes guesswork and gives you a direct control point in admin UI.
 
-These will be used by all ingestion functions to create a dedicated "write client" for the Live database.
+Phase 2 — Route ingestion triggers to Live instead of local
+3. Update admin-triggered worker calls to use target URL (not hardcoded local runtime URL):
+- `supabase/functions/admin-catalog-items/index.ts`
+  - `run-builder` → call `${targetBase}/catalog-refresh-worker`
+  - `run-link-check` → call `${targetBase}/catalog-refresh-worker`
+  - add `run-car-scraper` action so car ingestion also routes through backend and target logic.
+- `supabase/functions/admin-auto-learning/index.ts`
+  - `run-seed-backfill` / `continue-backfill` → call `${targetBase}/catalog-refresh-worker`
 
-### 2. Create a Shared Helper: `_shared/liveWriteClient.ts`
-A small utility that:
-- Reads `LIVE_SUPABASE_URL` and `LIVE_SUPABASE_SERVICE_ROLE_KEY` from env
-- If both exist, creates and returns a Supabase client pointing to Live
-- If missing, falls back to the local `SUPABASE_URL` client (so Live-deployed functions still work normally since they ARE the live environment)
+4. Update frontend calls to use the routed backend actions:
+- `src/pages/admin/CatalogCache.tsx`
+  - Replace direct `catalog-car-scraper` invoke with `postAction('run-car-scraper', ...)` so car ingestion follows same Live routing path.
 
-### 3. Modify Ingestion Edge Functions (5 files)
-Each function will import the shared helper and use the Live write client for all `catalog_items` upserts:
+Phase 3 — Fix bulk migration reliability (no more one-shot giant push)
+5. Refactor `catalog-data-sync` to paged execution mode:
+- Add `mode: "push-page"` that migrates exactly one page per request:
+  - read page N (source)
+  - send chunks to target import
+  - return deterministic page result
+- Keep `export`/`import`.
+- Keep `push-to-live` only as compatibility wrapper (or deprecate in UI).
 
-| Function | Change |
-|----------|--------|
-| `catalog-car-scraper/index.ts` | Use Live client for `upsertListings()` |
-| `catalog-refresh-worker/index.ts` | Use Live client for catalog_items upserts |
-| `catalog-amazon-ingest-worker/index.ts` | Use Live client for catalog_items upserts |
-| `catalog-prewarm-worker/index.ts` | Use Live client for catalog_items upserts |
-| `_shared/ebayFetcher.ts` | Use Live client for catalog_items upserts |
+6. Refactor UI push flow into resumable loop:
+- In `CatalogCache.tsx` Data Sync panel:
+  - Replace one-shot `push-to-live` with iterative `push-page` loop from client.
+  - Show progress: page, read, inserted, skipped, errors.
+  - Stop safely on first hard error and allow restart from last successful page.
+- This avoids function timeouts and gives deterministic completion.
 
-Auth checks and non-catalog reads will still use the local environment client (so admin JWT validation works correctly in both environments).
+Phase 4 — Remove ambiguity in UI so mismatch is obvious early
+7. Add source/target labels in Data Sync section:
+- Show “Current environment count” and “Target Live URL”.
+- Warn if target URL equals current environment (“You are syncing to self”).
+- Keep user-facing wording simple (no technical jargon).
 
-### 4. Update `catalog-data-sync/index.ts`
-The "push-to-live" mode becomes unnecessary since data now goes directly to Live. We'll keep it but also make the `import` mode use the Live write client, so importing from the admin panel also writes to Live.
+Phase 5 — Cover search-side write leakage
+8. Update `_shared/ebayFetcher.ts` write path:
+- Route catalog upsert through target-aware path (using the same ingestion target logic) so preview searches don’t silently repopulate Preview when Live-only mode is intended.
+- Keep fallback behavior explicit and logged.
 
-### 5. Update Admin UI (`CatalogCache.tsx`)
-- The summary cards currently query the local (Test) database. Update them to show a note that counts reflect the Test environment, or optionally add a toggle to view Live counts via a read query.
-- No changes needed to fetch triggers since the edge functions themselves will handle routing to Live.
+Files to update
+- `supabase/functions/admin-catalog-items/index.ts`
+- `supabase/functions/admin-auto-learning/index.ts`
+- `supabase/functions/catalog-data-sync/index.ts`
+- `supabase/functions/_shared/ebayFetcher.ts`
+- `src/pages/admin/CatalogCache.tsx`
+- `supabase/functions/_shared/*` (new ingestion target helper)
 
-## What This Means for You
-- Trigger ingestion from Test admin panel --> data goes to Live
-- Cron jobs on Live --> data goes to Live (same as before)
-- Cron jobs from Test (via `edge_function_base_url` pointing to Live) --> data goes to Live
-- The Test `catalog_items` table will stop growing -- only Live accumulates new data
-- Summary counts in the admin panel will reflect whichever environment you're viewing from
+Important safeguards
+- Preserve auth checks; do not loosen admin security.
+- Add strong logging at routing points (`targetBase`, `isRemote`, action name).
+- Keep idempotent upserts to avoid duplicate writes.
+- Do not edit auto-generated integration files (`src/integrations/supabase/types.ts`, client files, config autogen files).
 
-## Technical Details
+Validation checklist (end-to-end)
+1. Set ingestion target URL to Live in admin.
+2. Trigger “Start Fetching” from Preview admin.
+3. Confirm logs show requests routed to Live worker endpoint.
+4. Confirm Live catalog count increases; Preview count does not drift from accidental local ingestion.
+5. Run Data Sync push with large dataset and verify full completion without timeout.
+6. Re-run push to confirm idempotency (mostly skipped, minimal inserted).
+7. Test car provider fetch and builder fetch paths both end-to-end.
 
-### Shared helper (pseudocode)
-```text
-function getLiveWriteClient():
-  liveUrl = Deno.env.get("LIVE_SUPABASE_URL")
-  liveKey = Deno.env.get("LIVE_SUPABASE_SERVICE_ROLE_KEY")
-  if both exist:
-    return createClient(liveUrl, liveKey)
-  else:
-    // Fallback: we ARE live, use local env
-    return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-```
-
-### car-scraper change (key section)
-```text
-// In upsertListings(), replace:
-//   const supabase = createClient(SUPABASE_URL, ...)
-// With:
-//   const writeClient = getLiveWriteClient()
-//   writeClient.from("catalog_items").upsert(...)
-```
-
-Same pattern applied to all 5 ingestion functions.
-
+Expected outcome
+- New ingestion triggered from Preview/Test goes directly to Live.
+- Bulk migration becomes reliable at large scale.
+- The Preview vs Live mismatch no longer keeps growing from local-side ingestion.

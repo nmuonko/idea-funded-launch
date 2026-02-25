@@ -654,11 +654,13 @@ Deno.serve(async (req: Request) => {
         .catch(() => {});
       const item = mapDbItemToResponse(dbItem);
       
-      // Merge media gallery images if the item only has 1 image but media table has more
+      // Merge media gallery images: prefer media gallery when available and at least as large, or when main image is low-res
       const mediaData = mediaResult?.data;
-      if (mediaData?.image_urls && Array.isArray(mediaData.image_urls) && mediaData.image_urls.length > item.images.length) {
+      if (mediaData?.image_urls && Array.isArray(mediaData.image_urls)) {
         const mediaImages = (mediaData.image_urls as string[]).filter((url: string) => typeof url === "string" && url.length > 0);
-        if (mediaImages.length > item.images.length) {
+        const mainImg0 = item.images[0] || '';
+        const mainIsLowRes = mainImg0 ? /s-l(64|96|140|225|300)\b/i.test(mainImg0) || /thumb|thumbnail|small/i.test(mainImg0) || /_(SS|SX|SY)\d{2,3}\./i.test(mainImg0) : false;
+        if (mediaImages.length > 0 && (mediaImages.length >= item.images.length || mainIsLowRes)) {
           console.log(`[CATALOG_PRODUCT] merging ${mediaImages.length} media images (was ${item.images.length}) for ${fullProductId}`);
           // Media gallery is source of truth — do NOT prepend old mainImg thumbnail
           const mainImg = item.images[0];

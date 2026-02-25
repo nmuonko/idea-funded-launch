@@ -330,6 +330,7 @@ function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: 
           max_price: 15000,
           max_pages: Math.min(Math.ceil(quantity / 15), 5),
           mode: 'firecrawl-first',
+          custom_query: customQuery || undefined,
         });
         if (result?.worker_result) {
           const wr = result.worker_result;
@@ -890,12 +891,22 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
                 {ALL_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
+            {appliedFilters.category_key && filteredCount !== null && (
+              <div className="col-span-2 md:col-span-1 flex items-center">
+                <Badge variant="secondary" className="text-xs gap-1">
+                  <Database className="h-3 w-3" />
+                  {filteredCount.toLocaleString()} items in "{appliedFilters.category_key}"
+                </Badge>
+              </div>
+            )}
             <Select value={filters.provider || '_all'} onValueChange={(v) => setFilters((f) => ({ ...f, provider: v === '_all' ? '' : v }))}>
               <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Provider" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="_all">All Providers</SelectItem>
                 <SelectItem value="amazon">Amazon</SelectItem>
                 <SelectItem value="ebay">eBay</SelectItem>
+                <SelectItem value="cargurus">CarGurus</SelectItem>
+                <SelectItem value="carvana">Carvana</SelectItem>
               </SelectContent>
             </Select>
             <Select value={filters.is_active || '_all'} onValueChange={(v) => setFilters((f) => ({ ...f, is_active: v === '_all' ? '' : v }))}>

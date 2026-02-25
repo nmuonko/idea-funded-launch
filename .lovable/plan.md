@@ -1,50 +1,44 @@
 
 
-# Fix: Product Detail Hero Image Not Centering on Mobile
+# Fix: Hero Image Oversized on Initial Load (Some Products)
 
 ## Problem
-On mobile, the main product image on the detail page appears pushed to the right side of the screen, with a large empty/black gap on the left. The image is not properly centered within its container.
+For some products, the hero image appears huge/overflowing on first render. Clicking it (which opens/closes the lightbox) causes it to "snap" to the correct size. This happens because `AnimatePresence` sits between the flex container and the `motion.img`, preventing `max-w-full max-h-full` from resolving against the parent's dimensions.
 
 ## Root Cause
-The hero image uses `w-full h-full object-contain p-4` on the `motion.img` element inside an `aspect-[4/3]` container. For certain product images (especially wide/landscape ones from eBay), this combination can cause the image to not center correctly. The `w-full h-full` forces the img element to stretch to the container boundaries, and depending on the image's natural aspect ratio, the visual content rendered by `object-contain` can appear misaligned.
+The layout chain is: `div (flex + aspect-ratio)` > `AnimatePresence` > `motion.img (max-w-full max-h-full)`. `AnimatePresence` does not forward CSS or act as a proper flex child, so the image's percentage-based max constraints have no concrete parent dimensions to reference. Large images render at their natural pixel size, clipped by `overflow-hidden` but still appearing oversized.
 
 ## Fix
-Change the image container and image styling to use **flexbox centering** with `max-w/max-h` constraints instead of `w-full h-full object-contain`. This is the same proven pattern used by the `ProductImageViewer` lightbox (which displays images correctly).
+Use **absolute positioning** instead of flex for the image. This is more robust because `absolute inset-0` creates an explicit bounding box regardless of intermediate wrappers like `AnimatePresence`.
 
 ### File: `src/pages/shop/ProductDetails.tsx`
 
-**Change 1 -- Hero image container (line 585-601)**
+**Change the container and image classes (lines 586-599):**
 
-Add `flex items-center justify-center` to the container div, and change the `motion.img` from `w-full h-full object-contain p-4 sm:p-8` to `max-w-full max-h-full object-contain p-4 sm:p-8`. This ensures the image is always centered within the container regardless of its natural dimensions.
-
-```text
+```
 Before:
-  <div className="relative aspect-[4/3] sm:aspect-square bg-white/5 rounded-2xl overflow-hidden border border-white/10 cursor-pointer">
-    <AnimatePresence mode="wait">
-      <motion.img
-        ...
-        className="w-full h-full object-contain p-4 sm:p-8"
-      />
+  className="relative aspect-[4/3] sm:aspect-square bg-white/5 rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center"
+  ...
+  className="max-w-full max-h-full object-contain p-4 sm:p-8"
 
 After:
-  <div className="relative aspect-[4/3] sm:aspect-square bg-white/5 rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center">
-    <AnimatePresence mode="wait">
-      <motion.img
-        ...
-        className="max-w-full max-h-full object-contain p-4 sm:p-8"
-      />
+  className="relative aspect-[4/3] sm:aspect-square bg-white/5 rounded-2xl overflow-hidden border border-white/10 cursor-pointer"
+  ...
+  className="absolute inset-0 w-full h-full object-contain p-4 sm:p-8"
 ```
 
-This is a 2-line CSS class change. No logic changes needed.
+- Remove `flex items-center justify-center` from the container (not needed with absolute positioning)
+- Change image to `absolute inset-0 w-full h-full object-contain` -- this forces the image element to exactly match the container bounds, and `object-contain` handles visual centering within that box
 
 ## Why This Works
-- `flex items-center justify-center` on the container ensures the image is always visually centered
-- `max-w-full max-h-full` (instead of `w-full h-full`) lets the image size to its natural dimensions, capped by the container, rather than stretching the element to fill and relying on `object-contain` for visual positioning
-- This matches the pattern already used successfully in `ProductImageViewer.tsx` (line 206)
+- `absolute inset-0` pins the image to all four edges of the `relative` container, bypassing `AnimatePresence` entirely
+- `w-full h-full` fills the absolute-positioned box
+- `object-contain` centers the visual content within that box, regardless of aspect ratio
+- This pattern works for every image size and aspect ratio, on every screen size
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `src/pages/shop/ProductDetails.tsx` | Add flex centering to hero container, change img to max-w/max-h |
+| `src/pages/shop/ProductDetails.tsx` | Switch from flex centering to absolute positioning for hero image |
 

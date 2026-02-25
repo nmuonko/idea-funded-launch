@@ -58,9 +58,9 @@ export interface AmazonLiveDecision {
 // ─── DEFAULT SETTINGS ─────────────────────────────────────────────────────────
 
 export const DEFAULT_LIVE_SETTINGS: AmazonLiveSettings = {
-  amazonLiveSearchEnabled: true,
-  amazonLiveCategoryEnabled: true,
-  amazonLiveHomeEnabled: false,  // Home uses prewarm cache by default
+  amazonLiveSearchEnabled: false,   // OFFLINE-ONLY: users never trigger live calls
+  amazonLiveCategoryEnabled: false, // OFFLINE-ONLY: users never trigger live calls
+  amazonLiveHomeEnabled: false,     // Home uses prewarm cache by default
   amazonLiveMaxPages: 1,         // Only page 1 is live
   amazonHomePrewarmEnabled: true,
   amazonHomePrewarmIntervalMinutes: 720,  // 12 hours

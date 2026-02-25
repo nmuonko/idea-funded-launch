@@ -306,9 +306,10 @@ async function processSection(
   const cacheTtlSeconds = catalogSettings.homeCacheTtlSeconds;
 
   try {
-    // ─── FETCH AMAZON ITEMS ─────────────────────────────────────────────────────
-    // Amazon Auto has real vehicles (not just accessories) - fetch from both providers
-    if (catalogSettings.amazonEnabled && liveSettings.amazonHomePrewarmEnabled) {
+    // ─── FETCH AMAZON ITEMS (DB-ONLY — no live Rainforest calls) ──────────────
+    // Amazon items are served from catalog_items, ingested by catalog-amazon-ingest-worker
+    if (catalogSettings.amazonEnabled && liveSettings.amazonHomePrewarmEnabled && false) {
+      // DISABLED: Amazon prewarm now comes from cached catalog_items only
       for (const query of section.amazonQueries) {
         const budgetCheck = await checkBudget(
           supabase,

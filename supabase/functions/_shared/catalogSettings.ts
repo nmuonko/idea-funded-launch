@@ -13,7 +13,7 @@ type SupabaseClient = any;
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
 export type ProviderMode = "mixed" | "ebay" | "amazon";
-export type BudgetWindow = "hour" | "day";
+export type BudgetWindow = "hour" | "day" | "month";
 
 export interface BlendRatio {
   amazon: number;
@@ -29,6 +29,7 @@ export interface CatalogSettings {
   // Amazon cost controls
   amazonMaxResultsPerQuery: number;
   amazonMaxCallsPerHour: number;
+  amazonMaxCallsPerMonth: number;
   amazonBudgetWindow: BudgetWindow;
   
   // Mixed mode config
@@ -61,7 +62,8 @@ const DEFAULT_SETTINGS: CatalogSettings = {
   amazonEnabled: true,
   ebayEnabled: true,
   amazonMaxResultsPerQuery: 200,
-  amazonMaxCallsPerHour: 100,
+  amazonMaxCallsPerHour: 12,
+  amazonMaxCallsPerMonth: 10000,
   amazonBudgetWindow: "hour",
   mixedAmazonFirstCount: 60,
   mixedBlendRatio: { amazon: 1, ebay: 2 },
@@ -144,6 +146,7 @@ export async function getCatalogSettings(supabase: SupabaseClient): Promise<Cata
     "ebay_enabled",
     "amazon_max_results_per_query",
     "amazon_max_calls_per_hour",
+    "amazon_max_calls_per_month",
     "amazon_budget_window",
     "mixed_amazon_first_count",
     "mixed_blend_ratio",
@@ -186,6 +189,7 @@ export async function getCatalogSettings(supabase: SupabaseClient): Promise<Cata
     ebayEnabled: parseBoolean(get("ebay_enabled"), DEFAULT_SETTINGS.ebayEnabled),
     amazonMaxResultsPerQuery: parseNumber(get("amazon_max_results_per_query"), DEFAULT_SETTINGS.amazonMaxResultsPerQuery),
     amazonMaxCallsPerHour: parseNumber(get("amazon_max_calls_per_hour"), DEFAULT_SETTINGS.amazonMaxCallsPerHour),
+    amazonMaxCallsPerMonth: parseNumber(get("amazon_max_calls_per_month"), DEFAULT_SETTINGS.amazonMaxCallsPerMonth),
     amazonBudgetWindow: parseJsonValue<BudgetWindow>(get("amazon_budget_window"), DEFAULT_SETTINGS.amazonBudgetWindow),
     mixedAmazonFirstCount: parseNumber(get("mixed_amazon_first_count"), DEFAULT_SETTINGS.mixedAmazonFirstCount),
     mixedBlendRatio: parseJsonValue<BlendRatio>(get("mixed_blend_ratio"), DEFAULT_SETTINGS.mixedBlendRatio),
@@ -301,6 +305,7 @@ export async function updateCatalogSetting(
     "ebay_cache_ttl_seconds",
     "amazon_category_allowlist",
     "enable_category_rules",
+    "amazon_max_calls_per_month",
     // TTL / DB-first settings
     "global_max_item_age_days",
     "global_price_refresh_days",

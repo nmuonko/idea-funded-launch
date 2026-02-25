@@ -319,6 +319,45 @@ export type Database = {
           },
         ]
       }
+      amazon_ingest_queue: {
+        Row: {
+          attempts: number
+          category_key: string | null
+          created_at: string
+          id: number
+          last_error: string | null
+          priority: number
+          query: string
+          reason: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          category_key?: string | null
+          created_at?: string
+          id?: number
+          last_error?: string | null
+          priority?: number
+          query: string
+          reason?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          category_key?: string | null
+          created_at?: string
+          id?: number
+          last_error?: string | null
+          priority?: number
+          query?: string
+          reason?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       app_runtime_config: {
         Row: {
           blocks: Json

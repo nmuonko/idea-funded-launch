@@ -2,6 +2,10 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { runStartupHealthCheck } from "./lib/supabaseHealth";
+import { bustStaleCache } from "./lib/cacheBust";
+
+// Clear stale localStorage caches on new deployments
+bustStaleCache();
 
 // Development diagnostics - log environment info and run health check on startup
 if (import.meta.env.DEV) {

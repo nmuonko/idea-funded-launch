@@ -377,7 +377,7 @@ async function bootstrapFromDatabase(correlationId: string): Promise<CacheResult
     console.log(`[MOBILE_HANDLER] Bootstrap from DB correlationId=${correlationId}`);
     
     const res = await fetch(
-      `${supabaseUrl}/rest/v1/catalog_items?provider=in.(amazon,ebay)&price_usd=gt.0&image_url=neq.null&is_disallowed=eq.false&order=updated_at.desc.nullslast,created_at.desc&limit=300`,
+      `${supabaseUrl}/rest/v1/catalog_items?provider=in.(amazon,ebay,cargurus,carvana)&price_usd=gt.0&image_url=neq.null&is_disallowed=eq.false&order=updated_at.desc.nullslast,created_at.desc&limit=300`,
       {
         headers: {
           apikey: serviceRoleKey,

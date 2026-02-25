@@ -517,6 +517,7 @@ async function handleAction(req: Request, action: string) {
         max_price: body.max_price || 15000,
         max_pages: body.max_pages || 5,
         mode: body.mode || "firecrawl-first",
+        search_query: body.custom_query || body.search_query || undefined,
       }),
     });
 

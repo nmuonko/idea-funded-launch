@@ -25,6 +25,7 @@ interface ScraperRequest {
   max_pages?: number;
   mode?: "firecrawl-first" | "force-free" | "force-firecrawl";
   dry_run?: boolean;
+  search_query?: string;
 }
 
 interface CarListing {
@@ -68,11 +69,15 @@ const BROWSER_HEADERS = {
 
 // ── URL BUILDERS ───────────────────────────────────────────────────────────
 
-function buildSearchUrl(provider: string, maxPrice: number, page: number): string {
+function buildSearchUrl(provider: string, maxPrice: number, page: number, searchQuery?: string): string {
   if (provider === "carvana") {
-    return `https://www.carvana.com/cars?priceMax=${maxPrice}&sortBy=PRICE_LOW&page=${page}`;
+    const base = `https://www.carvana.com/cars?priceMax=${maxPrice}&sortBy=PRICE_LOW&page=${page}`;
+    return searchQuery ? `${base}&search=${encodeURIComponent(searchQuery)}` : base;
   }
-  // CarGurus
+  // CarGurus — use the search endpoint when a query is provided
+  if (searchQuery) {
+    return `https://www.cargurus.com/Cars/inventorylisting/viewDetailsFilterViewInventoryListing.action?sortDir=ASC&sortType=PRICE&maxPrice=${maxPrice}&searchQuery=${encodeURIComponent(searchQuery)}&offset=${(page - 1) * 15}`;
+  }
   return `https://www.cargurus.com/Cars/inventorylisting/viewDetailsFilterViewInventoryListing.action?sortDir=ASC&sortType=PRICE&maxPrice=${maxPrice}&offset=${(page - 1) * 15}`;
 }
 
@@ -273,6 +278,7 @@ async function freeScrape(
   provider: string,
   maxPrice: number,
   maxPages: number,
+  searchQuery?: string,
 ): Promise<{
   listings: CarListing[];
   blockedCount: number;
@@ -286,7 +292,7 @@ async function freeScrape(
   let pagesFetched = 0;
 
   for (let page = 1; page <= maxPages; page++) {
-    const url = buildSearchUrl(provider, maxPrice, page);
+    const url = buildSearchUrl(provider, maxPrice, page, searchQuery);
     console.log(`[CAR_SCRAPER] ${provider} page=${page} url=${url}`);
 
     try {
@@ -348,6 +354,7 @@ async function firecrawlScrape(
   maxPrice: number,
   maxPages: number,
   apiKey: string,
+  searchQuery?: string,
 ): Promise<{
   listings: CarListing[];
   pagesFetched: number;
@@ -357,7 +364,7 @@ async function firecrawlScrape(
   let pagesFetched = 0;
 
   for (let page = 1; page <= maxPages; page++) {
-    const url = buildSearchUrl(provider, maxPrice, page);
+    const url = buildSearchUrl(provider, maxPrice, page, searchQuery);
     console.log(`[CAR_SCRAPER] firecrawl ${provider} page=${page} url=${url}`);
 
     try {
@@ -602,8 +609,9 @@ Deno.serve(async (req: Request) => {
     const maxPages = Math.min(body.max_pages || DEFAULT_MAX_PAGES, MAX_PAGES_CAP);
     const mode = body.mode || "firecrawl-first";
     const dryRun = body.dry_run || false;
+    const searchQuery = body.search_query?.trim() || undefined;
 
-    console.log(`[CAR_SCRAPER] START provider=${provider} maxPrice=${maxPrice} maxPages=${maxPages} mode=${mode} dryRun=${dryRun}`);
+    console.log(`[CAR_SCRAPER] START provider=${provider} maxPrice=${maxPrice} maxPages=${maxPages} mode=${mode} dryRun=${dryRun} searchQuery=${searchQuery || '(none)'}`);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -618,7 +626,7 @@ Deno.serve(async (req: Request) => {
 
     // ── FORCE-FREE ─────────────────────────────────────────────────────
     if (mode === "force-free") {
-      const freeResult = await freeScrape(provider, maxPrice, maxPages);
+      const freeResult = await freeScrape(provider, maxPrice, maxPages, searchQuery);
       allListings = freeResult.listings;
       totalPagesFetched = freeResult.pagesFetched;
       totalBlocked = freeResult.blockedCount;
@@ -633,7 +641,7 @@ Deno.serve(async (req: Request) => {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const fcResult = await firecrawlScrape(provider, maxPrice, maxPages, firecrawlKey);
+      const fcResult = await firecrawlScrape(provider, maxPrice, maxPages, firecrawlKey, searchQuery);
       allListings = fcResult.listings;
       totalPagesFetched = fcResult.pagesFetched;
       parseMethods.firecrawl = fcResult.listings.length;
@@ -649,7 +657,7 @@ Deno.serve(async (req: Request) => {
     else {
       if (firecrawlKey) {
         try {
-          const fcResult = await firecrawlScrape(provider, maxPrice, maxPages, firecrawlKey);
+          const fcResult = await firecrawlScrape(provider, maxPrice, maxPages, firecrawlKey, searchQuery);
           allListings = fcResult.listings;
           totalPagesFetched = fcResult.pagesFetched;
           parseMethods.firecrawl = fcResult.listings.length;
@@ -667,7 +675,7 @@ Deno.serve(async (req: Request) => {
         } else {
           console.log(`[CAR_SCRAPER] Firecrawl yielded 0 listings, falling back to free parse`);
         }
-        const freeResult = await freeScrape(provider, maxPrice, maxPages);
+        const freeResult = await freeScrape(provider, maxPrice, maxPages, searchQuery);
         allListings = freeResult.listings;
         totalPagesFetched += freeResult.pagesFetched;
         totalBlocked = freeResult.blockedCount;

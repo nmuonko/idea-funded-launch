@@ -97,7 +97,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
   const TARGET_RESULTS = 200; // Target for expansion tiers — increased from 100 to pull more from 75K+ cached catalog
 
   // Build tokens from primary query
-  const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2 && !/^\d+$/.test(t));
+  const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2);
   const topTokens = [...searchTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);
 
   if (topTokens.length === 0) {
@@ -105,7 +105,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
   }
 
   // ─── TIER A: Token ilike match (fast, indexed) ─────────────────────────────
-  const tierAItems = await tierASearch(supabase, topTokens, categoryKey, Math.max(limit, 200), requestId);
+  const tierAItems = await tierASearch(supabase, topTokens, categoryKey, Math.max(limit, 500), requestId);
   const tierACount = tierAItems.length;
   console.log(`[CATALOG_SEARCH] requestId=${requestId} db_tier_A q="${qNorm}" tokens=${JSON.stringify(topTokens)} count=${tierACount} minRequired=${DB_MIN_RESULTS}`);
 
@@ -149,7 +149,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
         if (pool.length >= TARGET_RESULTS) break;
         if (Date.now() - dbStartMs > 450) break;
 
-        const eqTokens = eq.split(/\s+/).filter((t: string) => t.length >= 2 && !/^\d+$/.test(t));
+        const eqTokens = eq.split(/\s+/).filter((t: string) => t.length >= 2);
         const eqTop = [...eqTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);
         if (eqTop.length === 0) continue;
 

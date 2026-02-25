@@ -17,7 +17,7 @@ import { expandQuery, relevanceScore } from '@/lib/expandQuery';
 const PAGE_SIZE = 100;
 const HARD_MAX_ITEMS = 500;
 const MAX_PAGES = Math.ceil(HARD_MAX_ITEMS / PAGE_SIZE); // 5
-const BROADEN_THRESHOLD = 50; // If primary returns fewer, start broadening (lowered from 30 to find more related items)
+const BROADEN_THRESHOLD = 30; // Only broaden if truly sparse results (DB now returns 200+ cached items)
 const BROADEN_TARGET = 300; // Stop broadening when we reach this (increased from 200)
 
 /** Generate a unique key per product for deduplication — provider-aware */

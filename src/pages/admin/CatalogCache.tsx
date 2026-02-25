@@ -338,12 +338,14 @@ function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: 
           const wr = result.worker_result;
           const listingsFound = wr.listings_found ?? wr.new_unique_items ?? 0;
           const upserted = wr.upserted_count ?? wr.items_upserted ?? 0;
+          const modeLabel = wr.mode_used ? ` (${wr.mode_used})` : '';
+          const elapsedLabel = wr.elapsed_ms ? ` in ${(wr.elapsed_ms / 1000).toFixed(1)}s` : '';
           
           // Show diagnostics for zero-result cases
           if (listingsFound === 0 && wr.diagnostics) {
             setFetchProgress({
               status: 'error',
-              message: wr.diagnostics,
+              message: `${wr.diagnostics}${modeLabel}${elapsedLabel}`,
               itemsFetched: 0,
               target: quantity,
               newUnique: 0,
@@ -353,7 +355,7 @@ function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: 
             return;
           }
           
-          result = { worker_result: { items_upserted: upserted, new_unique_items: listingsFound, duplicates_skipped: 0 } };
+          result = { worker_result: { items_upserted: upserted, new_unique_items: listingsFound, duplicates_skipped: 0, mode_used: wr.mode_used, elapsed_ms: wr.elapsed_ms } };
         }
       } else {
         result = await postAction('run-builder', {

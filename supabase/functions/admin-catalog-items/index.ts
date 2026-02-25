@@ -514,10 +514,11 @@ async function handleAction(req: Request, action: string) {
       headers: buildWorkerHeaders(),
       body: JSON.stringify({
         provider: body.provider || "cargurus",
-        max_price: body.max_price || 15000,
+        max_price: body.max_price || 50000,
         max_pages: body.max_pages || 5,
         mode: body.mode || "firecrawl-first",
         search_query: body.custom_query || body.search_query || undefined,
+        target_items: body.target_items || 10,
       }),
     });
 

@@ -215,6 +215,7 @@ function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: 
   const [customQuery, setCustomQuery] = useState('');
   const [provider, setProvider] = useState('ebay');
   const [quantity, setQuantity] = useState(100);
+  const [maxPrice, setMaxPrice] = useState(50000);
   const [isFetching, setIsFetching] = useState(false);
   const [fetchProgress, setFetchProgress] = useState<{
     status: 'running' | 'done' | 'error';
@@ -327,10 +328,11 @@ function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: 
         // Route through backend so it goes to the target (Live) environment
         result = await postAction('run-car-scraper', {
           provider,
-          max_price: 15000,
+          max_price: maxPrice,
           max_pages: Math.min(Math.ceil(quantity / 15), 5),
           mode: 'firecrawl-first',
           custom_query: customQuery || undefined,
+          target_items: quantity,
         });
         if (result?.worker_result) {
           const wr = result.worker_result;
@@ -474,6 +476,20 @@ function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: 
                 onChange={(e) => setQuantity(Math.max(10, Math.min(10000, +e.target.value)))}
               />
             </div>
+
+            {isCarProvider && (
+              <div className="flex flex-col gap-1">
+                <Label className="text-xs text-muted-foreground">Max Price (USD)</Label>
+                <Input
+                  type="number"
+                  className="h-9 w-32 text-xs"
+                  value={maxPrice}
+                  min={1000}
+                  max={500000}
+                  onChange={(e) => setMaxPrice(Math.max(1000, Math.min(500000, +e.target.value)))}
+                />
+              </div>
+            )}
 
             <Button
               onClick={startFetch}

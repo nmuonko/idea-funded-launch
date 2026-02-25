@@ -306,11 +306,14 @@ function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: 
     };
   }, [isFetching, quantity, queryClient]);
 
+  const isCarProvider = provider === 'cargurus' || provider === 'carvana';
+  const providerLabel = provider === 'rainforest' ? 'Amazon' : provider === 'ebay' ? 'eBay' : provider === 'cargurus' ? 'CarGurus' : provider === 'carvana' ? 'Carvana' : provider;
+
   const startFetch = async () => {
     setIsFetching(true);
     setFetchProgress({
       status: 'running',
-      message: `Fetching ${category || 'all categories'} from ${provider === 'rainforest' ? 'Amazon' : 'eBay'}...`,
+      message: `Fetching ${category || 'all categories'} from ${providerLabel}...`,
       itemsFetched: 0,
       target: quantity,
       newUnique: 0,
@@ -318,19 +321,36 @@ function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: 
     });
 
     try {
-      const result = await postAction('run-builder', {
-        provider,
-        category_key: category || undefined,
-        max_items_target: quantity,
-        custom_query: customQuery || undefined,
-      });
+      let result: any;
+
+      if (isCarProvider) {
+        // Route to catalog-car-scraper for car providers
+        const { data, error } = await supabase.functions.invoke('catalog-car-scraper', {
+          method: 'POST',
+          body: {
+            provider,
+            max_price: 15000,
+            max_pages: Math.min(Math.ceil(quantity / 15), 5),
+            mode: 'free-first',
+          },
+        });
+        if (error) throw error;
+        result = { worker_result: { items_upserted: data?.upserted_count ?? 0, new_unique_items: data?.listings_found ?? 0, duplicates_skipped: 0 } };
+      } else {
+        result = await postAction('run-builder', {
+          provider,
+          category_key: category || undefined,
+          max_items_target: quantity,
+          custom_query: customQuery || undefined,
+        });
+      }
       
       // If the worker returned immediately with results
       const workerResult = result?.worker_result;
       if (workerResult?.items_upserted !== undefined) {
         setFetchProgress({
           status: 'done',
-          message: `Fetched ${workerResult.items_upserted} items from ${provider === 'rainforest' ? 'Amazon' : 'eBay'}`,
+          message: `Fetched ${workerResult.items_upserted} items from ${providerLabel}`,
           itemsFetched: workerResult.items_upserted ?? 0,
           target: quantity,
           newUnique: workerResult.new_unique_items ?? 0,
@@ -437,6 +457,8 @@ function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: 
                 <SelectContent>
                   <SelectItem value="ebay">eBay</SelectItem>
                   <SelectItem value="rainforest">Amazon</SelectItem>
+                  <SelectItem value="cargurus">CarGurus</SelectItem>
+                  <SelectItem value="carvana">Carvana</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -1,48 +1,54 @@
 
-## Fix: Amazon Products Showing Only One Image
 
-### Root Cause
+## Speed Up Search Results from Cached Products
 
-The `catalog-product` endpoint has a gallery enrichment step for eBay products (scrapes the listing page for additional images when only 0-1 are found), but **no equivalent exists for Amazon**. When an Amazon product has only 1 image stored in `catalog_items.images`, that single image is all that gets returned.
+### Problem
+When searching "iphone 14", only 79 results are returned initially, and loading more takes a very long time because the system falls back to slow live provider APIs (Amazon/eBay) instead of using the 75,000+ cached products in the database.
 
-The existing `extractAmazonImageFromJson()` function in `get-product-info` already knows how to parse Amazon's `colorImages` JSON -- but it only extracts a **single** image. The full `colorImages` JSON contains ALL product images (hiRes + large variants).
+### Root Causes
+
+1. **Model numbers dropped from search**: The database search drops pure-number tokens like "14" from "iphone 14", so it searches only for "iphone" -- returning all iPhone models instead of specifically iPhone 14. This reduces both quantity and relevance.
+
+2. **Database fetch limit too low**: Tier A only fetches 200 items maximum from the cached catalog, even though there may be thousands of matching products.
+
+3. **DB fast path says "no more results"**: When the database returns enough results to skip live providers, it tells the frontend there are no more results (`hasMore: false`). This causes the frontend to attempt slow background broadening or revalidation calls.
+
+4. **Subsequent pages always hit live providers**: Pages after page 0 bypass the DB fast path and call Amazon/eBay APIs with 5-8 second timeouts, even though the database already has plenty of cached results.
 
 ### Plan
 
-#### 1. Add `scrapeAmazonGallery()` function to `catalog-product/index.ts`
+#### 1. Keep numeric tokens in DB search (`searchDbFirst.ts`)
 
-Create a function similar to `scrapeEbayGallery()` that:
-- Fetches the Amazon product page HTML (using mobile URL for better scraping success)
-- Extracts ALL images from the `colorImages` JSON pattern (which contains `hiRes` and `large` URLs for every product photo)
-- Falls back to `imageGalleryData` pattern
-- Deduplicates and upgrades all images to high-res
-- Returns up to 10 unique images
+Stop filtering out pure-digit tokens so "iphone 14" searches for BOTH "iphone" AND "14" in titles. This dramatically improves relevance and returns more specific results.
 
-#### 2. Add Amazon gallery enrichment block in the DB-hit path
+Short digits (1 character) will still be filtered to avoid noise.
 
-After the existing eBay gallery enrichment block (line ~750), add a parallel block for Amazon:
-- Trigger when `provider === "rainforest"` and `item.images.length <= 1`
-- Call `scrapeAmazonGallery()` using the product URL or constructed Amazon URL (`https://www.amazon.com/dp/{ASIN}`)
-- If more images are found, update `item.images`, `item.imageUrls`, `item.mainImageUrl`
-- Persist enriched gallery back to `catalog_items` and `catalog_item_media` (fire-and-forget), same pattern as eBay
+#### 2. Increase Tier A fetch limit (`searchDbFirst.ts`)
 
-#### 3. Firecrawl fallback (if direct scrape fails)
+Increase from 200 to 500 items per Tier A query to pull more results from the 75K+ cached catalog on the first hit.
 
-If the direct HTML fetch gets bot-blocked (Amazon is aggressive), fall back to the existing Firecrawl scrape endpoint to extract images from the rendered page.
+#### 3. Fix DB fast path pagination (`catalog-search/index.ts`)
+
+When DB fast path triggers (50+ results from database), set `hasMore: true` so the frontend knows it can request more pages. This prevents unnecessary broadening attempts.
+
+#### 4. Enable DB-first on all pages (`catalog-search/index.ts`)
+
+Currently DB-first only runs when there's no cursor (`if (!cursor)`). Change this so pages > 0 also query the database first. If DB returns enough results, skip the slow live provider calls entirely.
+
+#### 5. Frontend: increase broadening threshold (`SearchResults.tsx`)
+
+Since we're now returning more DB results, raise `BROADEN_THRESHOLD` from 50 to 30 (i.e., only broaden if we get fewer than 30 results -- a truly sparse result). This prevents unnecessary background fetches when DB already provided 79+ items.
 
 ### Files Changed
 
 | File | Change |
 |------|--------|
-| `supabase/functions/catalog-product/index.ts` | Add `scrapeAmazonGallery()` function + Amazon gallery enrichment block after eBay enrichment |
+| `supabase/functions/_shared/searchDbFirst.ts` | Keep numeric tokens (>=2 chars), increase Tier A limit to 500 |
+| `supabase/functions/catalog-search/index.ts` | DB fast path returns `hasMore: true`; enable DB-first search on all pages (not just page 0) |
+| `src/pages/shop/SearchResults.tsx` | Lower `BROADEN_THRESHOLD` to 30 to avoid unnecessary background fetches |
 
-### Technical Details
+### Expected Outcome
+- "iphone 14" returns 200+ relevant results instantly from cached products
+- No slow "loading loading loading" -- subsequent pages also served from DB in milliseconds
+- Results are more relevant (specific to iPhone 14, not all iPhones)
 
-**Key extraction pattern** (already proven in `get-product-info`):
-```text
-'colorImages': { 'initial': [ {"hiRes":"https://...","large":"https://..."}, ... ] }
-```
-
-The scraper will extract ALL `hiRes` URLs from this array (typically 5-8 images per product), falling back to `large` URLs when `hiRes` is null.
-
-**Enrichment triggers only when needed** (0-1 images), so products that already have full galleries from Rainforest API raw data won't incur extra fetches.

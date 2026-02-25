@@ -2,20 +2,19 @@
 // URL normalization, domain whitelist, store detection, TTL config
 
 // Store types supported by AfriShop
-// NOTE: carvana and cargurus are DEPRECATED for new items - use tesla_used or edmunds
 export type StoreType = 
   | 'amazon' | 'walmart' | 'bestbuy' | 'ebay' | 'target' 
   | 'shein' | 'macys' | 'homedepot' 
   | 'mercari' | 'wayfair'  // Mercari (Used & Cheap) & Wayfair (Home/Furniture)
-  | 'carvana' | 'cargurus'  // DEPRECATED: Keep for historical data compatibility
+  | 'carvana' | 'cargurus'  // Active car stores (scraper-fed)
   | 'tesla_used' | 'edmunds'  // Active car stores
   | 'aliexpress' | 'generic';
 
 // Active car store types (for new items)
-export const ACTIVE_CAR_STORES: StoreType[] = ['tesla_used', 'edmunds'];
+export const ACTIVE_CAR_STORES: StoreType[] = ['tesla_used', 'edmunds', 'carvana', 'cargurus'];
 
 // Deprecated car store types (read-only for historical data)
-export const DEPRECATED_CAR_STORES: StoreType[] = ['carvana', 'cargurus'];
+export const DEPRECATED_CAR_STORES: StoreType[] = [];
 
 // All car store types (active + deprecated)
 export const ALL_CAR_STORES: StoreType[] = [...ACTIVE_CAR_STORES, ...DEPRECATED_CAR_STORES];
@@ -47,9 +46,9 @@ const ALLOWED_DOMAINS = [
   // Mercari (Used & Cheap) & Wayfair (Home/Furniture)
   'mercari.com',
   'wayfair.com',
-  // Car marketplaces (deprecated - kept for historical compatibility)
-  'carvana.com',
-  'cargurus.com',
+    // Car marketplaces
+    'carvana.com',
+    'cargurus.com',
   'autotrader.com',
   'cars.com',
   // Active car marketplaces
@@ -88,8 +87,8 @@ export const STORE_TTL_HOURS: Record<string, number> = {
   mercari: 6,     // Used items - moderate TTL
   wayfair: 12,    // Stable home furniture pricing
   // Car marketplaces (stable pricing)
-  carvana: 48,    // DEPRECATED - kept for historical data
-  cargurus: 48,   // DEPRECATED - kept for historical data
+  carvana: 48,
+  cargurus: 48,
   tesla_used: 48, // Tesla used inventory
   edmunds: 48,    // Edmunds car listings
   generic: 8,     // Reduced generic TTL
@@ -250,7 +249,7 @@ export function detectStore(url: string): StoreType {
     // Active car stores (preferred)
     if (host.includes('tesla.') && pathname.includes('/inventory')) return 'tesla_used';
     if (host.includes('edmunds.')) return 'edmunds';
-    // DEPRECATED: Car stores (kept for backward compatibility)
+    // Car stores (scraper-fed)
     if (host.includes('carvana.')) return 'carvana';
     if (host.includes('cargurus.')) return 'cargurus';
     
@@ -281,9 +280,9 @@ export function getStoreLabel(store: string): string {
     // Active car stores
     tesla_used: 'Tesla Used',
     edmunds: 'Edmunds',
-    // Deprecated car stores
-    carvana: 'Carvana (deprecated)',
-    cargurus: 'CarGurus (deprecated)',
+    // Car marketplaces
+    carvana: 'Carvana',
+    cargurus: 'CarGurus',
     generic: 'Other',
   };
   return labels[store.toLowerCase()] || store;

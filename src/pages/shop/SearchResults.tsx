@@ -65,6 +65,7 @@ export default function SearchResults() {
   const query = searchParams.get('q') || '';
   const category = searchParams.get('category') || '';
   const initialSort = searchParams.get('sort') || 'relevance';
+  const initialProvider = searchParams.get('provider') || 'all';
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
@@ -76,6 +77,7 @@ export default function SearchResults() {
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(0);
   const [sort, setSort] = useState(initialSort);
+  const [providerFilter, setProviderFilter] = useState(initialProvider);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
   const [incomplete, setIncomplete] = useState(false);
   const [prefetchingNext, setPrefetchingNext] = useState(false);
@@ -97,6 +99,14 @@ export default function SearchResults() {
     { value: 'price_asc', label: shop.priceLowToHigh || 'Price: Low to High' },
     { value: 'price_desc', label: shop.priceHighToLow || 'Price: High to Low' },
     { value: 'rating', label: shop.topRated || 'Top Rated' },
+  ];
+
+  const PROVIDER_OPTIONS = [
+    { value: 'all', label: language === 'fr' ? 'Tous' : 'All' },
+    { value: 'amazon', label: 'Amazon' },
+    { value: 'ebay', label: 'eBay' },
+    { value: 'cargurus', label: 'CarGurus' },
+    { value: 'carvana', label: 'Carvana' },
   ];
 
   const DEFAULT_CATEGORY_QUERIES: Record<string, string> = {
@@ -131,6 +141,9 @@ export default function SearchResults() {
       params.category_key = effectiveCategory;
     }
     if (sort && sort !== 'relevance') params.sort = sort;
+    if (providerFilter && providerFilter !== 'all') {
+      params.provider = providerFilter === 'amazon' ? 'rainforest' : providerFilter;
+    }
 
     const filters: Record<string, number> = {};
     if (priceRange[0] > 0) filters.minPrice = priceRange[0];
@@ -140,7 +153,7 @@ export default function SearchResults() {
     }
 
     return params;
-  }, [query, category, sort, priceRange]);
+  }, [query, category, sort, priceRange, providerFilter]);
 
   const searchIdentityRef = useRef('');
 
@@ -456,7 +469,7 @@ export default function SearchResults() {
     pageRef.current = 0;
     lastRequestedPageRef.current = null;
     fetchProducts(0, false);
-  }, [query, category, sort]);
+  }, [query, category, sort, providerFilter]);
 
   const handleSearch = (newQuery: string) => {
     setSearchParams({ q: newQuery, sort });
@@ -608,6 +621,31 @@ export default function SearchResults() {
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Provider Filter */}
+              <Select value={providerFilter} onValueChange={(v) => {
+                setProviderFilter(v);
+                setSearchParams((prev) => {
+                  if (v === 'all') prev.delete('provider');
+                  else prev.set('provider', v);
+                  return prev;
+                });
+              }}>
+                <SelectTrigger className="w-[130px] bg-white/5 border-white/10 text-white">
+                  <SelectValue placeholder={language === 'fr' ? 'Source' : 'Provider'} />
+                </SelectTrigger>
+                <SelectContent className="bg-black/95 border-white/10">
+                  {PROVIDER_OPTIONS.map((option) => (
+                    <SelectItem 
+                      key={option.value} 
+                      value={option.value}
+                      className="text-white hover:bg-white/10"
+                    >
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               {/* Sort */}
               <Select value={sort} onValueChange={handleSortChange}>
                 <SelectTrigger className="w-[160px] bg-white/5 border-white/10 text-white">

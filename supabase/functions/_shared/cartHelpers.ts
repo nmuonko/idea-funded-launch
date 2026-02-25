@@ -51,7 +51,6 @@ export function calculateShipping(
 }
 
 // Detect store from URL
-// NOTE: CARVANA and CARGURUS are DEPRECATED for new items - use TESLA_USED or EDMUNDS
 export function detectStore(productUrl: string): string {
   try {
     const urlObj = new URL(productUrl);
@@ -62,10 +61,9 @@ export function detectStore(productUrl: string): string {
     if (hostname.includes('ebay')) return 'EBAY';
     if (hostname.includes('walmart')) return 'WALMART';
     if (hostname.includes('bestbuy')) return 'BESTBUY';
-    // NEW: Active car stores (preferred)
+    // Active car stores
     if (hostname.includes('tesla') && pathname.includes('/inventory')) return 'TESLA_USED';
     if (hostname.includes('edmunds')) return 'EDMUNDS';
-    // DEPRECATED: Car stores (kept for backward compatibility)
     if (hostname.includes('carvana')) return 'CARVANA';
     if (hostname.includes('cargurus')) return 'CARGURUS';
     return 'OTHER';
@@ -74,11 +72,11 @@ export function detectStore(productUrl: string): string {
   }
 }
 
-// Active car stores that should be used for new items
-export const ACTIVE_CAR_STORES_ENUM = ['TESLA_USED', 'EDMUNDS'];
+// Active car stores
+export const ACTIVE_CAR_STORES_ENUM = ['TESLA_USED', 'EDMUNDS', 'CARVANA', 'CARGURUS'];
 
-// Deprecated car stores (still valid for historical data)
-export const DEPRECATED_CAR_STORES_ENUM = ['CARVANA', 'CARGURUS'];
+// Deprecated car stores (none currently)
+export const DEPRECATED_CAR_STORES_ENUM: string[] = [];
 
 // All car stores (for vehicle detection)
 export const ALL_CAR_STORES_ENUM = [...ACTIVE_CAR_STORES_ENUM, ...DEPRECATED_CAR_STORES_ENUM];

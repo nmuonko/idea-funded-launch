@@ -1,40 +1,48 @@
 
+## Fix: Amazon Products Showing Only One Image
 
-## Fix: Admin Category Count + Frontend Price Filter
+### Root Cause
 
-### Issue 1: Admin Cached Products shows "0 items in phones"
+The `catalog-product` endpoint has a gallery enrichment step for eBay products (scrapes the listing page for additional images when only 0-1 are found), but **no equivalent exists for Amazon**. When an Amazon product has only 1 image stored in `catalog_items.images`, that single image is all that gets returned.
 
-**Root cause**: The edge function `admin-catalog-items` runs a count query (`select("*", { count: "exact", head: true })`) but if it errors silently, `count` is `null`, and `count ?? 0` becomes `0`. Additionally, the DB fallback path (used when edge function fails) doesn't return `filtered_count` at all, so the badge shows nothing or 0.
+The existing `extractAmazonImageFromJson()` function in `get-product-info` already knows how to parse Amazon's `colorImages` JSON -- but it only extracts a **single** image. The full `colorImages` JSON contains ALL product images (hiRes + large variants).
 
-**Fix** (`supabase/functions/admin-catalog-items/index.ts`):
-- Log and handle errors from the count query explicitly
-- If count query fails, run a simpler RPC-based count or retry
+### Plan
 
-**Fix** (`src/pages/admin/CatalogCache.tsx`):
-- In the DB fallback path (line ~838), add a separate count query using `select("*", { count: "exact", head: true })` with the same filters, and include `filtered_count` in the returned object
-- This ensures the count displays correctly even when the edge function is down
+#### 1. Add `scrapeAmazonGallery()` function to `catalog-product/index.ts`
 
-### Issue 2: Frontend search filters - show only price slider up to $500,000
+Create a function similar to `scrapeEbayGallery()` that:
+- Fetches the Amazon product page HTML (using mobile URL for better scraping success)
+- Extracts ALL images from the `colorImages` JSON pattern (which contains `hiRes` and `large` URLs for every product photo)
+- Falls back to `imageGalleryData` pattern
+- Deduplicates and upgrades all images to high-res
+- Returns up to 10 unique images
 
-**Current state**: The search results page (`SearchResults.tsx`) shows three filter controls:
-1. Provider dropdown (Amazon, eBay, etc.)
-2. Sort dropdown
-3. Price range slider inside a Sheet (max $5,000)
+#### 2. Add Amazon gallery enrichment block in the DB-hit path
 
-**Changes** (`src/pages/shop/SearchResults.tsx`):
-- Remove the Provider filter dropdown entirely from the UI
-- Keep the Sort dropdown (sorting is not a filter)
-- Move the price slider out of the hidden Sheet and display it inline as a visible scrolling range slider
-- Change the price range max from `5000` to `500000` and adjust step to `500`
-- Remove the Sheet/Filters button since the only filter (price) will be inline
-- Update the price display to format large numbers with commas
-- Keep `providerFilter` state internally (defaulting to 'all') so the search API contract doesn't break
+After the existing eBay gallery enrichment block (line ~750), add a parallel block for Amazon:
+- Trigger when `provider === "rainforest"` and `item.images.length <= 1`
+- Call `scrapeAmazonGallery()` using the product URL or constructed Amazon URL (`https://www.amazon.com/dp/{ASIN}`)
+- If more images are found, update `item.images`, `item.imageUrls`, `item.mainImageUrl`
+- Persist enriched gallery back to `catalog_items` and `catalog_item_media` (fire-and-forget), same pattern as eBay
 
-### Files to change
+#### 3. Firecrawl fallback (if direct scrape fails)
+
+If the direct HTML fetch gets bot-blocked (Amazon is aggressive), fall back to the existing Firecrawl scrape endpoint to extract images from the rendered page.
+
+### Files Changed
 
 | File | Change |
 |------|--------|
-| `supabase/functions/admin-catalog-items/index.ts` | Add error handling to count query |
-| `src/pages/admin/CatalogCache.tsx` | Add `filtered_count` to DB fallback path |
-| `src/pages/shop/SearchResults.tsx` | Remove provider filter, inline price slider, increase max to 500k |
+| `supabase/functions/catalog-product/index.ts` | Add `scrapeAmazonGallery()` function + Amazon gallery enrichment block after eBay enrichment |
 
+### Technical Details
+
+**Key extraction pattern** (already proven in `get-product-info`):
+```text
+'colorImages': { 'initial': [ {"hiRes":"https://...","large":"https://..."}, ... ] }
+```
+
+The scraper will extract ALL `hiRes` URLs from this array (typically 5-8 images per product), falling back to `large` URLs when `hiRes` is null.
+
+**Enrichment triggers only when needed** (0-1 images), so products that already have full galleries from Rainforest API raw data won't incur extra fetches.

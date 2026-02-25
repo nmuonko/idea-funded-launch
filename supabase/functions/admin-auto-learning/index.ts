@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getProviderHealthSummary } from "../_shared/providerHealth.ts";
+import { resolveIngestionTarget, buildWorkerHeaders } from "../_shared/ingestionTarget.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -173,19 +174,15 @@ Deno.serve(async (req) => {
       }
 
       if (action === "run-seed-backfill") {
-        // Trigger the catalog-refresh-worker in seed-backfill mode
-        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-        const workerUrl = `${supabaseUrl}/functions/v1/catalog-refresh-worker`;
+        // Trigger the catalog-refresh-worker in seed-backfill mode — route to target
+        const { targetBaseUrl } = await resolveIngestionTarget(serviceClient);
+        const workerUrl = `${targetBaseUrl}/catalog-refresh-worker`;
+        console.log(`[run-seed-backfill] Routing to: ${workerUrl}`);
         const startTime = Date.now();
 
         const workerRes = await fetch(workerUrl, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${serviceKey}`,
-          },
+          headers: buildWorkerHeaders(),
           body: JSON.stringify({ mode: "seed-backfill" }),
         });
 
@@ -196,24 +193,22 @@ Deno.serve(async (req) => {
           ok: true,
           ...workerData,
           totalDurationMs: durationMs,
+          routed_to: workerUrl,
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
       if (action === "continue-backfill") {
-        // Process existing queued jobs without re-enqueuing all seeds
-        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-        const workerUrl = `${supabaseUrl}/functions/v1/catalog-refresh-worker`;
+        // Process existing queued jobs — route to target
+        const { targetBaseUrl } = await resolveIngestionTarget(serviceClient);
+        const workerUrl = `${targetBaseUrl}/catalog-refresh-worker`;
+        console.log(`[continue-backfill] Routing to: ${workerUrl}`);
         const startTime = Date.now();
 
         const workerRes = await fetch(workerUrl, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${serviceKey}`,
-          },
+          headers: buildWorkerHeaders(),
           body: JSON.stringify({ mode: "queue", maxJobs: 50 }),
         });
 
@@ -224,6 +219,7 @@ Deno.serve(async (req) => {
           ok: true,
           ...workerData,
           totalDurationMs: durationMs,
+          routed_to: workerUrl,
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });

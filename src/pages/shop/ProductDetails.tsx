@@ -17,7 +17,7 @@ import { useShopCart } from '@/contexts/ShopCartContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
-import { resizeImageUrl, IMAGE_SIZE_HERO, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
+import { resizeImageUrl, imageQualityScore, IMAGE_SIZE_HERO, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
@@ -269,15 +269,27 @@ export default function ProductDetailsPage() {
         const item = data.item;
 
         setProduct(prev => {
-          const newImages = item.images || item.imageUrls || (item.image_url ? [item.image_url] : []);
-          let mergedImages = newImages;
-          const fetchedId = item.provider_product_id || item.id;
-          if (prev?.id && prev.id === fetchedId) {
-            const existingSet = new Set(prev.images);
-            const additional = newImages.filter((img: string) => !existingSet.has(img));
-            mergedImages = [...prev.images, ...additional];
+          const newImages: string[] = item.images || item.imageUrls || (item.image_url ? [item.image_url] : []);
+          let mergedImages: string[];
+
+          if (newImages.length > 0) {
+            // Fetched gallery is source of truth — don't pin old nav thumbnail first
+            const seen = new Set(newImages);
+            mergedImages = [...newImages];
+            // Append any previous images not already present (deduped)
+            if (prev?.images) {
+              for (const img of prev.images) {
+                if (img && img !== '/placeholder.svg' && !seen.has(img)) {
+                  mergedImages.push(img);
+                  seen.add(img);
+                }
+              }
+            }
+          } else if (prev?.images?.length) {
+            mergedImages = prev.images;
+          } else {
+            mergedImages = ['/placeholder.svg'];
           }
-          if (mergedImages.length === 0) mergedImages = ['/placeholder.svg'];
 
           return {
             id: item.provider_product_id || item.id || prev?.id || '',
@@ -296,6 +308,21 @@ export default function ProductDetailsPage() {
             variants: item.variants || undefined,
           };
         });
+
+        // Auto-select best quality image as initial hero (once, on fetch)
+        const finalImages: string[] = item.images || item.imageUrls || [];
+        if (finalImages.length > 1) {
+          const bestIdx = finalImages.reduce((best: number, url: string, i: number) =>
+            imageQualityScore(url) > imageQualityScore(finalImages[best]) ? i : best, 0);
+          // Only change index if current hero is likely a low-quality thumbnail
+          setCurrentImageIndex(prev => {
+            const currentUrl = finalImages[prev] || finalImages[0] || '';
+            if (prev === 0 && imageQualityScore(currentUrl) < 0 && bestIdx !== prev) {
+              return bestIdx;
+            }
+            return bestIdx; // Use best on first load regardless
+          });
+        }
 
         console.log('[ProductDetails] fetch complete', {
           id: cleanProductId,

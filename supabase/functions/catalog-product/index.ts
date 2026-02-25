@@ -660,9 +660,16 @@ Deno.serve(async (req: Request) => {
         const mediaImages = (mediaData.image_urls as string[]).filter((url: string) => typeof url === "string" && url.length > 0);
         if (mediaImages.length > item.images.length) {
           console.log(`[CATALOG_PRODUCT] merging ${mediaImages.length} media images (was ${item.images.length}) for ${fullProductId}`);
-          // Use media images as the full gallery, keeping existing main image if present
+          // Media gallery is source of truth — do NOT prepend old mainImg thumbnail
           const mainImg = item.images[0];
-          const merged = mainImg && !mediaImages.includes(mainImg) ? [mainImg, ...mediaImages] : mediaImages;
+          let merged = [...mediaImages];
+          // Only append mainImg at the END if not already present and not a low-res thumbnail
+          const isLowRes = mainImg ? /s-l(64|96|140|225|300)\b/i.test(mainImg) || /thumb|thumbnail|small/i.test(mainImg) || /_(SS|SX|SY)\d{2,3}\./i.test(mainImg) : true;
+          if (mainImg && !mediaImages.includes(mainImg) && !isLowRes) {
+            merged.push(mainImg);
+          }
+          // Deduplicate
+          merged = [...new Set(merged)];
           item.images = merged;
           item.imageUrls = merged;
           item.mainImageUrl = merged[0] || null;

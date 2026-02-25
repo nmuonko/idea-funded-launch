@@ -26,6 +26,7 @@ interface ScraperRequest {
   mode?: "firecrawl-first" | "force-free" | "force-firecrawl";
   dry_run?: boolean;
   search_query?: string;
+  target_items?: number;
 }
 
 interface CarListing {
@@ -48,13 +49,16 @@ interface ScrapeResult {
   blocked_count: number;
   parse_methods_used: Record<string, number>;
   sample: CarListing[];
+  elapsed_ms?: number;
+  drop_reasons?: Record<string, number>;
 }
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 
 const MAX_PAGES_CAP = 5;
-const DEFAULT_MAX_PRICE = 15000;
+const DEFAULT_MAX_PRICE = 50000;
 const DEFAULT_MAX_PAGES = 2;
+const FIRECRAWL_TIMEOUT_MS = 20000;
 
 const BROWSER_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -368,8 +372,12 @@ async function firecrawlScrape(
     console.log(`[CAR_SCRAPER] firecrawl ${provider} page=${page} url=${url}`);
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), FIRECRAWL_TIMEOUT_MS);
+
       const resp = await fetch("https://api.firecrawl.dev/v1/scrape", {
         method: "POST",
+        signal: controller.signal,
         headers: {
           "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
@@ -405,6 +413,7 @@ async function firecrawlScrape(
         }),
       });
 
+      clearTimeout(timeoutId);
       pagesFetched++;
       if (!resp.ok) {
         const errText = await resp.text();
@@ -460,7 +469,12 @@ async function firecrawlScrape(
 
       console.log(`[CAR_SCRAPER] firecrawl ${provider} page=${page} found=${fcListings.length} total=${allListings.length}`);
     } catch (err) {
-      console.error(`[CAR_SCRAPER] firecrawl ${provider} page=${page} error:`, (err as Error).message);
+      const msg = (err as Error).message || "";
+      if (msg.includes("aborted") || msg.includes("abort")) {
+        console.warn(`[CAR_SCRAPER] firecrawl ${provider} page=${page} TIMEOUT after ${FIRECRAWL_TIMEOUT_MS}ms`);
+      } else {
+        console.error(`[CAR_SCRAPER] firecrawl ${provider} page=${page} error:`, msg);
+      }
     }
 
     if (page < maxPages) await jitterDelay();
@@ -610,8 +624,10 @@ Deno.serve(async (req: Request) => {
     const mode = body.mode || "firecrawl-first";
     const dryRun = body.dry_run || false;
     const searchQuery = body.search_query?.trim() || undefined;
+    const targetItems = body.target_items || 10;
+    const startTime = Date.now();
 
-    console.log(`[CAR_SCRAPER] START provider=${provider} maxPrice=${maxPrice} maxPages=${maxPages} mode=${mode} dryRun=${dryRun} searchQuery=${searchQuery || '(none)'}`);
+    console.log(`[CAR_SCRAPER] START provider=${provider} maxPrice=${maxPrice} maxPages=${maxPages} mode=${mode} dryRun=${dryRun} searchQuery=${searchQuery || '(none)'} targetItems=${targetItems}`);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -688,6 +704,7 @@ Deno.serve(async (req: Request) => {
     const liveClient = supabase;
     const upsertedCount = await upsertListings(liveClient, provider, allListings, modeUsed, dryRun);
 
+    const elapsedMs = Date.now() - startTime;
     const result: ScrapeResult = {
       provider,
       mode_used: modeUsed,
@@ -697,9 +714,10 @@ Deno.serve(async (req: Request) => {
       blocked_count: totalBlocked,
       parse_methods_used: parseMethods,
       sample: allListings.slice(0, 3),
+      elapsed_ms: elapsedMs,
     };
 
-    console.log(`[CAR_SCRAPER] DONE`, JSON.stringify({ ...result, sample: undefined }));
+    console.log(`[CAR_SCRAPER] DONE ${elapsedMs}ms`, JSON.stringify({ ...result, sample: undefined }));
 
     return new Response(JSON.stringify({ ok: true, ...result }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

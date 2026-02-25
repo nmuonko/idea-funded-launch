@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Loader2, SlidersHorizontal, X, RefreshCw, AlertCircle } from 'lucide-react';
+import { Loader2, X, RefreshCw, AlertCircle } from 'lucide-react';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { CategoryTabs } from '@/components/shop/CategoryTabs';
@@ -8,7 +8,6 @@ import { ProductGrid } from '@/components/shop/ProductGrid';
 import { Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
 import { normalizeQuery, stableStringify, cachedCatalogFetchWithSwr, cachedCatalogFetch, generateCacheKey, getCached } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -78,7 +77,7 @@ export default function SearchResults() {
   const [page, setPage] = useState(0);
   const [sort, setSort] = useState(initialSort);
   const [providerFilter, setProviderFilter] = useState(initialProvider);
-  const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
+  const [priceRange, setPriceRange] = useState<[number, number]>([0, 500000]);
   const [incomplete, setIncomplete] = useState(false);
   const [prefetchingNext, setPrefetchingNext] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -147,7 +146,7 @@ export default function SearchResults() {
 
     const filters: Record<string, number> = {};
     if (priceRange[0] > 0) filters.minPrice = priceRange[0];
-    if (priceRange[1] < 5000) filters.maxPrice = priceRange[1];
+    if (priceRange[1] < 500000) filters.maxPrice = priceRange[1];
     if (Object.keys(filters).length > 0) {
       params.filters = stableStringify(filters);
     }
@@ -621,31 +620,6 @@ export default function SearchResults() {
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Provider Filter */}
-              <Select value={providerFilter} onValueChange={(v) => {
-                setProviderFilter(v);
-                setSearchParams((prev) => {
-                  if (v === 'all') prev.delete('provider');
-                  else prev.set('provider', v);
-                  return prev;
-                });
-              }}>
-                <SelectTrigger className="w-[130px] bg-white/5 border-white/10 text-white">
-                  <SelectValue placeholder={language === 'fr' ? 'Source' : 'Provider'} />
-                </SelectTrigger>
-                <SelectContent className="bg-black/95 border-white/10">
-                  {PROVIDER_OPTIONS.map((option) => (
-                    <SelectItem 
-                      key={option.value} 
-                      value={option.value}
-                      className="text-white hover:bg-white/10"
-                    >
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
               {/* Sort */}
               <Select value={sort} onValueChange={handleSortChange}>
                 <SelectTrigger className="w-[160px] bg-white/5 border-white/10 text-white">
@@ -663,49 +637,52 @@ export default function SearchResults() {
                   ))}
                 </SelectContent>
               </Select>
-
-              {/* Filters */}
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    className="border-white/10 text-white hover:bg-white/10"
-                  >
-                    <SlidersHorizontal className="h-4 w-4 mr-2" />
-                    {shop.filters || 'Filters'}
-                  </Button>
-                </SheetTrigger>
-                <SheetContent className="bg-black/95 border-white/10">
-                  <SheetHeader>
-                    <SheetTitle className="text-white">{shop.filters || 'Filters'}</SheetTitle>
-                  </SheetHeader>
-                  
-                  <div className="mt-6 space-y-6">
-                    <div>
-                      <label className="text-sm text-white/70 mb-3 block">
-                        {shop.priceRange || 'Price Range'}: ${priceRange[0]} - ${priceRange[1]}
-                      </label>
-                      <Slider
-                        value={priceRange}
-                        onValueChange={(value) => setPriceRange(value as [number, number])}
-                        min={0}
-                        max={5000}
-                        step={50}
-                        className="py-4"
-                      />
-                    </div>
-
-                    <Button 
-                      onClick={handleApplyFilters}
-                      className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white"
-                    >
-                      {shop.applyFilters || 'Apply Filters'}
-                    </Button>
-                  </div>
-                </SheetContent>
-              </Sheet>
             </div>
+          </div>
+
+          {/* Inline Price Filter */}
+          <div className="mb-6 px-1">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm text-white/70">
+                {shop.priceRange || 'Price Range'}
+              </label>
+              <span className="text-sm font-medium text-white">
+                ${priceRange[0].toLocaleString()} – ${priceRange[1].toLocaleString()}
+              </span>
+            </div>
+            <Slider
+              value={priceRange}
+              onValueChange={(value) => setPriceRange(value as [number, number])}
+              min={0}
+              max={500000}
+              step={500}
+              className="py-2"
+            />
+            <div className="flex justify-between text-xs text-white/40 mt-1">
+              <span>$0</span>
+              <span>$500,000</span>
+            </div>
+            {(priceRange[0] > 0 || priceRange[1] < 500000) && (
+              <div className="flex items-center gap-2 mt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleApplyFilters}
+                  className="border-white/10 text-white hover:bg-white/10 text-xs h-7 px-3"
+                >
+                  {shop.applyFilters || 'Apply'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => { setPriceRange([0, 500000]); handleApplyFilters(); }}
+                  className="text-white/50 hover:text-white text-xs h-7 px-2"
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  {language === 'fr' ? 'Réinitialiser' : 'Reset'}
+                </Button>
+              </div>
+            )}
           </div>
 
 

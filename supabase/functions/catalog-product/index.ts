@@ -161,6 +161,169 @@ async function scrapeEbayGallery(productUrl: string | null, itemId: string): Pro
   }
 }
 
+/**
+ * Scrape gallery images from an Amazon product page HTML.
+ * Extracts ALL images from colorImages JSON pattern (hiRes + large variants).
+ * Falls back to imageGalleryData pattern.
+ */
+async function scrapeAmazonGallery(productUrl: string | null, asin: string): Promise<string[]> {
+  if (!asin) return [];
+  
+  // Use mobile URL for better scraping success
+  const url = productUrl || `https://www.amazon.com/dp/${asin}`;
+  
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate",
+      },
+      redirect: "follow",
+    });
+    
+    if (!res.ok) {
+      console.warn(`[AMAZON_GALLERY_SCRAPE] HTTP ${res.status} for ${asin}`);
+      return [];
+    }
+    
+    const html = await res.text();
+    const seen = new Set<string>();
+    const images: string[] = [];
+    
+    const addImage = (imgUrl: string) => {
+      if (!imgUrl || typeof imgUrl !== "string") return;
+      if (!imgUrl.startsWith("http")) return;
+      // Skip tiny placeholders and sprite images
+      if (imgUrl.includes("sprite") || imgUrl.includes("transparent-pixel") || imgUrl.includes("grey-pixel")) return;
+      // Upgrade to high-res
+      const upgraded = upgradeAmazonImageToHighRes(imgUrl);
+      if (!seen.has(upgraded)) {
+        seen.add(upgraded);
+        images.push(upgraded);
+      }
+    };
+    
+    // Strategy 1: Extract from colorImages JSON (most reliable, contains all gallery images)
+    // Pattern: 'colorImages': { 'initial': [ {"hiRes":"https://...","large":"https://..."}, ... ] }
+    const colorImagesMatch = html.match(/'colorImages'\s*:\s*\{\s*'initial'\s*:\s*(\[[\s\S]*?\])\s*\}/);
+    if (colorImagesMatch) {
+      try {
+        // Fix single quotes to double quotes for JSON parsing
+        const jsonStr = colorImagesMatch[1]
+          .replace(/'/g, '"')
+          .replace(/,\s*}/g, '}')
+          .replace(/,\s*]/g, ']');
+        const colorImages = JSON.parse(jsonStr);
+        if (Array.isArray(colorImages)) {
+          for (const img of colorImages) {
+            // Prefer hiRes, fall back to large
+            const bestUrl = img?.hiRes || img?.large;
+            if (bestUrl) addImage(bestUrl);
+          }
+          console.log(`[AMAZON_GALLERY_SCRAPE] colorImages: ${images.length} images for ${asin}`);
+        }
+      } catch (e) {
+        console.warn(`[AMAZON_GALLERY_SCRAPE] colorImages parse error for ${asin}: ${e}`);
+      }
+    }
+    
+    // Strategy 2: imageGalleryData fallback
+    if (images.length === 0) {
+      const galleryMatch = html.match(/imageGalleryData\s*:\s*(\[[\s\S]*?\])\s*[,;]/);
+      if (galleryMatch) {
+        try {
+          const jsonStr = galleryMatch[1].replace(/'/g, '"').replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+          const galleryData = JSON.parse(jsonStr);
+          if (Array.isArray(galleryData)) {
+            for (const img of galleryData) {
+              const bestUrl = img?.mainUrl || img?.thumbUrl;
+              if (bestUrl) addImage(bestUrl);
+            }
+            console.log(`[AMAZON_GALLERY_SCRAPE] imageGalleryData: ${images.length} images for ${asin}`);
+          }
+        } catch (e) {
+          console.warn(`[AMAZON_GALLERY_SCRAPE] imageGalleryData parse error: ${e}`);
+        }
+      }
+    }
+    
+    // Strategy 3: Extract all high-res Amazon image URLs from page
+    if (images.length === 0) {
+      const amazonImgMatches = html.matchAll(/https:\/\/m\.media-amazon\.com\/images\/I\/[A-Za-z0-9._%-]+\.(?:jpg|png|webp)/gi);
+      for (const match of amazonImgMatches) {
+        addImage(match[0]);
+      }
+      if (images.length > 0) {
+        console.log(`[AMAZON_GALLERY_SCRAPE] regex fallback: ${images.length} images for ${asin}`);
+      }
+    }
+    
+    // Limit to 10 images
+    const result = images.slice(0, 10);
+    console.log(`[AMAZON_GALLERY_SCRAPE] total ${result.length} unique images for ${asin}`);
+    return result;
+  } catch (e) {
+    console.warn(`[AMAZON_GALLERY_SCRAPE] error for ${asin}: ${e}`);
+    return [];
+  }
+}
+
+/**
+ * Firecrawl fallback for Amazon gallery scraping when direct fetch is bot-blocked.
+ */
+async function scrapeAmazonGalleryFirecrawl(asin: string): Promise<string[]> {
+  const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY");
+  if (!firecrawlKey) {
+    console.warn(`[AMAZON_GALLERY_FIRECRAWL] no FIRECRAWL_API_KEY configured`);
+    return [];
+  }
+  
+  try {
+    const url = `https://www.amazon.com/dp/${asin}`;
+    const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${firecrawlKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        formats: ["html"],
+        waitFor: 2000,
+      }),
+    });
+    
+    if (!res.ok) {
+      console.warn(`[AMAZON_GALLERY_FIRECRAWL] HTTP ${res.status} for ${asin}`);
+      return [];
+    }
+    
+    const data = await res.json();
+    const html = data?.data?.html || data?.html || "";
+    if (!html) return [];
+    
+    // Extract Amazon image URLs from rendered HTML
+    const seen = new Set<string>();
+    const images: string[] = [];
+    const matches = html.matchAll(/https:\/\/m\.media-amazon\.com\/images\/I\/[A-Za-z0-9._%-]+\.(?:jpg|png|webp)/gi);
+    for (const match of matches) {
+      const upgraded = upgradeAmazonImageToHighRes(match[0]);
+      if (!seen.has(upgraded) && !upgraded.includes("sprite") && !upgraded.includes("pixel")) {
+        seen.add(upgraded);
+        images.push(upgraded);
+      }
+    }
+    
+    console.log(`[AMAZON_GALLERY_FIRECRAWL] found ${images.length} images for ${asin}`);
+    return images.slice(0, 10);
+  } catch (e) {
+    console.warn(`[AMAZON_GALLERY_FIRECRAWL] error for ${asin}: ${e}`);
+    return [];
+  }
+}
+
 function validateAsin(asin: string): string | null {
   if (!asin || asin.length === 0) return "ASIN is required";
   if (asin.length !== 10) return `ASIN must be 10 characters (got ${asin.length})`;
@@ -746,6 +909,74 @@ Deno.serve(async (req: Request) => {
             }, { onConflict: "provider,provider_item_id" })
             .then(() => {})
             .catch((e: any) => console.warn(`[GALLERY_ENRICH] media persist failed: ${e}`));
+        }
+      }
+
+      // ========== Amazon Gallery Enrichment: fetch full gallery if only 0-1 images ==========
+      if ((dbItem.provider === "rainforest" || dbItem.provider === "amazon") && (item.images?.length || 0) <= 1) {
+        let enrichedImages: string[] = [];
+        const amazonAsin = dbItem.provider_product_id || productId!;
+        
+        try {
+          console.log(`[GALLERY_ENRICH] Amazon item ${amazonAsin} has ${item.images?.length ?? 0} images, trying scrape...`);
+          const scrapedImages = await scrapeAmazonGallery(item.productUrl || dbItem.product_url, amazonAsin);
+          
+          if (scrapedImages.length > (item.images?.length || 0)) {
+            enrichedImages = scrapedImages;
+            console.log(`[GALLERY_ENRICH] Amazon scrape success for ${amazonAsin}: ${enrichedImages.length} images`);
+          } else {
+            // Fallback to Firecrawl if direct scrape returned nothing useful
+            console.log(`[GALLERY_ENRICH] Amazon direct scrape got ${scrapedImages.length} images, trying Firecrawl for ${amazonAsin}...`);
+            const firecrawlImages = await scrapeAmazonGalleryFirecrawl(amazonAsin);
+            if (firecrawlImages.length > (item.images?.length || 0)) {
+              enrichedImages = firecrawlImages;
+              console.log(`[GALLERY_ENRICH] Amazon Firecrawl success for ${amazonAsin}: ${enrichedImages.length} images`);
+            }
+          }
+        } catch (e) {
+          console.warn(`[GALLERY_ENRICH] Amazon scrape failed for ${amazonAsin}: ${e}`);
+          try {
+            const firecrawlImages = await scrapeAmazonGalleryFirecrawl(amazonAsin);
+            if (firecrawlImages.length > (item.images?.length || 0)) {
+              enrichedImages = firecrawlImages;
+            }
+          } catch (fcErr) {
+            console.warn(`[GALLERY_ENRICH] Amazon Firecrawl also failed for ${amazonAsin}: ${fcErr}`);
+          }
+        }
+        
+        // Apply enriched images
+        if (enrichedImages.length > (item.images?.length || 0)) {
+          console.log(`[GALLERY_ENRICH] Amazon enriched ${amazonAsin}: ${item.images?.length ?? 0} → ${enrichedImages.length} images`);
+          item.images = enrichedImages;
+          item.imageUrls = enrichedImages;
+          item.mainImageUrl = enrichedImages[0] || item.mainImageUrl;
+          item.imageUrl = enrichedImages[0] || item.imageUrl;
+
+          // Persist enriched gallery back to catalog_items (fire-and-forget)
+          const dbRowId = dbItem.id || fullProductId;
+          db.from("catalog_items")
+            .update({ 
+              images: enrichedImages, 
+              image_url: enrichedImages[0] || dbItem.image_url,
+              updated_at: new Date().toISOString() 
+            })
+            .eq("id", dbRowId)
+            .then(() => console.log(`[GALLERY_ENRICH] Amazon persisted ${enrichedImages.length} images for ${dbRowId}`))
+            .catch((e: any) => console.warn(`[GALLERY_ENRICH] Amazon persist failed: ${e}`));
+
+          // Also persist to catalog_item_media
+          db.from("catalog_item_media")
+            .upsert({
+              provider: "amazon",
+              provider_item_id: amazonAsin,
+              image_urls: enrichedImages,
+              image_count: enrichedImages.length,
+              fetched_at: new Date().toISOString(),
+              expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            }, { onConflict: "provider,provider_item_id" })
+            .then(() => {})
+            .catch((e: any) => console.warn(`[GALLERY_ENRICH] Amazon media persist failed: ${e}`));
         }
       }
 

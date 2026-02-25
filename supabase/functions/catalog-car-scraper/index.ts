@@ -1,9 +1,9 @@
 /**
- * Catalog Car Scraper — Hybrid Free-First + Firecrawl Fallback
+ * Catalog Car Scraper — Firecrawl-Primary with Free Fallback
  * 
  * Scrapes CarGurus and Carvana for cheap vehicles and upserts into catalog_items.
- * Primary path is FREE (server-side HTML fetch + JSON-LD/embedded data parsing).
- * Firecrawl is used ONLY as fallback when free parsing fails.
+ * Primary path uses Firecrawl (reliable JS rendering + structured JSON extraction).
+ * Free HTML parsing is used as fallback when Firecrawl key is missing or fails.
  * 
  * Auth: x-cron-secret header OR admin JWT
  */
@@ -22,7 +22,7 @@ interface ScraperRequest {
   provider: "cargurus" | "carvana";
   max_price?: number;
   max_pages?: number;
-  mode?: "free-first" | "force-free" | "force-firecrawl";
+  mode?: "firecrawl-first" | "force-free" | "force-firecrawl";
   dry_run?: boolean;
 }
 
@@ -39,7 +39,7 @@ interface CarListing {
 
 interface ScrapeResult {
   provider: string;
-  mode_used: "free" | "firecrawl" | "free-only";
+  mode_used: "firecrawl" | "free" | "free-only";
   pages_fetched: number;
   listings_found: number;
   upserted_count: number;
@@ -326,7 +326,7 @@ async function freeScrape(
   return { listings: allListings, blockedCount, parseMethods, pagesFetched };
 }
 
-// ── FIRECRAWL FALLBACK ─────────────────────────────────────────────────────
+// ── FIRECRAWL PRIMARY ──────────────────────────────────────────────────────
 
 async function firecrawlScrape(
   provider: string,
@@ -376,10 +376,10 @@ async function firecrawlScrape(
                 },
               },
             },
-            prompt: "Extract all car/vehicle listings from this page. Include title, price in USD, year, mileage, condition, image URL, and listing URL for each vehicle.",
+            prompt: "Extract every car/vehicle listing visible on this page. For each vehicle return: the full title (year make model trim), the numeric sale price in USD, the model year as a number, the odometer mileage as a string, the condition (New/Used/Certified), the primary image URL, and the detail-page URL. Ignore ads, financing offers, and non-vehicle content.",
           }],
           onlyMainContent: true,
-          waitFor: 3000,
+          waitFor: 5000,
         }),
       });
 
@@ -544,7 +544,7 @@ Deno.serve(async (req: Request) => {
 
     const maxPrice = body.max_price || DEFAULT_MAX_PRICE;
     const maxPages = Math.min(body.max_pages || DEFAULT_MAX_PAGES, MAX_PAGES_CAP);
-    const mode = body.mode || "free-first";
+    const mode = body.mode || "firecrawl-first";
     const dryRun = body.dry_run || false;
 
     console.log(`[CAR_SCRAPER] START provider=${provider} maxPrice=${maxPrice} maxPages=${maxPages} mode=${mode} dryRun=${dryRun}`);
@@ -556,38 +556,22 @@ Deno.serve(async (req: Request) => {
 
     const parseMethods: Record<string, number> = { jsonld: 0, nextdata: 0, state: 0, regex: 0, firecrawl: 0 };
     let allListings: CarListing[] = [];
-    let modeUsed: "free" | "firecrawl" | "free-only" = "free";
+    let modeUsed: "firecrawl" | "free" | "free-only" = "firecrawl";
     let totalPagesFetched = 0;
     let totalBlocked = 0;
 
-    // ── FREE-FIRST or FORCE-FREE ───────────────────────────────────────
-    if (mode === "free-first" || mode === "force-free") {
+    // ── FORCE-FREE ─────────────────────────────────────────────────────
+    if (mode === "force-free") {
       const freeResult = await freeScrape(provider, maxPrice, maxPages);
       allListings = freeResult.listings;
       totalPagesFetched = freeResult.pagesFetched;
       totalBlocked = freeResult.blockedCount;
       Object.assign(parseMethods, freeResult.parseMethods);
-
-      const shouldFallback = mode === "free-first"
-        && firecrawlKey
-        && (allListings.length === 0 || totalBlocked >= totalPagesFetched);
-
-      if (shouldFallback) {
-        console.log(`[CAR_SCRAPER] FREE failed (listings=${allListings.length} blocked=${totalBlocked}), triggering Firecrawl fallback`);
-        const fcResult = await firecrawlScrape(provider, maxPrice, maxPages, firecrawlKey);
-        allListings = fcResult.listings;
-        totalPagesFetched += fcResult.pagesFetched;
-        parseMethods.firecrawl = fcResult.listings.length;
-        modeUsed = "firecrawl";
-      } else if (mode === "force-free") {
-        modeUsed = "free-only";
-      } else {
-        modeUsed = "free";
-      }
+      modeUsed = "free-only";
     }
 
     // ── FORCE-FIRECRAWL ────────────────────────────────────────────────
-    if (mode === "force-firecrawl") {
+    else if (mode === "force-firecrawl") {
       if (!firecrawlKey) {
         return new Response(JSON.stringify({ ok: false, error: "FIRECRAWL_API_KEY not configured" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -598,6 +582,28 @@ Deno.serve(async (req: Request) => {
       totalPagesFetched = fcResult.pagesFetched;
       parseMethods.firecrawl = fcResult.listings.length;
       modeUsed = "firecrawl";
+    }
+
+    // ── FIRECRAWL-FIRST (default): try Firecrawl, fall back to free ──
+    else {
+      if (firecrawlKey) {
+        const fcResult = await firecrawlScrape(provider, maxPrice, maxPages, firecrawlKey);
+        allListings = fcResult.listings;
+        totalPagesFetched = fcResult.pagesFetched;
+        parseMethods.firecrawl = fcResult.listings.length;
+        modeUsed = "firecrawl";
+      }
+
+      // Fallback to free if Firecrawl had no key or returned 0 listings
+      if (allListings.length === 0) {
+        console.log(`[CAR_SCRAPER] Firecrawl yielded 0 listings (key=${!!firecrawlKey}), falling back to free parse`);
+        const freeResult = await freeScrape(provider, maxPrice, maxPages);
+        allListings = freeResult.listings;
+        totalPagesFetched += freeResult.pagesFetched;
+        totalBlocked = freeResult.blockedCount;
+        Object.assign(parseMethods, freeResult.parseMethods);
+        modeUsed = "free";
+      }
     }
 
     // ── UPSERT ─────────────────────────────────────────────────────────

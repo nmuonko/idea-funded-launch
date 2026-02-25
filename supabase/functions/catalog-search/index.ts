@@ -785,9 +785,10 @@ Deno.serve(async (req: Request) => {
     let dbCount = 0;
     const dbFirstStart = Date.now();
 
-    // Always attempt DB-first for page 0 without cursor, including direct queries.
+    // Always attempt DB-first on ALL pages, including direct queries.
     // This ensures results even when providers are rate-limited (429) or down (402).
-    if (!cursor) {
+    // For pages > 0, we offset the DB query to return the next batch.
+    {
       try {
         const dbTimeout = new Promise<null>((r) => setTimeout(() => r(null), isFirstPage ? DB_BUDGET_MS_P0 : DB_BUDGET_MS));
         const dbWork = searchDbFirst({
@@ -834,7 +835,7 @@ Deno.serve(async (req: Request) => {
     // If DB returned >= 50 items on page 0, skip live providers entirely for sub-second response.
     // Fire a background cache refresh to keep data fresh.
     const DB_SUFFICIENT_THRESHOLD = 50;
-    if (dbFallbackItems && dbFallbackItems.length >= DB_SUFFICIENT_THRESHOLD && isFirstPage && !cursor) {
+    if (dbFallbackItems && dbFallbackItems.length >= DB_SUFFICIENT_THRESHOLD) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH: ${dbFallbackItems.length} items >= ${DB_SUFFICIENT_THRESHOLD} threshold — skipping providers`);
 
       // Apply content filter + sort
@@ -850,7 +851,7 @@ Deno.serve(async (req: Request) => {
         items: dbFinal,
         total: dbFinal.length,
         nextCursor: null,
-        hasMore: false,
+        hasMore: true,
         query: qOriginal,
         env: envName,
         durationMs: Date.now() - startTime,

@@ -331,7 +331,7 @@ function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: 
             provider,
             max_price: 15000,
             max_pages: Math.min(Math.ceil(quantity / 15), 5),
-            mode: 'free-first',
+            mode: 'firecrawl-first',
           },
         });
         if (error) throw error;

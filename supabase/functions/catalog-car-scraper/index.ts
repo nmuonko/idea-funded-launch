@@ -10,6 +10,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { verifyCronAuth, cronAuthErrorResponse } from "../_shared/cronAuth.ts";
+import { getLiveWriteClient } from "../_shared/liveWriteClient.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -629,7 +630,8 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── UPSERT ─────────────────────────────────────────────────────────
-    const upsertedCount = await upsertListings(supabase, provider, allListings, modeUsed, dryRun);
+    const liveClient = getLiveWriteClient();
+    const upsertedCount = await upsertListings(liveClient, provider, allListings, modeUsed, dryRun);
 
     const result: ScrapeResult = {
       provider,

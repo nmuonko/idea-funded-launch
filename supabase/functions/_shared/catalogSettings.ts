@@ -62,7 +62,7 @@ const DEFAULT_SETTINGS: CatalogSettings = {
   amazonEnabled: true,
   ebayEnabled: true,
   amazonMaxResultsPerQuery: 200,
-  amazonMaxCallsPerHour: 12,
+  amazonMaxCallsPerHour: 14,
   amazonMaxCallsPerMonth: 10000,
   amazonBudgetWindow: "hour",
   mixedAmazonFirstCount: 60,

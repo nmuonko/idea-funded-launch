@@ -520,7 +520,20 @@ async function handleAction(req: Request, action: string) {
       }),
     });
 
-    const result = await res.json();
+    let result: any = null;
+    try {
+      result = await res.json();
+    } catch {
+      result = { ok: false, error: "Invalid scraper response" };
+    }
+
+    if (!res.ok || result?.ok === false) {
+      return json(
+        { error: result?.error || "Car scraper failed", worker_result: result, routed_to: scraperUrl },
+        res.status >= 400 ? res.status : 500
+      );
+    }
+
     return json({ success: true, worker_result: result, routed_to: scraperUrl });
   }
 

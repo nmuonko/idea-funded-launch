@@ -206,10 +206,23 @@ async function handleList(url: URL) {
   // Get filtered count (only when filters are active, to avoid expensive unfiltered counts)
   let filteredCount: number | null = null;
   if (hasFilters) {
-    let countQuery = sb.from("catalog_items").select("*", { count: "exact", head: true });
-    countQuery = applyFilters(countQuery);
-    const { count } = await countQuery;
-    filteredCount = count ?? 0;
+    try {
+      let countQuery = sb.from("catalog_items").select("*", { count: "exact", head: true });
+      countQuery = applyFilters(countQuery);
+      const { count, error: countError } = await countQuery;
+      if (countError) {
+        console.error("[admin-catalog-items] Count query error:", countError.message);
+        // Retry with a simpler count
+        const retryQuery = applyFilters(sb.from("catalog_items").select("id", { count: "exact", head: true }));
+        const { count: retryCount } = await retryQuery;
+        filteredCount = retryCount ?? 0;
+      } else {
+        filteredCount = count ?? 0;
+      }
+    } catch (e) {
+      console.error("[admin-catalog-items] Count query exception:", e);
+      filteredCount = 0;
+    }
   }
 
   // Build data query

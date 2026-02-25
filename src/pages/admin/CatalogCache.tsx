@@ -835,7 +835,24 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
         query = query.order('first_seen_at', { ascending: false }).limit(PAGE_SIZE);
         const { data: items, error } = await query;
         if (error) console.error('[ItemsTable] DB fallback error:', error);
-        return { items: items || [], has_more: (items?.length || 0) >= PAGE_SIZE, next_cursor: null, next_cursor_id: null };
+        // Get filtered count via a separate head query with the same filters
+        let filteredCount: number | null = null;
+        const hasAnyFilter = !!(appliedFilters.category_key || appliedFilters.provider || appliedFilters.is_active || appliedFilters.q);
+        if (hasAnyFilter) {
+          try {
+            let countQ = supabase.from('catalog_items').select('*', { count: 'exact', head: true });
+            if (appliedFilters.category_key) countQ = countQ.eq('category_key', appliedFilters.category_key);
+            if (appliedFilters.provider) countQ = countQ.eq('provider', appliedFilters.provider);
+            if (appliedFilters.is_active === 'true') countQ = countQ.eq('is_active', true);
+            else if (appliedFilters.is_active === 'false') countQ = countQ.eq('is_active', false);
+            if (appliedFilters.q) countQ = countQ.ilike('title', `%${appliedFilters.q}%`);
+            const { count } = await countQ;
+            filteredCount = count ?? 0;
+          } catch (countErr) {
+            console.warn('[ItemsTable] DB fallback count error:', countErr);
+          }
+        }
+        return { items: items || [], has_more: (items?.length || 0) >= PAGE_SIZE, next_cursor: null, next_cursor_id: null, filtered_count: filteredCount };
       }
     },
     staleTime: 30_000,

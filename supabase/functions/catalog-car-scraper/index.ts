@@ -354,8 +354,8 @@ async function firecrawlScrape(
         },
         body: JSON.stringify({
           url,
-          formats: ["markdown", {
-            type: "json",
+          formats: ["extract"],
+          extract: {
             schema: {
               type: "object",
               properties: {
@@ -377,9 +377,9 @@ async function firecrawlScrape(
               },
             },
             prompt: "Extract every vehicle listing shown on the page. Return listings with: title (year make model trim), price (number USD), year (number if visible), mileage (string if visible), condition (string if visible), imageUrl (string), listingUrl (string full URL). Do not invent values. If missing, omit that field.",
-          }],
+          },
           onlyMainContent: true,
-          waitFor: 5000,
+          waitFor: 15000,
         }),
       });
 
@@ -391,8 +391,8 @@ async function firecrawlScrape(
       }
 
       const data = await resp.json();
-      const jsonData = data?.data?.json || data?.json || {};
-      const fcListings = jsonData?.listings || [];
+      const extractData = data?.data?.extract || data?.extract || data?.data?.json || data?.json || {};
+      const fcListings = extractData?.listings || [];
 
       for (const item of fcListings) {
         // Strict validation: must have title, listingUrl, and numeric price within range

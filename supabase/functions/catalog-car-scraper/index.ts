@@ -376,7 +376,7 @@ async function firecrawlScrape(
                 },
               },
             },
-            prompt: "Extract every car/vehicle listing visible on this page. For each vehicle return: the full title (year make model trim), the numeric sale price in USD, the model year as a number, the odometer mileage as a string, the condition (New/Used/Certified), the primary image URL, and the detail-page URL. Ignore ads, financing offers, and non-vehicle content.",
+            prompt: "Extract every vehicle listing shown on the page. Return listings with: title (year make model trim), price (number USD), year (number if visible), mileage (string if visible), condition (string if visible), imageUrl (string), listingUrl (string full URL). Do not invent values. If missing, omit that field.",
           }],
           onlyMainContent: true,
           waitFor: 5000,
@@ -395,17 +395,25 @@ async function firecrawlScrape(
       const fcListings = jsonData?.listings || [];
 
       for (const item of fcListings) {
-        if (!item.title || !item.price) continue;
-        if (item.price <= 0 || item.price > maxPrice) continue;
+        // Strict validation: must have title, listingUrl, and numeric price within range
+        if (!item.title || !item.listingUrl || !item.price) continue;
+        const priceNum = typeof item.price === "number" ? item.price : parseFloat(String(item.price));
+        if (!priceNum || priceNum <= 0 || priceNum > maxPrice) continue;
 
-        const productUrl = item.listingUrl || "";
-        const pid = productUrl ? extractProductId(productUrl, provider) : `fc-${item.price}-${item.title.substring(0, 20)}`;
+        // Ensure listingUrl is absolute
+        let productUrl = item.listingUrl;
+        if (productUrl && !productUrl.startsWith("http")) {
+          const domain = provider === "carvana" ? "https://www.carvana.com" : "https://www.cargurus.com";
+          productUrl = `${domain}${productUrl.startsWith("/") ? "" : "/"}${productUrl}`;
+        }
+
+        const pid = extractProductId(productUrl, provider);
 
         if (!seenIds.has(pid)) {
           seenIds.add(pid);
           allListings.push({
             title: item.title,
-            price_usd: Math.round(item.price * 100) / 100,
+            price_usd: Math.round(priceNum * 100) / 100,
             image_url: item.imageUrl || "",
             product_url: productUrl,
             year: item.year,
@@ -582,27 +590,41 @@ Deno.serve(async (req: Request) => {
       totalPagesFetched = fcResult.pagesFetched;
       parseMethods.firecrawl = fcResult.listings.length;
       modeUsed = "firecrawl";
+      if (allListings.length === 0) {
+        return new Response(JSON.stringify({ ok: false, error: "Firecrawl returned no listings" }), {
+          status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     // ── FIRECRAWL-FIRST (default): try Firecrawl, fall back to free ──
     else {
       if (firecrawlKey) {
-        const fcResult = await firecrawlScrape(provider, maxPrice, maxPages, firecrawlKey);
-        allListings = fcResult.listings;
-        totalPagesFetched = fcResult.pagesFetched;
-        parseMethods.firecrawl = fcResult.listings.length;
-        modeUsed = "firecrawl";
+        try {
+          const fcResult = await firecrawlScrape(provider, maxPrice, maxPages, firecrawlKey);
+          allListings = fcResult.listings;
+          totalPagesFetched = fcResult.pagesFetched;
+          parseMethods.firecrawl = fcResult.listings.length;
+          modeUsed = "firecrawl";
+        } catch (fcErr) {
+          console.error(`[CAR_SCRAPER] Firecrawl threw error, will fall back to free:`, (fcErr as Error).message);
+          // parseMethods.firecrawl stays 0
+        }
       }
 
-      // Fallback to free if Firecrawl had no key or returned 0 listings
+      // Fallback to free if Firecrawl had no key, threw, or returned 0 listings
       if (allListings.length === 0) {
-        console.log(`[CAR_SCRAPER] Firecrawl yielded 0 listings (key=${!!firecrawlKey}), falling back to free parse`);
+        if (!firecrawlKey) {
+          console.log(`[CAR_SCRAPER] No FIRECRAWL_API_KEY, using free-only`);
+        } else {
+          console.log(`[CAR_SCRAPER] Firecrawl yielded 0 listings, falling back to free parse`);
+        }
         const freeResult = await freeScrape(provider, maxPrice, maxPages);
         allListings = freeResult.listings;
         totalPagesFetched += freeResult.pagesFetched;
         totalBlocked = freeResult.blockedCount;
         Object.assign(parseMethods, freeResult.parseMethods);
-        modeUsed = "free";
+        modeUsed = firecrawlKey ? "free" : "free-only";
       }
     }
 

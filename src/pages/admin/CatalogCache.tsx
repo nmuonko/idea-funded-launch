@@ -1279,9 +1279,32 @@ function RecentFetchHistory() {
 function DataSync() {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [pushing, setPushing] = useState(false);
   const [exportProgress, setExportProgress] = useState('');
   const [importProgress, setImportProgress] = useState('');
+  const [pushProgress, setPushProgress] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handlePushToLive = async () => {
+    if (!confirm('This will push ALL catalog items from Test to Live. Duplicates are auto-skipped. Continue?')) return;
+    setPushing(true);
+    setPushProgress('Starting push to Live... This may take several minutes for large catalogs.');
+    try {
+      const { data, error } = await supabase.functions.invoke('catalog-data-sync', {
+        method: 'POST',
+        body: { mode: 'push-to-live' },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success(`Push complete: ${data.pushed} pushed, ${data.skipped} skipped, ${data.errors || 0} errors (${Math.round((data.duration_ms || 0) / 1000)}s)`);
+      setPushProgress('');
+    } catch (e: any) {
+      toast.error(`Push failed: ${e.message}`);
+      setPushProgress('');
+    } finally {
+      setPushing(false);
+    }
+  };
 
   const handleExport = async () => {
     setExporting(true);
@@ -1405,9 +1428,20 @@ function DataSync() {
               if (f) handleImport(f);
             }}
           />
+
+          <div className="w-px h-8 bg-border mx-1" />
+
+          <Button
+            onClick={handlePushToLive}
+            disabled={exporting || importing || pushing}
+            variant="default"
+          >
+            {pushing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
+            {pushing ? 'Pushing...' : 'Push All to Live'}
+          </Button>
         </div>
-        {(exportProgress || importProgress) && (
-          <p className="text-xs text-muted-foreground mt-2">{exportProgress || importProgress}</p>
+        {(exportProgress || importProgress || pushProgress) && (
+          <p className="text-xs text-muted-foreground mt-2">{exportProgress || importProgress || pushProgress}</p>
         )}
       </CardContent>
     </Card>

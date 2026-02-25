@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
+import { resolveIngestionTarget, buildCronHeaders } from "../_shared/ingestionTarget.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -129,27 +129,92 @@ Deno.serve(async (req) => {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // MODE: push-to-live  –  read ALL from own DB → push to Live DB
+    // MODE: push-page  –  read ONE page from own DB → push to Live
+    // ═══════════════════════════════════════════════════════════════════
+    if (mode === "push-page") {
+      const page = parseInt(String(body.page ?? 0));
+      const pageSize = Math.min(parseInt(String(body.pageSize ?? 1000)), 1000);
+
+      const { targetBaseUrl, isRemoteTarget } = await resolveIngestionTarget(supabase);
+
+      if (!isRemoteTarget) {
+        return jsonRes({ error: "Ingestion target points to the same environment. Set edge_function_base_url to Live." }, 400);
+      }
+
+      const liveImportUrl = `${targetBaseUrl}/catalog-data-sync`;
+
+      // Read one page from local DB
+      const { data: items, error: readErr } = await supabase
+        .from("catalog_items")
+        .select("*")
+        .order("id")
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+      if (readErr) {
+        return jsonRes({ error: `Read error page ${page}: ${readErr.message}` }, 500);
+      }
+
+      const batch = items ?? [];
+      if (batch.length === 0) {
+        return jsonRes({ success: true, page, read: 0, pushed: 0, skipped: 0, errors: 0, done: true });
+      }
+
+      // Push in sub-chunks to Live
+      const importChunkSize = 500;
+      let totalPushed = 0;
+      let totalSkipped = 0;
+      let totalErrors = 0;
+
+      for (let i = 0; i < batch.length; i += importChunkSize) {
+        const chunk = batch.slice(i, i + importChunkSize);
+        try {
+          const resp = await fetch(liveImportUrl, {
+            method: "POST",
+            headers: buildCronHeaders(),
+            body: JSON.stringify({ mode: "import", items: chunk }),
+          });
+
+          if (!resp.ok) {
+            const errText = await resp.text();
+            console.error(`[push-page] Import failed (${resp.status}): ${errText}`);
+            totalErrors += chunk.length;
+          } else {
+            const result = await resp.json();
+            totalPushed += result.inserted || 0;
+            totalSkipped += result.skipped || 0;
+            totalErrors += result.errors || 0;
+          }
+        } catch (fetchErr) {
+          console.error(`[push-page] Fetch error: ${fetchErr}`);
+          totalErrors += chunk.length;
+        }
+      }
+
+      const hasMore = batch.length === pageSize;
+
+      return jsonRes({
+        success: true,
+        page,
+        read: batch.length,
+        pushed: totalPushed,
+        skipped: totalSkipped,
+        errors: totalErrors,
+        done: !hasMore,
+        routed_to: liveImportUrl,
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // MODE: push-to-live (legacy compat — single long request)
     // ═══════════════════════════════════════════════════════════════════
     if (mode === "push-to-live") {
-      // Get live edge function URL from admin_settings
-      const { data: setting } = await supabase
-        .from("admin_settings")
-        .select("value")
-        .eq("key", "edge_function_base_url")
-        .maybeSingle();
+      const { targetBaseUrl, isRemoteTarget } = await resolveIngestionTarget(supabase);
 
-      const liveBase = setting?.value;
-      if (!liveBase) {
-        return jsonRes({ error: "edge_function_base_url not configured in admin_settings" }, 400);
+      if (!isRemoteTarget) {
+        return jsonRes({ error: "Ingestion target points to the same environment. Configure edge_function_base_url to point to Live." }, 400);
       }
 
-      // Avoid pushing to self
-      if (liveBase.includes(supabaseUrl.split("//")[1]?.split(".")[0] || "__no_match__")) {
-        return jsonRes({ error: "edge_function_base_url points to the same environment – aborting" }, 400);
-      }
-
-      const liveImportUrl = `${liveBase}/catalog-data-sync`;
+      const liveImportUrl = `${targetBaseUrl}/catalog-data-sync`;
       const importChunkSize = 500;
       const readPageSize = 1000;
       let page = 0;
@@ -160,10 +225,9 @@ Deno.serve(async (req) => {
       let keepGoing = true;
       const startedAt = Date.now();
 
-      console.log(`[push-to-live] Starting bulk sync to ${liveBase}`);
+      console.log(`[push-to-live] Starting bulk sync to ${targetBaseUrl}`);
 
       while (keepGoing) {
-        // Read from own DB
         const { data: items, error: readErr } = await supabase
           .from("catalog_items")
           .select("*")
@@ -181,16 +245,12 @@ Deno.serve(async (req) => {
 
         if (batch.length === 0) break;
 
-        // Push in sub-chunks to Live
         for (let i = 0; i < batch.length; i += importChunkSize) {
           const chunk = batch.slice(i, i + importChunkSize);
           try {
             const resp = await fetch(liveImportUrl, {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-cron-secret": hardcodedCron,
-              },
+              headers: buildCronHeaders(),
               body: JSON.stringify({ mode: "import", items: chunk }),
             });
 
@@ -212,7 +272,6 @@ Deno.serve(async (req) => {
 
         page++;
 
-        // Log progress every 10 pages
         if (page % 10 === 0) {
           console.log(`[push-to-live] Progress: page=${page}, read=${totalRead}, pushed=${totalPushed}, skipped=${totalSkipped}, errors=${totalErrors}`);
         }
@@ -233,7 +292,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    return jsonRes({ error: "Invalid mode. Use 'export', 'import', or 'push-to-live'" }, 400);
+    return jsonRes({ error: "Invalid mode. Use 'export', 'import', 'push-page', or 'push-to-live'" }, 400);
   } catch (err) {
     console.error("[catalog-data-sync] Error:", err);
     return jsonRes({ error: err.message }, 500);

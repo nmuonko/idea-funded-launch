@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveIngestionTarget, buildWorkerHeaders } from "../_shared/ingestionTarget.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -375,6 +376,25 @@ async function handleAction(req: Request, action: string) {
     return json({ success: true });
   }
 
+  if (action === "get-ingestion-target") {
+    const { targetBaseUrl, isRemoteTarget, localBaseUrl } = await resolveIngestionTarget(sb);
+    return json({ targetBaseUrl, isRemoteTarget, localBaseUrl });
+  }
+
+  if (action === "set-ingestion-target") {
+    const url = body.url?.trim();
+    if (!url) return json({ error: "url required" }, 400);
+    if (!url.startsWith("https://") || !url.includes("/functions/v1")) {
+      return json({ error: "URL must be https://...supabase.co/functions/v1" }, 400);
+    }
+    const { error } = await sb.from("admin_settings").upsert(
+      { key: "edge_function_base_url", value: url, updated_at: new Date().toISOString() },
+      { onConflict: "key" }
+    );
+    if (error) return json({ error: error.message }, 500);
+    return json({ success: true, url });
+  }
+
   if (action === "run-builder") {
     const provider = body.provider || "ebay";
     const categoryKey = body.category_key || undefined;
@@ -392,9 +412,10 @@ async function handleAction(req: Request, action: string) {
       return json({ error: `Provider ${provider} is currently unhealthy: ${health.reason}`, unhealthy_until: health.unhealthy_until }, 429);
     }
 
-    // Call catalog-refresh-worker with mode=catalog-builder
-    const workerUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/catalog-refresh-worker`;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    // Route to target (Live if configured)
+    const { targetBaseUrl } = await resolveIngestionTarget(sb);
+    const workerUrl = `${targetBaseUrl}/catalog-refresh-worker`;
+    console.log(`[run-builder] Routing to: ${workerUrl}`);
 
     const workerBody: Record<string, unknown> = { 
       mode: "catalog-builder", 
@@ -406,15 +427,12 @@ async function handleAction(req: Request, action: string) {
 
     const res = await fetch(workerUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${serviceKey}`,
-      },
+      headers: buildWorkerHeaders(),
       body: JSON.stringify(workerBody),
     });
 
     const result = await res.json();
-    return json({ success: true, worker_result: result, provider });
+    return json({ success: true, worker_result: result, provider, routed_to: workerUrl });
   }
 
   if (action === "start-campaign") {
@@ -466,8 +484,9 @@ async function handleAction(req: Request, action: string) {
     const batchSize = body.batch_size || 50;
     const categoryKey = body.category_key || undefined;
 
-    const workerUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/catalog-refresh-worker`;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const { targetBaseUrl } = await resolveIngestionTarget(sb);
+    const workerUrl = `${targetBaseUrl}/catalog-refresh-worker`;
+    console.log(`[run-link-check] Routing to: ${workerUrl}`);
 
     const workerBody: Record<string, unknown> = {
       mode: "link-check",
@@ -477,15 +496,32 @@ async function handleAction(req: Request, action: string) {
 
     const res = await fetch(workerUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${serviceKey}`,
-      },
+      headers: buildWorkerHeaders(),
       body: JSON.stringify(workerBody),
     });
 
     const result = await res.json();
     return json({ success: true, worker_result: result });
+  }
+
+  if (action === "run-car-scraper") {
+    const { targetBaseUrl } = await resolveIngestionTarget(sb);
+    const scraperUrl = `${targetBaseUrl}/catalog-car-scraper`;
+    console.log(`[run-car-scraper] Routing to: ${scraperUrl}`);
+
+    const res = await fetch(scraperUrl, {
+      method: "POST",
+      headers: buildWorkerHeaders(),
+      body: JSON.stringify({
+        provider: body.provider || "cargurus",
+        max_price: body.max_price || 15000,
+        max_pages: body.max_pages || 5,
+        mode: body.mode || "firecrawl-first",
+      }),
+    });
+
+    const result = await res.json();
+    return json({ success: true, worker_result: result, routed_to: scraperUrl });
   }
 
   return json({ error: "unknown action" }, 400);

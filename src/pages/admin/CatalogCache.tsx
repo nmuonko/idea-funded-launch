@@ -324,18 +324,17 @@ function FetchProducts({ onFetchComplete }: { onFetchComplete?: (info: { query: 
       let result: any;
 
       if (isCarProvider) {
-        // Route to catalog-car-scraper for car providers
-        const { data, error } = await supabase.functions.invoke('catalog-car-scraper', {
-          method: 'POST',
-          body: {
-            provider,
-            max_price: 15000,
-            max_pages: Math.min(Math.ceil(quantity / 15), 5),
-            mode: 'firecrawl-first',
-          },
+        // Route through backend so it goes to the target (Live) environment
+        result = await postAction('run-car-scraper', {
+          provider,
+          max_price: 15000,
+          max_pages: Math.min(Math.ceil(quantity / 15), 5),
+          mode: 'firecrawl-first',
         });
-        if (error) throw error;
-        result = { worker_result: { items_upserted: data?.upserted_count ?? 0, new_unique_items: data?.listings_found ?? 0, duplicates_skipped: 0 } };
+        if (result?.worker_result) {
+          const wr = result.worker_result;
+          result = { worker_result: { items_upserted: wr.upserted_count ?? wr.items_upserted ?? 0, new_unique_items: wr.listings_found ?? wr.new_unique_items ?? 0, duplicates_skipped: 0 } };
+        }
       } else {
         result = await postAction('run-builder', {
           provider,
@@ -1283,23 +1282,74 @@ function DataSync() {
   const [exportProgress, setExportProgress] = useState('');
   const [importProgress, setImportProgress] = useState('');
   const [pushProgress, setPushProgress] = useState('');
+  const [pushStats, setPushStats] = useState<{ page: number; read: number; pushed: number; skipped: number; errors: number } | null>(null);
+  const pushAbortRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Fetch ingestion target info
+  const { data: targetInfo } = useQuery({
+    queryKey: ['ingestion-target'],
+    queryFn: async () => {
+      const result = await postAction('get-ingestion-target', {});
+      return result as { targetBaseUrl: string; isRemoteTarget: boolean; localBaseUrl: string };
+    },
+    staleTime: 60_000,
+  });
+
   const handlePushToLive = async () => {
-    if (!confirm('This will push ALL catalog items from Test to Live. Duplicates are auto-skipped. Continue?')) return;
+    if (!targetInfo?.isRemoteTarget) {
+      toast.error('Ingestion target points to the same environment. Set edge_function_base_url to Live URL first.');
+      return;
+    }
+    if (!confirm('This will push ALL catalog items page-by-page to Live. Continue?')) return;
+    
     setPushing(true);
-    setPushProgress('Starting push to Live... This may take several minutes for large catalogs.');
+    pushAbortRef.current = false;
+    setPushStats({ page: 0, read: 0, pushed: 0, skipped: 0, errors: 0 });
+    setPushProgress('Starting paged push to Live...');
+
+    let page = 0;
+    let totalRead = 0;
+    let totalPushed = 0;
+    let totalSkipped = 0;
+    let totalErrors = 0;
+    let done = false;
+
     try {
-      const { data, error } = await supabase.functions.invoke('catalog-data-sync', {
-        method: 'POST',
-        body: { mode: 'push-to-live' },
-      });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      toast.success(`Push complete: ${data.pushed} pushed, ${data.skipped} skipped, ${data.errors || 0} errors (${Math.round((data.duration_ms || 0) / 1000)}s)`);
+      while (!done && !pushAbortRef.current) {
+        setPushProgress(`Pushing page ${page + 1}... (${totalRead} items read, ${totalPushed} pushed)`);
+
+        const { data, error } = await supabase.functions.invoke('catalog-data-sync', {
+          method: 'POST',
+          body: { mode: 'push-page', page, pageSize: 1000 },
+        });
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+
+        totalRead += data.read || 0;
+        totalPushed += data.pushed || 0;
+        totalSkipped += data.skipped || 0;
+        totalErrors += data.errors || 0;
+        done = data.done === true;
+        page++;
+
+        setPushStats({ page, read: totalRead, pushed: totalPushed, skipped: totalSkipped, errors: totalErrors });
+
+        // Stop on hard errors (>50% of page failed)
+        if (data.errors > 0 && data.errors > (data.read || 1) * 0.5) {
+          toast.error(`Too many errors on page ${page}, stopping. You can resume.`);
+          break;
+        }
+      }
+
+      if (pushAbortRef.current) {
+        toast.info('Push stopped by user.');
+      } else {
+        toast.success(`Push complete: ${totalPushed} pushed, ${totalSkipped} skipped, ${totalErrors} errors across ${page} pages`);
+      }
       setPushProgress('');
     } catch (e: any) {
-      toast.error(`Push failed: ${e.message}`);
+      toast.error(`Push failed at page ${page}: ${e.message}`);
       setPushProgress('');
     } finally {
       setPushing(false);
@@ -1356,7 +1406,6 @@ function DataSync() {
         throw new Error('No items found in file');
       }
 
-      // Send in chunks of 200 to stay within request size limits
       const chunkSize = 200;
       let totalInserted = 0;
       let totalSkipped = 0;
@@ -1400,9 +1449,26 @@ function DataSync() {
           Data Sync (Export / Import)
         </CardTitle>
       </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground mb-4">
-          Export items from this environment as JSON, then import into another (e.g. Live) via the published admin panel.
+      <CardContent className="space-y-4">
+        {/* Target Info */}
+        <div className="rounded-md border p-3 space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">Ingestion Target</p>
+          {targetInfo ? (
+            <>
+              <p className="text-sm font-mono truncate">{targetInfo.targetBaseUrl}</p>
+              {targetInfo.isRemoteTarget ? (
+                <Badge variant="default" className="text-[10px]">→ Routes to Live</Badge>
+              ) : (
+                <Badge variant="destructive" className="text-[10px]">⚠ Points to same environment (self)</Badge>
+              )}
+            </>
+          ) : (
+            <Skeleton className="h-5 w-64" />
+          )}
+        </div>
+
+        <p className="text-sm text-muted-foreground">
+          Export items from this environment as JSON, or push page-by-page to Live.
         </p>
         <div className="flex flex-wrap gap-3 items-center">
           <Button onClick={handleExport} disabled={exporting || importing} variant="outline">
@@ -1433,15 +1499,42 @@ function DataSync() {
 
           <Button
             onClick={handlePushToLive}
-            disabled={exporting || importing || pushing}
+            disabled={exporting || importing || pushing || !targetInfo?.isRemoteTarget}
             variant="default"
           >
             {pushing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
-            {pushing ? 'Pushing...' : 'Push All to Live'}
+            {pushing ? 'Pushing...' : 'Push All to Live (Paged)'}
           </Button>
+          {pushing && (
+            <Button variant="destructive" size="sm" onClick={() => { pushAbortRef.current = true; }}>
+              Stop
+            </Button>
+          )}
         </div>
+
+        {/* Push progress */}
+        {pushStats && (
+          <div className="rounded-md border p-3 space-y-2">
+            <div className="flex items-center gap-2 text-sm">
+              {pushing ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : <CheckCircle className="h-4 w-4 text-green-600" />}
+              <span className="font-medium">
+                {pushing ? `Page ${pushStats.page}...` : `Done — ${pushStats.page} pages`}
+              </span>
+            </div>
+            <div className="grid grid-cols-4 gap-3 text-xs">
+              <div><span className="text-muted-foreground">Read:</span> <span className="font-mono">{pushStats.read.toLocaleString()}</span></div>
+              <div><span className="text-muted-foreground">Pushed:</span> <span className="font-mono text-green-600">{pushStats.pushed.toLocaleString()}</span></div>
+              <div><span className="text-muted-foreground">Skipped:</span> <span className="font-mono">{pushStats.skipped.toLocaleString()}</span></div>
+              <div><span className="text-muted-foreground">Errors:</span> <span className="font-mono text-destructive">{pushStats.errors.toLocaleString()}</span></div>
+            </div>
+            {pushStats.read > 0 && (
+              <Progress value={pushing ? undefined : 100} className="h-1.5" />
+            )}
+          </div>
+        )}
+
         {(exportProgress || importProgress || pushProgress) && (
-          <p className="text-xs text-muted-foreground mt-2">{exportProgress || importProgress || pushProgress}</p>
+          <p className="text-xs text-muted-foreground">{exportProgress || importProgress || pushProgress}</p>
         )}
       </CardContent>
     </Card>

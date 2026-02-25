@@ -188,7 +188,8 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
 
       console.log(`[EBAY_FETCH] requestId=${requestId} raw=${rawCount} filtered=${mappedCount} final=${items.length} failOpen=${failOpenUsed} total=${total}`);
 
-      // Upsert to DB (async, don't wait)
+      // Upsert to target DB (async, don't wait)
+      // Uses ingestion target to route to Live if configured
       const toUpsert = filteredItems.map(item => {
         const { category, subcategory } = mapCategoryAndSubcategory({
           title: item.title, provider: "ebay", productUrl: item.product_url,
@@ -207,9 +208,43 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
         };
       });
 
+      // Check if we should route upserts to a remote target
       const _sbUrl = Deno.env.get("SUPABASE_URL")!;
       const _sbKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      createClient(_sbUrl, _sbKey).from("catalog_items").upsert(toUpsert, { onConflict: "id" });
+      const localClient = createClient(_sbUrl, _sbKey);
+      
+      // Try to resolve ingestion target for remote routing
+      try {
+        const { data: setting } = await localClient
+          .from("admin_settings")
+          .select("value")
+          .eq("key", "edge_function_base_url")
+          .maybeSingle();
+        
+        const targetUrl = setting?.value?.trim();
+        const localRef = _sbUrl.match(/https:\/\/([a-z0-9]+)\./)?.[1];
+        const targetRef = targetUrl?.match(/https:\/\/([a-z0-9]+)\./)?.[1];
+        
+        if (targetUrl && targetRef && localRef !== targetRef) {
+          // Route to remote target via import endpoint
+          const importUrl = `${targetUrl}/catalog-data-sync`;
+          console.log(`[EBAY_FETCH] Routing ${toUpsert.length} items to Live: ${importUrl}`);
+          fetch(importUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-internal-cron-key": "afrishop-internal-cron-2026",
+            },
+            body: JSON.stringify({ mode: "import", items: toUpsert }),
+          }).catch(e => console.error("[EBAY_FETCH] Remote upsert error:", e));
+        } else {
+          // Local upsert
+          localClient.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
+        }
+      } catch {
+        // Fallback: local upsert
+        localClient.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
+      }
 
       return { items, hasMore, total, rawCount, mappedCount, filteredCount: items.length, failOpenUsed };
     }

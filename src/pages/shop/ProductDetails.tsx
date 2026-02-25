@@ -630,6 +630,7 @@ export default function ProductDetailsPage() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
+                    style={{ objectFit: 'contain' }}
                     className="absolute inset-0 w-full h-full !object-contain p-4 sm:p-8"
                     onLoad={(e) => {
                       if (import.meta.env.DEV) {

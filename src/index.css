@@ -400,17 +400,20 @@ All colors MUST be HSL.
   height: env(safe-area-inset-bottom, 0px);
 }
 
-/* Product hero: force contain on mobile regardless of carousel/library CSS */
-@media (max-width: 768px) {
-  [data-product-hero="true"] img {
-    object-fit: contain !important;
-  }
-  [data-product-hero="true"] .slide img,
-  [data-product-hero="true"] .carousel img,
-  [data-product-hero="true"] .swiper-slide img,
-  [data-product-hero="true"] .embla__slide img {
-    object-fit: contain !important;
-    width: 100% !important;
-    height: 100% !important;
-  }
+/* Product hero: force contain at ALL viewports regardless of carousel/library CSS */
+[data-product-hero="true"] img,
+[data-product-hero="true"] .slide img,
+[data-product-hero="true"] .carousel img,
+[data-product-hero="true"] .swiper-slide img,
+[data-product-hero="true"] .embla__slide img {
+  object-fit: contain !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* If hero uses background images anywhere */
+[data-product-hero="true"] [style*="background-image"] {
+  background-size: contain !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
 }

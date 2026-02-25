@@ -1,16 +1,15 @@
 /**
- * Catalog Car Scraper — Firecrawl-Primary with Free Fallback
+ * Catalog Car Scraper — Two-Stage Firecrawl with Smart Fallback
  * 
- * Scrapes CarGurus and Carvana for cheap vehicles and upserts into catalog_items.
- * Primary path uses Firecrawl (reliable JS rendering + structured JSON extraction).
- * Free HTML parsing is used as fallback when Firecrawl key is missing or fails.
+ * Stage A (fast): Firecrawl markdown+links with short wait → parse deterministically
+ * Stage B (heavy): Firecrawl extract (structured JSON) only if Stage A insufficient
+ * Fallback: Free HTML parsing only if Firecrawl unavailable
  * 
  * Auth: x-cron-secret header OR admin JWT
  */
 
 import { createClient } from "@supabase/supabase-js";
 import { cronAuthErrorResponse } from "../_shared/cronAuth.ts";
-
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -42,7 +41,7 @@ interface CarListing {
 
 interface ScrapeResult {
   provider: string;
-  mode_used: "firecrawl" | "free" | "free-only";
+  mode_used: string;
   pages_fetched: number;
   listings_found: number;
   upserted_count: number;
@@ -51,6 +50,10 @@ interface ScrapeResult {
   sample: CarListing[];
   elapsed_ms?: number;
   drop_reasons?: Record<string, number>;
+  firecrawl_status?: string;
+  fallback_used?: boolean;
+  blocked_statuses?: number[];
+  diagnostics?: string;
 }
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
@@ -58,7 +61,10 @@ interface ScrapeResult {
 const MAX_PAGES_CAP = 5;
 const DEFAULT_MAX_PRICE = 50000;
 const DEFAULT_MAX_PAGES = 2;
-const FIRECRAWL_TIMEOUT_MS = 20000;
+const STAGE_A_TIMEOUT_MS = 15000;   // 15s for fast markdown scrape
+const STAGE_B_TIMEOUT_MS = 18000;   // 18s for heavy extract
+const HARD_FUNCTION_CAP_MS = 50000; // 50s total function budget
+const BLOCKED_STATUSES = new Set([403, 418, 429, 503]);
 
 const BROWSER_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -78,39 +84,33 @@ function buildSearchUrl(provider: string, maxPrice: number, page: number, search
     const base = `https://www.carvana.com/cars?priceMax=${maxPrice}&sortBy=PRICE_LOW&page=${page}`;
     return searchQuery ? `${base}&search=${encodeURIComponent(searchQuery)}` : base;
   }
-  // CarGurus — use the search endpoint when a query is provided
   if (searchQuery) {
     return `https://www.cargurus.com/Cars/inventorylisting/viewDetailsFilterViewInventoryListing.action?sortDir=ASC&sortType=PRICE&maxPrice=${maxPrice}&searchQuery=${encodeURIComponent(searchQuery)}&offset=${(page - 1) * 15}`;
   }
   return `https://www.cargurus.com/Cars/inventorylisting/viewDetailsFilterViewInventoryListing.action?sortDir=ASC&sortType=PRICE&maxPrice=${maxPrice}&offset=${(page - 1) * 15}`;
 }
 
-// ── JITTER DELAY ───────────────────────────────────────────────────────────
+// ── HELPERS ────────────────────────────────────────────────────────────────
 
 function jitterDelay(): Promise<void> {
-  const ms = 800 + Math.floor(Math.random() * 400); // 800–1200ms
+  const ms = 800 + Math.floor(Math.random() * 400);
   return new Promise((r) => setTimeout(r, ms));
 }
-
-// ── EXTRACT PRODUCT ID FROM URL ────────────────────────────────────────────
 
 function extractProductId(url: string, provider: string): string {
   try {
     const u = new URL(url);
     if (provider === "carvana") {
-      // e.g. /vehicle/12345
       const match = u.pathname.match(/\/vehicle\/(\d+)/);
       if (match) return match[1];
     }
     if (provider === "cargurus") {
-      // e.g. inventoryListing?id=12345 or /listing/12345
       const id = u.searchParams.get("id") || u.searchParams.get("listingId");
       if (id) return id;
       const match = u.pathname.match(/\/listing\/([^\/]+)/);
       if (match) return match[1];
     }
   } catch { /* fallthrough */ }
-  // Fallback: hash the URL
   let hash = 0;
   for (let i = 0; i < url.length; i++) {
     hash = ((hash << 5) - hash + url.charCodeAt(i)) | 0;
@@ -122,14 +122,165 @@ function parseUsd(value: unknown): number | null {
   if (typeof value === "number") {
     return Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
   }
-
   if (typeof value !== "string") return null;
-
-  // Handles formats like "$14,995", "14995", "14 995", "USD 14995"
   const cleaned = value.replace(/[^\d.,]/g, "").replace(/,/g, "");
   const parsed = parseFloat(cleaned);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return Math.round(parsed * 100) / 100;
+}
+
+// ── MARKDOWN LISTING PARSER ────────────────────────────────────────────────
+// Parse car listings from Firecrawl markdown output deterministically
+
+function parseListingsFromMarkdown(
+  markdown: string,
+  links: string[],
+  provider: string,
+  maxPrice: number,
+  dropReasons: Record<string, number>,
+): CarListing[] {
+  const listings: CarListing[] = [];
+  const seenIds = new Set<string>();
+
+  // Strategy 1: Parse markdown lines looking for price + title patterns
+  // CarGurus/Carvana markdown typically has lines like:
+  //   "2021 Tesla Model 3 Standard Range Plus" followed by "$25,999" or "Price: $25,999"
+  const lines = markdown.split("\n").map(l => l.trim()).filter(Boolean);
+  
+  // Build a map of listing URLs from links array
+  const listingUrls: string[] = [];
+  const domain = provider === "carvana" ? "carvana.com" : "cargurus.com";
+  for (const link of links) {
+    if (link.includes(domain) && (
+      link.includes("/vehicle/") || 
+      link.includes("/listing/") || 
+      link.includes("inventoryListing") ||
+      link.includes("listingId=") ||
+      link.includes("/vdp/")
+    )) {
+      listingUrls.push(link);
+    }
+  }
+
+  // Strategy 2: Look for price patterns and nearby text
+  const priceRegex = /\$[\d,]+(?:\.\d{2})?/g;
+  const yearMakeModelRegex = /\b(19|20)\d{2}\s+[A-Z][a-zA-Z]+\s+[A-Za-z0-9\s\-]+/;
+  
+  let currentTitle = "";
+  let currentPrice: number | null = null;
+  let currentImageUrl = "";
+  let urlIndex = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Check for year-make-model pattern (title candidate)
+    const titleMatch = line.match(yearMakeModelRegex);
+    if (titleMatch) {
+      // If we had a previous complete listing, save it
+      if (currentTitle && currentPrice !== null) {
+        const url = urlIndex < listingUrls.length ? listingUrls[urlIndex++] : "";
+        if (url) {
+          const pid = extractProductId(url, provider);
+          if (!seenIds.has(pid)) {
+            seenIds.add(pid);
+            listings.push({
+              title: currentTitle,
+              price_usd: currentPrice,
+              image_url: currentImageUrl,
+              product_url: url,
+              provider_product_id: pid,
+              condition: "Used",
+            });
+          }
+        } else {
+          dropReasons["missing_url"] = (dropReasons["missing_url"] || 0) + 1;
+        }
+      }
+      currentTitle = titleMatch[0].trim();
+      currentPrice = null;
+      currentImageUrl = "";
+    }
+
+    // Check for price on this line or nearby
+    const priceMatches = line.match(priceRegex);
+    if (priceMatches && currentTitle) {
+      for (const pm of priceMatches) {
+        const p = parseUsd(pm);
+        if (p && p <= maxPrice && p >= 500) { // min $500 for a car
+          currentPrice = p;
+          break;
+        } else if (p && p > maxPrice) {
+          dropReasons["above_max_price"] = (dropReasons["above_max_price"] || 0) + 1;
+        }
+      }
+    }
+
+    // Check for image URLs
+    const imgMatch = line.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
+    if (imgMatch && currentTitle) {
+      currentImageUrl = imgMatch[1];
+    }
+  }
+
+  // Don't forget the last pending listing
+  if (currentTitle && currentPrice !== null) {
+    const url = urlIndex < listingUrls.length ? listingUrls[urlIndex++] : "";
+    if (url) {
+      const pid = extractProductId(url, provider);
+      if (!seenIds.has(pid)) {
+        seenIds.add(pid);
+        listings.push({
+          title: currentTitle,
+          price_usd: currentPrice,
+          image_url: currentImageUrl,
+          product_url: url,
+          provider_product_id: pid,
+          condition: "Used",
+        });
+      }
+    }
+  }
+
+  // Strategy 3: If markdown parsing got few results, try matching prices to URLs directly
+  if (listings.length < 3 && listingUrls.length > 0) {
+    const allPrices: number[] = [];
+    let m: RegExpExecArray | null;
+    const priceRe = /\$[\d,]+(?:\.\d{2})?/g;
+    while ((m = priceRe.exec(markdown)) !== null) {
+      const p = parseUsd(m[0]);
+      if (p && p >= 500 && p <= maxPrice) allPrices.push(p);
+    }
+
+    // Try to pair remaining URLs with prices
+    for (let j = 0; j < listingUrls.length && j < allPrices.length; j++) {
+      const url = listingUrls[j];
+      const pid = extractProductId(url, provider);
+      if (seenIds.has(pid)) continue;
+      seenIds.add(pid);
+      
+      // Try to extract title from URL
+      let title = "";
+      try {
+        const urlPath = new URL(url).pathname;
+        const parts = urlPath.split("/").filter(Boolean);
+        title = parts.filter(p => !p.match(/^\d+$/)).join(" ").replace(/-/g, " ");
+      } catch { /* ignore */ }
+      
+      if (!title) title = `${provider} listing ${pid}`;
+
+      listings.push({
+        title,
+        price_usd: allPrices[j],
+        image_url: "",
+        product_url: url,
+        provider_product_id: pid,
+        condition: "Used",
+      });
+    }
+  }
+
+  return listings;
 }
 
 // ── FREE PARSING: JSON-LD ──────────────────────────────────────────────────
@@ -181,11 +332,9 @@ function parseNextData(html: string, provider: string, maxPrice: number): { list
   
   try {
     const nextData = JSON.parse(match[1]);
-    // Navigate through typical Next.js data structures
     const props = nextData?.props?.pageProps;
     if (!props) return { listings, method: "nextdata" };
     
-    // Carvana stores vehicle results in various keys
     const vehicles = props.vehicles || props.listings || props.inventory || props.results || [];
     const vehicleList = Array.isArray(vehicles) ? vehicles : [];
     
@@ -218,7 +367,6 @@ function parseNextData(html: string, provider: string, maxPrice: number): { list
 
 function parseEmbeddedState(html: string, provider: string, maxPrice: number): { listings: CarListing[]; method: string } {
   const listings: CarListing[] = [];
-  // Try window.__INITIAL_STATE__, __APOLLO_STATE__, etc.
   const statePatterns = [
     /window\.__INITIAL_STATE__\s*=\s*({[\s\S]*?});?\s*(?:<\/script>|window\.)/,
     /window\.__APOLLO_STATE__\s*=\s*({[\s\S]*?});?\s*(?:<\/script>|window\.)/,
@@ -230,7 +378,6 @@ function parseEmbeddedState(html: string, provider: string, maxPrice: number): {
     if (!match) continue;
     try {
       const state = JSON.parse(match[1]);
-      // Walk all top-level keys looking for arrays of vehicle-like objects
       for (const key of Object.keys(state)) {
         const val = state[key];
         if (!Array.isArray(val)) continue;
@@ -263,19 +410,6 @@ function parseEmbeddedState(html: string, provider: string, maxPrice: number): {
   return { listings, method: "state" };
 }
 
-// ── FREE PARSING: Minimal Regex Fallback ───────────────────────────────────
-
-function parseRegexFallback(html: string, provider: string, maxPrice: number): { listings: CarListing[]; method: string } {
-  const listings: CarListing[] = [];
-  // Very simple: look for price + title patterns in listing cards
-  // This is a last resort and will be noisy
-  const pricePattern = /\$[\d,]+/g;
-  const prices = html.match(pricePattern) || [];
-  // Not useful alone — just count how many price-like strings exist
-  // We won't create listings from pure regex as it's too unreliable
-  return { listings, method: "regex" };
-}
-
 // ── FREE SCRAPE PIPELINE ───────────────────────────────────────────────────
 
 async function freeScrape(
@@ -283,6 +417,7 @@ async function freeScrape(
   maxPrice: number,
   maxPages: number,
   searchQuery?: string,
+  blockedStatuses?: number[],
 ): Promise<{
   listings: CarListing[];
   blockedCount: number;
@@ -292,38 +427,41 @@ async function freeScrape(
   const allListings: CarListing[] = [];
   const seenIds = new Set<string>();
   let blockedCount = 0;
-  const parseMethods: Record<string, number> = { jsonld: 0, nextdata: 0, state: 0, regex: 0 };
+  const parseMethods: Record<string, number> = { jsonld: 0, nextdata: 0, state: 0 };
   let pagesFetched = 0;
 
   for (let page = 1; page <= maxPages; page++) {
     const url = buildSearchUrl(provider, maxPrice, page, searchQuery);
-    console.log(`[CAR_SCRAPER] ${provider} page=${page} url=${url}`);
+    console.log(`[CAR_SCRAPER] free ${provider} page=${page} url=${url}`);
 
     try {
-      const resp = await fetch(url, { headers: BROWSER_HEADERS });
+      const resp = await fetch(url, { 
+        headers: BROWSER_HEADERS,
+        signal: AbortSignal.timeout(10000), // 10s cap per free fetch
+      });
       pagesFetched++;
 
-      if (resp.status === 403 || resp.status === 429) {
-        console.warn(`[CAR_SCRAPER] ${provider} page=${page} BLOCKED status=${resp.status}`);
+      if (BLOCKED_STATUSES.has(resp.status)) {
+        console.warn(`[CAR_SCRAPER] free ${provider} page=${page} BLOCKED status=${resp.status}`);
         blockedCount++;
-        await resp.text(); // consume body
-        continue;
+        blockedStatuses?.push(resp.status);
+        await resp.text();
+        // Don't try more pages if blocked — provider is blocking us
+        break;
       }
       if (!resp.ok) {
-        console.warn(`[CAR_SCRAPER] ${provider} page=${page} status=${resp.status}`);
+        console.warn(`[CAR_SCRAPER] free ${provider} page=${page} status=${resp.status}`);
         await resp.text();
         continue;
       }
 
       const html = await resp.text();
-      console.log(`[CAR_SCRAPER] ${provider} page=${page} html_length=${html.length}`);
+      console.log(`[CAR_SCRAPER] free ${provider} page=${page} html_length=${html.length}`);
 
-      // Try parsers in order of reliability
       const parsers = [
         () => parseJsonLd(html, provider, maxPrice),
         () => parseNextData(html, provider, maxPrice),
         () => parseEmbeddedState(html, provider, maxPrice),
-        () => parseRegexFallback(html, provider, maxPrice),
       ];
 
       for (const parser of parsers) {
@@ -338,42 +476,53 @@ async function freeScrape(
         }
       }
 
-      console.log(`[CAR_SCRAPER] ${provider} page=${page} listings_found=${allListings.length}`);
+      console.log(`[CAR_SCRAPER] free ${provider} page=${page} listings_found=${allListings.length}`);
     } catch (err) {
-      console.error(`[CAR_SCRAPER] ${provider} page=${page} error:`, (err as Error).message);
+      console.error(`[CAR_SCRAPER] free ${provider} page=${page} error:`, (err as Error).message);
       blockedCount++;
     }
 
-    // Jitter between pages
     if (page < maxPages) await jitterDelay();
   }
 
   return { listings: allListings, blockedCount, parseMethods, pagesFetched };
 }
 
-// ── FIRECRAWL PRIMARY ──────────────────────────────────────────────────────
+// ── STAGE A: FAST FIRECRAWL (markdown + links) ────────────────────────────
 
-async function firecrawlScrape(
+async function firecrawlStageA(
   provider: string,
   maxPrice: number,
   maxPages: number,
   apiKey: string,
-  searchQuery?: string,
+  searchQuery: string | undefined,
+  targetItems: number,
+  dropReasons: Record<string, number>,
+  functionStartTime: number,
 ): Promise<{
   listings: CarListing[];
   pagesFetched: number;
+  status: string;
 }> {
   const allListings: CarListing[] = [];
   const seenIds = new Set<string>();
   let pagesFetched = 0;
+  let status = "ok";
 
   for (let page = 1; page <= maxPages; page++) {
+    // Check hard function time cap
+    if (Date.now() - functionStartTime > HARD_FUNCTION_CAP_MS) {
+      status = "time_cap_reached";
+      console.warn(`[CAR_SCRAPER] Stage A: hard time cap reached at ${Date.now() - functionStartTime}ms`);
+      break;
+    }
+
     const url = buildSearchUrl(provider, maxPrice, page, searchQuery);
-    console.log(`[CAR_SCRAPER] firecrawl ${provider} page=${page} url=${url}`);
+    console.log(`[CAR_SCRAPER] stageA ${provider} page=${page} url=${url}`);
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), FIRECRAWL_TIMEOUT_MS);
+      const timeoutId = setTimeout(() => controller.abort(), STAGE_A_TIMEOUT_MS);
 
       const resp = await fetch("https://api.firecrawl.dev/v1/scrape", {
         method: "POST",
@@ -384,103 +533,198 @@ async function firecrawlScrape(
         },
         body: JSON.stringify({
           url,
-          formats: ["extract"],
-          extract: {
-            schema: {
-              type: "object",
-              properties: {
-                listings: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      title: { type: "string" },
-                      price: { type: "number" },
-                      year: { type: "number" },
-                      mileage: { type: "string" },
-                      condition: { type: "string" },
-                      imageUrl: { type: "string" },
-                      listingUrl: { type: "string" },
-                    },
-                  },
-                },
-              },
-            },
-            prompt: "Extract every vehicle listing shown on the page. Return listings with: title (year make model trim), price (number USD), year (number if visible), mileage (string if visible), condition (string if visible), imageUrl (string), listingUrl (string full URL). Do not invent values. If missing, omit that field.",
-          },
+          formats: ["markdown", "links"],
           onlyMainContent: true,
-          waitFor: 15000,
+          waitFor: 5000, // 5s render wait (vs 15s before)
         }),
       });
 
       clearTimeout(timeoutId);
       pagesFetched++;
+
       if (!resp.ok) {
         const errText = await resp.text();
-        console.error(`[CAR_SCRAPER] firecrawl error: ${resp.status} ${errText.substring(0, 200)}`);
+        console.error(`[CAR_SCRAPER] stageA firecrawl error: ${resp.status} ${errText.substring(0, 200)}`);
+        status = `firecrawl_error_${resp.status}`;
         continue;
       }
 
       const data = await resp.json();
-      const extractData = data?.data?.extract || data?.extract || data?.data?.json || data?.json || {};
-      const fcListings = extractData?.listings || [];
+      const markdown = data?.data?.markdown || data?.markdown || "";
+      const links = data?.data?.links || data?.links || [];
+      
+      console.log(`[CAR_SCRAPER] stageA ${provider} page=${page} markdown_len=${markdown.length} links=${links.length}`);
 
-      for (const item of fcListings) {
-        const rawTitle = item.title || item.name || item.heading || item.vehicleTitle || "";
-        const rawUrl = item.listingUrl || item.url || item.link || item.productUrl || item.product_url || "";
-        const rawPrice = item.price ?? item.priceUsd ?? item.price_usd ?? item.listPrice ?? item.list_price;
+      if (markdown.length < 100) {
+        console.warn(`[CAR_SCRAPER] stageA: markdown too short (${markdown.length}), likely blocked or empty`);
+        status = "markdown_empty";
+        continue;
+      }
 
-        // Strict enough for quality, flexible enough for real-world Firecrawl output
-        const title = String(rawTitle || "").trim();
-        const priceNum = parseUsd(rawPrice);
-        if (!title || !priceNum || priceNum > maxPrice) continue;
+      // Also try to parse HTML content that Firecrawl may include
+      const html = data?.data?.html || data?.html || "";
 
-        // Ensure listingUrl is absolute
-        let productUrl = String(rawUrl || "").trim();
-        if (productUrl && !productUrl.startsWith("http")) {
-          const domain = provider === "carvana" ? "https://www.carvana.com" : "https://www.cargurus.com";
-          productUrl = `${domain}${productUrl.startsWith("/") ? "" : "/"}${productUrl}`;
-        }
-        if (!productUrl) continue;
+      // Parse from markdown
+      const mdListings = parseListingsFromMarkdown(markdown, links, provider, maxPrice, dropReasons);
+      
+      // Also try JSON-LD from HTML if available
+      let htmlListings: CarListing[] = [];
+      if (html.length > 500) {
+        htmlListings = parseJsonLd(html, provider, maxPrice).listings;
+      }
 
-        const pid = extractProductId(productUrl, provider);
-
-        if (!seenIds.has(pid)) {
-          seenIds.add(pid);
-          allListings.push({
-            title,
-            price_usd: priceNum,
-            image_url:
-              item.imageUrl ||
-              item.image ||
-              item.thumbnail ||
-              item.thumbnailUrl ||
-              item.mainImage ||
-              item.heroImageUrl ||
-              "",
-            product_url: productUrl,
-            year: item.year,
-            mileage: item.mileage,
-            condition: item.condition,
-            provider_product_id: pid,
-          });
+      // Merge both
+      for (const listing of [...mdListings, ...htmlListings]) {
+        if (!seenIds.has(listing.provider_product_id)) {
+          seenIds.add(listing.provider_product_id);
+          allListings.push(listing);
         }
       }
 
-      console.log(`[CAR_SCRAPER] firecrawl ${provider} page=${page} found=${fcListings.length} total=${allListings.length}`);
+      console.log(`[CAR_SCRAPER] stageA ${provider} page=${page} parsed=${mdListings.length}md+${htmlListings.length}html total=${allListings.length}`);
+
+      // Early stop if target reached
+      if (allListings.length >= targetItems) {
+        console.log(`[CAR_SCRAPER] stageA: target ${targetItems} reached with ${allListings.length}, stopping early`);
+        break;
+      }
     } catch (err) {
       const msg = (err as Error).message || "";
-      if (msg.includes("aborted") || msg.includes("abort")) {
-        console.warn(`[CAR_SCRAPER] firecrawl ${provider} page=${page} TIMEOUT after ${FIRECRAWL_TIMEOUT_MS}ms`);
+      if (msg.includes("aborted") || msg.includes("abort") || msg.includes("signal")) {
+        console.warn(`[CAR_SCRAPER] stageA ${provider} page=${page} TIMEOUT after ${STAGE_A_TIMEOUT_MS}ms`);
+        status = "timeout";
       } else {
-        console.error(`[CAR_SCRAPER] firecrawl ${provider} page=${page} error:`, msg);
+        console.error(`[CAR_SCRAPER] stageA ${provider} page=${page} error:`, msg);
+        status = `error: ${msg.substring(0, 100)}`;
       }
     }
 
-    if (page < maxPages) await jitterDelay();
+    if (page < maxPages && allListings.length < targetItems) await jitterDelay();
   }
 
-  return { listings: allListings, pagesFetched };
+  return { listings: allListings, pagesFetched, status };
+}
+
+// ── STAGE B: HEAVY FIRECRAWL (structured extract) ─────────────────────────
+
+async function firecrawlStageB(
+  provider: string,
+  maxPrice: number,
+  apiKey: string,
+  searchQuery: string | undefined,
+  targetItems: number,
+  existingCount: number,
+  dropReasons: Record<string, number>,
+  functionStartTime: number,
+): Promise<{
+  listings: CarListing[];
+  pagesFetched: number;
+  status: string;
+}> {
+  // Only run one page for heavy extraction
+  if (Date.now() - functionStartTime > HARD_FUNCTION_CAP_MS - STAGE_B_TIMEOUT_MS) {
+    return { listings: [], pagesFetched: 0, status: "skipped_time_budget" };
+  }
+
+  const url = buildSearchUrl(provider, maxPrice, 1, searchQuery);
+  console.log(`[CAR_SCRAPER] stageB ${provider} url=${url}`);
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), STAGE_B_TIMEOUT_MS);
+
+    const resp = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        formats: ["extract"],
+        extract: {
+          schema: {
+            type: "object",
+            properties: {
+              listings: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    title: { type: "string" },
+                    price: { type: "number" },
+                    year: { type: "number" },
+                    mileage: { type: "string" },
+                    condition: { type: "string" },
+                    imageUrl: { type: "string" },
+                    listingUrl: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          prompt: "Extract every vehicle listing shown on the page. Return listings with: title (year make model trim), price (number USD), year (number if visible), mileage (string if visible), condition (string if visible), imageUrl (string), listingUrl (string full URL). Do not invent values.",
+        },
+        onlyMainContent: true,
+        waitFor: 8000, // Reduced from 15s
+      }),
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error(`[CAR_SCRAPER] stageB firecrawl error: ${resp.status} ${errText.substring(0, 200)}`);
+      return { listings: [], pagesFetched: 1, status: `error_${resp.status}` };
+    }
+
+    const data = await resp.json();
+    const extractData = data?.data?.extract || data?.extract || data?.data?.json || data?.json || {};
+    const fcListings = extractData?.listings || [];
+    const listings: CarListing[] = [];
+
+    for (const item of fcListings) {
+      const rawTitle = item.title || item.name || "";
+      const rawUrl = item.listingUrl || item.url || item.link || "";
+      const rawPrice = item.price ?? item.priceUsd;
+
+      const title = String(rawTitle).trim();
+      const priceNum = parseUsd(rawPrice);
+      if (!title) { dropReasons["invalid_title"] = (dropReasons["invalid_title"] || 0) + 1; continue; }
+      if (!priceNum) { dropReasons["missing_price"] = (dropReasons["missing_price"] || 0) + 1; continue; }
+      if (priceNum > maxPrice) { dropReasons["above_max_price"] = (dropReasons["above_max_price"] || 0) + 1; continue; }
+
+      let productUrl = String(rawUrl).trim();
+      if (productUrl && !productUrl.startsWith("http")) {
+        const domain = provider === "carvana" ? "https://www.carvana.com" : "https://www.cargurus.com";
+        productUrl = `${domain}${productUrl.startsWith("/") ? "" : "/"}${productUrl}`;
+      }
+      if (!productUrl) { dropReasons["missing_url"] = (dropReasons["missing_url"] || 0) + 1; continue; }
+
+      listings.push({
+        title,
+        price_usd: priceNum,
+        image_url: item.imageUrl || item.image || "",
+        product_url: productUrl,
+        year: item.year,
+        mileage: item.mileage,
+        condition: item.condition,
+        provider_product_id: extractProductId(productUrl, provider),
+      });
+    }
+
+    console.log(`[CAR_SCRAPER] stageB ${provider} extracted=${fcListings.length} valid=${listings.length}`);
+    return { listings, pagesFetched: 1, status: "ok" };
+  } catch (err) {
+    const msg = (err as Error).message || "";
+    if (msg.includes("aborted") || msg.includes("abort")) {
+      console.warn(`[CAR_SCRAPER] stageB ${provider} TIMEOUT after ${STAGE_B_TIMEOUT_MS}ms`);
+      return { listings: [], pagesFetched: 1, status: "timeout" };
+    }
+    console.error(`[CAR_SCRAPER] stageB error:`, msg);
+    return { listings: [], pagesFetched: 1, status: `error: ${msg.substring(0, 100)}` };
+  }
 }
 
 // ── UPSERT TO CATALOG_ITEMS ────────────────────────────────────────────────
@@ -512,7 +756,6 @@ async function upsertListings(
     metadata: { year: l.year, mileage: l.mileage, condition: l.condition, source },
   }));
 
-  // Upsert in batches of 50
   let upserted = 0;
   for (let i = 0; i < rows.length; i += 50) {
     const batch = rows.slice(i, i + 50);
@@ -530,45 +773,31 @@ async function upsertListings(
   return upserted;
 }
 
-// ── AUTH: CRON OR ADMIN JWT ────────────────────────────────────────────────
+// ── AUTH ────────────────────────────────────────────────────────────────────
 
 async function authenticateRequest(req: Request): Promise<{ authorized: boolean; error?: string }> {
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   const envCronSecret = Deno.env.get("CRON_SECRET") || "";
   const fallbackCronSecret = "afrishop-internal-cron-2026";
 
-  // Accept either cron header for resilience across schedulers/routes
   const providedCron = req.headers.get("x-cron-secret");
   const providedInternalCron = req.headers.get("x-internal-cron-key");
 
-  const cronMatches =
-    !!providedCron && (providedCron === envCronSecret || providedCron === fallbackCronSecret);
-  const internalCronMatches =
-    !!providedInternalCron &&
-    (providedInternalCron === envCronSecret || providedInternalCron === fallbackCronSecret);
+  const cronMatches = !!providedCron && (providedCron === envCronSecret || providedCron === fallbackCronSecret);
+  const internalCronMatches = !!providedInternalCron && (providedInternalCron === envCronSecret || providedInternalCron === fallbackCronSecret);
 
-  if (cronMatches || internalCronMatches) {
-    return { authorized: true };
-  }
+  if (cronMatches || internalCronMatches) return { authorized: true };
 
-  // Allow secure internal worker-to-worker calls signed with service role key
   const authHeader = req.headers.get("Authorization");
   if (authHeader?.startsWith("Bearer ") && serviceRoleKey) {
     const token = authHeader.substring(7);
-    if (token === serviceRoleKey) {
-      return { authorized: true };
-    }
+    if (token === serviceRoleKey) return { authorized: true };
   }
 
-  // Check admin JWT
-  if (!authHeader?.startsWith("Bearer ")) {
-    return { authorized: false, error: "Missing authentication" };
-  }
+  if (!authHeader?.startsWith("Bearer ")) return { authorized: false, error: "Missing authentication" };
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  if (!supabaseUrl || !serviceRoleKey) {
-    return { authorized: false, error: "Server misconfigured" };
-  }
+  if (!supabaseUrl || !serviceRoleKey) return { authorized: false, error: "Server misconfigured" };
 
   try {
     const token = authHeader.substring(7);
@@ -578,16 +807,13 @@ async function authenticateRequest(req: Request): Promise<{ authorized: boolean;
     if (!resp.ok) return { authorized: false, error: "Invalid token" };
     const user = await resp.json();
 
-    // Check admin_users table
     const adminResp = await fetch(
       `${supabaseUrl}/rest/v1/admin_users?select=id&email=eq.${encodeURIComponent(user.email)}&limit=1`,
       { headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` } }
     );
     if (!adminResp.ok) return { authorized: false, error: "Admin check failed" };
     const admins = await adminResp.json();
-    if (!Array.isArray(admins) || admins.length === 0) {
-      return { authorized: false, error: "Not an admin" };
-    }
+    if (!Array.isArray(admins) || admins.length === 0) return { authorized: false, error: "Not an admin" };
 
     return { authorized: true };
   } catch (e) {
@@ -607,6 +833,8 @@ Deno.serve(async (req: Request) => {
     return cronAuthErrorResponse(auth.error || "Unauthorized");
   }
 
+  const startTime = Date.now();
+
   try {
     const body: ScraperRequest = req.method === "POST"
       ? await req.json()
@@ -625,29 +853,32 @@ Deno.serve(async (req: Request) => {
     const dryRun = body.dry_run || false;
     const searchQuery = body.search_query?.trim() || undefined;
     const targetItems = body.target_items || 10;
-    const startTime = Date.now();
 
-    console.log(`[CAR_SCRAPER] START provider=${provider} maxPrice=${maxPrice} maxPages=${maxPages} mode=${mode} dryRun=${dryRun} searchQuery=${searchQuery || '(none)'} targetItems=${targetItems}`);
+    console.log(`[CAR_SCRAPER] START provider=${provider} maxPrice=${maxPrice} maxPages=${maxPages} mode=${mode} dryRun=${dryRun} query=${searchQuery || '(none)'} target=${targetItems}`);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
     const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY") || "";
 
-    const parseMethods: Record<string, number> = { jsonld: 0, nextdata: 0, state: 0, regex: 0, firecrawl: 0 };
+    const dropReasons: Record<string, number> = {};
+    const blockedStatuses: number[] = [];
     let allListings: CarListing[] = [];
-    let modeUsed: "firecrawl" | "free" | "free-only" = "firecrawl";
+    let modeUsed = "unknown";
     let totalPagesFetched = 0;
     let totalBlocked = 0;
+    let firecrawlStatus = "not_used";
+    let fallbackUsed = false;
+    let diagnostics = "";
 
     // ── FORCE-FREE ─────────────────────────────────────────────────────
     if (mode === "force-free") {
-      const freeResult = await freeScrape(provider, maxPrice, maxPages, searchQuery);
+      const freeResult = await freeScrape(provider, maxPrice, maxPages, searchQuery, blockedStatuses);
       allListings = freeResult.listings;
       totalPagesFetched = freeResult.pagesFetched;
       totalBlocked = freeResult.blockedCount;
-      Object.assign(parseMethods, freeResult.parseMethods);
       modeUsed = "free-only";
+      firecrawlStatus = "skipped";
     }
 
     // ── FORCE-FIRECRAWL ────────────────────────────────────────────────
@@ -657,52 +888,92 @@ Deno.serve(async (req: Request) => {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const fcResult = await firecrawlScrape(provider, maxPrice, maxPages, firecrawlKey, searchQuery);
-      allListings = fcResult.listings;
-      totalPagesFetched = fcResult.pagesFetched;
-      parseMethods.firecrawl = fcResult.listings.length;
-      modeUsed = "firecrawl";
-      if (allListings.length === 0) {
-        return new Response(JSON.stringify({ ok: false, error: "Firecrawl returned no listings" }), {
-          status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      // Run Stage A only
+      const stageA = await firecrawlStageA(provider, maxPrice, maxPages, firecrawlKey, searchQuery, targetItems, dropReasons, startTime);
+      allListings = stageA.listings;
+      totalPagesFetched = stageA.pagesFetched;
+      firecrawlStatus = `stageA:${stageA.status}`;
+      modeUsed = "firecrawl-stageA";
+
+      // If not enough, try Stage B
+      if (allListings.length < targetItems) {
+        const stageB = await firecrawlStageB(provider, maxPrice, firecrawlKey, searchQuery, targetItems, allListings.length, dropReasons, startTime);
+        const seenIds = new Set(allListings.map(l => l.provider_product_id));
+        for (const l of stageB.listings) {
+          if (!seenIds.has(l.provider_product_id)) {
+            seenIds.add(l.provider_product_id);
+            allListings.push(l);
+          }
+        }
+        totalPagesFetched += stageB.pagesFetched;
+        firecrawlStatus += ` stageB:${stageB.status}`;
+        modeUsed = "firecrawl-stageAB";
       }
     }
 
-    // ── FIRECRAWL-FIRST (default): try Firecrawl, fall back to free ──
+    // ── FIRECRAWL-FIRST (default): Stage A → Stage B → free fallback ──
     else {
       if (firecrawlKey) {
-        try {
-          const fcResult = await firecrawlScrape(provider, maxPrice, maxPages, firecrawlKey, searchQuery);
-          allListings = fcResult.listings;
-          totalPagesFetched = fcResult.pagesFetched;
-          parseMethods.firecrawl = fcResult.listings.length;
-          modeUsed = "firecrawl";
-        } catch (fcErr) {
-          console.error(`[CAR_SCRAPER] Firecrawl threw error, will fall back to free:`, (fcErr as Error).message);
-          // parseMethods.firecrawl stays 0
+        // Stage A: fast markdown+links
+        const stageA = await firecrawlStageA(provider, maxPrice, maxPages, firecrawlKey, searchQuery, targetItems, dropReasons, startTime);
+        allListings = stageA.listings;
+        totalPagesFetched = stageA.pagesFetched;
+        firecrawlStatus = `stageA:${stageA.status}`;
+        modeUsed = "firecrawl-stageA";
+
+        console.log(`[CAR_SCRAPER] stageA result: ${allListings.length} listings, status=${stageA.status}`);
+
+        // Stage B: only if Stage A got too few and we have time budget
+        if (allListings.length < targetItems && (Date.now() - startTime) < HARD_FUNCTION_CAP_MS - STAGE_B_TIMEOUT_MS) {
+          console.log(`[CAR_SCRAPER] stageA insufficient (${allListings.length}/${targetItems}), trying stageB`);
+          const stageB = await firecrawlStageB(provider, maxPrice, firecrawlKey, searchQuery, targetItems, allListings.length, dropReasons, startTime);
+          const seenIds = new Set(allListings.map(l => l.provider_product_id));
+          for (const l of stageB.listings) {
+            if (!seenIds.has(l.provider_product_id)) {
+              seenIds.add(l.provider_product_id);
+              allListings.push(l);
+            }
+          }
+          totalPagesFetched += stageB.pagesFetched;
+          firecrawlStatus += ` stageB:${stageB.status}`;
+          modeUsed = "firecrawl-stageAB";
         }
       }
 
-      // Fallback to free if Firecrawl had no key, threw, or returned 0 listings
-      if (allListings.length === 0) {
+      // Free fallback only if Firecrawl unavailable or returned 0
+      if (allListings.length === 0 && (Date.now() - startTime) < HARD_FUNCTION_CAP_MS - 15000) {
         if (!firecrawlKey) {
           console.log(`[CAR_SCRAPER] No FIRECRAWL_API_KEY, using free-only`);
+          firecrawlStatus = "no_key";
         } else {
-          console.log(`[CAR_SCRAPER] Firecrawl yielded 0 listings, falling back to free parse`);
+          console.log(`[CAR_SCRAPER] Firecrawl yielded 0, falling back to free parse`);
         }
-        const freeResult = await freeScrape(provider, maxPrice, maxPages, searchQuery);
+        fallbackUsed = true;
+        const freeResult = await freeScrape(provider, maxPrice, Math.min(maxPages, 2), searchQuery, blockedStatuses);
         allListings = freeResult.listings;
         totalPagesFetched += freeResult.pagesFetched;
         totalBlocked = freeResult.blockedCount;
-        Object.assign(parseMethods, freeResult.parseMethods);
-        modeUsed = firecrawlKey ? "free" : "free-only";
+        modeUsed = firecrawlKey ? "firecrawl-then-free" : "free-only";
+
+        if (allListings.length === 0 && totalBlocked > 0) {
+          diagnostics = `Provider blocked all requests (statuses: ${blockedStatuses.join(",")}). No data could be extracted.`;
+        }
+      }
+    }
+
+    // ── Build diagnostics message ──────────────────────────────────────
+    if (allListings.length === 0 && !diagnostics) {
+      if (firecrawlStatus.includes("timeout")) {
+        diagnostics = "Firecrawl timed out and free fallback was blocked. Try again or use a different query.";
+      } else if (totalBlocked > 0) {
+        diagnostics = `Provider blocked ${totalBlocked} request(s). Anti-bot protection is active.`;
+      } else {
+        diagnostics = "No listings found. The provider may have changed its page structure or the query returned no results.";
       }
     }
 
     // ── UPSERT ─────────────────────────────────────────────────────────
-    const liveClient = supabase;
-    const upsertedCount = await upsertListings(liveClient, provider, allListings, modeUsed, dryRun);
+    const upsertedCount = await upsertListings(supabase, provider, allListings, modeUsed, dryRun);
 
     const elapsedMs = Date.now() - startTime;
     const result: ScrapeResult = {
@@ -712,9 +983,14 @@ Deno.serve(async (req: Request) => {
       listings_found: allListings.length,
       upserted_count: upsertedCount,
       blocked_count: totalBlocked,
-      parse_methods_used: parseMethods,
+      parse_methods_used: { firecrawl: allListings.length },
       sample: allListings.slice(0, 3),
       elapsed_ms: elapsedMs,
+      drop_reasons: Object.keys(dropReasons).length > 0 ? dropReasons : undefined,
+      firecrawl_status: firecrawlStatus,
+      fallback_used: fallbackUsed,
+      blocked_statuses: blockedStatuses.length > 0 ? blockedStatuses : undefined,
+      diagnostics: diagnostics || undefined,
     };
 
     console.log(`[CAR_SCRAPER] DONE ${elapsedMs}ms`, JSON.stringify({ ...result, sample: undefined }));
@@ -723,8 +999,14 @@ Deno.serve(async (req: Request) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
+    const elapsedMs = Date.now() - startTime;
     console.error("[CAR_SCRAPER] Fatal error:", (err as Error).message);
-    return new Response(JSON.stringify({ ok: false, error: (err as Error).message }), {
+    return new Response(JSON.stringify({ 
+      ok: false, 
+      error: (err as Error).message, 
+      elapsed_ms: elapsedMs,
+      diagnostics: "Fatal error during scraping. Check function logs for details.",
+    }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }

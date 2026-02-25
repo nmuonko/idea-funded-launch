@@ -1,44 +1,96 @@
 
 
-# Fix: Hero Image Oversized on Initial Load (Some Products)
+# Fix: Users Must Clear Browser Data to See Updates After Publish
 
 ## Problem
-For some products, the hero image appears huge/overflowing on first render. Clicking it (which opens/closes the lightbox) causes it to "snap" to the correct size. This happens because `AnimatePresence` sits between the flex container and the `motion.img`, preventing `max-w-full max-h-full` from resolving against the parent's dimensions.
+After publishing, returning users see stale content because the app aggressively caches data in `localStorage` with keys like `afrishop_cache:v13:*`, `afrishop_curated:*`, recent searches, etc. These caches have 1-2 hour TTLs but persist across deployments. Since no cache-busting mechanism is tied to the build/deploy, users see old product data, old home grids, and old search results until they manually clear browsing data.
 
-## Root Cause
-The layout chain is: `div (flex + aspect-ratio)` > `AnimatePresence` > `motion.img (max-w-full max-h-full)`. `AnimatePresence` does not forward CSS or act as a proper flex child, so the image's percentage-based max constraints have no concrete parent dimensions to reference. Large images render at their natural pixel size, clipped by `overflow-hidden` but still appearing oversized.
+Vite already handles JS/CSS asset cache-busting via content-hash filenames, so the **code** loads fresh. But the **data in localStorage** remains stale.
 
-## Fix
-Use **absolute positioning** instead of flex for the image. This is more robust because `absolute inset-0` creates an explicit bounding box regardless of intermediate wrappers like `AnimatePresence`.
+## Solution: Build-Time Version Stamp + Auto-Cache Bust on Load
 
-### File: `src/pages/shop/ProductDetails.tsx`
+Embed a unique build timestamp into the app at build time. On every app load, compare it against the last-seen version stored in localStorage. If different (i.e., a new deployment), automatically clear all AfriShop data caches.
 
-**Change the container and image classes (lines 586-599):**
+## Changes
 
+### 1. Add build version to Vite config
+**File: `vite.config.ts`**
+
+Use `define` to inject a compile-time constant `__BUILD_VERSION__` set to the current ISO timestamp. This changes with every build/publish, providing a unique deployment fingerprint.
+
+### 2. Create a cache-bust utility
+**File: `src/lib/cacheBust.ts`** (new file)
+
+- Read `__BUILD_VERSION__` and compare against `localStorage.getItem('afrishop_build_version')`
+- If they differ (new deployment detected):
+  - Clear all `afrishop_cache:*` keys (catalog cache)
+  - Clear all `afrishop_curated:*` keys (home category cache)
+  - Clear `afrishop_recent_searches` and `afrishop_recently_viewed`
+  - Store the new build version
+  - Log `[CacheBust] New deployment detected, cleared stale caches`
+- If they match: do nothing (normal load)
+- Preserve non-cache keys (auth session, user preferences, etc.)
+
+### 3. Call cache-bust on app startup
+**File: `src/main.tsx`**
+
+Import and call `bustStaleCache()` before `createRoot()`. This runs synchronously before the first render so users never see stale data from a previous deployment.
+
+### 4. Bump the cache prefix version (belt-and-suspenders)
+**File: `src/lib/catalogCache.ts`**
+
+Change the prefix from `afrishop_cache:v13:` to `afrishop_cache:v14:` so that even without the cache-bust utility, old v13 entries won't match new lookups. This is a one-time migration measure.
+
+---
+
+## Technical Details
+
+### Build version injection (vite.config.ts)
+```typescript
+define: {
+  __BUILD_VERSION__: JSON.stringify(new Date().toISOString()),
+}
 ```
-Before:
-  className="relative aspect-[4/3] sm:aspect-square bg-white/5 rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center"
-  ...
-  className="max-w-full max-h-full object-contain p-4 sm:p-8"
 
-After:
-  className="relative aspect-[4/3] sm:aspect-square bg-white/5 rounded-2xl overflow-hidden border border-white/10 cursor-pointer"
-  ...
-  className="absolute inset-0 w-full h-full object-contain p-4 sm:p-8"
+### Cache bust logic (cacheBust.ts)
+```typescript
+declare const __BUILD_VERSION__: string;
+
+const BUILD_KEY = 'afrishop_build_version';
+
+export function bustStaleCache(): void {
+  try {
+    const stored = localStorage.getItem(BUILD_KEY);
+    if (stored === __BUILD_VERSION__) return; // Same deploy
+
+    // New deploy — clear data caches
+    const prefixes = ['afrishop_cache:', 'afrishop_curated:'];
+    const exactKeys = ['afrishop_recent_searches', 'afrishop_recently_viewed'];
+    
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (prefixes.some(p => key.startsWith(p)) || exactKeys.includes(key)) {
+        toRemove.push(key);
+      }
+    }
+    toRemove.forEach(k => localStorage.removeItem(k));
+    localStorage.setItem(BUILD_KEY, __BUILD_VERSION__);
+    
+    console.log(`[CacheBust] Cleared ${toRemove.length} stale keys for new deploy`);
+  } catch (e) {
+    // localStorage unavailable — no-op
+  }
+}
 ```
-
-- Remove `flex items-center justify-center` from the container (not needed with absolute positioning)
-- Change image to `absolute inset-0 w-full h-full object-contain` -- this forces the image element to exactly match the container bounds, and `object-contain` handles visual centering within that box
-
-## Why This Works
-- `absolute inset-0` pins the image to all four edges of the `relative` container, bypassing `AnimatePresence` entirely
-- `w-full h-full` fills the absolute-positioned box
-- `object-contain` centers the visual content within that box, regardless of aspect ratio
-- This pattern works for every image size and aspect ratio, on every screen size
 
 ## Files Changed
 
-| File | Change |
-|------|--------|
-| `src/pages/shop/ProductDetails.tsx` | Switch from flex centering to absolute positioning for hero image |
+| File | Type | Change |
+|------|------|--------|
+| `vite.config.ts` | Modified | Add `define: { __BUILD_VERSION__ }` |
+| `src/lib/cacheBust.ts` | New | Cache-bust utility |
+| `src/main.tsx` | Modified | Call `bustStaleCache()` on startup |
+| `src/lib/catalogCache.ts` | Modified | Bump prefix to v14 |
 

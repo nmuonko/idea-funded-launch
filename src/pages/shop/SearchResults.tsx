@@ -77,7 +77,8 @@ export default function SearchResults() {
   const [page, setPage] = useState(0);
   const [sort, setSort] = useState(initialSort);
   const [providerFilter, setProviderFilter] = useState(initialProvider);
-  const [priceRange, setPriceRange] = useState<[number, number]>([0, 500000]);
+  const [maxPrice, setMaxPrice] = useState(500000);
+  const maxPriceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [incomplete, setIncomplete] = useState(false);
   const [prefetchingNext, setPrefetchingNext] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -145,14 +146,13 @@ export default function SearchResults() {
     }
 
     const filters: Record<string, number> = {};
-    if (priceRange[0] > 0) filters.minPrice = priceRange[0];
-    if (priceRange[1] < 500000) filters.maxPrice = priceRange[1];
+    if (maxPrice < 500000) filters.maxPrice = maxPrice;
     if (Object.keys(filters).length > 0) {
       params.filters = stableStringify(filters);
     }
 
     return params;
-  }, [query, category, sort, priceRange, providerFilter]);
+  }, [query, category, sort, maxPrice, providerFilter]);
 
   const searchIdentityRef = useRef('');
 
@@ -644,15 +644,25 @@ export default function SearchResults() {
           <div className="mb-6 px-1">
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm text-white/70">
-                {shop.priceRange || 'Price Range'}
+                {language === 'fr' ? 'Prix max' : 'Max Price'}
               </label>
               <span className="text-sm font-medium text-white">
-                ${priceRange[0].toLocaleString()} – ${priceRange[1].toLocaleString()}
+                {maxPrice >= 500000 ? (language === 'fr' ? 'Illimité' : 'No limit') : `$${maxPrice.toLocaleString()}`}
               </span>
             </div>
             <Slider
-              value={priceRange}
-              onValueChange={(value) => setPriceRange(value as [number, number])}
+              value={[maxPrice]}
+              onValueChange={(value) => {
+                const newMax = value[0];
+                setMaxPrice(newMax);
+                if (maxPriceDebounceRef.current) clearTimeout(maxPriceDebounceRef.current);
+                maxPriceDebounceRef.current = setTimeout(() => {
+                  setPage(0);
+                  pageRef.current = 0;
+                  lastRequestedPageRef.current = null;
+                  fetchProducts(0, false);
+                }, 400);
+              }}
               min={0}
               max={500000}
               step={500}
@@ -662,27 +672,6 @@ export default function SearchResults() {
               <span>$0</span>
               <span>$500,000</span>
             </div>
-            {(priceRange[0] > 0 || priceRange[1] < 500000) && (
-              <div className="flex items-center gap-2 mt-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleApplyFilters}
-                  className="border-white/10 text-white hover:bg-white/10 text-xs h-7 px-3"
-                >
-                  {shop.applyFilters || 'Apply'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => { setPriceRange([0, 500000]); handleApplyFilters(); }}
-                  className="text-white/50 hover:text-white text-xs h-7 px-2"
-                >
-                  <X className="h-3 w-3 mr-1" />
-                  {language === 'fr' ? 'Réinitialiser' : 'Reset'}
-                </Button>
-              </div>
-            )}
           </div>
 
 

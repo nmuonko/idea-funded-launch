@@ -128,6 +128,8 @@ export default function ProductDetailsPage() {
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const navProductRef = useRef<ProductData | null>(null);
+  const didAutoSelectRef = useRef(false);
+  const userInteractedRef = useRef(false);
 
   const isVehicleFromState = !!(
     (location.state as any)?.product?.isVehicle ||
@@ -197,6 +199,8 @@ export default function ProductDetailsPage() {
     setProduct(navProduct);
     navProductRef.current = navProduct;
     setCurrentImageIndex(0);
+    didAutoSelectRef.current = false;
+    userInteractedRef.current = false;
     setSimilarProducts([]);
     setQuantity(1);
     setAdded(false);
@@ -309,19 +313,21 @@ export default function ProductDetailsPage() {
           };
         });
 
-        // Auto-select best quality image as initial hero (once, on fetch)
+        // Auto-select best quality image ONCE, never override user navigation
         const finalImages: string[] = item.images || item.imageUrls || [];
         if (finalImages.length > 1) {
           const bestIdx = finalImages.reduce((best: number, url: string, i: number) =>
             imageQualityScore(url) > imageQualityScore(finalImages[best]) ? i : best, 0);
-          // Only change index if current hero is likely a low-quality thumbnail
           setCurrentImageIndex(prev => {
+            if (userInteractedRef.current) return prev;
+            if (didAutoSelectRef.current) return prev;
             const currentUrl = finalImages[prev] || finalImages[0] || '';
-            if (prev === 0 && imageQualityScore(currentUrl) < 0 && bestIdx !== prev) {
+            if (imageQualityScore(currentUrl) < 0 && bestIdx !== prev) {
               return bestIdx;
             }
-            return bestIdx; // Use best on first load regardless
+            return prev;
           });
+          didAutoSelectRef.current = true;
         }
 
         console.log('[ProductDetails] fetch complete', {
@@ -544,8 +550,8 @@ export default function ProductDetailsPage() {
     return map[key] || name;
   }, [shop]);
 
-  const nextImage = () => setCurrentImageIndex(prev => (prev + 1) % safeImages.length);
-  const prevImage = () => setCurrentImageIndex(prev => (prev - 1 + safeImages.length) % safeImages.length);
+  const nextImage = () => { userInteractedRef.current = true; setCurrentImageIndex(prev => (prev + 1) % safeImages.length); };
+  const prevImage = () => { userInteractedRef.current = true; setCurrentImageIndex(prev => (prev - 1 + safeImages.length) % safeImages.length); };
 
   if (loading) {
     return (
@@ -658,7 +664,7 @@ export default function ProductDetailsPage() {
                   {safeImages.map((img, index) => (
                     <button
                       key={index}
-                      onClick={() => setCurrentImageIndex(index)}
+                      onClick={() => { userInteractedRef.current = true; setCurrentImageIndex(index); }}
                       className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all ${
                         index === safeImageIndex
                           ? 'border-blue-500'
@@ -853,7 +859,7 @@ export default function ProductDetailsPage() {
           images={safeImages}
           currentIndex={safeImageIndex}
           onClose={() => setLightboxOpen(false)}
-          onIndexChange={setCurrentImageIndex}
+          onIndexChange={(i) => { userInteractedRef.current = true; setCurrentImageIndex(i); }}
         />
       )}
 

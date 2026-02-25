@@ -232,7 +232,6 @@ All colors MUST be HSL.
     width: 100%;
     -webkit-text-size-adjust: 100%;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: contain;
   }
 }
 

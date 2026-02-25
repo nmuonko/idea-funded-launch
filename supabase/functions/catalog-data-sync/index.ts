@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { getLiveWriteClient } from "../_shared/liveWriteClient.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
         return jsonRes({ error: "No items provided" }, 400);
       }
 
-      const liveClient = getLiveWriteClient();
+      const liveClient = supabase;
       let inserted = 0;
       let skipped = 0;
       let errors = 0;

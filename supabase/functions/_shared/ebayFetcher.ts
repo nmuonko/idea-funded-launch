@@ -11,7 +11,7 @@ import { mapCategoryAndSubcategory } from "./categoryMapper.ts";
 import { isAllowedMotorListing } from "./motorsFilter.ts";
 import { CatalogFilters } from "./sortFilterNormalizer.ts";
 import { CatalogItem, mapEbayItemToResponse } from "./catalogItemMapper.ts";
-import { getLiveWriteClient } from "./liveWriteClient.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 export interface EbayFetchParams {
   supabase: SupabaseClientAny;
@@ -207,7 +207,9 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
         };
       });
 
-      getLiveWriteClient().from("catalog_items").upsert(toUpsert, { onConflict: "id" });
+      const _sbUrl = Deno.env.get("SUPABASE_URL")!;
+      const _sbKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      createClient(_sbUrl, _sbKey).from("catalog_items").upsert(toUpsert, { onConflict: "id" });
 
       return { items, hasMore, total, rawCount, mappedCount, filteredCount: items.length, failOpenUsed };
     }

@@ -17,7 +17,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getTtlPolicy } from "../_shared/ttlPolicy.ts";
-import { getLiveWriteClient } from "../_shared/liveWriteClient.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -316,7 +316,7 @@ async function processQueueJobs(supabase: any, ebayToken: string, maxJobs: numbe
         .map((item: any) => buildUpsertRow(item, job.category_key, now));
 
       if (upsertRows.length > 0) {
-        const { error: upsertErr } = await getLiveWriteClient()
+        const { error: upsertErr } = await supabase
           .from("catalog_items")
           .upsert(upsertRows, { onConflict: "provider,provider_product_id" });
 
@@ -410,7 +410,7 @@ async function refreshStaleItems(supabase: any, ebayToken: string, maxItems: num
         if (res.status === 404 || res.status === 410) {
           const failCount = (item.fail_count || 0) + 1;
           if (failCount >= DEACTIVATE_FAIL_THRESHOLD) {
-          await getLiveWriteClient().from("catalog_items").update({
+          await supabase.from("catalog_items").update({
             is_active: false,
             status_reason: "provider_unavailable",
             fail_count: failCount,
@@ -418,7 +418,7 @@ async function refreshStaleItems(supabase: any, ebayToken: string, maxItems: num
           }).eq("id", item.id);
             deactivated++;
           } else {
-            await getLiveWriteClient().from("catalog_items").update({
+            await supabase.from("catalog_items").update({
               fail_count: failCount,
               status_reason: "check_failed",
               last_checked_at: now,
@@ -439,7 +439,7 @@ async function refreshStaleItems(supabase: any, ebayToken: string, maxItems: num
           const newHash = computeHash(data.title || item.title, newPrice, newImage);
           const priceChanged = newPrice !== item.price_usd;
 
-          await getLiveWriteClient().from("catalog_items").update({
+          await supabase.from("catalog_items").update({
             price_usd: newPrice,
             image_url: newImage,
             title: data.title || item.title,
@@ -621,7 +621,7 @@ async function runSeedBackfill(supabase: any, ebayToken: string) {
           .map((item: any) => buildUpsertRow(item, job.category_key, now));
 
         if (upsertRows.length > 0) {
-          const { error: upsertErr } = await getLiveWriteClient()
+          const { error: upsertErr } = await supabase
             .from("catalog_items")
             .upsert(upsertRows, { onConflict: "provider,provider_product_id" });
 
@@ -807,7 +807,7 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
             const remaining = target - totalNewUniqueCQ;
             const toInsert = newRows.slice(0, remaining);
 
-            const { error: upsertErr } = await getLiveWriteClient()
+            const { error: upsertErr } = await supabase
               .from("catalog_items")
               .upsert(toInsert, { onConflict: "provider,provider_product_id" });
 
@@ -1032,7 +1032,7 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
         const duplicateRatio = productIds.length > 0 ? duplicateCount / productIds.length : 0;
 
         // NOW upsert
-        const { error: upsertErr } = await getLiveWriteClient()
+        const { error: upsertErr } = await supabase
           .from("catalog_items")
           .upsert(upsertRows, { onConflict: "provider,provider_product_id" });
 
@@ -1215,7 +1215,7 @@ async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number,
       if (res.status === 404 || res.status === 410) {
         const failCount = (item.fail_count || 0) + 1;
         if (failCount >= DEACTIVATE_FAIL_THRESHOLD) {
-          await getLiveWriteClient().from("catalog_items").update({
+          await supabase.from("catalog_items").update({
             is_active: false,
             status_reason: "provider_unavailable",
             fail_count: failCount,
@@ -1224,7 +1224,7 @@ async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number,
           }).eq("id", item.id);
           deactivated++;
         } else {
-          await getLiveWriteClient().from("catalog_items").update({
+          await supabase.from("catalog_items").update({
             fail_count: failCount,
             status_reason: "check_failed",
             last_checked_at: now,
@@ -1261,7 +1261,7 @@ async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number,
           // Price parse failed — still mark active
         }
 
-        await getLiveWriteClient().from("catalog_items").update(updateFields).eq("id", item.id);
+        await supabase.from("catalog_items").update(updateFields).eq("id", item.id);
         active++;
       } else {
         errors++;

@@ -17,7 +17,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { searchRainforest } from "../_shared/rainforestAdapter.ts";
 import { searchEbay, NormalizedItem } from "../_shared/ebayBrowseSearch.ts";
-import { getLiveWriteClient } from "../_shared/liveWriteClient.ts";
+
 import { getAmazonLiveSettings } from "../_shared/amazonLivePolicy.ts";
 import { checkBudget, incrementBudget } from "../_shared/providerBudget.ts";
 import { getCatalogSettings } from "../_shared/catalogSettings.ts";
@@ -573,7 +573,7 @@ async function processSection(
         updated_at: new Date().toISOString(),
       }));
 
-      await getLiveWriteClient().from("catalog_items").upsert(catalogInserts, {
+      await supabase.from("catalog_items").upsert(catalogInserts, {
         onConflict: "id",
         ignoreDuplicates: false,
       });

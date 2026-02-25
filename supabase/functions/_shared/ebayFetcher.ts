@@ -11,6 +11,7 @@ import { mapCategoryAndSubcategory } from "./categoryMapper.ts";
 import { isAllowedMotorListing } from "./motorsFilter.ts";
 import { CatalogFilters } from "./sortFilterNormalizer.ts";
 import { CatalogItem, mapEbayItemToResponse } from "./catalogItemMapper.ts";
+import { getLiveWriteClient } from "./liveWriteClient.ts";
 
 export interface EbayFetchParams {
   supabase: SupabaseClientAny;
@@ -206,7 +207,7 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
         };
       });
 
-      supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
+      getLiveWriteClient().from("catalog_items").upsert(toUpsert, { onConflict: "id" });
 
       return { items, hasMore, total, rawCount, mappedCount, filteredCount: items.length, failOpenUsed };
     }

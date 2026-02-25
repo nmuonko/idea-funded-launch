@@ -13,6 +13,7 @@ import { searchRainforest, fetchProductDetails } from "../_shared/rainforestAdap
 import { checkBudget, incrementBudget } from "../_shared/providerBudget.ts";
 import { getCatalogSettings } from "../_shared/catalogSettings.ts";
 import { mapCategoryAndSubcategory } from "../_shared/categoryMapper.ts";
+import { getLiveWriteClient } from "../_shared/liveWriteClient.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -142,7 +143,7 @@ async function processQueueItem(
         title: product.title || "", provider: "rainforest", productUrl: product.productUrl || "",
       });
 
-      await supabase.from("catalog_items").upsert({
+      await liveClient.from("catalog_items").upsert({
         id: `amazon_${product.providerProductId}`,
         provider: "rainforest",
         provider_product_id: product.providerProductId,
@@ -196,7 +197,7 @@ async function processQueueItem(
           };
         });
 
-        await supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
+        await liveClient.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
         itemsIngested = toUpsert.length;
         console.log(`[AMAZON_INGEST] processed query "${item.query}", ingested ${itemsIngested} products`);
       }
@@ -244,8 +245,9 @@ Deno.serve(async (req: Request) => {
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const liveClient = getLiveWriteClient();
 
   const requestId = `ingest-${Date.now()}`;
   const startTime = Date.now();
@@ -338,7 +340,7 @@ Deno.serve(async (req: Request) => {
             };
           });
 
-          await supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
+          await liveClient.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
           totalItemsIngested += toUpsert.length;
           console.log(`[AMAZON_INGEST] seeded query "${seed.query}", ingested ${toUpsert.length} products`);
         }

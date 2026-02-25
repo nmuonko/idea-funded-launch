@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getLiveWriteClient } from "../_shared/liveWriteClient.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -85,6 +86,7 @@ Deno.serve(async (req) => {
         return jsonRes({ error: "No items provided" }, 400);
       }
 
+      const liveClient = getLiveWriteClient();
       let inserted = 0;
       let skipped = 0;
       let errors = 0;
@@ -97,7 +99,7 @@ Deno.serve(async (req) => {
           const { id, created_at, updated_at, ...rest } = item;
           return rest;
         });
-        const { data, error: upsertErr } = await supabase
+        const { data, error: upsertErr } = await liveClient
           .from("catalog_items")
           .upsert(cleanedChunk, {
             onConflict: "provider,provider_product_id",

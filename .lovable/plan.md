@@ -1,75 +1,76 @@
 
 
-# Rewire Car Scraper: Firecrawl-Primary with Free Fallback
+# Route All Ingestion Data to Live Environment
 
-## Overview
+## Problem
+Currently, edge functions use `SUPABASE_URL` from their runtime environment. When you trigger scraping or ingestion from the admin panel (which runs in Test), data gets written to the Test database. You want ALL catalog data to always go to Live -- never Test.
 
-The current `catalog-car-scraper` edge function uses free HTML parsing as primary and Firecrawl as fallback. Since you have a Firecrawl account (now connected), we'll flip this: **Firecrawl becomes the primary scraper** because it reliably renders JavaScript-heavy pages (Carvana, CarGurus) and extracts structured data via its JSON extraction format. Free HTML parsing becomes the fallback for when the Firecrawl API key is missing or quota is exhausted.
+## Solution
+Store the Live database credentials as secrets and modify all ingestion functions to write catalog data exclusively to the Live database, regardless of which environment triggers them.
 
-## What Changes
+## Steps
 
-### 1. Rewrite `catalog-car-scraper` scraping order
+### 1. Add Two New Secrets
+- `LIVE_SUPABASE_URL` = the Live Supabase project URL
+- `LIVE_SUPABASE_SERVICE_ROLE_KEY` = the Live service role key
 
-**File: `supabase/functions/catalog-car-scraper/index.ts`**
+These will be used by all ingestion functions to create a dedicated "write client" for the Live database.
 
-Current flow: free parse first -> Firecrawl fallback
-New flow: **Firecrawl first -> free parse fallback**
+### 2. Create a Shared Helper: `_shared/liveWriteClient.ts`
+A small utility that:
+- Reads `LIVE_SUPABASE_URL` and `LIVE_SUPABASE_SERVICE_ROLE_KEY` from env
+- If both exist, creates and returns a Supabase client pointing to Live
+- If missing, falls back to the local `SUPABASE_URL` client (so Live-deployed functions still work normally since they ARE the live environment)
 
-- Default `mode` changes from `"free-first"` to `"firecrawl-first"`
-- Mode options become: `"firecrawl-first"` (default), `"force-firecrawl"`, `"force-free"`
-- `FIRECRAWL_API_KEY` is read via `Deno.env.get('FIRECRAWL_API_KEY')` (already available from the connector)
-- If Firecrawl returns 0 listings or errors, fall back to free HTML parsing
-- Response `mode_used` reflects which method actually produced results
+### 3. Modify Ingestion Edge Functions (5 files)
+Each function will import the shared helper and use the Live write client for all `catalog_items` upserts:
 
-### 2. Improve Firecrawl extraction quality
+| Function | Change |
+|----------|--------|
+| `catalog-car-scraper/index.ts` | Use Live client for `upsertListings()` |
+| `catalog-refresh-worker/index.ts` | Use Live client for catalog_items upserts |
+| `catalog-amazon-ingest-worker/index.ts` | Use Live client for catalog_items upserts |
+| `catalog-prewarm-worker/index.ts` | Use Live client for catalog_items upserts |
+| `_shared/ebayFetcher.ts` | Use Live client for catalog_items upserts |
 
-In the existing `firecrawlScrape()` function:
-- Add `waitFor: 5000` (CarGurus/Carvana are JS-heavy)
-- Improve the JSON extraction prompt to be more specific about car fields
-- Add `onlyMainContent: true` to reduce noise
-- Map extracted data to `catalog_items` format with `attributes_json.source = "firecrawl"`
+Auth checks and non-catalog reads will still use the local environment client (so admin JWT validation works correctly in both environments).
 
-### 3. Keep everything else the same
+### 4. Update `catalog-data-sync/index.ts`
+The "push-to-live" mode becomes unnecessary since data now goes directly to Live. We'll keep it but also make the `import` mode use the Live write client, so importing from the admin panel also writes to Live.
 
-No changes needed to:
-- Provider un-deprecation (already done in `priceResolver.ts` and `cartHelpers.ts`)
-- Provider filter UI (already added to `SearchResults.tsx`)
-- Admin manual trigger (already in `CatalogCache.tsx`)
-- Upsert logic, auth, jitter delays, budget tracking
+### 5. Update Admin UI (`CatalogCache.tsx`)
+- The summary cards currently query the local (Test) database. Update them to show a note that counts reflect the Test environment, or optionally add a toggle to view Live counts via a read query.
+- No changes needed to fetch triggers since the edge functions themselves will handle routing to Live.
+
+## What This Means for You
+- Trigger ingestion from Test admin panel --> data goes to Live
+- Cron jobs on Live --> data goes to Live (same as before)
+- Cron jobs from Test (via `edge_function_base_url` pointing to Live) --> data goes to Live
+- The Test `catalog_items` table will stop growing -- only Live accumulates new data
+- Summary counts in the admin panel will reflect whichever environment you're viewing from
 
 ## Technical Details
 
-### Updated main handler logic (pseudocode)
-
+### Shared helper (pseudocode)
 ```text
-1. Read FIRECRAWL_API_KEY from env
-2. Determine mode:
-   - "firecrawl-first" (default): Try Firecrawl, fall back to free
-   - "force-firecrawl": Firecrawl only, error if no key
-   - "force-free": Free only (no Firecrawl)
-3. If mode includes Firecrawl and key exists:
-   -> Call firecrawlScrape() with search URLs
-   -> If listings found, upsert and return
-4. If Firecrawl failed/skipped:
-   -> Call freeScrape() as fallback
-   -> Upsert whatever is found
-5. Return response with mode_used, counts, sample
+function getLiveWriteClient():
+  liveUrl = Deno.env.get("LIVE_SUPABASE_URL")
+  liveKey = Deno.env.get("LIVE_SUPABASE_SERVICE_ROLE_KEY")
+  if both exist:
+    return createClient(liveUrl, liveKey)
+  else:
+    // Fallback: we ARE live, use local env
+    return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 ```
 
-### Firecrawl call (already using correct API)
+### car-scraper change (key section)
+```text
+// In upsertListings(), replace:
+//   const supabase = createClient(SUPABASE_URL, ...)
+// With:
+//   const writeClient = getLiveWriteClient()
+//   writeClient.from("catalog_items").upsert(...)
+```
 
-The existing code already calls `https://api.firecrawl.dev/v1/scrape` with:
-- `Authorization: Bearer ${FIRECRAWL_API_KEY}`
-- JSON extraction schema for car listings
-- This is correct and uses your Firecrawl account
-
-Only change: increase `waitFor` and refine the extraction prompt.
-
-## Files Changed
-
-| File | Change |
-|------|--------|
-| `supabase/functions/catalog-car-scraper/index.ts` | Flip default mode to Firecrawl-primary; improve extraction params |
-
-This is a single-file change since all the supporting infrastructure (provider activation, UI filters, admin triggers) was already implemented.
+Same pattern applied to all 5 ingestion functions.
 

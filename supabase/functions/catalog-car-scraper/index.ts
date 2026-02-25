@@ -89,6 +89,46 @@ function buildSearchUrl(provider: string, maxPrice: number, page: number, search
 
 // ── HELPERS ────────────────────────────────────────────────────────────────
 
+const SOLD_EXPIRED_KEYWORDS = /\b(sold|no longer available|expired|off market|pending sale|unavailable|deal fell through|price unavailable|not available)\b/i;
+
+function isSoldOrExpired(text: string): boolean {
+  return SOLD_EXPIRED_KEYWORDS.test(text);
+}
+
+function isValidVdpUrl(url: string, provider: string): boolean {
+  try {
+    const u = new URL(url);
+    const path = u.pathname.toLowerCase();
+    const domain = PROVIDER_DOMAINS[provider];
+    if (!u.hostname.includes(domain)) return false;
+
+    // Exclude obvious non-VDP pages
+    if (path === "/" || path.includes("/signin") || path.includes("/login") ||
+        path.includes("/about") || path.includes("/faq") || path.includes("/privacy") ||
+        path.includes("/terms") || path.includes("/help") || path.includes("/careers") ||
+        path.includes("/sell") || path.includes("/finance") || path.includes("/blog")) {
+      return false;
+    }
+
+    // Exclude search/listing index pages
+    if (path.includes("inventorylisting") || path.includes("/cars?") ||
+        path.includes("/cars/") && !path.match(/\/\d{5,}/) && !path.includes("/listing/")) {
+      // Allow /Cars/ paths only if they contain a numeric listing ID
+      if (provider === "cargurus" && !u.searchParams.get("listingId") && !u.searchParams.get("id") && !path.match(/\/(\d{5,})/)) {
+        return false;
+      }
+    }
+
+    if (provider === "carvana") {
+      return path.includes("/vehicle/");
+    }
+    if (provider === "cargurus") {
+      return path.includes("/listing/") || !!u.searchParams.get("listingId") || !!u.searchParams.get("id") || !!path.match(/\/(\d{5,})/);
+    }
+    return true;
+  } catch { return false; }
+}
+
 function jitterDelay(): Promise<void> {
   const ms = 800 + Math.floor(Math.random() * 400);
   return new Promise((r) => setTimeout(r, ms));
@@ -145,7 +185,7 @@ async function firecrawlSearch(
 }> {
   const domain = PROVIDER_DOMAINS[provider];
   const query = searchQuery
-    ? `${searchQuery} site:${domain}`
+    ? `${searchQuery} for sale site:${domain}`
     : `used cars for sale site:${domain}`;
 
   console.log(`[CAR_SCRAPER] search: query="${query}" limit=${targetItems}`);
@@ -195,6 +235,18 @@ async function firecrawlSearch(
 
       if (!url || !title) {
         dropReasons["search_missing_url_or_title"] = (dropReasons["search_missing_url_or_title"] || 0) + 1;
+        continue;
+      }
+
+      // Filter sold/expired listings
+      if (isSoldOrExpired(title) || isSoldOrExpired(description)) {
+        dropReasons["sold_or_expired"] = (dropReasons["sold_or_expired"] || 0) + 1;
+        continue;
+      }
+
+      // Validate URL is a real vehicle detail page
+      if (!isValidVdpUrl(url, provider)) {
+        dropReasons["not_vdp_url"] = (dropReasons["not_vdp_url"] || 0) + 1;
         continue;
       }
 
@@ -323,34 +375,28 @@ function parseListingsFromMarkdown(
     const titleMatch = line.match(yearMakeModelRegex);
     if (titleMatch) {
       if (currentTitle && currentPrice !== null) {
-        const url = urlIndex < listingUrls.length ? listingUrls[urlIndex++] : "";
-        if (url) {
-          const pid = extractProductId(url, provider);
-          if (!seenIds.has(pid)) {
-            seenIds.add(pid);
-            listings.push({
-              title: currentTitle,
-              price_usd: currentPrice,
-              image_url: currentImageUrl,
-              product_url: url,
-              provider_product_id: pid,
-              condition: "Used",
-            });
-          }
+        // Filter sold/expired
+        if (isSoldOrExpired(currentTitle)) {
+          dropReasons["sold_or_expired"] = (dropReasons["sold_or_expired"] || 0) + 1;
         } else {
-          // Generate synthetic URL instead of dropping
-          const syntheticUrl = `https://www.${domain}/listing/md-${seenIds.size}`;
-          const pid = `md-parse-${seenIds.size}`;
-          if (!seenIds.has(pid)) {
-            seenIds.add(pid);
-            listings.push({
-              title: currentTitle,
-              price_usd: currentPrice,
-              image_url: currentImageUrl,
-              product_url: syntheticUrl,
-              provider_product_id: pid,
-              condition: "Used",
-            });
+          const url = urlIndex < listingUrls.length ? listingUrls[urlIndex++] : "";
+          if (url && isValidVdpUrl(url, provider)) {
+            const pid = extractProductId(url, provider);
+            if (!seenIds.has(pid)) {
+              seenIds.add(pid);
+              listings.push({
+                title: currentTitle,
+                price_usd: currentPrice,
+                image_url: currentImageUrl,
+                product_url: url,
+                provider_product_id: pid,
+                condition: "Used",
+              });
+            }
+          } else {
+            // No valid VDP URL — drop instead of generating synthetic
+            dropReasons["no_detail_url"] = (dropReasons["no_detail_url"] || 0) + 1;
+            if (url) urlIndex++; // consume the bad URL
           }
         }
       }
@@ -380,33 +426,25 @@ function parseListingsFromMarkdown(
 
   // Last pending listing
   if (currentTitle && currentPrice !== null) {
-    const url = urlIndex < listingUrls.length ? listingUrls[urlIndex++] : "";
-    if (url) {
-      const pid = extractProductId(url, provider);
-      if (!seenIds.has(pid)) {
-        seenIds.add(pid);
-        listings.push({
-          title: currentTitle,
-          price_usd: currentPrice,
-          image_url: currentImageUrl,
-          product_url: url,
-          provider_product_id: pid,
-          condition: "Used",
-        });
-      }
+    if (isSoldOrExpired(currentTitle)) {
+      dropReasons["sold_or_expired"] = (dropReasons["sold_or_expired"] || 0) + 1;
     } else {
-      const syntheticUrl = `https://www.${domain}/listing/md-${seenIds.size}`;
-      const pid = `md-parse-${seenIds.size}`;
-      if (!seenIds.has(pid)) {
-        seenIds.add(pid);
-        listings.push({
-          title: currentTitle,
-          price_usd: currentPrice,
-          image_url: currentImageUrl,
-          product_url: syntheticUrl,
-          provider_product_id: pid,
-          condition: "Used",
-        });
+      const url = urlIndex < listingUrls.length ? listingUrls[urlIndex++] : "";
+      if (url && isValidVdpUrl(url, provider)) {
+        const pid = extractProductId(url, provider);
+        if (!seenIds.has(pid)) {
+          seenIds.add(pid);
+          listings.push({
+            title: currentTitle,
+            price_usd: currentPrice,
+            image_url: currentImageUrl,
+            product_url: url,
+            provider_product_id: pid,
+            condition: "Used",
+          });
+        }
+      } else {
+        dropReasons["no_detail_url"] = (dropReasons["no_detail_url"] || 0) + 1;
       }
     }
   }
@@ -598,6 +636,7 @@ async function firecrawlStageB(
       const title = String(rawTitle).trim();
       const priceNum = parseUsd(rawPrice);
       if (!title) { dropReasons["invalid_title"] = (dropReasons["invalid_title"] || 0) + 1; continue; }
+      if (isSoldOrExpired(title)) { dropReasons["sold_or_expired"] = (dropReasons["sold_or_expired"] || 0) + 1; continue; }
       if (!priceNum) { dropReasons["missing_price"] = (dropReasons["missing_price"] || 0) + 1; continue; }
       if (priceNum > maxPrice) { dropReasons["above_max_price"] = (dropReasons["above_max_price"] || 0) + 1; continue; }
 
@@ -605,9 +644,9 @@ async function firecrawlStageB(
       if (productUrl && !productUrl.startsWith("http")) {
         productUrl = `https://www.${domain}${productUrl.startsWith("/") ? "" : "/"}${productUrl}`;
       }
-      if (!productUrl) {
-        // Generate synthetic URL instead of dropping
-        productUrl = `https://www.${domain}/listing/extract-${listings.length}`;
+      if (!productUrl || !isValidVdpUrl(productUrl, provider)) {
+        dropReasons["no_detail_url"] = (dropReasons["no_detail_url"] || 0) + 1;
+        continue;
       }
 
       listings.push({
@@ -791,12 +830,12 @@ Deno.serve(async (req: Request) => {
 
     // ── STAGE 0: Firecrawl Search (PRIMARY) ────────────────────────────
     const searchResult = await firecrawlSearch(provider, maxPrice, firecrawlKey, searchQuery, targetItems, dropReasons);
-    allListings = searchResult.listings;
+    allListings = searchResult.listings.slice(0, targetItems);
     firecrawlStatus = `search:${searchResult.status}`;
     modeUsed = "search";
     totalPagesFetched = 1;
 
-    console.log(`[CAR_SCRAPER] search result: ${allListings.length} listings, status=${searchResult.status}`);
+    console.log(`[CAR_SCRAPER] search result: ${allListings.length} listings (capped to ${targetItems}), status=${searchResult.status}`);
 
     // ── STAGE A (FALLBACK): Markdown scrape if search insufficient ─────
     if (allListings.length < targetItems && (Date.now() - startTime) < HARD_FUNCTION_CAP_MS - STAGE_A_TIMEOUT_MS) {
@@ -805,6 +844,7 @@ Deno.serve(async (req: Request) => {
       const stageA = await firecrawlStageA(provider, maxPrice, maxPages, firecrawlKey, searchQuery, targetItems, dropReasons, startTime);
       const seenIds = new Set(allListings.map(l => l.provider_product_id));
       for (const l of stageA.listings) {
+        if (allListings.length >= targetItems) break;
         if (!seenIds.has(l.provider_product_id)) {
           seenIds.add(l.provider_product_id);
           allListings.push(l);
@@ -822,6 +862,7 @@ Deno.serve(async (req: Request) => {
       const stageB = await firecrawlStageB(provider, maxPrice, firecrawlKey, searchQuery, targetItems, allListings.length, dropReasons, startTime);
       const seenIds = new Set(allListings.map(l => l.provider_product_id));
       for (const l of stageB.listings) {
+        if (allListings.length >= targetItems) break;
         if (!seenIds.has(l.provider_product_id)) {
           seenIds.add(l.provider_product_id);
           allListings.push(l);
@@ -831,6 +872,9 @@ Deno.serve(async (req: Request) => {
       firecrawlStatus += ` stageB:${stageB.status}`;
       modeUsed = "search+stageA+stageB";
     }
+
+    // ── Enforce final count cap ────────────────────────────────────────
+    allListings = allListings.slice(0, targetItems);
 
     // ── Build diagnostics message ──────────────────────────────────────
     if (allListings.length === 0) {

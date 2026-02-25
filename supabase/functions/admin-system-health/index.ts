@@ -53,7 +53,15 @@ interface SystemHealthResponse {
   };
   providers: {
     ebay: { configured: boolean; tokenValid: boolean };
-    amazon: { configured: boolean; budgetRemaining: number };
+    amazon: { 
+      configured: boolean; 
+      budgetRemaining: number;
+      monthlyLimit: number;
+      monthlyUsed: number;
+      monthlyRemaining: number;
+      queueQueuedCount: number;
+      queueFailedCount: number;
+    };
     stripe: { configured: boolean; mode: 'test' | 'live' };
     pawapay: { configured: boolean };
   };
@@ -83,11 +91,17 @@ serve(async (req) => {
     const supabase = adminClient;
 
     // Gather all stats in parallel
+    // Build monthly budget window key
+    const now = new Date();
+    const monthKey = `amazon:month:${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
     const [
       cacheStats,
       tableStats,
       cronJobs,
       providerBudget,
+      monthlyBudgetResult,
+      ingestQueueStats,
     ] = await Promise.all([
       // Cache table counts
       Promise.all([
@@ -100,12 +114,22 @@ serve(async (req) => {
       supabase.rpc('get_table_statistics'),
       // Cron jobs (may not exist if pg_cron not enabled)
       supabase.from('cron.job').select('jobname, schedule, active').catch(() => ({ data: null })),
-      // Provider budget
+      // Provider budget (hourly)
       supabase.from('provider_budget')
         .select('*')
         .eq('provider', 'amazon')
         .order('window_start', { ascending: false })
         .limit(1),
+      // Monthly budget
+      supabase.from('provider_budget')
+        .select('call_count, limit_count')
+        .eq('window_key', monthKey)
+        .maybeSingle(),
+      // Ingest queue counts
+      Promise.all([
+        supabase.from('amazon_ingest_queue').select('*', { count: 'exact', head: true }).eq('status', 'queued'),
+        supabase.from('amazon_ingest_queue').select('*', { count: 'exact', head: true }).eq('status', 'failed'),
+      ]),
     ]);
 
     // Parse cache stats
@@ -122,6 +146,16 @@ serve(async (req) => {
     const amazonRemaining = amazonBudget 
       ? Math.max(0, (amazonBudget.limit_count || 100) - (amazonBudget.call_count || 0))
       : 100;
+
+    // Monthly budget
+    const monthlyLimit = 10000;
+    const monthlyUsed = monthlyBudgetResult.data?.call_count || 0;
+    const monthlyRemaining = Math.max(0, monthlyLimit - monthlyUsed);
+
+    // Ingest queue
+    const [queuedResult, failedResult] = ingestQueueStats;
+    const queueQueuedCount = queuedResult.count || 0;
+    const queueFailedCount = failedResult.count || 0;
 
     // Determine load level (simulated - in production would use actual metrics)
     const currentLoad = Math.floor(Math.random() * 150); // Simulated
@@ -184,6 +218,11 @@ serve(async (req) => {
         amazon: { 
           configured: !!rainforestKey,
           budgetRemaining: amazonRemaining,
+          monthlyLimit,
+          monthlyUsed,
+          monthlyRemaining,
+          queueQueuedCount,
+          queueFailedCount,
         },
         stripe: { 
           configured: !!stripeKey,

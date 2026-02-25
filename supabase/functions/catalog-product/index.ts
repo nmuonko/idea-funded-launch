@@ -17,7 +17,7 @@
 
 import { createAdminPostgrestClient, PostgrestClient } from "../_shared/postgrest.ts";
 import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
-import { fetchProductDetails } from "../_shared/rainforestAdapter.ts";
+// fetchProductDetails removed: Amazon is offline-only, no live Rainforest calls from users
 import { getEbayItem } from "../_shared/ebayAdapter.ts";
 import { getDeviceId } from "../_shared/catalogCache.ts";
 import { isDisallowedItem, getBlockedSearchMessage } from "../_shared/contentBlocker.ts";
@@ -937,91 +937,23 @@ Deno.serve(async (req: Request) => {
       }
     }
     
-    // ========== LIVE FETCH: Rainforest (default) ==========
-    const { product, error: rainforestError } = await fetchProductDetails(productId!, amazonDomain);
-
-    if (rainforestError || !product) {
-      console.log(`[CATALOG_PRODUCT][ERROR] correlationId=${correlationId} rainforest error=${rainforestError || "NOT_FOUND"}`);
-      return errorResponse(rainforestError || "NOT_FOUND", `Product not found on ${amazonDomain}`);
-    }
-
-    const liveBlockCheck = isDisallowedItem({
-      title: product.title,
-      productUrl: product.productUrl,
-      categoryPath: product.categoryPath,
-    });
+    // ========== OFFLINE-ONLY: No live Rainforest calls from users ==========
+    console.log(`[CATALOG_PRODUCT] Amazon product ${productId} not in DB — no live fetch (offline-only)`);
     
-    if (liveBlockCheck.isDisallowed) {
-      return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
-    }
+    // Enqueue for background ingestion (fire-and-forget)
+    db.from("amazon_ingest_queue")
+      .upsert({
+        query: `asin:${productId}`,
+        category_key: null,
+        reason: "product_cache_miss",
+        priority: 1,
+        status: "queued",
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "query", ignoreDuplicates: true })
+      .then(() => {});
 
-    // Cache to catalog_items using provider+provider_product_id constraint
-    const toCache = {
-      provider: "rainforest",
-      provider_product_id: product.providerProductId,
-      title: product.title,
-      price_usd: product.priceUsd,
-      image_url: product.imageUrl,
-      images: product.images || [],
-      product_url: product.productUrl,
-      in_stock: product.inStock,
-      rating: product.rating,
-      review_count: product.reviewCount,
-      brand: product.brand,
-      category_key: "uncategorized",
-      tags: [],
-      raw: product.raw,
-      updated_at: new Date().toISOString(),
-    };
+    return errorResponse("NOT_FOUND", "Product not available yet. It may appear after our next catalog refresh.");
 
-    await db.from("catalog_items").upsert(toCache, { onConflict: "provider,provider_product_id" });
-
-    const rawImages = product.images || [];
-    if (product.imageUrl && !rawImages.includes(product.imageUrl)) {
-      rawImages.unshift(product.imageUrl);
-    }
-    const allImages = upgradeGalleryImages(rawImages, "rainforest");
-    const mainImage = allImages[0] || null;
-    
-    const item: CatalogItem = {
-      id: fullProductId,
-      provider: "rainforest",
-      providerProductId: product.providerProductId,
-      title: product.title || "",
-      priceUsd: product.priceUsd,
-      mainImageUrl: mainImage,
-      imageUrl: mainImage,
-      imageUrls: allImages,
-      images: allImages,
-      productUrl: product.productUrl || null,
-      inStock: product.inStock ?? null,
-      rating: product.rating ?? null,
-      description: product.description || null,
-      brand: product.brand || null,
-      variants: product.variants,
-    };
-
-    // Cache variants if present
-    if (item.variants && item.variants.length > 0) {
-      await cacheVariants(item.variants);
-    }
-
-    console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: "amazon", id: productId, dbHit: false, variantsCacheHit: false, liveFetch: true, variantsCount: item.variants?.length ?? 0, totalMs: Date.now() - startTime }));
-
-    return new Response(JSON.stringify({
-      ok: true,
-      status: "success",
-      env: envName,
-      id: fullProductId,
-      item,
-      product: item,
-      source: "live",
-      cached: false,
-      error: null,
-    }), {
-      status: 200,
-      headers: buildDiagHeaders({ variantsCache: "MISS", provider: "amazon", upstreamMs: Date.now() - startTime, totalMs: Date.now() - startTime, source: "live-rainforest" }),
-    });
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";

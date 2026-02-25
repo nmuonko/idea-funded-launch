@@ -52,6 +52,7 @@ const CATALOG_SETTING_KEYS = [
   "global_price_refresh_days",
   "global_availability_refresh_days",
   "db_search_min_results",
+  "amazon_max_calls_per_month",
 ];
 
 Deno.serve(async (req) => {

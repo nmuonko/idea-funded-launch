@@ -113,8 +113,13 @@ export default function PaymentCallback() {
       const paymentStatus = data?.status || data?.payment_status;
       
       if (paymentStatus === "paid" || paymentStatus === "succeeded" || paymentStatus === "PAID" || paymentStatus === "success") {
-        setStatus("succeeded");
-        setConfirmationCode(data?.confirmation_code || reference);
+        // Redirect to the proper shop success page which clears cart and shows order details
+        const redirectOrderId = effectiveOrderId || data?.order_id;
+        if (redirectOrderId) {
+          window.location.href = `/payment-success-shop?order_id=${redirectOrderId}&provider=${effectiveProvider || 'unknown'}`;
+        } else {
+          window.location.href = `/payment-success-shop?provider=${effectiveProvider || 'unknown'}`;
+        }
         return false;
       }
 

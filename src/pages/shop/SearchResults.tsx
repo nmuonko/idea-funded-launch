@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Loader2, X, RefreshCw, AlertCircle } from 'lucide-react';
 import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -69,7 +69,7 @@ export default function SearchResults() {
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
 
-  const [products, setProducts] = useState<Product[]>([]);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [isRevalidating, setIsRevalidating] = useState(false);
@@ -93,6 +93,16 @@ export default function SearchResults() {
   const revalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pageRef = useRef(0);
   const lastRequestedPageRef = useRef<number | null>(null);
+
+  // Derived: client-side provider filtering for instant results
+  const products = useMemo(() => {
+    if (!providerFilter || providerFilter === 'all') return allProducts;
+    const filterKey = providerFilter === 'amazon' ? 'rainforest' : providerFilter;
+    return allProducts.filter(p => {
+      const prov = (p.provider || '').toLowerCase();
+      return prov === filterKey || prov === providerFilter;
+    });
+  }, [allProducts, providerFilter]);
 
   const SORT_OPTIONS = [
     { value: 'relevance', label: shop.relevance || 'Relevance' },
@@ -141,9 +151,6 @@ export default function SearchResults() {
       params.category_key = effectiveCategory;
     }
     if (sort && sort !== 'relevance') params.sort = sort;
-    if (providerFilter && providerFilter !== 'all') {
-      params.provider = providerFilter === 'amazon' ? 'rainforest' : providerFilter;
-    }
 
     const filters: Record<string, number> = {};
     if (maxPrice < 500000) filters.maxPrice = maxPrice;
@@ -152,7 +159,7 @@ export default function SearchResults() {
     }
 
     return params;
-  }, [query, category, sort, maxPrice, providerFilter]);
+  }, [query, category, sort, maxPrice]);
 
   const searchIdentityRef = useRef('');
 
@@ -194,7 +201,7 @@ export default function SearchResults() {
           const sortedProducts = scored.map(s => s.product);
           console.log(`[BROADEN] "${sq}" added ${sortedProducts.length} new items`);
 
-          setProducts(prev => [...prev, ...sortedProducts]);
+          setAllProducts(prev => [...prev, ...sortedProducts]);
         }
 
         // Check if we've reached the target
@@ -239,7 +246,7 @@ export default function SearchResults() {
       setLoading(true);
       setHasSearched(false);
       setHasMore(true);
-      setProducts([]);
+      setAllProducts([]);
       setIncomplete(false);
       setSearchError(null);
       setIsRevalidating(false);
@@ -271,7 +278,7 @@ export default function SearchResults() {
             if (freshDeduped.length > 0) {
               seenIdsRef.current = new Set();
               const allFresh = dedupeWithSet(mapItems(freshData?.items || []), seenIdsRef.current);
-              setProducts(allFresh);
+              setAllProducts(allFresh);
             }
             const bHasMore = freshData?.hasMore === true;
             const bIncomplete = !!freshData?.incomplete || !!freshData?.partial;
@@ -341,7 +348,7 @@ export default function SearchResults() {
 
       if (append) {
         const newUnique = dedupeWithSet(mappedProducts, seenIdsRef.current);
-        setProducts(prev => [...prev, ...newUnique]);
+        setAllProducts(prev => [...prev, ...newUnique]);
       } else {
         seenIdsRef.current = new Set();
         const deduped = dedupeWithSet(mappedProducts, seenIdsRef.current);
@@ -356,7 +363,7 @@ export default function SearchResults() {
           });
         }
 
-        setProducts(deduped);
+        setAllProducts(deduped);
       }
 
       const reachedCap = pageNum >= MAX_PAGES - 1;
@@ -443,7 +450,7 @@ export default function SearchResults() {
       const newUnique = dedupeWithSet(mappedProducts, seenIdsRef.current);
 
       if (newUnique.length > 0 && token === activeSearchTokenRef.current) {
-        setProducts(prev => [...prev, ...newUnique]);
+        setAllProducts(prev => [...prev, ...newUnique]);
       }
 
       if (token === activeSearchTokenRef.current) {
@@ -468,7 +475,7 @@ export default function SearchResults() {
     pageRef.current = 0;
     lastRequestedPageRef.current = null;
     fetchProducts(0, false);
-  }, [query, category, sort, providerFilter]);
+  }, [query, category, sort]);
 
   const handleSearch = (newQuery: string) => {
     setSearchParams({ q: newQuery, sort });

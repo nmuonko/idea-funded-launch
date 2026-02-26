@@ -153,6 +153,10 @@ function formatItem(
     quotedTotalUsd,
     isVehicle,
     vehicleQuoteApplied,
+    // Mobile-expected classification fields (mobile filters on these)
+    item_type: isVehicle ? 'vehicle_quote' : 'product',
+    shippingType: isVehicle ? 'vehicle' : null,
+    requiresVehicleQuote: isVehicle,
     // Price confirmation fields - CRITICAL for mobile app checkout blocking
     priceConfirmationStatus,
     adminAdjustedPrice,

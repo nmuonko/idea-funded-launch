@@ -1,50 +1,35 @@
 
-## Fix: Payment Success Page Not Showing After Stripe Payment
 
-### Root Cause
+## Fix: Hero Carousel Image/Text Sync + Premium Colors
 
-The Stripe checkout session is configured with the **wrong redirect URL**. After a successful Stripe payment, the user is redirected to the wrong page.
+### Problem
+The carousel has **two separate `AnimatePresence` blocks** — one for the background image (lines 116-134) and one for the text (lines 137-158). They animate independently with different durations and directions, causing the image to appear late relative to the text.
 
-In `supabase/functions/stripe-create-checkout-session/index.ts` (line 176):
-```
-success_url = https://afrishop-usa.com/payment-success?orderId=...
-```
+### Solution
 
-This sends users to `/payment-success` -- an **old legacy page** that:
-- Does NOT clear the shopping cart
-- Calls a different verification function (`payment-status` instead of checking order status directly)
-- Shows a "Close Window" button instead of proper shop navigation
-- Has no shop header or branding
-- Uses `orderId` param but the shop success page expects `order_id`
+#### 1. Merge into a single AnimatePresence block
+Combine the image background and the text overlay into one `motion.div` so they animate together as a single unit. This ensures the image and text appear simultaneously.
 
-The **correct** shop success page is at `/payment-success-shop`, which shows the animated success UI, clears the cart, and lets users view their order or continue shopping.
+#### 2. Preload all slide images
+Add an `useEffect` that preloads all slide images on mount using `new Image()`. This prevents the delay caused by lazy-loading images when a new slide appears.
 
-### Additionally
+#### 3. Premium gradient colors
+Upgrade the slide gradients to richer, more luxurious tones:
 
-The `PaymentCallback` page (used for the legacy Stripe flow) also doesn't redirect to `/payment-success-shop` after confirming payment -- it just shows its own basic success UI with no cart clearing.
+| Slide | Current | New |
+|-------|---------|-----|
+| Gaming | indigo-900/purple-900 | violet-950/indigo-900 with deeper opacity |
+| Delivery | black/black | slate-950/blue-950 for depth |
+| Phones | emerald-900/teal-900 | emerald-950/cyan-900 richer |
+| Laptops | slate-900/blue-900 | gray-950/slate-900 sleek |
+| Audio | amber-900/orange-900 | amber-950/yellow-900 warm gold |
+| Smart Home | rose-900/pink-900 | rose-950/fuchsia-900 elegant |
 
-### Plan
-
-#### 1. Fix Stripe checkout session redirect URL (`stripe-create-checkout-session/index.ts`)
-
-Change line 176 from:
-```
-/payment-success?orderId=${order_id}&session_id={CHECKOUT_SESSION_ID}
-```
-to:
-```
-/payment-success-shop?order_id=${order_id}&provider=stripe
-```
-
-Also update the cancel URL to go back to `/checkout` instead of `/payment-fail`.
-
-#### 2. Fix PaymentCallback to redirect on success (`src/pages/PaymentCallback.tsx`)
-
-When the payment status resolves to "succeeded", redirect the user to `/payment-success-shop?order_id=...` instead of just showing an inline success card. This ensures the cart gets cleared and the user sees the proper success experience.
+Also add a subtle inner border glow and refine the CTA button with a slight gradient for a more premium feel.
 
 ### Files Changed
 
 | File | Change |
 |------|--------|
-| `supabase/functions/stripe-create-checkout-session/index.ts` | Fix `success_url` to `/payment-success-shop?order_id=...&provider=stripe` |
-| `src/pages/PaymentCallback.tsx` | On payment success, redirect to `/payment-success-shop` instead of showing inline UI |
+| `src/components/shop/HeroBannerCarousel.tsx` | Merge AnimatePresence blocks, preload images, premium gradients + CTA styling |
+

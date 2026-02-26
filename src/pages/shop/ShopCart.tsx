@@ -335,9 +335,24 @@ export default function ShopCart() {
                         {selectedItemIds.size} {selectedItemIds.size !== 1 ? (shop.items || 'items') : (shop.item || 'item')} {language === 'fr' ? 'sélectionné(s)' : 'selected'}
                       </p>
                       <PriceBreakdown 
-                        itemPriceUsd={selectedTotalUsd} 
+                        itemPriceUsd={selectedHasVehicleItems && vehicleQuoteStatus === 'quoted'
+                          ? selectedItems.reduce((sum, i) => sum + (i.isVehicle ? 0 : i.priceUsd * i.quantity) + (i.isVehicle ? (i.priceUsd - (i.itemMarginUsd || 0) - (i.itemShippingUsd || 0)) * i.quantity : 0), 0)
+                          : selectedTotalUsd
+                        }
                         showDetails={true}
                         isVehicle={selectedHasVehicleItems}
+                        serverMarginUsd={selectedHasVehicleItems && vehicleQuoteStatus === 'quoted'
+                          ? selectedItems.reduce((sum, i) => sum + (i.itemMarginUsd || 0), 0)
+                          : undefined
+                        }
+                        serverShippingUsd={selectedHasVehicleItems && vehicleQuoteStatus === 'quoted'
+                          ? selectedItems.reduce((sum, i) => sum + (i.itemShippingUsd || 0), 0)
+                          : undefined
+                        }
+                        serverLineTotalUsd={selectedHasVehicleItems && vehicleQuoteStatus === 'quoted'
+                          ? selectedItems.reduce((sum, i) => sum + (i.itemTotalUsd || i.priceUsd * i.quantity), 0)
+                          : undefined
+                        }
                       />
                     </>
                   )}

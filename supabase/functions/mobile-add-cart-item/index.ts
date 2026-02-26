@@ -252,7 +252,9 @@ serve(async (req) => {
         store,
         pricing,
         shippingFeeUsd,
-        settings.exchangeRate
+        settings.exchangeRate,
+        false,
+        effectiveMarkup
       );
       
       return jsonResponse({
@@ -354,7 +356,8 @@ serve(async (req) => {
       pricing,
       shippingFeeUsd,
       settings.exchangeRate,
-      merged
+      merged,
+      effectiveMarkup
     );
     
     return jsonResponse({

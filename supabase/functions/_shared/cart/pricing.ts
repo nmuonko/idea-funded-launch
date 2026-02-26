@@ -90,7 +90,8 @@ export function buildItemResponse(
   pricing: ItemPricing,
   shippingFeeUsd: number,
   exchangeRate: number,
-  merged: boolean = false
+  merged: boolean = false,
+  effectiveMarkupPercent?: number
 ): Record<string, unknown> {
   const { totalUsd, totalCdf } = calculateTotalWithShipping(
     pricing.itemSubtotalUsd,
@@ -109,11 +110,21 @@ export function buildItemResponse(
     quantity: pricing.quantity,
     itemBaseTotalUsd: pricing.itemBaseTotalUsd,
     itemMarginUsd: pricing.itemMarginUsd,
+    markupFeeUsd: pricing.itemMarginUsd,
+    markup_fee_usd: pricing.itemMarginUsd,
     itemSubtotalUsd: pricing.itemSubtotalUsd,
+    subtotalUsd: pricing.itemSubtotalUsd,
+    subtotal_usd: pricing.itemSubtotalUsd,
     itemSubtotalCdf: pricing.itemSubtotalCdf,
     shippingFeeUsd,
+    shipping_fee_usd: shippingFeeUsd,
     lineTotalUsd: totalUsd,
     lineTotalCdf: totalCdf,
+    totalPriceUsd: totalUsd,
+    total_price_usd: totalUsd,
+    priceUsd: totalUsd,
     merged,
+    effectiveMarkupPercent: effectiveMarkupPercent ?? null,
+    markupPercent: effectiveMarkupPercent ?? null,
   };
 }

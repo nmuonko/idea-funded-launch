@@ -273,7 +273,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           if (data) {
             setFeeSettings({
               markupPercent: data.markup?.value ?? data.markupPercent ?? 15,
-              vehicleMarkupPercent: data.markup?.vehicleValue ?? data.markup?.value ?? 15,
+              vehicleMarkupPercent: data.markup?.vehicleValue ?? data.markupVehiclePercent ?? data.markup?.value ?? 15,
               shippingBaseFeeUsd: data.shipping?.flatUsd ?? data.shippingBaseFeeUsd ?? 20,
               shippingPercent: data.shipping?.percentValue ?? data.shippingPercent ?? 10,
             });

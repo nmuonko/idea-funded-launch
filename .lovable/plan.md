@@ -1,48 +1,25 @@
 
+## Fix: Low Result Count for Searches Like "iphone 12"
 
-## Fix: Make DB-First Search Work Dynamically for All Queries with Proper Pagination
+### Problem
+Searching "iphone 12" returns only 43 products because the DB has 43 matching cached items, which falls below the `DB_SUFFICIENT_THRESHOLD` of 50. This causes the system to skip the fast database path and fall through to slow live provider calls (Amazon/eBay), which may time out or return nothing -- leaving the user with just 43 results after a long wait.
 
-### Current State
+### Root Cause
+There's a dead zone between the broadening threshold (30) and the DB fast path threshold (50). When DB returns 30-49 items:
+- DB fast path does NOT trigger (needs 50+)
+- Frontend broadening does NOT trigger (needs fewer than 30)
+- System wastes time calling slow live providers instead of instantly returning cached results
 
-The token filtering and limit changes from the last edit ARE fully dynamic -- they apply to every search query, not just "iphone 14". However, there are two real problems causing the "loading loading" behavior:
+### Fix
 
-1. **No DB pagination**: The DB fast path returns ALL 500 items on page 0, then on page 1+ runs the exact same query returning the same items (no offset). The frontend deduplicates them, finds 0 new items, but `hasMore: true` keeps triggering infinite load-more attempts.
+**Lower `DB_SUFFICIENT_THRESHOLD` from 50 to 20** in `catalog-search/index.ts`.
 
-2. **DB returns up to 500 items but frontend caps at 100 per page**: The backend sends all 500 items at once on page 0, so there's no need for subsequent pages from the DB. The frontend should recognize this and stop paginating.
+This ensures that any search returning 20+ cached items from the 75K+ catalog instantly uses the fast path, skipping slow provider calls. The background provider refresh still runs to keep the cache updated.
 
-### Plan
-
-#### 1. Backend: Add DB offset for pagination (`catalog-search/index.ts`)
-
-Pass a `dbOffset` parameter to `searchDbFirst` based on the current page number, so page 1 returns items 501-1000, page 2 returns 1001-1500, etc. This prevents returning duplicate results.
-
-- Calculate `dbOffset = page * limit` (where page comes from the URL param)
-- Pass it to `searchDbFirst` which forwards it to `tierASearch`
-
-#### 2. Backend: Set `hasMore` correctly in DB fast path (`catalog-search/index.ts`)
-
-Instead of always returning `hasMore: true`, set it based on whether the DB returned a full page of results:
-- `hasMore: dbFinal.length >= limit` -- if DB returned fewer items than requested, there are no more pages
-
-#### 3. Backend: Add offset support to `searchDbFirst.ts`
-
-Accept an optional `offset` parameter and apply `.range(offset, offset + limit - 1)` to the Tier A database query so subsequent pages get different results.
-
-#### 4. Frontend: No changes needed
-
-The frontend already handles `hasMore: false` correctly to stop pagination. The broadening threshold change (30) from the last edit is fine for all queries.
+This is a one-line change that fixes the issue for ALL searches, not just iPhones.
 
 ### Files Changed
 
 | File | Change |
 |------|--------|
-| `supabase/functions/_shared/searchDbFirst.ts` | Add `offset` parameter to `DbFirstParams` and apply it in `tierASearch` |
-| `supabase/functions/catalog-search/index.ts` | Pass page-based offset to `searchDbFirst`; fix `hasMore` to be `dbFinal.length >= limit` |
-
-### Expected Outcome
-
-- Any search ("shoes", "samsung tv", "honda civic", "iphone 14") returns 500 cached results instantly on page 0
-- Page 1 returns the NEXT batch of results from the DB (offset 500+), not duplicates
-- Pagination stops naturally when the DB runs out of matching items
-- No more infinite "loading loading" loop
-
+| `supabase/functions/catalog-search/index.ts` | Change `DB_SUFFICIENT_THRESHOLD` from `50` to `20` |

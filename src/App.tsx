@@ -197,11 +197,7 @@ const App = () => {
                 <CardPayment />
               </ShopProtectedRoute>
             } />
-            <Route path="/payment-success-shop" element={
-              <ShopProtectedRoute>
-                <ShopPaymentSuccess />
-              </ShopProtectedRoute>
-            } />
+            <Route path="/payment-success-shop" element={<ShopPaymentSuccess />} />
             
             {/* Legacy /shop redirects for compatibility */}
             <Route path="/shop" element={<Navigate to="/" replace />} />

@@ -999,7 +999,7 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
               <div className="col-span-2 md:col-span-1 flex items-center">
                 <Badge variant="secondary" className="text-xs gap-1">
                   <Database className="h-3 w-3" />
-                  {categoryOnlyCount !== null ? (
+                  {typeof categoryOnlyCount === 'number' ? (
                     <>
                       {categoryOnlyCount.toLocaleString()} items in "{appliedFilters.category_key}"
                       {hasOtherFilters && filteredCount !== null && filteredCount !== categoryOnlyCount && (

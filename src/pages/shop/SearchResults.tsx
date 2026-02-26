@@ -580,7 +580,7 @@ export default function SearchResults() {
       <main className="px-4 py-6">
         <div className="container mx-auto">
           {/* Results Header */}
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-6 mt-2">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-6 mt-2 overflow-visible">
             <div className="min-w-0 shrink">
               {query && (
                 <h1 className="text-lg md:text-xl font-bold text-white whitespace-normal break-words leading-snug">
@@ -619,13 +619,13 @@ export default function SearchResults() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 overflow-visible relative z-10">
               {/* Sort */}
               <Select value={sort} onValueChange={handleSortChange}>
                 <SelectTrigger className="w-[160px] bg-white/5 border-white/10 text-white">
                   <SelectValue placeholder={shop.sortBy || 'Sort by'} />
                 </SelectTrigger>
-                <SelectContent className="bg-black/95 border-white/10">
+                <SelectContent className="bg-black/95 border-white/10 z-50">
                   {SORT_OPTIONS.map((option) => (
                     <SelectItem 
                       key={option.value} 
@@ -647,7 +647,7 @@ export default function SearchResults() {
                 {language === 'fr' ? 'Prix max' : 'Max Price'}
               </label>
               <span className="text-sm font-medium text-white">
-                {maxPrice >= 500000 ? (language === 'fr' ? 'Illimité' : 'No limit') : `$${maxPrice.toLocaleString()}`}
+                ${maxPrice.toLocaleString()}
               </span>
             </div>
             <Slider

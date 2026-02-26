@@ -235,18 +235,28 @@ serve(async (req) => {
         updated_at: new Date().toISOString(),
       };
 
-      const { data: upsertedQuote, error: upsertError } = await supabase
+      // Two-step: upsert first, then fetch (chaining .select().single() not supported)
+      const { error: upsertError } = await supabase
         .from('quote_requests')
         .upsert(quoteData, { 
           onConflict: 'order_item_id',
           ignoreDuplicates: false 
-        })
-        .select('id, order_item_id, status')
-        .single();
+        });
 
       if (upsertError) {
         console.error('[request-vehicle-quote] Error upserting quote for item:', item.id, upsertError);
-        // Continue with other items, don't fail entire request
+        continue;
+      }
+
+      // Fetch the upserted record separately
+      const { data: upsertedQuote, error: fetchError } = await supabase
+        .from('quote_requests')
+        .select('id, order_item_id, status')
+        .eq('order_item_id', item.id)
+        .maybeSingle();
+
+      if (fetchError || !upsertedQuote) {
+        console.error('[request-vehicle-quote] Error fetching upserted quote for item:', item.id, fetchError);
         continue;
       }
 

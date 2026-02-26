@@ -1,25 +1,50 @@
 
-## Fix: Low Result Count for Searches Like "iphone 12"
-
-### Problem
-Searching "iphone 12" returns only 43 products because the DB has 43 matching cached items, which falls below the `DB_SUFFICIENT_THRESHOLD` of 50. This causes the system to skip the fast database path and fall through to slow live provider calls (Amazon/eBay), which may time out or return nothing -- leaving the user with just 43 results after a long wait.
+## Fix: Payment Success Page Not Showing After Stripe Payment
 
 ### Root Cause
-There's a dead zone between the broadening threshold (30) and the DB fast path threshold (50). When DB returns 30-49 items:
-- DB fast path does NOT trigger (needs 50+)
-- Frontend broadening does NOT trigger (needs fewer than 30)
-- System wastes time calling slow live providers instead of instantly returning cached results
 
-### Fix
+The Stripe checkout session is configured with the **wrong redirect URL**. After a successful Stripe payment, the user is redirected to the wrong page.
 
-**Lower `DB_SUFFICIENT_THRESHOLD` from 50 to 20** in `catalog-search/index.ts`.
+In `supabase/functions/stripe-create-checkout-session/index.ts` (line 176):
+```
+success_url = https://afrishop-usa.com/payment-success?orderId=...
+```
 
-This ensures that any search returning 20+ cached items from the 75K+ catalog instantly uses the fast path, skipping slow provider calls. The background provider refresh still runs to keep the cache updated.
+This sends users to `/payment-success` -- an **old legacy page** that:
+- Does NOT clear the shopping cart
+- Calls a different verification function (`payment-status` instead of checking order status directly)
+- Shows a "Close Window" button instead of proper shop navigation
+- Has no shop header or branding
+- Uses `orderId` param but the shop success page expects `order_id`
 
-This is a one-line change that fixes the issue for ALL searches, not just iPhones.
+The **correct** shop success page is at `/payment-success-shop`, which shows the animated success UI, clears the cart, and lets users view their order or continue shopping.
+
+### Additionally
+
+The `PaymentCallback` page (used for the legacy Stripe flow) also doesn't redirect to `/payment-success-shop` after confirming payment -- it just shows its own basic success UI with no cart clearing.
+
+### Plan
+
+#### 1. Fix Stripe checkout session redirect URL (`stripe-create-checkout-session/index.ts`)
+
+Change line 176 from:
+```
+/payment-success?orderId=${order_id}&session_id={CHECKOUT_SESSION_ID}
+```
+to:
+```
+/payment-success-shop?order_id=${order_id}&provider=stripe
+```
+
+Also update the cancel URL to go back to `/checkout` instead of `/payment-fail`.
+
+#### 2. Fix PaymentCallback to redirect on success (`src/pages/PaymentCallback.tsx`)
+
+When the payment status resolves to "succeeded", redirect the user to `/payment-success-shop?order_id=...` instead of just showing an inline success card. This ensures the cart gets cleared and the user sees the proper success experience.
 
 ### Files Changed
 
 | File | Change |
 |------|--------|
-| `supabase/functions/catalog-search/index.ts` | Change `DB_SUFFICIENT_THRESHOLD` from `50` to `20` |
+| `supabase/functions/stripe-create-checkout-session/index.ts` | Fix `success_url` to `/payment-success-shop?order_id=...&provider=stripe` |
+| `src/pages/PaymentCallback.tsx` | On payment success, redirect to `/payment-success-shop` instead of showing inline UI |

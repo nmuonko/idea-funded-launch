@@ -1,60 +1,93 @@
 
 
-## Backend Optimization: Round 2
+## Backend Optimization: Round 3 -- Dead Index Cleanup + Table Bloat
 
-### Finding 1: Duplicate Unique Indexes (20MB wasted, slower writes)
+### Findings
 
-The `catalog_items` table has THREE identical unique indexes on `(provider, provider_product_id)`:
+#### 1. `idx_catalog_items_is_disallowed` -- 1.9MB, 1 scan
+This boolean index is functionally dead. The `check_catalog_item_disallowed` trigger already filters at INSERT time, so nothing queries by `is_disallowed` alone. Drop it.
 
-| Index | Scans | Size |
-|-------|-------|------|
-| `catalog_items_provider_product_unique` | 585,636 | 10 MB |
-| `idx_catalog_items_provider_product_id` | 237,907 | 10 MB |
-| `idx_catalog_items_provider_product` | 147,223 | 10 MB |
+#### 2. Duplicate unique indexes on `catalog_seed_queries`
+Two identical unique indexes on `(provider, seed_key)` with 0 scans each:
+- `uq_seed_key` (56KB)
+- `catalog_seed_queries_provider_seed_key_key` (56KB)
 
-Only the most-used one (`catalog_items_provider_product_unique`) needs to stay. Drop the other two to save 20MB and speed up every catalog write.
+Both are redundant since the pkey (2,768 scans) handles lookups. Keep one for the unique constraint, drop the duplicate.
 
-### Finding 2: catalog_cache Index Bloat (28MB indexes for 249 rows)
+#### 3. Dead indexes on `admin_audit_logs` (5 indexes, 0 scans)
+| Index | Scans |
+|-------|-------|
+| `idx_admin_audit_logs_action_type` | 0 |
+| `idx_admin_audit_logs_admin_id` | 0 |
+| `idx_admin_audit_logs_admin_action` | 0 |
+| `idx_admin_audit_created` | 0 |
+| `idx_admin_audit_logs_created` | 0 |
 
-The `catalog_cache` table has only **249 rows** and **296KB of data** but **28MB of indexes** -- a 95:1 bloat ratio from historical churn. Also:
-- `idx_catalog_cache_stale`: 0 scans, 56KB -- dead
-- `idx_catalog_cache_type_updated`: 6 scans, 88KB -- nearly dead
+Only `idx_admin_audit_logs_created_at` has any usage (5 scans). Drop all 5 dead ones.
 
-Fix: Drop dead indexes, then REINDEX the table to reclaim bloated B-tree pages.
+#### 4. Dead indexes on `home_seen_items`
+- `home_seen_items_pkey`: 0 scans (80KB)
+- `idx_home_seen_items_rotation`: 0 scans (32KB)
 
-### Finding 3: More Low-Value Indexes on catalog_items (~18MB)
+The pkey can't be dropped (primary key), but the rotation index is dead. Drop it.
 
-| Index | Scans | Size | Reason |
-|-------|-------|------|--------|
-| `idx_catalog_items_last_seen` | 4 | 4.3 MB | Redundant with `last_seen_at_desc` |
-| `idx_catalog_items_price_refresh` | 5 | 4.3 MB | Redundant with `price_updated` |
-| `idx_catalog_items_updated_at` | 60 | 5.2 MB | Very low usage |
-| `idx_catalog_items_price_usd` | 107 | 5.9 MB | Low usage, covered by composite |
+#### 5. Dead indexes on `shipping_item_types`
+- `idx_shipping_types_active`: 0 scans
+- `idx_shipping_types_active_priority`: 0 scans
 
-### Finding 4: Security Gaps
+The pkey (209K scans) handles all lookups. Drop both.
 
-- `amazon_ingest_queue` has **RLS disabled** (ERROR level from linter)
-- 4 tables have RLS enabled but **no policies** (blocks all non-service-role access, which may be intentional but should be explicit)
+#### 6. Cache table bloat: `catalog_cache` still 27MB for 249 rows
+The REINDEX from Round 2 may not have fully resolved this. Run VACUUM FULL on small cache tables to reclaim space:
+- `catalog_cache`: 27MB overhead / 296KB data
+- `catalog_home_cache`: 2.4MB / 8KB data
+- `home_cache_web_feed`: 1.2MB / 8KB data
 
 ### Plan
 
-**Migration SQL** -- single migration to:
-1. Drop 2 duplicate unique indexes on `catalog_items` (save 20MB)
-2. Drop 4 low-value indexes on `catalog_items` (save 18MB)
-3. Drop 2 dead indexes on `catalog_cache`
-4. REINDEX `catalog_cache` to reclaim 28MB of bloat
-5. Enable RLS on `amazon_ingest_queue` with service-role-only policy
-6. Add service-role-only policies to the 4 tables missing policies
+Single migration to:
+1. Drop `idx_catalog_items_is_disallowed` (save 1.9MB)
+2. Drop duplicate `catalog_seed_queries_provider_seed_key_key` (keep `uq_seed_key` for constraint)
+3. Drop 5 dead `admin_audit_logs` indexes
+4. Drop `idx_home_seen_items_rotation`
+5. Drop 2 dead `shipping_item_types` indexes
+6. VACUUM FULL on 3 small bloated cache tables
 
 ### Expected Impact
-- **Write speed**: ~10-15% faster catalog item upserts (6 fewer indexes)
-- **Storage**: ~38MB freed from duplicate/dead indexes
-- **catalog_cache**: Index footprint drops from 28MB to under 500KB after REINDEX
-- **Security**: All public tables have RLS + at least one policy
+- **10 dead indexes removed** across 5 tables
+- **~2MB index storage freed** + potential 28MB reclaimed from VACUUM FULL on cache tables
+- Faster writes on all affected tables (fewer indexes to maintain)
 
-### Files Changed
+### Technical Details
+
+```sql
+-- 1. catalog_items: dead boolean index
+DROP INDEX IF EXISTS idx_catalog_items_is_disallowed;
+
+-- 2. catalog_seed_queries: duplicate unique
+DROP INDEX IF EXISTS catalog_seed_queries_provider_seed_key_key;
+
+-- 3. admin_audit_logs: 5 dead indexes
+DROP INDEX IF EXISTS idx_admin_audit_logs_action_type;
+DROP INDEX IF EXISTS idx_admin_audit_logs_admin_id;
+DROP INDEX IF EXISTS idx_admin_audit_logs_admin_action;
+DROP INDEX IF EXISTS idx_admin_audit_created;
+DROP INDEX IF EXISTS idx_admin_audit_logs_created;
+
+-- 4. home_seen_items: dead rotation index
+DROP INDEX IF EXISTS idx_home_seen_items_rotation;
+
+-- 5. shipping_item_types: dead indexes
+DROP INDEX IF EXISTS idx_shipping_types_active;
+DROP INDEX IF EXISTS idx_shipping_types_active_priority;
+
+-- 6. Reclaim bloat on small cache tables
+VACUUM FULL public.catalog_cache;
+VACUUM FULL public.catalog_home_cache;
+VACUUM FULL public.home_cache_web_feed;
+```
 
 | File | Change |
 |------|--------|
-| New migration SQL | Drop 8 indexes, REINDEX catalog_cache, fix RLS gaps |
+| New migration SQL | Drop 10 dead indexes, VACUUM FULL 3 cache tables |
 

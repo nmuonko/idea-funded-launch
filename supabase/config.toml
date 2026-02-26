@@ -1,1 +1,4 @@
 project_id = "igmkhxffnyzoogcqvdab"
+
+[functions.catalog-shein-scraper]
+verify_jwt = false

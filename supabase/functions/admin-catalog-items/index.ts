@@ -552,6 +552,39 @@ async function handleAction(req: Request, action: string) {
     return json({ success: true, worker_result: result, routed_to: scraperUrl });
   }
 
+  if (action === "run-shein-scraper") {
+    const { targetBaseUrl } = await resolveIngestionTarget(sb);
+    const scraperUrl = `${targetBaseUrl}/catalog-shein-scraper`;
+    console.log(`[run-shein-scraper] Routing to: ${scraperUrl}`);
+
+    const res = await fetch(scraperUrl, {
+      method: "POST",
+      headers: buildWorkerHeaders(),
+      body: JSON.stringify({
+        target_items: body.target_items || 20,
+        max_pages: body.max_pages || 3,
+        search_query: body.custom_query || body.search_query || undefined,
+        dry_run: body.dry_run || false,
+      }),
+    });
+
+    let result: any = null;
+    try {
+      result = await res.json();
+    } catch {
+      result = { ok: false, error: "Invalid SHEIN scraper response" };
+    }
+
+    if (!res.ok || result?.ok === false) {
+      return json(
+        { error: result?.error || "SHEIN scraper failed", worker_result: result, routed_to: scraperUrl },
+        res.status >= 400 ? res.status : 500
+      );
+    }
+
+    return json({ success: true, worker_result: result, routed_to: scraperUrl });
+  }
+
   return json({ error: "unknown action" }, 400);
 }
 

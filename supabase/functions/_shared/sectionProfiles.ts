@@ -315,7 +315,7 @@ async function backfillForProfile(
       .join(",");
 
     const url = `${supabaseUrl}/rest/v1/catalog_items?` +
-      `provider=in.(amazon,ebay,cargurus,carvana)&price_usd=gt.0&image_url=not.is.null&is_disallowed=eq.false` +
+      `provider=in.(amazon,ebay,cargurus,carvana,shein)&price_usd=gt.0&image_url=not.is.null&is_disallowed=eq.false` + +
       `&or=(${orClauses})&order=updated_at.desc.nullslast&limit=${needed * 3}`;
 
     const res = await fetch(url, {

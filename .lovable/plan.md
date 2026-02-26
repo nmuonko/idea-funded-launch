@@ -1,65 +1,49 @@
 
 
-## Fix: "Cannot read properties of undefined (reading 'invoke')" Email Error
+## Fix: Mobile App Showing Wrong Markup for Vehicles
 
 ### Problem
-When admin applies a vehicle quote, the email notification fails with:
-```
-Cannot read properties of undefined (reading 'invoke')
-```
 
-The `supabase.functions.invoke("send-quote-email", ...)` call on line 397 of `admin-apply-vehicle-quote/index.ts` doesn't work because the Supabase client created with `createClient(url, serviceRoleKey)` in Deno edge functions does not reliably expose the `.functions` property. This has been failing silently (caught as non-fatal) every time a quote is applied.
+A $16,480 vehicle shows a $3,296 markup fee in the mobile app. That's exactly 20% (the general markup), but admin has set the vehicle-specific markup to 10% (`category_markups.vehicles = 10`). The correct markup should be $1,648.
+
+**Root cause**: The `mobile-get-cart` API correctly calculates `itemMarginUsd: 1648` per item, but does NOT include the markup percentages in its response. The mobile React Native app likely recalculates the markup locally using `markupPercent` (20%) from `mobile-public-config`, applying the general rate to vehicles instead of the vehicle-specific rate.
 
 ### Solution
 
-Replace `supabase.functions.invoke("send-quote-email", ...)` with a direct `fetch()` call to the edge function URL. This is the standard pattern for calling one edge function from another in this environment.
+Add markup percentage fields to the `mobile-get-cart` API response so the mobile app can correctly identify which markup applies:
+
+1. **Per-item**: Add `effectiveMarkupPercent` to each formatted item (10 for vehicles, 20 for regular items)
+2. **Summary level**: Add `markupPercent` and `vehicleMarkupPercent` to the cart summary so the mobile app has both rates available
+
+This way, even if the mobile app recalculates locally, it will use the correct percentage. And the pre-calculated `itemMarginUsd` remains the authoritative value.
 
 ### File to Modify
 
-**`supabase/functions/admin-apply-vehicle-quote/index.ts`** (lines 396-404)
+**`supabase/functions/mobile-get-cart/index.ts`**
 
-Replace:
-```typescript
-const { data: emailResult, error: emailError } = await supabase.functions.invoke("send-quote-email", {
-  body: {
-    quoteRequestId,
-    quotedShippingUsd: finalShippingUsd,
-    quotedTotalUsd: finalTotalUsd,
-    adminNotes: adminNotes || undefined,
-  },
-});
+#### Change 1: Add `effectiveMarkupPercent` to vehicle pending-quote response (line ~209)
+Add `effectiveMarkupPercent: vehicleMarkupPercent` to the return object for vehicles without quotes.
+
+#### Change 2: Add `effectiveMarkupPercent` to vehicle with-quote response (line ~180)
+Add `effectiveMarkupPercent: vehicleMarkupPercent` to the return object for vehicles with applied quotes.
+
+#### Change 3: Add `effectiveMarkupPercent` to regular product response (line ~241)
+Add `effectiveMarkupPercent: markupPercent` to the return object for regular products.
+
+#### Change 4: Add markup rates to summary (line ~529)
+Add `markupPercent` and `vehicleMarkupPercent` to the summary object so the mobile app has both rates:
+
+```text
+const summary = {
+  // ... existing fields
+  markupPercent,           // General markup (e.g., 20)
+  vehicleMarkupPercent,    // Vehicle-specific markup (e.g., 10)
+};
 ```
 
-With:
-```typescript
-const emailResponse = await fetch(
-  `${supabaseUrl}/functions/v1/send-quote-email`,
-  {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${supabaseServiceKey}`,
-    },
-    body: JSON.stringify({
-      quoteRequestId,
-      quotedShippingUsd: finalShippingUsd,
-      quotedTotalUsd: finalTotalUsd,
-      adminNotes: adminNotes || undefined,
-    }),
-  }
-);
-const emailResult = await emailResponse.json();
-const emailError = emailResponse.ok ? null : { message: emailResult?.error || `HTTP ${emailResponse.status}` };
-```
+### Impact
 
-And update the success check below it (line 406) from:
-```typescript
-if (!emailError && emailResult?.success) {
-```
-to:
-```typescript
-if (!emailError && (emailResult?.success || emailResponse.ok)) {
-```
-
-This is one small change in one file. The quote application logic, pricing, and everything else remain untouched.
-
+- No changes to calculation logic -- only adds informational fields
+- Mobile app can use `item.effectiveMarkupPercent` for local display or `item.itemMarginUsd` directly (recommended)
+- Summary-level rates let the mobile app know both percentages without a separate `public-config` call
+- No payment flow changes

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useNavigate } from 'react-router-dom';
 import heroGaming from '@/assets/hero-gaming.jpg';
@@ -114,7 +114,7 @@ export function HeroBannerCarousel() {
     return () => clearInterval(timer);
   }, [paused, next]);
 
-  const slide = SLIDES[current];
+  
 
   return (
     <div
@@ -123,41 +123,40 @@ export function HeroBannerCarousel() {
       onMouseLeave={() => setPaused(false)}
     >
       <div className="relative overflow-hidden rounded-2xl h-[170px] sm:h-[220px] md:h-[300px] lg:h-[340px] border border-white/[0.08] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={current}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-            className="absolute inset-0"
+        {/* Render all slides stacked, only current one is visible */}
+        {SLIDES.map((s, i) => (
+          <div
+            key={i}
+            className="absolute inset-0 transition-opacity duration-700 ease-in-out"
+            style={{ opacity: i === current ? 1 : 0, zIndex: i === current ? 1 : 0 }}
           >
-            {slide.image && (
+            {s.image && (
               <img
-                src={slide.image}
+                src={s.image}
                 alt=""
                 className="absolute inset-0 w-full h-full object-cover"
+                loading="eager"
+                decoding="sync"
               />
             )}
-            <div className={`absolute inset-0 bg-gradient-to-r ${slide.gradient}`} />
+            <div className={`absolute inset-0 bg-gradient-to-r ${s.gradient}`} />
 
-            {/* Text overlay — inside the same motion.div for sync */}
             <div className="relative z-10 h-full flex flex-col justify-center px-6 md:px-12 max-w-xl">
               <h2 className="text-xl sm:text-2xl md:text-4xl font-bold text-white drop-shadow-lg mb-1 md:mb-2">
-                {language === 'fr' ? slide.titleFr : slide.titleEn}
+                {language === 'fr' ? s.titleFr : s.titleEn}
               </h2>
               <p className="text-white/85 text-xs sm:text-sm md:text-base drop-shadow mb-3 md:mb-5 max-w-sm">
-                {language === 'fr' ? slide.subtitleFr : slide.subtitleEn}
+                {language === 'fr' ? s.subtitleFr : s.subtitleEn}
               </p>
               <button
-                onClick={() => navigate(slide.ctaLink)}
+                onClick={() => navigate(s.ctaLink)}
                 className="w-fit bg-gradient-to-r from-white/95 to-white/80 hover:from-white hover:to-white/90 text-gray-900 font-semibold text-xs sm:text-sm px-5 py-2 sm:px-6 sm:py-2.5 rounded-full transition-all shadow-lg hover:shadow-xl"
               >
-                {language === 'fr' ? slide.ctaFr : slide.ctaEn}
+                {language === 'fr' ? s.ctaFr : s.ctaEn}
               </button>
             </div>
-          </motion.div>
-        </AnimatePresence>
+          </div>
+        ))}
 
         <button
           onClick={prev}

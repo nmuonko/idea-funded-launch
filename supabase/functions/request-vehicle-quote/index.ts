@@ -6,6 +6,7 @@ import {
 } from "../_shared/auth.ts";
 import { notifyAdmin } from "../_shared/email.ts";
 import { isTeslaInventoryUrl, isCarStoreEnum } from "../_shared/cartHelpers.ts";
+import { determineShippingCategory } from "../_shared/shippingCategory.ts";
 
 /**
  * Request Vehicle Quote Edge Function
@@ -171,6 +172,18 @@ serve(async (req) => {
       // Fallback: check car store enum
       if (isCarStoreEnum(item.store || '')) {
         console.log('[request-vehicle-quote] Car store detected via fallback:', item.store);
+        return true;
+      }
+      
+      // Fallback: smart detection on title + URL + store (catches items added before fix)
+      const detection = determineShippingCategory({
+        title: item.title || "",
+        url: item.product_url,
+        store: item.store || "",
+        existingCategory: null,
+      });
+      if (detection.category === "vehicle" && detection.requiresQuote) {
+        console.log('[request-vehicle-quote] Vehicle detected via smart fallback:', item.title);
         return true;
       }
       

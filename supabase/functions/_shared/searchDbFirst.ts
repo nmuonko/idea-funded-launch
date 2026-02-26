@@ -20,6 +20,7 @@ export interface DbFirstParams {
   qNorm: string;
   aiExpandedTerms: string[] | null;
   limit: number;
+  offset?: number;
   categoryKey: string | null;
   requestId: string;
 }
@@ -82,7 +83,7 @@ function mapDbItem(item: Record<string, unknown>, categoryKey: string | null): R
 }
 
 export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResult> {
-  const { supabase, qNorm, aiExpandedTerms, limit, categoryKey, requestId } = params;
+  const { supabase, qNorm, aiExpandedTerms, limit, offset = 0, categoryKey, requestId } = params;
   const dbStartMs = Date.now();
 
   // Resolve TTL policy (global or per-category)
@@ -105,7 +106,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
   }
 
   // ─── TIER A: Token ilike match (fast, indexed) ─────────────────────────────
-  const tierAItems = await tierASearch(supabase, topTokens, categoryKey, Math.max(limit, 500), requestId);
+  const tierAItems = await tierASearch(supabase, topTokens, categoryKey, Math.max(limit, 500), requestId, offset);
   const tierACount = tierAItems.length;
   console.log(`[CATALOG_SEARCH] requestId=${requestId} db_tier_A q="${qNorm}" tokens=${JSON.stringify(topTokens)} count=${tierACount} minRequired=${DB_MIN_RESULTS}`);
 
@@ -204,6 +205,7 @@ async function tierASearch(
   categoryKey: string | null,
   limit: number,
   requestId: string,
+  offset: number = 0,
 ): Promise<Record<string, unknown>[]> {
   let dbQuery = supabase
     .from("catalog_items")
@@ -223,7 +225,7 @@ async function tierASearch(
 
   const { data, error } = await dbQuery
     .order("rating", { ascending: false, nullsFirst: false })
-    .limit(limit);
+    .range(offset, offset + limit - 1);
 
   if (error) {
     console.warn(`[DB_TIER_A] requestId=${requestId} error: ${error.message}`);

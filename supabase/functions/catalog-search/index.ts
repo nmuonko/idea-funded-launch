@@ -791,8 +791,9 @@ Deno.serve(async (req: Request) => {
     {
       try {
         const dbTimeout = new Promise<null>((r) => setTimeout(() => r(null), isFirstPage ? DB_BUDGET_MS_P0 : DB_BUDGET_MS));
+        const dbOffset = page * limit;
         const dbWork = searchDbFirst({
-          supabase, qNorm, aiExpandedTerms, limit, categoryKey, requestId,
+          supabase, qNorm, aiExpandedTerms, limit, offset: dbOffset, categoryKey, requestId,
         });
         const dbResult = await Promise.race([dbWork, dbTimeout]);
         
@@ -851,7 +852,7 @@ Deno.serve(async (req: Request) => {
         items: dbFinal,
         total: dbFinal.length,
         nextCursor: null,
-        hasMore: true,
+        hasMore: dbFinal.length >= limit,
         query: qOriginal,
         env: envName,
         durationMs: Date.now() - startTime,

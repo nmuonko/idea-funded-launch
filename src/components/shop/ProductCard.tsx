@@ -116,7 +116,7 @@ export function ProductCard({ product, className, compact = false, coverImage = 
       {/* Image Container — white bg, uniform height, eBay-like */}
       <div className={cn(
         "relative overflow-hidden bg-white rounded-t-xl",
-        compact ? "aspect-square" : "aspect-[4/3] sm:aspect-square"
+        compact ? "aspect-square" : "aspect-square"
       )}>
         <img
           src={resizeImageUrl(product.imageUrl || '/placeholder.svg', IMAGE_SIZE_THUMB)}

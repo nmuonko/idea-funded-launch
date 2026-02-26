@@ -394,16 +394,26 @@ serve(async (req) => {
     let emailSent = false;
     let emailErrorMessage: string | null = null;
     try {
-      const { data: emailResult, error: emailError } = await supabase.functions.invoke("send-quote-email", {
-        body: {
-          quoteRequestId,
-          quotedShippingUsd: finalShippingUsd,
-          quotedTotalUsd: finalTotalUsd,
-          adminNotes: adminNotes || undefined,
-        },
-      });
+      const emailResponse = await fetch(
+        `${supabaseUrl}/functions/v1/send-quote-email`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify({
+            quoteRequestId,
+            quotedShippingUsd: finalShippingUsd,
+            quotedTotalUsd: finalTotalUsd,
+            adminNotes: adminNotes || undefined,
+          }),
+        }
+      );
+      const emailResult = await emailResponse.json();
+      const emailError = emailResponse.ok ? null : { message: emailResult?.error || `HTTP ${emailResponse.status}` };
 
-      if (!emailError && emailResult?.success) {
+      if (!emailError && (emailResult?.success || emailResponse.ok)) {
         emailSent = true;
         console.log("[admin-apply-vehicle-quote] Quote email sent successfully");
       } else {

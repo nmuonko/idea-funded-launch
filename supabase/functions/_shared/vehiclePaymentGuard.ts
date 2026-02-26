@@ -244,67 +244,83 @@ function isVehicleUrl(url: string | null | undefined): boolean {
  */
 export function detectVehicleFromItems(items: any[]): { 
   isVehicle: boolean; 
+  confidence: 'high' | 'low' | 'none';
   vehicleItems: any[];
   reasons: string[];
 } {
   const vehicleItems: any[] = [];
   const reasons: string[] = [];
+  let hasHighConfidence = false;
   
   for (const item of items) {
     let itemIsVehicle = false;
+    let itemHighConfidence = false;
     const itemReasons: string[] = [];
     
-    // Check explicit is_vehicle flag
+    // Check explicit is_vehicle flag (HIGH confidence)
     if (item.is_vehicle === true) {
       itemIsVehicle = true;
+      itemHighConfidence = true;
       itemReasons.push('is_vehicle=true');
     }
     
-    // Check store type
+    // Check store type (HIGH confidence)
     const store = (item.store || '').toUpperCase();
     if (VEHICLE_STORES.includes(store)) {
       itemIsVehicle = true;
+      itemHighConfidence = true;
       itemReasons.push(`store=${store}`);
     }
     
-    // Check vehicle_quote_applied flag
+    // Check vehicle_quote_applied flag (HIGH confidence)
     if (item.vehicle_quote_applied === true) {
       itemIsVehicle = true;
+      itemHighConfidence = true;
       itemReasons.push('vehicle_quote_applied=true');
     }
     
-    // Check requires_manual_quote combined with is_vehicle
+    // Check requires_manual_quote combined with is_vehicle (HIGH confidence)
     if (item.requires_manual_quote === true && item.is_vehicle === true) {
       itemIsVehicle = true;
+      itemHighConfidence = true;
       itemReasons.push('requires_manual_quote+is_vehicle');
     }
     
-    // Check URL for vehicle marketplace
+    // Check URL for vehicle marketplace (HIGH confidence)
     if (isVehicleUrl(item.product_url)) {
       itemIsVehicle = true;
+      itemHighConfidence = true;
       itemReasons.push('vehicle_url');
     }
     
-    // Check title for vehicle keywords (only if not already flagged)
+    // Check title for vehicle keywords (LOW confidence - only if not already flagged)
     if (!itemIsVehicle && containsVehicleKeyword(item.title)) {
       itemIsVehicle = true;
+      // NOTE: Title keyword alone = LOW confidence, does NOT set itemHighConfidence
       itemReasons.push('vehicle_keyword_in_title');
     }
     
-    // Check for vehicle-specific fields
+    // Check for vehicle-specific fields (HIGH confidence)
     if (item.vin || item.mileage || item.year || item.make || item.model) {
       itemIsVehicle = true;
+      itemHighConfidence = true;
       itemReasons.push('vehicle_fields');
     }
     
     if (itemIsVehicle) {
       vehicleItems.push(item);
       reasons.push(...itemReasons);
+      if (itemHighConfidence) {
+        hasHighConfidence = true;
+      }
     }
   }
   
+  const isVehicle = vehicleItems.length > 0;
+  
   return {
-    isVehicle: vehicleItems.length > 0,
+    isVehicle,
+    confidence: isVehicle ? (hasHighConfidence ? 'high' : 'low') : 'none',
     vehicleItems,
     reasons: [...new Set(reasons)], // Dedupe reasons
   };
@@ -380,6 +396,7 @@ export async function detectVehicleOrder(
   orderId: string
 ): Promise<{ 
   isVehicle: boolean; 
+  confidence: 'high' | 'low' | 'none';
   vehicleItems: any[];
   reasons: string[];
   error?: string;
@@ -393,6 +410,7 @@ export async function detectVehicleOrder(
     if (error) {
       return { 
         isVehicle: false, 
+        confidence: 'none',
         vehicleItems: [], 
         reasons: [],
         error: error.message 
@@ -402,6 +420,7 @@ export async function detectVehicleOrder(
     if (!items || items.length === 0) {
       return { 
         isVehicle: false, 
+        confidence: 'none',
         vehicleItems: [], 
         reasons: [],
       };
@@ -411,6 +430,7 @@ export async function detectVehicleOrder(
   } catch (err: any) {
     return { 
       isVehicle: false, 
+      confidence: 'none',
       vehicleItems: [], 
       reasons: [],
       error: err.message 

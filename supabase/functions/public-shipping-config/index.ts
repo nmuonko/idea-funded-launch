@@ -46,11 +46,9 @@ async function fetchShippingConfig(): Promise<CachedResponse> {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-  const { data, error } = await supabase
-    .from('settings')
-    .select('markup_percent, shipping_base_fee_usd, shipping_percent, service_fee_percent, min_service_fee_usd, exchange_rate_usd_to_cdf, updated_at')
-    .limit(1)
-    .single();
+  const { getCachedGlobalSettings } = await import("../_shared/settingsMemoryCache.ts");
+  const data = await getCachedGlobalSettings(supabase) as Record<string, any>;
+  const error = (!data || Object.keys(data).length === 0) ? { message: 'Empty settings' } : null;
 
   if (error) {
     console.error('[public-shipping-config] Database error:', error.message);

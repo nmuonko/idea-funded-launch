@@ -1,98 +1,41 @@
 
-You’re right to focus on the Replit mobile code now. The backend here is already returning the correct vehicle margin, so the remaining mismatch is almost certainly in how the React Native app reads or recalculates cart totals.
 
-Issue restated clearly:
-- Vehicle base price: 16,480
-- App shows markup: 3,296 (20%)
-- Admin vehicle markup is 10% (should be 1,648)
-- Backend logs already show 1,648, so the app is likely recalculating with general markup or showing fallback/stale values when cart fetch errors happen.
+## Make Payment Success Page Work Without Web Auth (Mobile WebView Compatibility)
 
-Do I know what the issue is?
-- Yes: backend response is correct; mobile app integration is likely using the wrong source of truth (local formula/global markup) instead of per-item/server-calculated cart values, especially around error fallback.
+### Problem
+The mobile app's payment flow opens a WebView that eventually redirects to the web app. The flow is:
 
-What file in Replit to open first (priority order):
-1) API client / backend gateway (how requests are made)
-- Likely names:
-  - `src/services/api.ts`
-  - `src/lib/apiClient.ts`
-  - `src/lib/supabase.ts`
-  - `src/config/env.ts`
-- Why: confirms base URL/project, auth token headers, and which endpoint is actually being called.
+1. Mobile WebView opens PawaPay/Stripe payment page
+2. After payment, redirects to `/payment-callback` (already public -- works fine)
+3. `/payment-callback` polls `mobile-verify-payment`, then redirects to `/payment-success-shop`
+4. `/payment-success-shop` is wrapped in `ShopProtectedRoute` which requires a web auth session
+5. The mobile WebView does NOT have a web auth session, so it gets redirected to `/shop-auth` -- **payment confirmation fails**
 
-2) Cart service (maps `/mobile-get-cart` response)
-- Likely names:
-  - `src/services/cartService.ts`
-  - `src/features/cart/cartApi.ts`
-  - `src/api/cart.ts`
-- Why: this is where `summary.markupFeeUsd`, `item.markupFeeUsd`, `item.itemMarginUsd`, `item.effectiveMarkupPercent` should be read.
+### Solution
+Remove the `ShopProtectedRoute` wrapper from `/payment-success-shop` in `App.tsx`. This is safe because:
 
-3) Cart state store/context (where totals get recalculated)
-- Likely names:
-  - `src/store/cartSlice.ts`
-  - `src/context/CartContext.tsx`
-  - `src/hooks/useCart.ts`
-- Why: most likely location of buggy formula like `basePrice * (config.markup.value / 100)`.
+- The page only reads the `order_id` from query params and checks order status via `supabase.from('orders')`, which is protected by RLS policies
+- The page doesn't expose any sensitive data beyond a truncated order ID (`order_id.slice(0,8)`)
+- Cart clearing (`clearCartOnPaymentSuccess`) is a client-side operation that gracefully no-ops if there's no cart
+- The page is a dead-end (shows success message with links to orders/home) -- no further sensitive actions
 
-4) Cart screen UI component (where wrong amount appears)
-- Likely names:
-  - `src/screens/CartScreen.tsx`
-  - `src/features/cart/CartSummary.tsx`
-  - `src/components/cart/PriceSummary.tsx`
-- Why: often re-derives totals for display and can ignore server fields.
+### Changes
 
-5) Pricing utility + public config usage
-- Likely names:
-  - `src/utils/pricing.ts`
-  - `src/utils/cartCalculations.ts`
-  - `src/services/publicConfigService.ts`
-- Why: if cart uses `mobile-public-config.markup.value` globally, vehicle items become 20% instead of 10%.
+**File: `src/App.tsx`** (1 change)
 
-Exact search terms to run in Replit (fastest way to locate code):
+Remove `ShopProtectedRoute` from the `/payment-success-shop` route:
+
 ```text
-mobile-get-cart
-mobile-public-config
-markupFeeUsd
-itemMarginUsd
-effectiveMarkupPercent
-vehicleMarkupPercent
-markup.value
-vehicleValue
-An unexpected error occurred
-Demander un devis
-Montant à payer
+Before:
+  <Route path="/payment-success-shop" element={
+    <ShopProtectedRoute>
+      <ShopPaymentSuccess />
+    </ShopProtectedRoute>
+  } />
+
+After:
+  <Route path="/payment-success-shop" element={<ShopPaymentSuccess />} />
 ```
 
-What the Replit code should do (target behavior):
-- Cart display should use backend-calculated values directly:
-  - Item margin: `item.markupFeeUsd || item.itemMarginUsd`
-  - Cart margin: `summary.markupFeeUsd`
-  - Cart total: `summary.totalUsd`
-- Do not recompute cart margin from `config.markup.value`.
-- If a fallback formula is unavoidable:
-  - use `item.effectiveMarkupPercent`
-  - or if missing: `item.isVehicle ? config.markup.vehicleValue : config.markup.value`
-- In cart fetch error state (“An unexpected error occurred”), do not keep stale totals on screen.
+This is a minimal, surgical change. No new pages, no new endpoints. The existing mobile `.aab` builds will work without modification since the redirect URLs are already correct -- they were just being blocked by the auth guard.
 
-Why this is important with your already-submitted AAB:
-- Backend-only fixes help only if app consumes backend fields.
-- If app recalculates locally, you need a mobile app patch release (new build) to fully fix user-visible markup.
-- A quick hotfix release can be limited to cart parsing/calculation files above; payment flow stays untouched.
-
-Backend contract reference (for the mobile dev to align with):
-- `supabase/functions/mobile-get-cart/index.ts`
-  - Per-item fields include `markupFeeUsd`, `itemMarginUsd`, `effectiveMarkupPercent`, `markupPercent`
-  - Summary includes `markupFeeUsd`, `generalMarkupPercent`, `vehicleMarkupPercent`, `effectiveMarkupPercent`
-- `MOBILE_APP_INTEGRATION.md`
-  - states cart should display pre-calculated summary/item values directly.
-
-Execution plan from here:
-1) You open the 5 file groups above in Replit and locate where cart totals are calculated.
-2) Replace local margin calculations with server values in cart flow only.
-3) Keep product-list estimate logic separate (it can still use public config).
-4) Test one vehicle at 16,480:
-   - Expected cart margin = 1,648
-   - Expected shown percent = 10%
-   - Before quote and after quote both consistent.
-5) Ship a small mobile hotfix release without touching payment flow.
-
-If you paste your Replit `cartService + CartScreen + pricing util` files next, I can give you exact line-level edits for that codebase.

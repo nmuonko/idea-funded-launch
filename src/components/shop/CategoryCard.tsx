@@ -83,6 +83,7 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
   return (
     <div
       className="bg-[#1a1d23] border border-white/10 rounded-2xl p-3 flex flex-col h-full shadow-md shadow-black/20 hover:border-white/[0.18] transition-colors"
+      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 320px' } as React.CSSProperties}
       onMouseEnter={handlePrefetch}
     >
       <div className="flex items-center justify-between mb-2.5">

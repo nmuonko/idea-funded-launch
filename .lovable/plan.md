@@ -1,93 +1,141 @@
 
 
-## Backend Optimization: Round 3 -- Dead Index Cleanup + Table Bloat
+## Backend Optimization: Round 4 -- Over-Indexed Tables + Dead Weight Cleanup
 
-### Findings
+This is the deepest pass yet, targeting **massively over-indexed small tables** that slow down every write operation, plus dead indexes on `user_roles` that are evaluated millions of times via RLS policies.
 
-#### 1. `idx_catalog_items_is_disallowed` -- 1.9MB, 1 scan
-This boolean index is functionally dead. The `check_catalog_item_disallowed` trigger already filters at INSERT time, so nothing queries by `is_disallowed` alone. Drop it.
+### Finding 1: Over-Indexed Order Tables (67 indexes across 4 tables with < 30 rows each)
 
-#### 2. Duplicate unique indexes on `catalog_seed_queries`
-Two identical unique indexes on `(provider, seed_key)` with 0 scans each:
-- `uq_seed_key` (56KB)
-- `catalog_seed_queries_provider_seed_key_key` (56KB)
+These tables have far more indexes than rows, meaning every INSERT/UPDATE/DELETE maintains dozens of B-tree structures for essentially no read benefit:
 
-Both are redundant since the pkey (2,768 scans) handles lookups. Keep one for the unique constraint, drop the duplicate.
+| Table | Rows | Indexes | Dead (0 scans) |
+|-------|------|---------|-----------------|
+| order_items | 27 | 20 | 5 |
+| orders | 23 | 19 | 2 |
+| maisha_payments | 0 | 15 | 9 |
+| checkout_sessions | 15 | 12 | 3 |
+| payment_attempts | 4 | 10 | 4 |
+| payments | 12 | 9 | 4 |
+| quote_requests | 0 | 9 | (check needed) |
+| support_tickets | 0 | 9 | (most dead) |
 
-#### 3. Dead indexes on `admin_audit_logs` (5 indexes, 0 scans)
-| Index | Scans |
-|-------|-------|
-| `idx_admin_audit_logs_action_type` | 0 |
-| `idx_admin_audit_logs_admin_id` | 0 |
-| `idx_admin_audit_logs_admin_action` | 0 |
-| `idx_admin_audit_created` | 0 |
-| `idx_admin_audit_logs_created` | 0 |
+### Finding 2: Dead Indexes on `user_roles` (1.26M seq scans)
 
-Only `idx_admin_audit_logs_created_at` has any usage (5 scans). Drop all 5 dead ones.
+The `user_roles` table has 7 rows but 1.26M sequential scans because every RLS policy check on `orders`, `order_items`, `maisha_payments`, etc. calls `has_role()`. Two indexes are completely dead:
 
-#### 4. Dead indexes on `home_seen_items`
-- `home_seen_items_pkey`: 0 scans (80KB)
-- `idx_home_seen_items_rotation`: 0 scans (32KB)
+- `idx_user_roles_rls_optimized`: 0 scans (the partial index on `role = 'admin'` is never chosen by the planner since seq scan on 7 rows is faster)
+- `idx_user_roles_user_lookup`: 4 scans (redundant with `user_roles_user_id_role_key` at 386K scans)
 
-The pkey can't be dropped (primary key), but the rotation index is dead. Drop it.
+### Finding 3: Redundant Cleanup Functions
 
-#### 5. Dead indexes on `shipping_item_types`
-- `idx_shipping_types_active`: 0 scans
-- `idx_shipping_types_active_priority`: 0 scans
+Three cleanup functions overlap with the comprehensive `cleanup_all_expired_data()`:
+- `cleanup_expired_records()` -- subset of `cleanup_all_expired_data()`
+- `cleanup_catalog_cache()` -- subset
+- `cleanup_catalog_provider_data()` -- subset
 
-The pkey (209K scans) handles all lookups. Drop both.
-
-#### 6. Cache table bloat: `catalog_cache` still 27MB for 249 rows
-The REINDEX from Round 2 may not have fully resolved this. Run VACUUM FULL on small cache tables to reclaim space:
-- `catalog_cache`: 27MB overhead / 296KB data
-- `catalog_home_cache`: 2.4MB / 8KB data
-- `home_cache_web_feed`: 1.2MB / 8KB data
+These add maintenance confusion and should be deprecated.
 
 ### Plan
 
-Single migration to:
-1. Drop `idx_catalog_items_is_disallowed` (save 1.9MB)
-2. Drop duplicate `catalog_seed_queries_provider_seed_key_key` (keep `uq_seed_key` for constraint)
-3. Drop 5 dead `admin_audit_logs` indexes
-4. Drop `idx_home_seen_items_rotation`
-5. Drop 2 dead `shipping_item_types` indexes
-6. VACUUM FULL on 3 small bloated cache tables
+Single migration to drop **~30 dead indexes** across 8 tables:
+
+```text
+--- order_items (5 dead) ---
+idx_order_items_store             0 scans
+idx_order_items_saved_partial     0 scans
+idx_order_items_manual_quote      0 scans
+idx_order_items_is_vehicle        0 scans
+idx_order_items_device_id         0 scans
+
+--- orders (2 dead) ---
+idx_orders_payment_email_pending  0 scans
+idx_orders_user_draft             0 scans
+
+--- maisha_payments (9 dead) ---
+maisha_payments_pkey              0 scans (but can't drop - primary key)
+idx_maisha_payments_user_order    0 scans
+maisha_payments_maisha_reference_key  0 scans (unique constraint)
+maisha_payments_confirmation_code_key 0 scans (unique constraint)
+idx_maisha_payments_confirmation_code 0 scans
+idx_maisha_payments_transaction_ref   0 scans
+idx_maisha_payments_order_status      0 scans
+idx_maisha_payments_order             0 scans
+idx_maisha_payments_maisha_reference  0 scans
+idx_maisha_payments_reference         0 scans
+
+--- checkout_sessions (3 dead) ---
+idx_checkout_sessions_order_id        0 scans
+idx_checkout_sessions_maisha_reference 0 scans
+idx_checkout_sessions_maisha_ref      0 scans
+
+--- payment_attempts (4 dead) ---
+payment_attempts_idempotency_key_key  0 scans
+idx_payment_attempts_cart_hash        0 scans
+idx_payment_attempts_status           0 scans
+idx_payment_attempts_created          0 scans
+
+--- payments (4 dead) ---
+payments_reference_key                0 scans
+idx_payments_reference                0 scans
+idx_payments_status                   0 scans
+idx_payments_status_lookup            0 scans
+
+--- user_roles (2 dead) ---
+idx_user_roles_rls_optimized          0 scans
+idx_user_roles_user_lookup            4 scans
+```
 
 ### Expected Impact
-- **10 dead indexes removed** across 5 tables
-- **~2MB index storage freed** + potential 28MB reclaimed from VACUUM FULL on cache tables
-- Faster writes on all affected tables (fewer indexes to maintain)
+
+- **~28 dead indexes removed** across 8 tables (excluding pkeys and unique constraints that back FK references)
+- **Write performance**: Every cart add, order update, and payment operation becomes faster with fewer indexes to maintain
+- **RLS overhead reduced**: Dropping dead `user_roles` indexes slightly reduces planner overhead on the 1.26M+ RLS evaluations
+- **Cleaner schema**: Removes accumulated index cruft from iterative development
 
 ### Technical Details
 
 ```sql
--- 1. catalog_items: dead boolean index
-DROP INDEX IF EXISTS idx_catalog_items_is_disallowed;
+-- order_items: 5 dead indexes
+DROP INDEX IF EXISTS idx_order_items_store;
+DROP INDEX IF EXISTS idx_order_items_saved_partial;
+DROP INDEX IF EXISTS idx_order_items_manual_quote;
+DROP INDEX IF EXISTS idx_order_items_is_vehicle;
+DROP INDEX IF EXISTS idx_order_items_device_id;
 
--- 2. catalog_seed_queries: duplicate unique
-DROP INDEX IF EXISTS catalog_seed_queries_provider_seed_key_key;
+-- orders: 2 dead indexes
+DROP INDEX IF EXISTS idx_orders_payment_email_pending;
+DROP INDEX IF EXISTS idx_orders_user_draft;
 
--- 3. admin_audit_logs: 5 dead indexes
-DROP INDEX IF EXISTS idx_admin_audit_logs_action_type;
-DROP INDEX IF EXISTS idx_admin_audit_logs_admin_id;
-DROP INDEX IF EXISTS idx_admin_audit_logs_admin_action;
-DROP INDEX IF EXISTS idx_admin_audit_created;
-DROP INDEX IF EXISTS idx_admin_audit_logs_created;
+-- maisha_payments: 7 dead indexes (skip pkey + unique constraints)
+DROP INDEX IF EXISTS idx_maisha_payments_user_order;
+DROP INDEX IF EXISTS idx_maisha_payments_confirmation_code;
+DROP INDEX IF EXISTS idx_maisha_payments_transaction_ref;
+DROP INDEX IF EXISTS idx_maisha_payments_order_status;
+DROP INDEX IF EXISTS idx_maisha_payments_order;
+DROP INDEX IF EXISTS idx_maisha_payments_maisha_reference;
+DROP INDEX IF EXISTS idx_maisha_payments_reference;
 
--- 4. home_seen_items: dead rotation index
-DROP INDEX IF EXISTS idx_home_seen_items_rotation;
+-- checkout_sessions: 3 dead indexes
+DROP INDEX IF EXISTS idx_checkout_sessions_order_id;
+DROP INDEX IF EXISTS idx_checkout_sessions_maisha_reference;
+DROP INDEX IF EXISTS idx_checkout_sessions_maisha_ref;
 
--- 5. shipping_item_types: dead indexes
-DROP INDEX IF EXISTS idx_shipping_types_active;
-DROP INDEX IF EXISTS idx_shipping_types_active_priority;
+-- payment_attempts: 4 dead indexes
+DROP INDEX IF EXISTS idx_payment_attempts_cart_hash;
+DROP INDEX IF EXISTS idx_payment_attempts_status;
+DROP INDEX IF EXISTS idx_payment_attempts_created;
 
--- 6. Reclaim bloat on small cache tables
-VACUUM FULL public.catalog_cache;
-VACUUM FULL public.catalog_home_cache;
-VACUUM FULL public.home_cache_web_feed;
+-- payments: 3 dead indexes (skip unique constraint)
+DROP INDEX IF EXISTS idx_payments_reference;
+DROP INDEX IF EXISTS idx_payments_status;
+DROP INDEX IF EXISTS idx_payments_status_lookup;
+
+-- user_roles: 2 dead indexes
+DROP INDEX IF EXISTS idx_user_roles_rls_optimized;
+DROP INDEX IF EXISTS idx_user_roles_user_lookup;
 ```
 
 | File | Change |
 |------|--------|
-| New migration SQL | Drop 10 dead indexes, VACUUM FULL 3 cache tables |
+| New migration SQL | Drop ~27 dead indexes across 8 high-write tables |
 

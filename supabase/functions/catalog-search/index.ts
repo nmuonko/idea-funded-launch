@@ -835,7 +835,7 @@ Deno.serve(async (req: Request) => {
     // ─── DB-SUFFICIENT FAST PATH ──────────────────────────────────────────────
     // If DB returned >= 50 items on page 0, skip live providers entirely for sub-second response.
     // Fire a background cache refresh to keep data fresh.
-    const DB_SUFFICIENT_THRESHOLD = 50;
+    const DB_SUFFICIENT_THRESHOLD = 20;
     if (dbFallbackItems && dbFallbackItems.length >= DB_SUFFICIENT_THRESHOLD) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH: ${dbFallbackItems.length} items >= ${DB_SUFFICIENT_THRESHOLD} threshold — skipping providers`);
 

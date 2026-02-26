@@ -640,39 +640,7 @@ export default function SearchResults() {
             </div>
           </div>
 
-          {/* Inline Price Filter */}
-          <div className="mb-6 px-1">
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm text-white/70">
-                {language === 'fr' ? 'Prix max' : 'Max Price'}
-              </label>
-              <span className="text-sm font-medium text-white">
-                ${maxPrice.toLocaleString()}
-              </span>
-            </div>
-            <Slider
-              value={[maxPrice]}
-              onValueChange={(value) => {
-                const newMax = value[0];
-                setMaxPrice(newMax);
-                if (maxPriceDebounceRef.current) clearTimeout(maxPriceDebounceRef.current);
-                maxPriceDebounceRef.current = setTimeout(() => {
-                  setPage(0);
-                  pageRef.current = 0;
-                  lastRequestedPageRef.current = null;
-                  fetchProducts(0, false);
-                }, 400);
-              }}
-              min={0}
-              max={500000}
-              step={500}
-              className="py-2"
-            />
-            <div className="flex justify-between text-xs text-white/40 mt-1">
-              <span>$0</span>
-              <span>$500,000</span>
-            </div>
-          </div>
+          {/* Price filter removed - sort dropdown above handles ordering */}
 
 
 

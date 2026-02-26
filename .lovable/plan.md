@@ -1,54 +1,48 @@
 
 
-## Speed Up Search Results from Cached Products
+## Fix: Make DB-First Search Work Dynamically for All Queries with Proper Pagination
 
-### Problem
-When searching "iphone 14", only 79 results are returned initially, and loading more takes a very long time because the system falls back to slow live provider APIs (Amazon/eBay) instead of using the 75,000+ cached products in the database.
+### Current State
 
-### Root Causes
+The token filtering and limit changes from the last edit ARE fully dynamic -- they apply to every search query, not just "iphone 14". However, there are two real problems causing the "loading loading" behavior:
 
-1. **Model numbers dropped from search**: The database search drops pure-number tokens like "14" from "iphone 14", so it searches only for "iphone" -- returning all iPhone models instead of specifically iPhone 14. This reduces both quantity and relevance.
+1. **No DB pagination**: The DB fast path returns ALL 500 items on page 0, then on page 1+ runs the exact same query returning the same items (no offset). The frontend deduplicates them, finds 0 new items, but `hasMore: true` keeps triggering infinite load-more attempts.
 
-2. **Database fetch limit too low**: Tier A only fetches 200 items maximum from the cached catalog, even though there may be thousands of matching products.
-
-3. **DB fast path says "no more results"**: When the database returns enough results to skip live providers, it tells the frontend there are no more results (`hasMore: false`). This causes the frontend to attempt slow background broadening or revalidation calls.
-
-4. **Subsequent pages always hit live providers**: Pages after page 0 bypass the DB fast path and call Amazon/eBay APIs with 5-8 second timeouts, even though the database already has plenty of cached results.
+2. **DB returns up to 500 items but frontend caps at 100 per page**: The backend sends all 500 items at once on page 0, so there's no need for subsequent pages from the DB. The frontend should recognize this and stop paginating.
 
 ### Plan
 
-#### 1. Keep numeric tokens in DB search (`searchDbFirst.ts`)
+#### 1. Backend: Add DB offset for pagination (`catalog-search/index.ts`)
 
-Stop filtering out pure-digit tokens so "iphone 14" searches for BOTH "iphone" AND "14" in titles. This dramatically improves relevance and returns more specific results.
+Pass a `dbOffset` parameter to `searchDbFirst` based on the current page number, so page 1 returns items 501-1000, page 2 returns 1001-1500, etc. This prevents returning duplicate results.
 
-Short digits (1 character) will still be filtered to avoid noise.
+- Calculate `dbOffset = page * limit` (where page comes from the URL param)
+- Pass it to `searchDbFirst` which forwards it to `tierASearch`
 
-#### 2. Increase Tier A fetch limit (`searchDbFirst.ts`)
+#### 2. Backend: Set `hasMore` correctly in DB fast path (`catalog-search/index.ts`)
 
-Increase from 200 to 500 items per Tier A query to pull more results from the 75K+ cached catalog on the first hit.
+Instead of always returning `hasMore: true`, set it based on whether the DB returned a full page of results:
+- `hasMore: dbFinal.length >= limit` -- if DB returned fewer items than requested, there are no more pages
 
-#### 3. Fix DB fast path pagination (`catalog-search/index.ts`)
+#### 3. Backend: Add offset support to `searchDbFirst.ts`
 
-When DB fast path triggers (50+ results from database), set `hasMore: true` so the frontend knows it can request more pages. This prevents unnecessary broadening attempts.
+Accept an optional `offset` parameter and apply `.range(offset, offset + limit - 1)` to the Tier A database query so subsequent pages get different results.
 
-#### 4. Enable DB-first on all pages (`catalog-search/index.ts`)
+#### 4. Frontend: No changes needed
 
-Currently DB-first only runs when there's no cursor (`if (!cursor)`). Change this so pages > 0 also query the database first. If DB returns enough results, skip the slow live provider calls entirely.
-
-#### 5. Frontend: increase broadening threshold (`SearchResults.tsx`)
-
-Since we're now returning more DB results, raise `BROADEN_THRESHOLD` from 50 to 30 (i.e., only broaden if we get fewer than 30 results -- a truly sparse result). This prevents unnecessary background fetches when DB already provided 79+ items.
+The frontend already handles `hasMore: false` correctly to stop pagination. The broadening threshold change (30) from the last edit is fine for all queries.
 
 ### Files Changed
 
 | File | Change |
 |------|--------|
-| `supabase/functions/_shared/searchDbFirst.ts` | Keep numeric tokens (>=2 chars), increase Tier A limit to 500 |
-| `supabase/functions/catalog-search/index.ts` | DB fast path returns `hasMore: true`; enable DB-first search on all pages (not just page 0) |
-| `src/pages/shop/SearchResults.tsx` | Lower `BROADEN_THRESHOLD` to 30 to avoid unnecessary background fetches |
+| `supabase/functions/_shared/searchDbFirst.ts` | Add `offset` parameter to `DbFirstParams` and apply it in `tierASearch` |
+| `supabase/functions/catalog-search/index.ts` | Pass page-based offset to `searchDbFirst`; fix `hasMore` to be `dbFinal.length >= limit` |
 
 ### Expected Outcome
-- "iphone 14" returns 200+ relevant results instantly from cached products
-- No slow "loading loading loading" -- subsequent pages also served from DB in milliseconds
-- Results are more relevant (specific to iPhone 14, not all iPhones)
+
+- Any search ("shoes", "samsung tv", "honda civic", "iphone 14") returns 500 cached results instantly on page 0
+- Page 1 returns the NEXT batch of results from the DB (offset 500+), not duplicates
+- Pagination stops naturally when the DB runs out of matching items
+- No more infinite "loading loading" loop
 

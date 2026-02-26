@@ -140,7 +140,7 @@ async function handleList(url: URL) {
   // Helper to apply shared filters to any query builder
   function applyFilters(query: any) {
     const categoryKey = url.searchParams.get("category_key");
-    if (categoryKey) query = query.eq("category_key", categoryKey);
+    if (categoryKey) query = query.or(`category_key.eq.${categoryKey},unified_category.eq.${categoryKey}`);
 
     const provider = url.searchParams.get("provider");
     if (provider) query = query.eq("provider", provider);
@@ -215,13 +215,13 @@ async function handleList(url: URL) {
         // Retry with a simpler count
         const retryQuery = applyFilters(sb.from("catalog_items").select("id", { count: "exact", head: true }));
         const { count: retryCount } = await retryQuery;
-        filteredCount = retryCount ?? 0;
+        filteredCount = retryCount ?? null;
       } else {
         filteredCount = count ?? 0;
       }
     } catch (e) {
       console.error("[admin-catalog-items] Count query exception:", e);
-      filteredCount = 0;
+      filteredCount = null;
     }
   }
 

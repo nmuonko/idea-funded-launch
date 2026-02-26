@@ -900,6 +900,29 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
     appliedFilters.date_preset
   );
 
+  // Check if filters OTHER than category are active
+  const hasOtherFilters = !!(
+    appliedFilters.provider || appliedFilters.is_active ||
+    appliedFilters.q || appliedFilters.stale_price_days || appliedFilters.not_seen_days ||
+    appliedFilters.date_preset
+  );
+
+  // Dedicated category-only count (always accurate regardless of other filters)
+  const { data: categoryOnlyCount } = useQuery({
+    queryKey: ['catalog-category-count', appliedFilters.category_key],
+    queryFn: async () => {
+      const cat = appliedFilters.category_key;
+      if (!cat) return null;
+      const { count } = await supabase
+        .from('catalog_items')
+        .select('*', { count: 'exact', head: true })
+        .or(`category_key.eq.${cat},unified_category.eq.${cat}`);
+      return count ?? null;
+    },
+    enabled: !!appliedFilters.category_key,
+    staleTime: 60_000,
+  });
+
   // Display count: filtered count when filters active, otherwise total
   const displayCount = hasActiveFilters && filteredCount !== null ? filteredCount : totalCount;
   const countLabel = hasActiveFilters && filteredCount !== null ? 'filtered' : 'total';
@@ -972,11 +995,22 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
                 {ALL_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
-            {appliedFilters.category_key && filteredCount !== null && (
+            {appliedFilters.category_key && (
               <div className="col-span-2 md:col-span-1 flex items-center">
                 <Badge variant="secondary" className="text-xs gap-1">
                   <Database className="h-3 w-3" />
-                  {filteredCount.toLocaleString()} items in "{appliedFilters.category_key}"
+                  {categoryOnlyCount !== null ? (
+                    <>
+                      {categoryOnlyCount.toLocaleString()} items in "{appliedFilters.category_key}"
+                      {hasOtherFilters && filteredCount !== null && filteredCount !== categoryOnlyCount && (
+                        <span className="text-muted-foreground ml-1">({filteredCount.toLocaleString()} matching)</span>
+                      )}
+                    </>
+                  ) : filteredCount !== null && filteredCount > 0 ? (
+                    <>{filteredCount.toLocaleString()} {hasOtherFilters ? 'matching' : ''} items in "{appliedFilters.category_key}"</>
+                  ) : (
+                    <>items in "{appliedFilters.category_key}"</>
+                  )}
                 </Badge>
               </div>
             )}

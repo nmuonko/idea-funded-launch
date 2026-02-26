@@ -580,7 +580,7 @@ export default function SearchResults() {
       <main className="px-4 py-6">
         <div className="container mx-auto">
           {/* Results Header */}
-          <div className="flex flex-col md:flex-row md:items-start justify-between gap-3 mb-6 mt-2 overflow-visible">
+          <div className="flex flex-col items-start gap-3 mb-6 mt-2 overflow-visible">
             <div className="min-w-0 shrink">
               {query && (
                 <h1 className="text-lg md:text-xl font-bold text-white whitespace-normal break-words leading-snug">
@@ -619,10 +619,10 @@ export default function SearchResults() {
               </div>
             </div>
 
-            <div className="flex w-full md:w-auto items-center gap-2 overflow-visible relative z-10 shrink-0">
+            <div className="flex w-full sm:w-auto items-center gap-2 overflow-visible relative z-20 shrink-0">
               {/* Sort */}
               <Select value={sort} onValueChange={handleSortChange}>
-                <SelectTrigger className="w-full md:w-[180px] bg-white/10 border border-white/20 text-white rounded-lg h-10">
+                <SelectTrigger className="w-full sm:w-[220px] bg-white/10 border border-white/20 text-white rounded-lg h-10">
                   <SelectValue placeholder={shop.sortBy || 'Sort by'} />
                 </SelectTrigger>
                 <SelectContent className="bg-black border border-white/20 z-[9999]">

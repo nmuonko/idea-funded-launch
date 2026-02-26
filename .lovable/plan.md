@@ -1,25 +1,16 @@
 
 
-## Fix: Crash When Filtering by Category
+## Remove Ingestion Target Display from Data Sync Section
 
-### Problem
-`useQuery` returns `data: undefined` before the query executes. The code checks `categoryOnlyCount !== null`, but `undefined !== null` is `true`, so it tries to call `.toLocaleString()` on `undefined` -- crashing the component.
+### What to do
+Remove the "Ingestion Target" block (lines 1579-1594) from the Data Sync card in `src/pages/admin/CatalogCache.tsx`. This block currently exposes a raw backend URL and a warning badge, which is unnecessary UI clutter.
 
-### Fix
-In `src/pages/admin/CatalogCache.tsx` line 1002, change the strict null check to a type guard:
+### File: `src/pages/admin/CatalogCache.tsx`
 
-```typescript
-// From:
-{categoryOnlyCount !== null ? (
-// To:
-{typeof categoryOnlyCount === 'number' ? (
-```
+**Remove lines 1579-1594** -- the entire `{/* Target Info */}` div that displays:
+- "Ingestion Target" label
+- The raw function URL
+- The "Points to same environment (self)" / "Routes to Live" badge
 
-This ensures `.toLocaleString()` is only called on an actual number, guarding against both `undefined` and `null`.
-
-### Files Changed
-
-| File | Change |
-|------|--------|
-| `src/pages/admin/CatalogCache.tsx` | Line 1002: change `categoryOnlyCount !== null` to `typeof categoryOnlyCount === 'number'` |
+The `targetInfo` query and `handlePushToLive` logic that uses it will remain intact (they're still needed for the Push to Live button's validation).
 

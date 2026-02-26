@@ -193,6 +193,7 @@ function formatItem(
       requiresManualQuote: false,
       isQuoteRequired: false,
       shippingItemType: null,
+      effectiveMarkupPercent: vehicleMarkupPercent,
     };
   }
   
@@ -223,6 +224,7 @@ function formatItem(
       isQuoteRequired: true,
       shippingItemType: null,
       vehicleMarkupPercent,
+      effectiveMarkupPercent: vehicleMarkupPercent,
     };
   }
   
@@ -256,6 +258,7 @@ function formatItem(
       key: normalizeCategorySlug(item.shipping_item_types.key) || item.shipping_item_types.key,
       label: getCategoryLabel(normalizeCategorySlug(item.shipping_item_types.key)) || item.shipping_item_types.label,
     } : null,
+    effectiveMarkupPercent: markupPercent,
   };
 }
 
@@ -559,6 +562,9 @@ serve(async (req) => {
         shippingUsd: vehicleShippingTotal,
         totalUsd: vehicleTotalUsd,
       } : null,
+      // Markup percentages so mobile app uses correct rates
+      markupPercent,
+      vehicleMarkupPercent,
     };
     
     // Show appropriate blocking messages

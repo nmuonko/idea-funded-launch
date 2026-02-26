@@ -1,41 +1,67 @@
 
 
-## Make Payment Success Page Work Without Web Auth (Mobile WebView Compatibility)
+# SHEIN Catalog Scraper via Firecrawl
 
-### Problem
-The mobile app's payment flow opens a WebView that eventually redirects to the web app. The flow is:
+## Overview
+Create a new edge function `catalog-shein-scraper` modeled after the existing `catalog-car-scraper`, using Firecrawl's Search API to discover and cache SHEIN clothing products into `catalog_items`. Duplicates are prevented via the existing `(provider, provider_product_id)` unique constraint.
 
-1. Mobile WebView opens PawaPay/Stripe payment page
-2. After payment, redirects to `/payment-callback` (already public -- works fine)
-3. `/payment-callback` polls `mobile-verify-payment`, then redirects to `/payment-success-shop`
-4. `/payment-success-shop` is wrapped in `ShopProtectedRoute` which requires a web auth session
-5. The mobile WebView does NOT have a web auth session, so it gets redirected to `/shop-auth` -- **payment confirmation fails**
+## Architecture
 
-### Solution
-Remove the `ShopProtectedRoute` wrapper from `/payment-success-shop` in `App.tsx`. This is safe because:
+The scraper will use the same three-stage Firecrawl pipeline proven with CarGurus/Carvana:
+- **Stage 0 (Primary)**: Firecrawl Search API (`/v1/search`) with `site:shein.com` queries
+- **Stage A (Fallback)**: Firecrawl markdown scrape of SHEIN category pages
+- **Stage B (Last Resort)**: Firecrawl structured extraction
 
-- The page only reads the `order_id` from query params and checks order status via `supabase.from('orders')`, which is protected by RLS policies
-- The page doesn't expose any sensitive data beyond a truncated order ID (`order_id.slice(0,8)`)
-- Cart clearing (`clearCartOnPaymentSuccess`) is a client-side operation that gracefully no-ops if there's no cart
-- The page is a dead-end (shows success message with links to orders/home) -- no further sensitive actions
+## What Gets Built
 
-### Changes
+### 1. New Edge Function: `supabase/functions/catalog-shein-scraper/index.ts`
 
-**File: `src/App.tsx`** (1 change)
+- **Provider name**: `shein` (stored in `catalog_items.provider`)
+- **Duplicate prevention**: Upsert with `onConflict: "provider,provider_product_id"` -- same as car scraper. Only unique items are inserted; existing ones update `last_seen_at`
+- **Product ID extraction**: Parse SHEIN URLs for product IDs (pattern: `/product-pXXXXXXX` where the `p` prefix + digits is the SKU)
+- **Category mapping**: `unified_category = "clothing_shoes_accessories"`, `category_key = "clothing_shoes"`
+- **Search queries**: Rotate through seed queries like "women dresses site:shein.com", "men shirts site:shein.com", "modest fashion site:shein.com", "maxi dress site:shein.com", "abaya site:shein.com" etc. (aligned with existing clothing curation preferences for modest/long-form apparel)
+- **Quality filters**:
+  - Must have valid SHEIN product URL (`shein.com` domain with product path)
+  - Must have title and price > 0
+  - Skip sold/unavailable items
+  - Apply existing clothing ingestion guardrails (no appliances, toys, electronics)
+- **Auth**: Same `x-cron-secret` / admin JWT pattern as car scraper
+- **Batched upsert**: 50 items per batch, same as car scraper
+- **Configurable**: `max_pages`, `target_items` (default 20), `search_query`, `dry_run`
 
-Remove `ShopProtectedRoute` from the `/payment-success-shop` route:
+### 2. Register in `supabase/config.toml`
 
-```text
-Before:
-  <Route path="/payment-success-shop" element={
-    <ShopProtectedRoute>
-      <ShopPaymentSuccess />
-    </ShopProtectedRoute>
-  } />
-
-After:
-  <Route path="/payment-success-shop" element={<ShopPaymentSuccess />} />
+Add entry:
+```
+[functions.catalog-shein-scraper]
+verify_jwt = false
 ```
 
-This is a minimal, surgical change. No new pages, no new endpoints. The existing mobile `.aab` builds will work without modification since the redirect URLs are already correct -- they were just being blocked by the auth guard.
+### 3. Wire into Admin Panel
+
+Add a "Run SHEIN Scraper" action in `admin-catalog-items` (same pattern as `run-car-scraper`) so admins can trigger it manually from the Catalog Cache page.
+
+### 4. Automated Scheduling (Optional / Phase 2)
+
+Add a `pg_cron` job to run the SHEIN scraper periodically (e.g., every 6 hours) to keep the clothing catalog fresh.
+
+## Duplicate Prevention (Zero Duplicates Guaranteed)
+
+The system uses three layers:
+1. **In-memory dedup**: `Set` of `provider_product_id` values within a single scrape run
+2. **DB-level unique constraint**: `(provider, provider_product_id)` on `catalog_items` -- upsert updates existing rows instead of creating duplicates
+3. **Product ID normalization**: Consistent extraction of SHEIN's `pXXXXXXX` SKU from URLs ensures the same product always maps to the same ID
+
+## Technical Details
+
+- Firecrawl API key is already configured (`FIRECRAWL_API_KEY` secret exists and is used by other functions)
+- Image URLs from SHEIN use `img.ltwebstatic.com` -- no upgrade needed, they're already high-res
+- Price parsing reuses the existing `parseUsd` pattern (strip currency symbols, commas)
+- Function timeout budget: 50s (same as car scraper)
+
+## Files Changed
+1. **New**: `supabase/functions/catalog-shein-scraper/index.ts` -- main scraper function
+2. **Edit**: `supabase/config.toml` -- register new function
+3. **Edit**: `supabase/functions/admin-catalog-items/index.ts` -- add `run-shein-scraper` action
 

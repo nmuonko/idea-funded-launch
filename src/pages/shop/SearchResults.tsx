@@ -619,18 +619,18 @@ export default function SearchResults() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 overflow-visible relative z-10">
+            <div className="flex items-center gap-2 overflow-visible relative z-10 shrink-0">
               {/* Sort */}
               <Select value={sort} onValueChange={handleSortChange}>
-                <SelectTrigger className="w-[160px] bg-white/5 border-white/10 text-white">
+                <SelectTrigger className="w-[180px] bg-white/10 border border-white/20 text-white rounded-lg h-10">
                   <SelectValue placeholder={shop.sortBy || 'Sort by'} />
                 </SelectTrigger>
-                <SelectContent className="bg-black/95 border-white/10 z-50">
+                <SelectContent className="bg-black border border-white/20 z-[9999]">
                   {SORT_OPTIONS.map((option) => (
                     <SelectItem 
                       key={option.value} 
                       value={option.value}
-                      className="text-white hover:bg-white/10"
+                      className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
                     >
                       {option.label}
                     </SelectItem>

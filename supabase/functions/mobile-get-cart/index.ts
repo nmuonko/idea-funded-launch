@@ -183,17 +183,29 @@ function formatItem(
       unitPriceUsd: storedBase,
       itemBaseTotalUsd: storedBase,
       itemMarginUsd: storedMargin,
+      markupFeeUsd: storedMargin,
+      markup_fee_usd: storedMargin,
       itemShippingUsd: storedShipping,
-      shippingCost: storedShipping,  // STABLE FIELD NAME
-      shippingStatus: 'QUOTED',      // Shipping has been quoted by admin
+      shippingFeeUsd: storedShipping,
+      shipping_fee_usd: storedShipping,
+      shippingCost: storedShipping,
+      shippingStatus: 'QUOTED',
       itemSubtotalUsd: subtotalBeforeShipping,
+      subtotalUsd: subtotalBeforeShipping,
+      subtotal_usd: subtotalBeforeShipping,
       itemTotalUsd: storedTotal,
-      price: storedTotal,  // STABLE FIELD NAME for total
+      totalPriceUsd: storedTotal,
+      total_price_usd: storedTotal,
+      lineTotalUsd: storedTotal,
+      lineTotalCdf: round2(storedTotal * exchangeRate),
+      priceUsd: storedTotal,
+      price: storedTotal,
       itemSubtotalCdf: round2(storedTotal * exchangeRate),
       requiresManualQuote: false,
       isQuoteRequired: false,
       shippingItemType: null,
       effectiveMarkupPercent: vehicleMarkupPercent,
+      markupPercent: vehicleMarkupPercent,
     };
   }
   
@@ -213,18 +225,30 @@ function formatItem(
       unitPriceUsd: basePriceUsd,
       itemBaseTotalUsd: basePriceUsd,
       itemMarginUsd: estimatedMargin,
+      markupFeeUsd: estimatedMargin,
+      markup_fee_usd: estimatedMargin,
       itemShippingUsd: 0,
-      shippingCost: null,           // Pending quote - no shipping yet
-      shippingStatus: 'PENDING',    // Shipping quote pending from admin
+      shippingFeeUsd: 0,
+      shipping_fee_usd: 0,
+      shippingCost: null,
+      shippingStatus: 'PENDING',
       itemSubtotalUsd: estimatedSubtotal,
-      itemTotalUsd: estimatedSubtotal,  // No shipping included yet
-      price: estimatedSubtotal,     // Display price (without shipping)
+      subtotalUsd: estimatedSubtotal,
+      subtotal_usd: estimatedSubtotal,
+      itemTotalUsd: estimatedSubtotal,
+      totalPriceUsd: estimatedSubtotal,
+      total_price_usd: estimatedSubtotal,
+      lineTotalUsd: estimatedSubtotal,
+      lineTotalCdf: round2(estimatedSubtotal * exchangeRate),
+      priceUsd: estimatedSubtotal,
+      price: estimatedSubtotal,
       itemSubtotalCdf: round2(estimatedSubtotal * exchangeRate),
       requiresManualQuote: true,
       isQuoteRequired: true,
       shippingItemType: null,
       vehicleMarkupPercent,
       effectiveMarkupPercent: vehicleMarkupPercent,
+      markupPercent: vehicleMarkupPercent,
     };
   }
   
@@ -246,10 +270,21 @@ function formatItem(
     unitPriceUsd: basePriceUsd,
     itemBaseTotalUsd,
     itemMarginUsd,
+    markupFeeUsd: itemMarginUsd,
+    markup_fee_usd: itemMarginUsd,
     itemShippingUsd: 0,
+    shippingFeeUsd: 0,
+    shipping_fee_usd: 0,
     shippingCost: 0,
     itemSubtotalUsd,
+    subtotalUsd: itemSubtotalUsd,
+    subtotal_usd: itemSubtotalUsd,
     itemTotalUsd: itemSubtotalUsd,
+    totalPriceUsd: itemSubtotalUsd,
+    total_price_usd: itemSubtotalUsd,
+    lineTotalUsd: itemSubtotalUsd,
+    lineTotalCdf: itemSubtotalCdf,
+    priceUsd: itemSubtotalUsd,
     price: itemSubtotalUsd,
     itemSubtotalCdf,
     requiresManualQuote: itemRequiresQuote,
@@ -259,6 +294,7 @@ function formatItem(
       label: getCategoryLabel(normalizeCategorySlug(item.shipping_item_types.key)) || item.shipping_item_types.label,
     } : null,
     effectiveMarkupPercent: markupPercent,
+    markupPercent: markupPercent,
   };
 }
 
@@ -563,8 +599,12 @@ serve(async (req) => {
         totalUsd: vehicleTotalUsd,
       } : null,
       // Markup percentages so mobile app uses correct rates
-      markupPercent,
+      generalMarkupPercent: markupPercent,
       vehicleMarkupPercent,
+      // effectiveMarkupPercent: if cart is vehicle-only, use vehicle rate; otherwise general
+      effectiveMarkupPercent: (hasVehicleItems && regularItemCount === 0) ? vehicleMarkupPercent : markupPercent,
+      // COMPATIBILITY: markupPercent set to effective rate so older clients get correct value
+      markupPercent: (hasVehicleItems && regularItemCount === 0) ? vehicleMarkupPercent : markupPercent,
     };
     
     // Show appropriate blocking messages
@@ -612,6 +652,7 @@ serve(async (req) => {
     return jsonResponse({
       ok: true,
       activeItems,
+      items: activeItems,  // Legacy alias for backward compatibility
       savedItems,
       summary,
     });

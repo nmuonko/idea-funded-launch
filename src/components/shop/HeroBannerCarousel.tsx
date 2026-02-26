@@ -29,7 +29,7 @@ const SLIDES: Slide[] = [
     ctaFr: 'Voir les offres',
     ctaEn: 'See deals',
     ctaLink: '/category/gaming',
-    gradient: 'from-indigo-900/90 via-purple-900/70 to-transparent',
+    gradient: 'from-violet-950/95 via-indigo-900/80 to-transparent',
     image: heroGaming,
   },
   {
@@ -40,7 +40,7 @@ const SLIDES: Slide[] = [
     ctaFr: 'Acheter maintenant',
     ctaEn: 'Shop now',
     ctaLink: '/shop',
-    gradient: 'from-black/80 via-black/50 to-transparent',
+    gradient: 'from-slate-950/90 via-blue-950/70 to-transparent',
     image: '/hero-airplane.jpg',
   },
   {
@@ -51,7 +51,7 @@ const SLIDES: Slide[] = [
     ctaFr: 'Voir les téléphones',
     ctaEn: 'See phones',
     ctaLink: '/category/phones',
-    gradient: 'from-emerald-900/80 via-teal-900/60 to-transparent',
+    gradient: 'from-emerald-950/90 via-cyan-900/70 to-transparent',
     image: heroPhones,
   },
   {
@@ -62,7 +62,7 @@ const SLIDES: Slide[] = [
     ctaFr: 'Voir les laptops',
     ctaEn: 'See laptops',
     ctaLink: '/category/computers',
-    gradient: 'from-slate-900/90 via-blue-900/70 to-transparent',
+    gradient: 'from-gray-950/95 via-slate-900/75 to-transparent',
     image: 'https://images.unsplash.com/photo-1611186871348-b1ce696e52c9?w=1600&q=80&auto=format&fit=crop',
   },
   {
@@ -73,7 +73,7 @@ const SLIDES: Slide[] = [
     ctaFr: 'Voir les casques',
     ctaEn: 'See headphones',
     ctaLink: '/category/audio',
-    gradient: 'from-amber-900/90 via-orange-900/70 to-transparent',
+    gradient: 'from-amber-950/95 via-yellow-900/70 to-transparent',
     image: boseHeadphones,
   },
   {
@@ -84,7 +84,7 @@ const SLIDES: Slide[] = [
     ctaFr: 'Voir les accessoires',
     ctaEn: 'See accessories',
     ctaLink: '/category/accessories',
-    gradient: 'from-rose-900/90 via-pink-900/70 to-transparent',
+    gradient: 'from-rose-950/95 via-fuchsia-900/70 to-transparent',
     image: heroSmarthome,
   },
 ];
@@ -97,6 +97,16 @@ export function HeroBannerCarousel() {
 
   const next = useCallback(() => setCurrent(i => (i + 1) % SLIDES.length), []);
   const prev = useCallback(() => setCurrent(i => (i - 1 + SLIDES.length) % SLIDES.length), []);
+
+  // Preload all slide images on mount
+  useEffect(() => {
+    SLIDES.forEach(s => {
+      if (s.image) {
+        const img = new Image();
+        img.src = s.image;
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (paused) return;
@@ -112,14 +122,14 @@ export function HeroBannerCarousel() {
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      <div className="relative overflow-hidden rounded-2xl h-[170px] sm:h-[220px] md:h-[300px] lg:h-[340px] border border-white/10">
+      <div className="relative overflow-hidden rounded-2xl h-[170px] sm:h-[220px] md:h-[300px] lg:h-[340px] border border-white/[0.08] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
         <AnimatePresence mode="wait">
           <motion.div
             key={current}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.4 }}
+            transition={{ duration: 0.5 }}
             className="absolute inset-0"
           >
             {slide.image && (
@@ -130,18 +140,9 @@ export function HeroBannerCarousel() {
               />
             )}
             <div className={`absolute inset-0 bg-gradient-to-r ${slide.gradient}`} />
-          </motion.div>
-        </AnimatePresence>
 
-        <div className="relative z-10 h-full flex flex-col justify-center px-6 md:px-12 max-w-xl">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={current}
-              initial={{ opacity: 0, x: 30 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -30 }}
-              transition={{ duration: 0.35 }}
-            >
+            {/* Text overlay — inside the same motion.div for sync */}
+            <div className="relative z-10 h-full flex flex-col justify-center px-6 md:px-12 max-w-xl">
               <h2 className="text-xl sm:text-2xl md:text-4xl font-bold text-white drop-shadow-lg mb-1 md:mb-2">
                 {language === 'fr' ? slide.titleFr : slide.titleEn}
               </h2>
@@ -150,13 +151,13 @@ export function HeroBannerCarousel() {
               </p>
               <button
                 onClick={() => navigate(slide.ctaLink)}
-                className="bg-white/90 hover:bg-white text-gray-900 font-semibold text-xs sm:text-sm px-4 py-2 sm:px-5 sm:py-2.5 rounded-full transition-colors shadow-lg"
+                className="w-fit bg-gradient-to-r from-white/95 to-white/80 hover:from-white hover:to-white/90 text-gray-900 font-semibold text-xs sm:text-sm px-5 py-2 sm:px-6 sm:py-2.5 rounded-full transition-all shadow-lg hover:shadow-xl"
               >
                 {language === 'fr' ? slide.ctaFr : slide.ctaEn}
               </button>
-            </motion.div>
-          </AnimatePresence>
-        </div>
+            </div>
+          </motion.div>
+        </AnimatePresence>
 
         <button
           onClick={prev}

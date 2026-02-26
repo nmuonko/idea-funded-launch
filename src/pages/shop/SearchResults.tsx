@@ -620,6 +620,31 @@ export default function SearchResults() {
             </div>
 
             <div className="flex w-full sm:w-auto items-center gap-2 overflow-visible relative z-20 shrink-0">
+              {/* Store Filter */}
+              <Select value={providerFilter} onValueChange={(v) => { setProviderFilter(v); setPage(0); }}>
+                <SelectTrigger className="w-full sm:w-[160px] bg-white/10 border border-white/20 text-white rounded-lg h-10">
+                  <SelectValue placeholder={language === 'fr' ? 'Boutique' : 'Store'} />
+                </SelectTrigger>
+                <SelectContent className="bg-black border border-white/20 z-[9999]">
+                  {[
+                    { value: 'all', label: language === 'fr' ? 'Toutes' : 'All Stores' },
+                    { value: 'amazon', label: 'Amazon' },
+                    { value: 'ebay', label: 'eBay' },
+                    { value: 'shein', label: 'SHEIN' },
+                    { value: 'carvana', label: 'Carvana' },
+                    { value: 'cargurus', label: 'CarGurus' },
+                  ].map((opt) => (
+                    <SelectItem
+                      key={opt.value}
+                      value={opt.value}
+                      className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
+                    >
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               {/* Sort */}
               <Select value={sort} onValueChange={handleSortChange}>
                 <SelectTrigger className="w-full sm:w-[220px] bg-white/10 border border-white/20 text-white rounded-lg h-10">

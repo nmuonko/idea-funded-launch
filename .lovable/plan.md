@@ -1,34 +1,59 @@
 
 
-## Fix Price Filter and Sort Visibility on Search Results
+## Fix: False Vehicle Detection Blocking Mobile Money Payments
 
 ### Problem
-1. The "No limit" / "Illimite" text displays when the price slider is at max -- this should be removed
-2. The sort dropdown (Relevance, Price: Low to High, etc.) is partially hidden/clipped on desktop, appearing to overlap with the price filter area
+Mobile money payments via PawaPay are being blocked with "provider not allowed" because the system is incorrectly flagging regular products as vehicles based on keywords found in item titles (e.g., "car" in "car charger", or "van" in "canvas").
+
+The edge function logs confirm:
+- `vehicleReasons: ["vehicle_keyword_in_title"]` -- only the title triggered it
+- No explicit `is_vehicle` flag, no vehicle store, no vehicle URL
+- Result: checkout returns `CHOICE_REQUIRED` with only `["STRIPE"]`, and `payments-create-intent` returns `PROVIDER_NOT_ALLOWED`
+
+### Root Cause
+In `supabase/functions/_shared/vehiclePaymentGuard.ts`, the `detectVehicleFromItems()` function uses `containsVehicleKeyword()` on item titles to flag items as vehicles. The keyword list includes common words like "car", "auto", "van", "truck" that can appear in non-vehicle product titles. While there are exclusions, they don't cover all cases.
+
+### Solution
+Make title-based vehicle detection non-blocking for payment routing. Title keyword detection alone should NOT block mobile money -- it should only be used for logging/analytics. Only explicit signals (is_vehicle flag, vehicle store, vehicle URL, vehicle fields like VIN/mileage) should block mobile money.
 
 ### Changes
 
-**File: `src/pages/shop/SearchResults.tsx`**
+**File: `supabase/functions/_shared/vehiclePaymentGuard.ts`**
 
-1. **Remove "No limit" text from price filter** (line 649-651): Change the price display so it always shows the dollar amount (`$500,000`) instead of "No limit" when at max value. This makes the filter clearer.
+1. Add a `confidence` level to vehicle detection results: `"high"` for explicit flags (is_vehicle, vehicle store, vehicle URL, vehicle fields) and `"low"` for title-keyword-only detection.
 
-2. **Ensure sort dropdown is fully visible** (lines 622-640): The sort `SelectContent` dropdown may be getting clipped by a parent container. Add `z-50` to the `SelectContent` and ensure the parent flex container doesn't have overflow constraints cutting it off. Move the sort dropdown to sit alongside the price filter row so both are always visible together, rather than being in a header section that can get cramped.
-
-### Specific Edits
-
-**Edit 1** -- Remove "No limit" conditional (lines 649-651):
-Replace the conditional text with always showing the dollar value:
-```tsx
-<span className="text-sm font-medium text-white">
-  ${maxPrice.toLocaleString()}
-</span>
+2. Update `detectVehicleFromItems()` return type to include a `confidence` field:
+```text
+return {
+  isVehicle: vehicleItems.length > 0,
+  confidence: hasHighConfidence ? 'high' : 'low',
+  vehicleItems,
+  reasons,
+}
 ```
 
-**Edit 2** -- Fix sort dropdown visibility (lines 628):
-Add proper z-index to ensure the dropdown renders above other content:
-```tsx
-<SelectContent className="bg-black/95 border-white/10 z-50">
+3. Title keyword detection (lines 288-292) will still flag the item but with low confidence.
+
+**File: `supabase/functions/payments-create-intent/index.ts`**
+
+4. Update the vehicle check (around line 334) to only block mobile money when vehicle detection confidence is `"high"`:
+```text
+// Only block mobile money for HIGH confidence vehicle detection
+if (isVehicle && vehicleDetection.confidence === 'high') {
+  // return PROVIDER_NOT_ALLOWED
+}
+// Low confidence (title keyword only) -- allow mobile money, just log a warning
 ```
 
-This ensures the sort dropdown menu always renders on top when opened, and the price filter consistently shows numeric values without confusing "No limit" text.
+**File: `supabase/functions/mobile-checkout/index.ts`**
+
+5. Apply the same confidence check -- only route to STRIPE-only when confidence is high. Low-confidence detections should allow both MOBILE_MONEY and CARD options.
+
+### Technical Details
+
+The confidence classification:
+- **High confidence** (blocks mobile money): `is_vehicle=true`, vehicle store (CARVANA, CARGURUS...), vehicle URL (carvana.com, cargurus.com...), vehicle fields (VIN, mileage, year, make, model), `vehicle_quote_applied=true`
+- **Low confidence** (allows mobile money, logs warning): `vehicle_keyword_in_title` alone
+
+This approach preserves vehicle detection for genuinely flagged vehicles while eliminating false positives from title keywords on regular products.
 

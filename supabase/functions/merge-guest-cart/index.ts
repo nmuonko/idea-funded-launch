@@ -198,12 +198,9 @@ serve(async (req) => {
       console.log(`[${requestId}] Idempotency key:`, idempotencyKey);
     }
 
-    // Fetch settings for pricing
-    const { data: settings } = await supabase
-      .from('settings')
-      .select('markup_percent, exchange_rate_usd_to_cdf, shipping_base_fee_usd, shipping_percent')
-      .limit(1)
-      .single();
+    // Fetch settings from cache (avoids redundant DB reads)
+    const { getCachedGlobalSettings } = await import("../_shared/settingsMemoryCache.ts");
+    const settings = await getCachedGlobalSettings(supabase) as Record<string, any>;
 
     const markupPercent = Number(settings?.markup_percent) || 15;
     const exchangeRate = Number(settings?.exchange_rate_usd_to_cdf) || 2500;

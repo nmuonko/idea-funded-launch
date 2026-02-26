@@ -194,11 +194,9 @@ Deno.serve(async (req) => {
           cartItemUpdate.admin_adjusted_price = finalPriceUsd;
           cartItemUpdate.base_price_usd = finalPriceUsd;
           
-          // Also recalculate markup if we have settings
-          const { data: settings } = await supabase
-            .from('settings')
-            .select('markup_percent, exchange_rate_usd_to_cdf')
-            .single();
+          // Also recalculate markup if we have settings (from cache)
+          const { getCachedGlobalSettings } = await import("../_shared/settingsMemoryCache.ts");
+          const settings = await getCachedGlobalSettings(supabase) as Record<string, any>;
           
           if (settings) {
             const markupPercent = Number(settings.markup_percent ?? 15) / 100;

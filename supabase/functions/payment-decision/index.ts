@@ -408,12 +408,9 @@ serve(async (req) => {
       );
     }
 
-    // Fetch settings for FX rate
-    const { data: settings } = await supabase
-      .from('settings')
-      .select('exchange_rate_usd_to_cdf')
-      .limit(1)
-      .single();
+    // Fetch settings from cache (avoids redundant DB reads)
+    const { getCachedGlobalSettings } = await import("../_shared/settingsMemoryCache.ts");
+    const settings = await getCachedGlobalSettings(supabase) as Record<string, any>;
 
     const fxRate = settings?.exchange_rate_usd_to_cdf || 2500;
 

@@ -165,11 +165,10 @@ serve(async (req) => {
 
     console.log(`[CREATE_ORDER] correlationId=${correlationId} Found order: orderId=${existingOrder.id} itemCount=${existingOrder.order_items.length}`);
 
-    // Get pricing settings
-    const { data: settings, error: settingsError } = await supabase
-      .from('settings')
-      .select('*')
-      .single();
+    // Get pricing settings from cache (avoids redundant DB reads)
+    const { getCachedGlobalSettings } = await import("../_shared/settingsMemoryCache.ts");
+    const settings = await getCachedGlobalSettings(supabase) as Record<string, any>;
+    const settingsError = !settings || Object.keys(settings).length === 0 ? { message: 'Empty settings' } : null;
 
     if (settingsError || !settings) {
       console.error(`[CREATE_ORDER][ERROR] correlationId=${correlationId} code=SETTINGS_ERROR message=${settingsError?.message}`);

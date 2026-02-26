@@ -67,15 +67,13 @@ serve(async (req) => {
       userName,
     });
 
-    // Get pricing settings for calculations
-    const { data: settings } = await supabase
-      .from('settings')
-      .select('exchange_rate_usd_to_cdf, shipping_base_fee_usd, markup_percent, global_markup_percent')
-      .single();
+    // Get pricing settings from cache (avoids redundant DB reads)
+    const { getCachedGlobalSettings } = await import("../_shared/settingsMemoryCache.ts");
+    const cachedSettings = await getCachedGlobalSettings(supabase) as Record<string, any>;
 
-    const exchangeRate = settings?.exchange_rate_usd_to_cdf || 2800;
-    const shippingFeeUsd = settings?.shipping_base_fee_usd || 10;
-    const markupPercent = settings?.markup_percent ?? settings?.global_markup_percent ?? 15;
+    const exchangeRate = cachedSettings?.exchange_rate_usd_to_cdf || 2800;
+    const shippingFeeUsd = cachedSettings?.shipping_base_fee_usd || 10;
+    const markupPercent = cachedSettings?.markup_percent ?? cachedSettings?.global_markup_percent ?? 15;
 
     // Build status list
     const statusList = statusFilter 

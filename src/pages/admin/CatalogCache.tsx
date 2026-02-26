@@ -827,25 +827,54 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
         console.warn('[ItemsTable] Edge fn failed, using DB fallback for items', e);
         // Fallback: direct DB query for items
         let query = supabase.from('catalog_items').select('id, provider, provider_product_id, category_key, unified_category, title, image_url, product_url, price_usd, currency, in_stock, is_active, status_reason, fail_count, last_seen_at, last_checked_at, price_updated_at, data_updated_at, first_seen_at, popularity_score');
-        if (appliedFilters.category_key) query = query.eq('category_key', appliedFilters.category_key);
-        if (appliedFilters.provider) query = query.eq('provider', appliedFilters.provider);
-        if (appliedFilters.is_active === 'true') query = query.eq('is_active', true);
-        else if (appliedFilters.is_active === 'false') query = query.eq('is_active', false);
-        if (appliedFilters.q) query = query.ilike('title', `%${appliedFilters.q}%`);
-        query = query.order('first_seen_at', { ascending: false }).limit(PAGE_SIZE);
+        // Shared helper to apply all filters to a query
+        const applyAllFallbackFilters = (q: any) => {
+          if (appliedFilters.category_key) {
+            q = q.or(`category_key.eq.${appliedFilters.category_key},unified_category.eq.${appliedFilters.category_key}`);
+          }
+          if (appliedFilters.provider) q = q.eq('provider', appliedFilters.provider);
+          if (appliedFilters.is_active === 'true') q = q.eq('is_active', true);
+          else if (appliedFilters.is_active === 'false') q = q.eq('is_active', false);
+          if (appliedFilters.q) q = q.ilike('title', `%${appliedFilters.q}%`);
+          if (appliedFilters.date_preset) {
+            const presetMap: Record<string, number> = { '1h': 3600000, 'today': 0, '24h': 86400000, '7d': 7 * 86400000, '30d': 30 * 86400000 };
+            if (appliedFilters.date_preset === 'today') {
+              const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+              q = q.gte('first_seen_at', todayStart.toISOString());
+            } else if (presetMap[appliedFilters.date_preset]) {
+              q = q.gte('first_seen_at', new Date(Date.now() - presetMap[appliedFilters.date_preset]).toISOString());
+            }
+          }
+          if (appliedFilters.stale_price_days) {
+            const staleDays = parseInt(appliedFilters.stale_price_days, 10);
+            if (staleDays > 0) q = q.lt('price_updated_at', new Date(Date.now() - staleDays * 86400000).toISOString());
+          }
+          if (appliedFilters.not_seen_days) {
+            const notSeenDays = parseInt(appliedFilters.not_seen_days, 10);
+            if (notSeenDays > 0) q = q.lt('last_seen_at', new Date(Date.now() - notSeenDays * 86400000).toISOString());
+          }
+          return q;
+        };
+
+        query = applyAllFallbackFilters(query);
+
+        // Apply sort
+        if (appliedFilters.sort_by === 'newest') query = query.order('first_seen_at', { ascending: false });
+        else if (appliedFilters.sort_by === 'recently_seen') query = query.order('last_seen_at', { ascending: false });
+        else if (appliedFilters.sort_by === 'highest_price') query = query.order('price_usd', { ascending: false });
+        else if (appliedFilters.sort_by === 'popularity') query = query.order('popularity_score', { ascending: false });
+        else query = query.order('first_seen_at', { ascending: false });
+
+        query = query.limit(PAGE_SIZE);
         const { data: items, error } = await query;
         if (error) console.error('[ItemsTable] DB fallback error:', error);
         // Get filtered count via a separate head query with the same filters
         let filteredCount: number | null = null;
-        const hasAnyFilter = !!(appliedFilters.category_key || appliedFilters.provider || appliedFilters.is_active || appliedFilters.q);
+        const hasAnyFilter = !!(appliedFilters.category_key || appliedFilters.provider || appliedFilters.is_active || appliedFilters.q || appliedFilters.stale_price_days || appliedFilters.not_seen_days || appliedFilters.date_preset);
         if (hasAnyFilter) {
           try {
             let countQ = supabase.from('catalog_items').select('*', { count: 'exact', head: true });
-            if (appliedFilters.category_key) countQ = countQ.eq('category_key', appliedFilters.category_key);
-            if (appliedFilters.provider) countQ = countQ.eq('provider', appliedFilters.provider);
-            if (appliedFilters.is_active === 'true') countQ = countQ.eq('is_active', true);
-            else if (appliedFilters.is_active === 'false') countQ = countQ.eq('is_active', false);
-            if (appliedFilters.q) countQ = countQ.ilike('title', `%${appliedFilters.q}%`);
+            countQ = applyAllFallbackFilters(countQ);
             const { count } = await countQ;
             filteredCount = count ?? 0;
           } catch (countErr) {
@@ -868,7 +897,7 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
   const hasActiveFilters = !!(
     appliedFilters.category_key || appliedFilters.provider || appliedFilters.is_active ||
     appliedFilters.q || appliedFilters.stale_price_days || appliedFilters.not_seen_days ||
-    appliedFilters.sort_by || appliedFilters.date_preset
+    appliedFilters.date_preset
   );
 
   // Display count: filtered count when filters active, otherwise total

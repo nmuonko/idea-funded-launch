@@ -173,8 +173,9 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     // Build success/cancel URLs - MUST use existing routes to avoid 404
-    const successUrl = `https://afrishop-usa.com/payment-success?orderId=${order_id}&session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = `https://afrishop-usa.com/payment-fail?orderId=${order_id}`;
+    const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+    const successUrl = `${frontendBaseUrl}/payment-success-shop?order_id=${order_id}&provider=stripe`;
+    const cancelUrl = `${frontendBaseUrl}/checkout`;
 
     // Create Stripe Checkout Session
     const stripeBody = new URLSearchParams({

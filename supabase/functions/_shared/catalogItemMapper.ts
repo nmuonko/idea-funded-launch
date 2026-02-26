@@ -81,6 +81,9 @@ export function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem 
       mainImage = upgradeAmazonImage(rawImageUrl);
     } else if (provider === "ebay") {
       mainImage = upgradeEbayImage(rawImageUrl);
+    } else if (provider === "shein") {
+      // SHEIN images from img.ltwebstatic.com are already high-res
+      mainImage = rawImageUrl;
     }
   }
   

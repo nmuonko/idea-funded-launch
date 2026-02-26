@@ -261,7 +261,11 @@ Deno.serve(async (req) => {
 
     // Detect vehicle status
     const vehicleDetection = await detectVehicleOrder(supabaseAdmin, order_id);
-    const isVehicle = vehicleDetection.isVehicle || order.contains_vehicle === true;
+    // Only treat as vehicle for payment blocking if HIGH confidence
+    const isVehicleHighConfidence = (vehicleDetection.isVehicle && vehicleDetection.confidence === 'high') || order.contains_vehicle === true;
+    const isVehicleLowConfidence = vehicleDetection.isVehicle && vehicleDetection.confidence === 'low' && order.contains_vehicle !== true;
+    // For backward compat: isVehicle still true if any detection, but payment routing uses isVehicleHighConfidence
+    const isVehicle = isVehicleHighConfidence;
     const totalUsd = order.total_usd || 0;
     const totalCdf = order.total_cdf || 0;
     const exchangeRate = order.exchange_rate_used || 2800;
@@ -269,10 +273,20 @@ Deno.serve(async (req) => {
     // Ensure CDF amount is calculated if not present
     const effectiveCdf = totalCdf > 0 ? totalCdf : Math.round(totalUsd * exchangeRate);
 
+    if (isVehicleLowConfidence) {
+      console.warn('[payments-create-intent] LOW confidence vehicle detection (title keyword only) - allowing mobile money:', {
+        vehicleReasons: vehicleDetection.reasons,
+        confidence: vehicleDetection.confidence,
+      });
+    }
+
     console.log('[payments-create-intent] Order analysis:', {
       totalUsd,
       totalCdf: effectiveCdf,
       isVehicle,
+      isVehicleHighConfidence,
+      isVehicleLowConfidence,
+      vehicleConfidence: vehicleDetection.confidence,
       vehicleReasons: vehicleDetection.reasons,
       itemCount: orderItems.length,
     });
@@ -289,9 +303,10 @@ Deno.serve(async (req) => {
     const bankTransferEnabled = paymentSettings?.bank_transfer_enabled !== false;
 
     // Build allowed methods list for error responses
+    // Only block mobile money for HIGH confidence vehicle detection
     const allowedMethods: string[] = [];
     if (stripeEnabled) allowedMethods.push('CARD');
-    if (pawapayEnabled && totalUsd <= pawapayMaxUsd && !isVehicle) allowedMethods.push('MOBILE_MONEY');
+    if (pawapayEnabled && totalUsd <= pawapayMaxUsd && !isVehicleHighConfidence) allowedMethods.push('MOBILE_MONEY');
     if (bankTransferEnabled) allowedMethods.push('BANK_TRANSFER');
 
     // ==================== Provider Selection Logic ====================

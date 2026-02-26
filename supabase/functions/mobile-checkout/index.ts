@@ -1147,7 +1147,19 @@ serve(async (req) => {
 
     // Vehicle detection and quote validation
     const vehicleDetection = detectVehicleFromItems(dbItems);
-    const containsVehicle = vehicleDetection.isVehicle;
+    // Only block mobile money for HIGH confidence vehicle detection
+    // LOW confidence (title keyword only) should NOT block mobile money
+    const containsVehicleHighConfidence = vehicleDetection.isVehicle && vehicleDetection.confidence === 'high';
+    const containsVehicleLowConfidence = vehicleDetection.isVehicle && vehicleDetection.confidence === 'low';
+    const containsVehicle = containsVehicleHighConfidence; // For payment routing, only high confidence matters
+    
+    if (containsVehicleLowConfidence) {
+      console.warn('[mobile-checkout] LOW confidence vehicle detection (title keyword only) - allowing mobile money:', {
+        vehicleReasons: vehicleDetection.reasons,
+        confidence: vehicleDetection.confidence,
+        itemCount: dbItems.length,
+      });
+    }
     
     const vehicleQuoteItems = dbItems.filter(item => 
       item.is_vehicle === true && item.vehicle_quote_applied === true

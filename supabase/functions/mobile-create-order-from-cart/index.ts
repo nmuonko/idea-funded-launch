@@ -16,38 +16,78 @@ function calculateShipping(itemsSubtotal: number, shippingBaseFee: number, shipp
 }
 
 // Calculate cart summary from items
+// For quoted vehicles: use stored values from admin quote (total_price_usd, markup_fee_usd, shipping_fee_usd)
+// For regular items: recalculate from base_price_usd + settings (since DB fields may be null)
 function calculateCartSummary(
   items: any[], 
   shippingBaseFeeUsd: number, 
   shippingPercent: number,
-  exchangeRate: number
+  exchangeRate: number,
+  markupPercent: number,
+  vehicleMarkupPercent: number
 ) {
   let itemCount = 0;
-  let totalItemsUsd = 0;
+  let totalItemsUsd = 0;   // sum of base prices
   let totalMarginUsd = 0;
-  let itemsSubtotalUsd = 0;
+  let totalShippingUsd = 0;
+  let grandTotalUsd = 0;
 
   (items || []).forEach(item => {
     const qty = item.quantity || 1;
     itemCount += qty;
-    totalItemsUsd += Number(item.subtotal_usd || 0);
-    totalMarginUsd += Number(item.markup_fee_usd || 0);
-    itemsSubtotalUsd += Number(item.total_price_usd || 0);
+    
+    const isQuotedVehicle = !!(item.is_vehicle && item.vehicle_quote_applied && Number(item.total_price_usd || 0) > 0);
+    
+    if (isQuotedVehicle) {
+      // Use exact values stored by admin-apply-vehicle-quote
+      const base = Number(item.base_price_usd || 0) * qty;
+      const margin = Number(item.markup_fee_usd || 0);
+      const shipping = Number(item.shipping_fee_usd || 0);
+      const lineTotal = Number(item.total_price_usd || 0);
+      
+      totalItemsUsd += base;
+      totalMarginUsd += margin;
+      totalShippingUsd += shipping;
+      grandTotalUsd += lineTotal;
+      
+      console.log(`[CREATE_ORDER] Quoted vehicle item=${item.id} base=${base} margin=${margin} shipping=${shipping} total=${lineTotal}`);
+    } else {
+      // Recalculate from base price + settings
+      const base = round2(Number(item.base_price_usd || 0) * qty);
+      const isVehicle = !!(item.is_vehicle || item.category_key?.startsWith('vehicle'));
+      const effectiveMarkup = isVehicle ? vehicleMarkupPercent : markupPercent;
+      const normalizedMarkup = effectiveMarkup > 1 ? effectiveMarkup / 100 : effectiveMarkup;
+      const margin = round2(base * normalizedMarkup);
+      const subtotalWithMargin = round2(base + margin);
+      
+      totalItemsUsd += base;
+      totalMarginUsd += margin;
+      grandTotalUsd += subtotalWithMargin;
+      
+      console.log(`[CREATE_ORDER] Regular item=${item.id} base=${base} markup=${effectiveMarkup}% margin=${margin} subtotal=${subtotalWithMargin}`);
+    }
   });
 
-  const shippingFeeUsd = items && items.length > 0 
-    ? calculateShipping(totalItemsUsd, shippingBaseFeeUsd, shippingPercent)
+  // Shipping for non-quoted items: use generic formula on their base total
+  // (quoted vehicles already have shipping included in grandTotalUsd)
+  const nonQuotedBase = (items || [])
+    .filter((item: any) => !(item.is_vehicle && item.vehicle_quote_applied && Number(item.total_price_usd || 0) > 0))
+    .reduce((sum: number, item: any) => sum + round2(Number(item.base_price_usd || 0) * (item.quantity || 1)), 0);
+  
+  const regularShipping = nonQuotedBase > 0 
+    ? calculateShipping(nonQuotedBase, shippingBaseFeeUsd, shippingPercent) 
     : 0;
-
-  const grandTotalUsd = round2(itemsSubtotalUsd + shippingFeeUsd);
+  
+  totalShippingUsd += regularShipping;
+  grandTotalUsd = round2(grandTotalUsd + regularShipping);
   const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
 
   return {
     itemCount,
     totalItemsUsd: round2(totalItemsUsd),
     totalMarginUsd: round2(totalMarginUsd),
-    itemsSubtotalUsd: round2(itemsSubtotalUsd),
-    shippingFeeUsd: round2(shippingFeeUsd),
+    itemsSubtotalUsd: round2(totalItemsUsd + totalMarginUsd),
+    shippingFeeUsd: round2(totalShippingUsd),
     grandTotalUsd,
     grandTotalCdf,
     exchangeRate,
@@ -185,13 +225,17 @@ serve(async (req) => {
     const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
     const shippingBaseFeeUsd = settings.shipping_base_fee_usd ?? 20;
     const shippingPercent = settings.shipping_percent ?? 0.10;
+    const markupPercent = settings.markup_percent ?? settings.global_markup_percent ?? 30;
+    const vehicleMarkupPercent = settings.vehicle_markup_percent ?? settings.category_markups?.vehicles ?? 10;
 
     // Calculate totals
     const summary = calculateCartSummary(
       existingOrder.order_items, 
       shippingBaseFeeUsd, 
       shippingPercent, 
-      exchangeRate
+      exchangeRate,
+      markupPercent,
+      vehicleMarkupPercent
     );
 
     console.log(`[CREATE_ORDER] correlationId=${correlationId} Calculated totals: grandTotalUsd=${summary.grandTotalUsd}`);

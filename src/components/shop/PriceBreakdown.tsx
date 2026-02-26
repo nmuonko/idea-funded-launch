@@ -14,6 +14,10 @@ interface PriceBreakdownProps {
   serverTotal?: number | null;
   isVehicle?: boolean;
   context?: 'product-detail' | 'cart';
+  // Server-provided breakdown for quoted vehicles
+  serverMarginUsd?: number;
+  serverShippingUsd?: number;
+  serverLineTotalUsd?: number;
 }
 
 export function PriceBreakdown({
@@ -24,6 +28,9 @@ export function PriceBreakdown({
   serverTotal,
   isVehicle = false,
   context,
+  serverMarginUsd,
+  serverShippingUsd,
+  serverLineTotalUsd,
 }: PriceBreakdownProps) {
   const ctx = context ?? 'cart';
   const { feeSettings, hasVehicleItems, vehicleQuoteStatus } = useShopCart();
@@ -36,13 +43,17 @@ export function PriceBreakdown({
   const isDetailVehicle = isVehicle && ctx === 'product-detail';
   const showPendingQuote = !isDetailVehicle && isVehicle && vehicleQuoteStatus !== 'quoted';
   
+  // For quoted vehicles with server data, use server values directly
+  const hasServerBreakdown = isVehicle && vehicleQuoteStatus === 'quoted' 
+    && (serverMarginUsd != null || serverShippingUsd != null);
+  
   // Use vehicle markup for vehicle products, general markup otherwise
   const effectiveMarkupPercent = isVehicle
     ? feeSettings.vehicleMarkupPercent
     : feeSettings.markupPercent;
   
   // Use canonical shipping formula: base + (subtotal * percent)
-  const shippingFee = calculateShippingUsd(
+  const calculatedShippingFee = calculateShippingUsd(
     subtotal,
     feeSettings.shippingBaseFeeUsd,
     feeSettings.shippingPercent
@@ -52,9 +63,14 @@ export function PriceBreakdown({
   const markupRate = effectiveMarkupPercent > 1 
     ? effectiveMarkupPercent / 100 
     : effectiveMarkupPercent;
-  const serviceFee = Math.round(subtotal * markupRate * 100) / 100;
+  const calculatedServiceFee = Math.round(subtotal * markupRate * 100) / 100;
   
-  const total = subtotal + shippingFee + serviceFee;
+  // Use server values for quoted vehicles, calculated values otherwise
+  const serviceFee = hasServerBreakdown ? (serverMarginUsd ?? calculatedServiceFee) : calculatedServiceFee;
+  const shippingFee = hasServerBreakdown ? (serverShippingUsd ?? calculatedShippingFee) : calculatedShippingFee;
+  const total = hasServerBreakdown 
+    ? (serverLineTotalUsd ?? (subtotal + serviceFee + shippingFee))
+    : (subtotal + calculatedShippingFee + calculatedServiceFee);
 
   // === Product detail + vehicle: only Article + Markup + note ===
   if (isDetailVehicle) {

@@ -22,6 +22,10 @@ export interface CartItem {
   isVehicle?: boolean;
   requiresManualQuote?: boolean;
   vehicleQuoteApplied?: boolean;
+  // Server-calculated breakdown (populated for quoted vehicles)
+  itemMarginUsd?: number;
+  itemShippingUsd?: number;
+  itemTotalUsd?: number;
 }
 
 export type VehicleQuoteStatus = 'none' | 'pending' | 'quoted';
@@ -366,19 +370,32 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       if (error) throw error;
       
       if (data?.activeItems) {
-        const mappedItems: CartItem[] = data.activeItems.map((item: any) => ({
-          id: item.id,
-          productId: item.productUrl || item.product_url,
-          provider: item.store || 'unknown',
-          title: item.title || item.productTitle || 'Product',
-          imageUrl: item.image_url || item.mainImageUrl || '',
-          priceUsd: item.basePriceUsd || item.base_price_usd || 0,
-          quantity: item.quantity || 1,
-          productUrl: item.productUrl || item.product_url,
-          isVehicle: item.isVehicle || item.is_vehicle || false,
-          requiresManualQuote: item.requiresManualQuote || item.requires_manual_quote || false,
-          vehicleQuoteApplied: item.vehicleQuoteApplied || item.vehicle_quote_applied || false,
-        }));
+        const mappedItems: CartItem[] = data.activeItems.map((item: any) => {
+          const isQuotedVehicle = !!(item.vehicleQuoteApplied || item.vehicle_quote_applied);
+          const serverMargin = item.itemMarginUsd || item.markup_fee_usd || 0;
+          const serverShipping = item.itemShippingUsd || item.shippingFeeUsd || item.shipping_fee_usd || item.shippingCost || 0;
+          const serverTotal = item.itemTotalUsd || item.lineTotalUsd || item.total_price_usd || 0;
+          const basePriceUsd = item.basePriceUsd || item.base_price_usd || 0;
+
+          return {
+            id: item.id,
+            productId: item.productUrl || item.product_url,
+            provider: item.store || 'unknown',
+            title: item.title || item.productTitle || 'Product',
+            imageUrl: item.image_url || item.mainImageUrl || '',
+            // For quoted vehicles, use the full line total so cart totals are accurate
+            priceUsd: (isQuotedVehicle && serverTotal > 0) ? serverTotal : basePriceUsd,
+            quantity: item.quantity || 1,
+            productUrl: item.productUrl || item.product_url,
+            isVehicle: item.isVehicle || item.is_vehicle || false,
+            requiresManualQuote: item.requiresManualQuote || item.requires_manual_quote || false,
+            vehicleQuoteApplied: isQuotedVehicle,
+            // Server-calculated breakdown
+            itemMarginUsd: serverMargin,
+            itemShippingUsd: serverShipping,
+            itemTotalUsd: serverTotal,
+          };
+        });
 
         // CRITICAL: Filter out items that are currently being deleted locally (with TTL cleanup)
         const now = Date.now();

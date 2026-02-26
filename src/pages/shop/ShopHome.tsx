@@ -11,6 +11,7 @@ import { ShopFooter } from '@/components/shop/ShopFooter';
 import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
 import { Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -305,7 +306,18 @@ export default function ShopHome() {
   });
 
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
+  const [providerFilter, setProviderFilter] = useState('all');
   const fetchedRef = useRef(false);
+
+  /** Client-side provider filter helper */
+  const filterByProvider = useCallback((items: Product[]) => {
+    if (!providerFilter || providerFilter === 'all') return items;
+    const filterKey = providerFilter === 'amazon' ? 'rainforest' : providerFilter;
+    return items.filter(p => {
+      const prov = (p.provider || '').toLowerCase();
+      return prov === filterKey || prov === providerFilter;
+    });
+  }, [providerFilter]);
 
   // ====== ACCUEIL (trending only) ======
   const fetchAccueilFeed = useCallback(async () => {
@@ -875,6 +887,33 @@ export default function ShopHome() {
 
       <main className="pb-8">
         <div className="container mx-auto px-3 sm:px-4">
+          {/* Store Filter - always visible */}
+          <div className="flex justify-end mb-4">
+            <Select value={providerFilter} onValueChange={setProviderFilter}>
+              <SelectTrigger className="w-[160px] bg-white/10 border border-white/20 text-white rounded-lg h-10">
+                <SelectValue placeholder={language === 'fr' ? 'Boutique' : 'Store'} />
+              </SelectTrigger>
+              <SelectContent className="bg-black border border-white/20 z-[9999]">
+                {[
+                  { value: 'all', label: language === 'fr' ? 'Toutes' : 'All Stores' },
+                  { value: 'amazon', label: 'Amazon' },
+                  { value: 'ebay', label: 'eBay' },
+                  { value: 'shein', label: 'SHEIN' },
+                  { value: 'carvana', label: 'Carvana' },
+                  { value: 'cargurus', label: 'CarGurus' },
+                ].map((opt) => (
+                  <SelectItem
+                    key={opt.value}
+                    value={opt.value}
+                    className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
+                  >
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {isInitialLoading ? (
             <div className="space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -895,10 +934,10 @@ export default function ShopHome() {
             <div className="space-y-6">
 
               {/* 2) Trending Grid — 16 diverse luxury items */}
-              {trendingFeed.length > 0 && (
+              {filterByProvider(trendingFeed).length > 0 && (
                 <SectionBlock
                   title={language === 'fr' ? 'Tendances' : 'Trending Now'}
-                  items={trendingFeed}
+                  items={filterByProvider(trendingFeed)}
                   mode="static-grid"
                   seeAllLink="/category/all"
                 />
@@ -910,7 +949,7 @@ export default function ShopHome() {
                   <SectionBlock
                     key={catKey}
                     title={getCategoryTitle(catKey, language)}
-                    items={categoryItems[catKey] ?? []}
+                    items={filterByProvider(categoryItems[catKey] ?? [])}
                     loading={categoryLoadingMap[catKey] === true}
                     mode="grid"
                     categoryKey={catKey}
@@ -919,7 +958,7 @@ export default function ShopHome() {
               </div>
 
               {/* 4) Recently Viewed */}
-              {recentlyViewed.length > 0 && (
+              {filterByProvider(recentlyViewed).length > 0 && (
                 <LazySection minHeight={180}>
                   <div className="bg-[#1a1d23] border border-white/[0.08] rounded-2xl p-3 sm:p-4 shadow-md">
                     <div className="flex items-center gap-2 mb-3 px-1">
@@ -928,7 +967,7 @@ export default function ShopHome() {
                         {language === 'fr' ? 'Vus récemment' : 'Recently Viewed'}
                       </h2>
                     </div>
-                    <HorizontalProductRow products={recentlyViewed} />
+                    <HorizontalProductRow products={filterByProvider(recentlyViewed)} />
                   </div>
                 </LazySection>
               )}
@@ -940,7 +979,7 @@ export default function ShopHome() {
                     <SectionBlock
                       key={catKey}
                       title={getCategoryTitle(catKey, language)}
-                      items={categoryItems[catKey] ?? []}
+                      items={filterByProvider(categoryItems[catKey] ?? [])}
                       loading={categoryLoadingMap[catKey] === true}
                       mode="grid"
                       categoryKey={catKey}

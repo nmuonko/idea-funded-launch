@@ -16,6 +16,7 @@ import {
   normalizeProductUrl,
   getOrCreateSingleDraftOrder,
 } from "../_shared/cartHelpers.ts";
+import { determineShippingCategory } from "../_shared/shippingCategory.ts";
 import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
 
 // Input validation schema
@@ -235,8 +236,14 @@ serve(async (req) => {
     for (const item of items) {
       const store = item.store?.toUpperCase() || detectStore(item.productUrl);
       
-      // Detect vehicle items (Tesla inventory, car marketplaces, etc.)
-      const isVehicle = isVehicleItem(item.productUrl, store);
+      // Detect vehicle items using smart category detection (handles eBay, Amazon, etc.)
+      const vehicleDetection = determineShippingCategory({
+        title: item.title || "",
+        url: item.productUrl,
+        store: store,
+        existingCategory: null,
+      });
+      const isVehicle = vehicleDetection.category === "vehicle" && vehicleDetection.requiresQuote;
       
       // Detect if price was edited by user (requires admin confirmation)
       // Support BOTH top-level fields (mobile app) AND nested meta fields (web)

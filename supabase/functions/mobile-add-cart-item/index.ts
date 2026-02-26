@@ -285,6 +285,8 @@ serve(async (req) => {
         quantity: newQuantity,
         base_price_usd: productPrice,
         product_image_url: productImageUrl,
+        is_vehicle: isVehicle || existingItem.is_vehicle,
+        requires_manual_quote: (isVehicle || existingItem.requires_manual_quote) && !existingItem.vehicle_quote_applied,
         updated_at: new Date().toISOString(),
       }, correlationId);
       

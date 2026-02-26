@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { prefetchCatalogCategory } from '@/lib/catalogCache';
 import { Clock } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { LazySection } from '@/components/shop/LazySection';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { SectionBlock } from '@/components/shop/SectionBlock';
@@ -401,8 +401,8 @@ export default function ShopHome() {
   ];
 
   // ====== PER-CATEGORY INDEPENDENT FETCH ======
-  const fetchAllCategoryItems = useCallback(async () => {
-    const tasks = ALL_HOMEPAGE_CATEGORIES.map((catKey) => async () => {
+  const fetchCategoryItems = useCallback(async (categories: string[]) => {
+    const tasks = categories.map((catKey) => async () => {
       setCategoryLoadingMap(prev => ({ ...prev, [catKey]: true }));
       // For slow categories, show cached curated result instantly
       let backgroundRefresh = false;
@@ -839,7 +839,14 @@ export default function ShopHome() {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
     fetchAccueilFeed();
-    fetchAllCategoryItems().then(scheduleCategoryPrefetch);
+    // Wave 1: above-fold promo categories
+    fetchCategoryItems(PROMO_CATEGORIES).then(() => {
+      // Wave 2: remaining categories after a short delay
+      setTimeout(() => {
+        const remaining = ALL_HOMEPAGE_CATEGORIES.filter(k => !PROMO_CATEGORIES.includes(k));
+        fetchCategoryItems(remaining).then(scheduleCategoryPrefetch);
+      }, 300);
+    });
     loadRecentlyViewed();
   }, []);
 
@@ -847,7 +854,7 @@ export default function ShopHome() {
   useEffect(() => {
     if (!fetchedRef.current) return;
     fetchAccueilFeed();
-    fetchAllCategoryItems();
+    fetchCategoryItems(ALL_HOMEPAGE_CATEGORIES);
   }, [language]);
 
   useEffect(() => {
@@ -862,9 +869,9 @@ export default function ShopHome() {
       <div className="pt-16 md:pt-20" />
 
       {/* 1) Hero Banner Carousel */}
-      <motion.section initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }} className="mb-5">
+      <section className="mb-5">
         <HeroBannerCarousel />
-      </motion.section>
+      </section>
 
       <main className="pb-8">
         <div className="container mx-auto px-3 sm:px-4">
@@ -885,7 +892,7 @@ export default function ShopHome() {
               </Button>
             </div>
           ) : (
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="space-y-6">
+            <div className="space-y-6">
 
               {/* 2) Trending Grid — 16 diverse luxury items */}
               {trendingFeed.length > 0 && (
@@ -913,34 +920,40 @@ export default function ShopHome() {
 
               {/* 4) Recently Viewed */}
               {recentlyViewed.length > 0 && (
-                <div className="bg-[#1a1d23] border border-white/[0.08] rounded-2xl p-3 sm:p-4 shadow-md">
-                  <div className="flex items-center gap-2 mb-3 px-1">
-                    <Clock className="h-4 w-4 text-white/60" />
-                    <h2 className="text-lg font-semibold text-white/90">
-                      {language === 'fr' ? 'Vus récemment' : 'Recently Viewed'}
-                    </h2>
+                <LazySection minHeight={180}>
+                  <div className="bg-[#1a1d23] border border-white/[0.08] rounded-2xl p-3 sm:p-4 shadow-md">
+                    <div className="flex items-center gap-2 mb-3 px-1">
+                      <Clock className="h-4 w-4 text-white/60" />
+                      <h2 className="text-lg font-semibold text-white/90">
+                        {language === 'fr' ? 'Vus récemment' : 'Recently Viewed'}
+                      </h2>
+                    </div>
+                    <HorizontalProductRow products={recentlyViewed} />
                   </div>
-                  <HorizontalProductRow products={recentlyViewed} />
-                </div>
+                </LazySection>
               )}
 
               {/* 5) Remaining Category Grid Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {ALL_HOMEPAGE_CATEGORIES.filter(k => !PROMO_CATEGORIES.includes(k)).map(catKey => (
-                  <SectionBlock
-                    key={catKey}
-                    title={getCategoryTitle(catKey, language)}
-                    items={categoryItems[catKey] ?? []}
-                    loading={categoryLoadingMap[catKey] === true}
-                    mode="grid"
-                    categoryKey={catKey}
-                  />
-                ))}
-              </div>
+              <LazySection minHeight={600}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                  {ALL_HOMEPAGE_CATEGORIES.filter(k => !PROMO_CATEGORIES.includes(k)).map(catKey => (
+                    <SectionBlock
+                      key={catKey}
+                      title={getCategoryTitle(catKey, language)}
+                      items={categoryItems[catKey] ?? []}
+                      loading={categoryLoadingMap[catKey] === true}
+                      mode="grid"
+                      categoryKey={catKey}
+                    />
+                  ))}
+                </div>
+              </LazySection>
 
               {/* 6) Category Icons Row */}
-              <CategoryIconsRow />
-            </motion.div>
+              <LazySection minHeight={80}>
+                <CategoryIconsRow />
+              </LazySection>
+            </div>
           )}
         </div>
       </main>

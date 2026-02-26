@@ -784,6 +784,10 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     catalogDefaults,
     // Standard config
     exchangeRate: Number(exchangeRate),
+    // TOP-LEVEL markup fields for direct mobile access (no nested lookup needed)
+    markupPercent: markupWholeNumber,
+    markupVehiclePercent: vehicleMarkupWholeNumber,
+    // Structured markup object (kept for backward compatibility)
     markup: {
       type: "percent",
       value: markupWholeNumber,

@@ -1576,23 +1576,6 @@ function DataSync() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Target Info */}
-        <div className="rounded-md border p-3 space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">Ingestion Target</p>
-          {targetInfo ? (
-            <>
-              <p className="text-sm font-mono truncate">{targetInfo.targetBaseUrl}</p>
-              {targetInfo.isRemoteTarget ? (
-                <Badge variant="default" className="text-[10px]">→ Routes to Live</Badge>
-              ) : (
-                <Badge variant="destructive" className="text-[10px]">⚠ Points to same environment (self)</Badge>
-              )}
-            </>
-          ) : (
-            <Skeleton className="h-5 w-64" />
-          )}
-        </div>
-
         <p className="text-sm text-muted-foreground">
           Export items from this environment as JSON, or push page-by-page to Live.
         </p>

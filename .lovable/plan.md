@@ -1,64 +1,31 @@
 
 
-## Lighten the Homepage
+## Fix: Product Images Cutoff on Mobile
 
 ### Problem
-The homepage renders all 13 category sections, 16 trending items, recently viewed, and category icons simultaneously on mount. This causes:
-- Heavy initial render (all DOM nodes created at once)
-- 13+ API fetch pipelines firing concurrently on load
-- A wrapping framer-motion animation on the entire content block adds layout overhead
-- Every category card (with images) is in the DOM even if far below the viewport
+On mobile, product images appear cropped/cutoff in two places:
+
+1. **Product cards** (homepage, category pages): Use `aspect-[4/3]` on mobile, switching to `aspect-square` only at `sm:` breakpoint. The 4:3 ratio cuts off tall product images (like cars, furniture) on small screens.
+
+2. **Product detail hero**: Uses `aspect-[4/3] max-h-[55vh]` which constrains certain image shapes. While `object-contain` prevents true cropping, the combination of aspect ratio + max-height makes images appear small/constrained on mobile until users tap to open the lightbox.
 
 ### Solution
 
-#### 1. Viewport-based lazy rendering for category sections
-Create a lightweight `LazySection` wrapper component that uses `IntersectionObserver` to only render its children when it enters (or is near) the viewport. This means below-fold category grids won't render or fetch until the user scrolls close to them.
+#### 1. ProductCard: Use square aspect ratio on all screen sizes
+Change the non-compact image container from `aspect-[4/3] sm:aspect-square` to `aspect-square` across all breakpoints. Square containers with `object-contain` show the full product image regardless of orientation.
 
-- Render a placeholder `div` with a min-height matching the expected section size
-- When the observer fires (with `rootMargin: "200px"` for pre-loading), swap in the real content
-- Once rendered, stay rendered (no unmounting on scroll away)
+#### 2. Product detail hero: Better mobile aspect ratio
+- Change from `aspect-[4/3] max-h-[55vh]` to `aspect-square sm:aspect-[4/3]` on the hero container
+- Increase max-height from `55vh` to `60vh` on mobile for more breathing room
+- Keep padding at `p-2` on mobile (currently `p-4`) to maximize image display area
 
-#### 2. Remove the wrapping motion.div animation
-The entire homepage content is wrapped in a `motion.div` with `initial={{ opacity: 0, y: 20 }}`. This forces framer-motion to manage layout for dozens of child elements. Replace it with a simple `div` — the hero carousel already has its own entrance animation.
-
-#### 3. Stagger category fetches based on viewport priority
-Instead of fetching all 13 categories at once with a concurrency limit of 4, split into two waves:
-- **Wave 1 (immediate)**: Trending feed + first 4 promo categories (above the fold)
-- **Wave 2 (deferred)**: Remaining 9 categories, triggered after wave 1 completes or after a short delay
-
-#### 4. Add `content-visibility: auto` CSS optimization
-Apply `content-visibility: auto` with `contain-intrinsic-size` to each category section wrapper. This tells the browser to skip rendering off-screen sections entirely, dramatically reducing paint and layout costs.
+#### 3. ProductCardSkeleton: Match the new aspect ratio
+Update the skeleton to also use `aspect-square` consistently so loading states match.
 
 ### Files Changed
 
 | File | Change |
 |------|--------|
-| `src/components/shop/LazySection.tsx` | **New** — IntersectionObserver-based lazy render wrapper |
-| `src/pages/shop/ShopHome.tsx` | Remove motion.div wrapper, wrap below-fold sections in LazySection, split fetch into two waves |
-| `src/components/shop/CategoryCard.tsx` | Add `content-visibility: auto` style to the card container |
-
-### Technical Details
-
-**LazySection component** (new):
-```tsx
-function LazySection({ children, minHeight = 200 }) {
-  const [visible, setVisible] = useState(false);
-  const ref = useRef(null);
-  
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) { setVisible(true); observer.disconnect(); } },
-      { rootMargin: '200px' }
-    );
-    if (ref.current) observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, []);
-  
-  return <div ref={ref} style={{ minHeight: visible ? undefined : minHeight }}>{visible ? children : null}</div>;
-}
-```
-
-**Fetch wave split**: The `fetchAllCategoryItems` function will be split so that the first 4 (PROMO_CATEGORIES) fetch immediately, and the remaining 9 are deferred by ~500ms or until the user scrolls.
-
-**motion.div removal**: Line 888's `motion.div` with opacity/y animation will become a plain `div` with `className="space-y-6"`.
-
+| `src/components/shop/ProductCard.tsx` | Change `aspect-[4/3] sm:aspect-square` to `aspect-square` |
+| `src/components/shop/ProductCardSkeleton.tsx` | Match skeleton aspect ratio to `aspect-square` |
+| `src/pages/shop/ProductDetails.tsx` | Change hero to `aspect-square sm:aspect-[4/3]`, increase mobile max-height, reduce mobile padding |

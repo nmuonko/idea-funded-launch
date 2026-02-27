@@ -1,67 +1,103 @@
 
+## Goal
+Make search reliably return relevant items for French/local-language queries (example: **“haut talon”** should show high heels, not cars/tires/wheels), while keeping results dynamic and fast.
 
-# SHEIN Catalog Scraper via Firecrawl
+## What I found
+1. The backend currently has polluted cache entries for fashion queries:
+   - Query `heels` has cached results containing many **“hot wheels” / wheel / car** items.
+2. Main technical cause:
+   - In backend relevance scoring, token matching uses substring logic (`title.includes(token)`), so:
+     - `heels` matches `wheels`
+     - `high` matches many unrelated titles
+   - This inflates irrelevant results and then they get cached.
+3. Additional risk:
+   - “near-match cache” lookup currently does not strictly enforce same intent/category/provider before reusing cached responses, so contamination can spread.
+4. Translation path is mostly correct for French terms like `haut talon` (map has `haut talon -> high heels`), but downstream ranking/cache contamination still breaks output quality.
 
-## Overview
-Create a new edge function `catalog-shein-scraper` modeled after the existing `catalog-car-scraper`, using Firecrawl's Search API to discover and cache SHEIN clothing products into `catalog_items`. Duplicates are prevented via the existing `(provider, provider_product_id)` unique constraint.
+---
 
-## Architecture
+## Implementation plan
 
-The scraper will use the same three-stage Firecrawl pipeline proven with CarGurus/Carvana:
-- **Stage 0 (Primary)**: Firecrawl Search API (`/v1/search`) with `site:shein.com` queries
-- **Stage A (Fallback)**: Firecrawl markdown scrape of SHEIN category pages
-- **Stage B (Last Resort)**: Firecrawl structured extraction
+### 1) Fix core relevance matching in backend scorer (highest impact)
+**Files:**
+- `supabase/functions/_shared/searchIntentScorer.ts`
 
-## What Gets Built
+**Changes:**
+- Replace raw substring token scoring with **word-boundary token matching**.
+  - Prevent `heels` matching `wheels`.
+- Add a small **generic-token stoplist** for scoring (e.g. `high`, `low`, etc.) so weak adjectives don’t dominate relevance.
+- Update “general relevance must match token” check to use boundary matching, not `includes`.
+- Strengthen **fashion intent hard-drop** with vehicle/wheel terms (`wheel`, `wheels`, `rim`, `tire`, `tyre`, etc.) and model-toy terms (`hot wheels`, `diecast`, etc.).
 
-### 1. New Edge Function: `supabase/functions/catalog-shein-scraper/index.ts`
+**Expected outcome:**
+- Fashion searches stop returning automotive/wheel inventory caused by lexical overlap.
 
-- **Provider name**: `shein` (stored in `catalog_items.provider`)
-- **Duplicate prevention**: Upsert with `onConflict: "provider,provider_product_id"` -- same as car scraper. Only unique items are inserted; existing ones update `last_seen_at`
-- **Product ID extraction**: Parse SHEIN URLs for product IDs (pattern: `/product-pXXXXXXX` where the `p` prefix + digits is the SKU)
-- **Category mapping**: `unified_category = "clothing_shoes_accessories"`, `category_key = "clothing_shoes"`
-- **Search queries**: Rotate through seed queries like "women dresses site:shein.com", "men shirts site:shein.com", "modest fashion site:shein.com", "maxi dress site:shein.com", "abaya site:shein.com" etc. (aligned with existing clothing curation preferences for modest/long-form apparel)
-- **Quality filters**:
-  - Must have valid SHEIN product URL (`shein.com` domain with product path)
-  - Must have title and price > 0
-  - Skip sold/unavailable items
-  - Apply existing clothing ingestion guardrails (no appliances, toys, electronics)
-- **Auth**: Same `x-cron-secret` / admin JWT pattern as car scraper
-- **Batched upsert**: 50 items per batch, same as car scraper
-- **Configurable**: `max_pages`, `target_items` (default 20), `search_query`, `dry_run`
+---
 
-### 2. Register in `supabase/config.toml`
+### 2) Add strict cache safety for near-match reuse
+**Files:**
+- `supabase/functions/_shared/searchCacheSimilarity.ts`
+- `supabase/functions/catalog-search/index.ts` (if needed for metadata wiring)
 
-Add entry:
-```
-[functions.catalog-shein-scraper]
-verify_jwt = false
-```
+**Changes:**
+- Enforce compatibility checks before accepting near-match candidates:
+  - same `intentKey`
+  - same category context
+  - same provider mode/page shape already intended by key
+- Reject near-match candidates whose cached metadata is missing required intent/category fields for current strict mode.
 
-### 3. Wire into Admin Panel
+**Expected outcome:**
+- Cached “similar query” reuse won’t cross-contaminate fashion with automotive results.
 
-Add a "Run SHEIN Scraper" action in `admin-catalog-items` (same pattern as `run-car-scraper`) so admins can trigger it manually from the Catalog Cache page.
+---
 
-### 4. Automated Scheduling (Optional / Phase 2)
+### 3) Tighten deterministic-first behavior for clear fashion queries
+**Files:**
+- `supabase/functions/catalog-search/index.ts`
+- (possibly) `supabase/functions/_shared/queryPreNormalizer.ts`
 
-Add a `pg_cron` job to run the SHEIN scraper periodically (e.g., every 6 hours) to keep the clothing catalog fresh.
+**Changes:**
+- For strongly recognized footwear/fashion translations (`high heels`, `women heels`, etc.), reduce chance of AI rewrite overriding deterministic translation.
+- Keep AI as fallback for ambiguous cases, but avoid rewriting already-clean high-confidence fashion intents.
 
-## Duplicate Prevention (Zero Duplicates Guaranteed)
+**Expected outcome:**
+- French/local fashion queries stay stable and predictable.
 
-The system uses three layers:
-1. **In-memory dedup**: `Set` of `provider_product_id` values within a single scrape run
-2. **DB-level unique constraint**: `(provider, provider_product_id)` on `catalog_items` -- upsert updates existing rows instead of creating duplicates
-3. **Product ID normalization**: Consistent extraction of SHEIN's `pXXXXXXX` SKU from URLs ensures the same product always maps to the same ID
+---
 
-## Technical Details
+### 4) Invalidate stale bad caches
+**Files:**
+- `supabase/functions/_shared/catalogCache.ts`
+- `src/lib/catalogCache.ts`
 
-- Firecrawl API key is already configured (`FIRECRAWL_API_KEY` secret exists and is used by other functions)
-- Image URLs from SHEIN use `img.ltwebstatic.com` -- no upgrade needed, they're already high-res
-- Price parsing reuses the existing `parseUsd` pattern (strip currency symbols, commas)
-- Function timeout budget: 50s (same as car scraper)
+**Changes:**
+- Bump backend search cache version constant.
+- Bump frontend cache prefix version.
+- This forces refresh away from polluted cached entries.
 
-## Files Changed
-1. **New**: `supabase/functions/catalog-shein-scraper/index.ts` -- main scraper function
-2. **Edit**: `supabase/config.toml` -- register new function
-3. **Edit**: `supabase/functions/admin-catalog-items/index.ts` -- add `run-shein-scraper` action
+**Expected outcome:**
+- Users get corrected ranking immediately after rollout, not old wrong cache.
 
+---
+
+### 5) Validation steps (must pass)
+1. Search in French:
+   - `haut talon`
+   - `talon haut`
+   - `chaussure dame haut talon`
+2. Verify top 20 contain only footwear/fashion-relevant products.
+3. Confirm no “wheels/tires/car” contamination.
+4. Confirm English equivalents still behave:
+   - `high heels`
+   - `women heels`
+5. Confirm unrelated searches still work (regression check):
+   - `ordinateur`
+   - `laptop`
+   - `toyota tires` (should remain automotive-relevant)
+
+---
+
+## Technical notes
+- This is primarily a backend relevance bug, not just frontend rendering.
+- The key fix is lexical precision in scorer + safer cache reuse.
+- Cache version bump is required, otherwise old polluted entries can keep appearing.

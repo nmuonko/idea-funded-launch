@@ -802,16 +802,14 @@ Deno.serve(async (req: Request) => {
 
           if (dbResult.items) {
             let dbItems = dbResult.items;
-            const SCORED_INTENTS = ["gaming", "phone_device", "vehicle_listing", "phone_accessory", "appliance_fridge"];
-            if (SCORED_INTENTS.includes(effectiveIntent.intentKey)) {
-              const dbQueryTokens = providerQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
-              const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, limit);
-              dbItems = dbScoreResult.items as any[];
-              console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_scored: before=${dbResult.items.length} after=${dbItems.length} dropped=${dbScoreResult.dropped}`);
-              if (dbItems.length === 0) {
-                console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_empty_after_scoring — skipping DB-first`);
-                dbFallbackItems = null;
-              }
+            // Always apply intent scoring to filter irrelevant items
+            const dbQueryTokens = providerQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
+            const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, limit);
+            dbItems = dbScoreResult.items as any[];
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_scored: before=${dbResult.items.length} after=${dbItems.length} dropped=${dbScoreResult.dropped}`);
+            if (dbItems.length === 0) {
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_empty_after_scoring — skipping DB-first`);
+              dbFallbackItems = null;
             }
             
             if (dbItems.length > 0) {
@@ -858,6 +856,7 @@ Deno.serve(async (req: Request) => {
         durationMs: Date.now() - startTime,
         _dbFastPath: true,
         _dbCount: dbCount,
+        searchMeta,
         meta: {
           source: "db_fastpath",
           isStale: false,

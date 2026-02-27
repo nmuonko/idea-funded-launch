@@ -246,6 +246,9 @@ const isRenderableImageUrl = (url?: string | null): boolean => {
   if (lower.includes('assets.fastly.carvana.io/merchui/images')) return false;
   if (lower.includes('pt.ispot.tv')) return false;
   if (lower.endsWith('.svg') || lower.endsWith('.gif')) return false;
+  if (lower.includes('no-image-placeholder')) return false;
+  if (lower.includes('/v4/p/ccc/')) return false;
+  if (lower.includes('images3_pi/2024/01/01/00/')) return false;
   return true;
 };
 
@@ -280,10 +283,7 @@ const deriveProviderImageFallback = (provider: string, providerProductId?: strin
   if (p === 'carvana') {
     return `https://vexgateway.fastly.carvana.io/${providerProductId}/standardizedHero.jpg?width=800`;
   }
-  if (p === 'shein' && providerProductId.startsWith('p')) {
-    const numericId = providerProductId.substring(1);
-    return `https://img.ltwebstatic.com/images3_pi/2024/01/01/00/${numericId}_thumbnail_900x.webp`;
-  }
+  // Removed broken SHEIN CDN fallback - the fabricated URL pattern doesn't resolve
   return null;
 };
 
@@ -418,24 +418,29 @@ export default function ShopHome() {
           if (rows.length < pageSize) break;
         }
 
-        const mapped = allRows.map((item: any): Product => {
-          const fallbackImage = extractFirstImageFromJson(item.images);
-          const providerFallback = deriveProviderImageFallback(item.provider || providerFilter, item.provider_product_id || item.id);
-          const preferred = isRenderableImageUrl(item.image_url)
-            ? item.image_url
-            : (fallbackImage || providerFallback);
+        const mapped = allRows
+          .map((item: any): Product | null => {
+            const fallbackImage = extractFirstImageFromJson(item.images);
+            const providerFallback = deriveProviderImageFallback(item.provider || providerFilter, item.provider_product_id || item.id);
+            const preferred = isRenderableImageUrl(item.image_url)
+              ? item.image_url
+              : (fallbackImage || providerFallback);
 
-          return {
-            id: item.provider_product_id || item.id,
-            provider: item.provider || providerFilter,
-            title: item.title || 'Product',
-            imageUrl: preferred || '/placeholder.svg',
-            priceUsd: item.price_usd || 0,
-            rating: item.rating,
-            inStock: item.in_stock !== false,
-            productUrl: item.product_url,
-          };
-        });
+            // Skip items without a renderable image
+            if (!preferred || !isRenderableImageUrl(preferred)) return null;
+
+            return {
+              id: item.provider_product_id || item.id,
+              provider: item.provider || providerFilter,
+              title: item.title || 'Product',
+              imageUrl: preferred,
+              priceUsd: item.price_usd || 0,
+              rating: item.rating,
+              inStock: item.in_stock !== false,
+              productUrl: item.product_url,
+            };
+          })
+          .filter((p): p is Product => p !== null);
 
         if (cancelled) return;
         setStoreProducts(mapped);

@@ -242,20 +242,43 @@ const isRenderableImageUrl = (url?: string | null): boolean => {
   if (!lower.startsWith('http')) return false;
   if (lower.includes('.html')) return false;
   if (lower.includes('site-cars/merchandising') || lower.includes('heliosconditionaltiles')) return false;
+  if (lower.includes('/banner') || lower.includes('_thumbnail_126x')) return false;
+  if (lower.includes('assets.fastly.carvana.io/merchui/images')) return false;
+  if (lower.includes('pt.ispot.tv')) return false;
   if (lower.endsWith('.svg') || lower.endsWith('.gif')) return false;
   return true;
 };
 
 const extractFirstImageFromJson = (images: any): string | null => {
-  if (!Array.isArray(images)) return null;
-  for (const img of images) {
-    if (typeof img === 'string' && isRenderableImageUrl(img)) return img;
-    if (img && typeof img === 'object') {
-      const candidates = [img.url, img.image, img.src, img.large, img.hiRes, img.hi_res, img.main];
-      for (const candidate of candidates) {
-        if (typeof candidate === 'string' && isRenderableImageUrl(candidate)) return candidate;
+  const readCandidates = (obj: any): string[] => {
+    if (!obj || typeof obj !== 'object') return [];
+    return [obj.url, obj.image, obj.src, obj.large, obj.hiRes, obj.hi_res, obj.main].filter((v): v is string => typeof v === 'string');
+  };
+
+  if (Array.isArray(images)) {
+    for (const img of images) {
+      if (typeof img === 'string' && isRenderableImageUrl(img)) return img;
+      for (const candidate of readCandidates(img)) {
+        if (isRenderableImageUrl(candidate)) return candidate;
       }
     }
+    return null;
+  }
+
+  if (images && typeof images === 'object') {
+    for (const candidate of readCandidates(images)) {
+      if (isRenderableImageUrl(candidate)) return candidate;
+    }
+  }
+
+  return null;
+};
+
+const deriveProviderImageFallback = (provider: string, providerProductId?: string | null): string | null => {
+  if (!providerProductId) return null;
+  const p = provider.toLowerCase();
+  if (p === 'carvana') {
+    return `https://vexgateway.fastly.carvana.io/${providerProductId}/standardizedHero.jpg?width=800`;
   }
   return null;
 };
@@ -394,7 +417,11 @@ export default function ShopHome() {
 
         const mapped = allRows.map((item: any): Product => {
           const fallbackImage = extractFirstImageFromJson(item.images);
-          const preferred = isRenderableImageUrl(item.image_url) ? item.image_url : fallbackImage;
+          const providerFallback = deriveProviderImageFallback(item.provider || providerFilter, item.provider_product_id || item.id);
+          const preferred = isRenderableImageUrl(item.image_url)
+            ? item.image_url
+            : (fallbackImage || providerFallback);
+
           return {
             id: item.provider_product_id || item.id,
             provider: item.provider || providerFilter,

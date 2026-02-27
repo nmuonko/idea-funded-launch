@@ -17,6 +17,33 @@ export interface ScoredItem {
   [key: string]: unknown;
 }
 
+// ── WORD-BOUNDARY TOKEN MATCHING ──────────────────────────────────────────────
+// Prevents "heels" matching "wheels", "high" matching "highway", etc.
+function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function tokenMatchesBoundary(title: string, tok: string): boolean {
+  if (tok.length < 2) return false;
+  const re = new RegExp(`(^|[^a-z0-9])${escapeRe(tok)}([^a-z0-9]|$)`, 'i');
+  return re.test(title);
+}
+
+// Generic tokens that are too weak to drive relevance alone
+const SCORING_STOPLIST = new Set([
+  "high","low","big","small","new","old","best","top","hot","good","great",
+  "long","short","mini","large","super","ultra","pro","max","plus",
+  "men","women","man","woman","ladies","lady","girl","boy",
+  "for","with","and","the",
+]);
+
+// ── FASHION INTENT: hard-drop vehicle/wheel/toy terms ─────────────────────────
+const FASHION_VEHICLE_HARD_DROP = [
+  "wheel","wheels","rim","rims","tire","tires","tyre","tyres",
+  "hot wheels","diecast","die cast","die-cast","matchbox","model car",
+  "car","cars","truck","suv","sedan","motorcycle","engine","transmission",
+  "bumper","radiator","exhaust","muffler","alternator",
+  "playstation","xbox","nintendo","console","gpu","cpu","laptop","refrigerator","fridge",
+  "tractor","excavator","forklift",
+];
+
 const VEHICLE_LISTING_SIGNALS = [
   "miles","mi","km","odometer","vin","clean title","salvage","rebuilt",
   "awd","4wd","4x4","fwd","rwd","suv","truck","sedan","coupe","hatchback",
@@ -81,10 +108,13 @@ function scoreOne(
     return null; // Drop shoes, clothing, jewelry etc. from phone/gaming searches
   }
 
-  // ── BASE SCORE: query-token match ───────────────────────────────────
+  // ── BASE SCORE: query-token match (word-boundary) ────────────────────────
   let score = 0;
   for (const tok of qTokens) {
-    if (tok.length >= 2 && title.includes(tok)) score += 2;
+    if (tok.length < 2) continue;
+    if (SCORING_STOPLIST.has(tok)) continue;
+    if (tokenMatchesBoundary(title, tok)) score += 2;
+  }
   }
 
   // ── INTENT-SPECIFIC SCORING ─────────────────────────────────────────
@@ -287,17 +317,8 @@ function scoreOne(
       break;
     }
     case "fashion": {
-      // ── FASHION: drop vehicles/tech, boost fashion items ──
-      const FASHION_WRONG_KW = [
-        "car","truck","suv","sedan","motorcycle","tractor","excavator","forklift",
-        "engine","transmission","playstation","xbox","nintendo","console",
-        "gpu","cpu","laptop","refrigerator","fridge",
-      ];
-      // Word-boundary check for short tokens
-      const hasFashionWrongCat = FASHION_WRONG_KW.some(kw =>
-        kw.length <= 4 ? new RegExp(`\\b${kw}\\b`, 'i').test(title) : title.includes(kw)
-      );
-      if (hasFashionWrongCat) return null;
+      // ── FASHION: drop vehicles/tech/wheels/toys — comprehensive list ──
+      if (hasAny(title, FASHION_VEHICLE_HARD_DROP)) return null;
 
       // Boost fashion-related terms
       const FASHION_BOOST_KW = [
@@ -318,9 +339,10 @@ function scoreOne(
       if (intent.phoneDeviceIntent && hasAny(title, WRONG_CATEGORY_KW)) return null;
       
       // ── GENERAL RELEVANCE: drop items with NO query token match at all ──
-      // This prevents "computer chair" appearing for "laptop computer" queries
-      const hasAnyTokenMatch = qTokens.some(tok => tok.length >= 3 && title.includes(tok));
-      if (qTokens.length > 0 && !hasAnyTokenMatch) return null;
+      // Uses word-boundary matching to prevent "heels" matching "wheels"
+      const meaningfulTokens = qTokens.filter(t => t.length >= 3 && !SCORING_STOPLIST.has(t));
+      const hasAnyTokenMatch = meaningfulTokens.length === 0 || meaningfulTokens.some(tok => tokenMatchesBoundary(title, tok));
+      if (meaningfulTokens.length > 0 && !hasAnyTokenMatch) return null;
       
       // Penalize furniture/chair items when query has tech/electronics terms
       const TECH_QUERY_TOKENS = ["laptop","computer","ordinateur","pc","monitor","tablet","phone","camera","printer"];

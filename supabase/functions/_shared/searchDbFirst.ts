@@ -78,7 +78,7 @@ function mapDbItem(item: Record<string, unknown>, categoryKey: string | null): R
     rating: item.rating,
     imageCount: (item.image_count as number) || 1,
     category: item.unified_category || categoryKey,
-    store: item.provider === "ebay" ? "ebay" : "amazon",
+    store: item.provider || "amazon",
   };
 }
 

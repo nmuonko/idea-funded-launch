@@ -42,6 +42,8 @@ const FASHION_VEHICLE_HARD_DROP = [
   "bumper","radiator","exhaust","muffler","alternator",
   "playstation","xbox","nintendo","console","gpu","cpu","laptop","refrigerator","fridge",
   "tractor","excavator","forklift",
+  "doll","dolls","barbie","action figure","figurine","toy","toys","plush",
+  "miniature","collectible","keychain","ornament","poster",
 ];
 
 const VEHICLE_LISTING_SIGNALS = [

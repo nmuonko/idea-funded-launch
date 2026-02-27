@@ -307,8 +307,17 @@ async function firecrawlSearch(
       seenIds.add(pid);
 
       let imageUrl = "";
-      const imgMatch = markdown.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
+      const imgMatch = markdown.match(/!\[.*?\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp)[^\s)]*)\)/i);
       if (imgMatch) imageUrl = imgMatch[1];
+      // Carvana fallback: derive hero image from product ID
+      if (!imageUrl && provider === "carvana" && /^\d+$/.test(pid)) {
+        imageUrl = `https://vexgateway.fastly.carvana.io/${pid}/standardizedHero.jpg?width=800`;
+      }
+      // CarGurus fallback: try static.cargurus.com pattern
+      if (!imageUrl && provider === "cargurus") {
+        const cgurusImgMatch = markdown.match(/(https?:\/\/static\.cargurus\.com\/[^\s)"]+\.(?:jpg|jpeg|png|webp))/i);
+        if (cgurusImgMatch) imageUrl = cgurusImgMatch[1];
+      }
 
       const yearMatch = title.match(/\b(19|20)\d{2}\b/);
 

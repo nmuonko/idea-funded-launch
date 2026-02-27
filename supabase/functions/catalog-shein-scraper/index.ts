@@ -315,13 +315,29 @@ async function firecrawlSearch(
 
       seenIds.add(pid);
 
-      // Extract image
+      // Extract image — prioritize actual product images from SHEIN CDN
       let imageUrl = "";
-      const imgMatch = markdown.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
-      if (imgMatch) imageUrl = imgMatch[1];
+      // Look for SHEIN product images (items/ or product/ paths on ltwebstatic)
+      const sheinProductImgMatch = markdown.match(/(https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^\s)"]+)/i);
+      if (sheinProductImgMatch && !/_thumbnail_/i.test(sheinProductImgMatch[1]) && !/banner/i.test(sheinProductImgMatch[1])) {
+        imageUrl = sheinProductImgMatch[1];
+      }
+      // Fallback: any ltwebstatic image that isn't a thumbnail/banner
       if (!imageUrl) {
-        const staticImgMatch = markdown.match(/(https?:\/\/img\.ltwebstatic\.com\/[^\s)"]+)/);
-        if (staticImgMatch) imageUrl = staticImgMatch[1];
+        const staticImgMatch = markdown.match(/(https?:\/\/img\.ltwebstatic\.com\/[^\s)"]+\.(?:jpg|jpeg|png|webp))/i);
+        if (staticImgMatch && !/_thumbnail_(?:12[0-6]|60)x/i.test(staticImgMatch[1]) && !/banner/i.test(staticImgMatch[1])) {
+          imageUrl = staticImgMatch[1];
+        }
+      }
+      // Fallback: any markdown image
+      if (!imageUrl) {
+        const imgMatch = markdown.match(/!\[.*?\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp)[^\s)]*)\)/i);
+        if (imgMatch) imageUrl = imgMatch[1];
+      }
+      // Last resort: derive from SHEIN CDN using product ID
+      if (!imageUrl && pid.startsWith("p")) {
+        const numericId = pid.substring(1);
+        imageUrl = `https://img.ltwebstatic.com/images3_pi/2024/01/01/00/${numericId}_thumbnail_900x.webp`;
       }
 
       let brand = "SHEIN";

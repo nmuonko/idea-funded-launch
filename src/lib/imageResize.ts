@@ -3,7 +3,7 @@
  * Rewrites high-res URLs (_SL1500 / s-l1600) to smaller sizes for thumbnails & hero display.
  */
 
-export const IMAGE_SIZE_THUMB = 300;
+export const IMAGE_SIZE_THUMB = 480;
 export const IMAGE_SIZE_HERO = 800;
 export const IMAGE_SIZE_FULL = 1500;
 
@@ -56,7 +56,7 @@ export function resizeImageUrl(url: string, targetSize: number): string {
   const ebayMatch = url.match(/s-l(\d+)/i);
   if (ebayMatch) {
     const currentSize = parseInt(ebayMatch[1], 10);
-    if (currentSize < 400 && targetSize > currentSize) return url;
+    if (currentSize < 200 && targetSize > currentSize) return url;
   }
   const amazonSmallThumb = /_(SS|SX|SY)\d{2,3}\./i;
   if (amazonSmallThumb.test(url) && targetSize > 400) return url;

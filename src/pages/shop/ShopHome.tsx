@@ -412,7 +412,6 @@ export default function ShopHome() {
           from += pageSize;
 
           if (rows.length < pageSize) break;
-          if (from >= 5000) break;
         }
 
         const mapped = allRows.map((item: any): Product => {

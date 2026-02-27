@@ -2,3 +2,6 @@ project_id = "igmkhxffnyzoogcqvdab"
 
 [functions.catalog-shein-scraper]
 verify_jwt = false
+
+[functions.catalog-car-scraper]
+verify_jwt = false

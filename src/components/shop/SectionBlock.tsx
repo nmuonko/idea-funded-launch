@@ -71,8 +71,9 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
                 <img
                   src={product.imageUrl || '/placeholder.svg'}
                   alt={product.title}
-                  className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105"
+                  className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105 image-rendering-auto"
                   loading="lazy"
+                  decoding="async"
                   onError={(e) => {
                     e.currentTarget.onerror = null;
                     e.currentTarget.src = '/placeholder.svg';

@@ -597,7 +597,7 @@ Deno.serve(async (req: Request) => {
     // ─── FRESH CACHE HIT ──────────────────────────────────────────────────────
     if (cacheResult.hit && !cacheResult.stale && !cacheResult.negativeCached) {
       const cachedResponse = cacheResult.data;
-      const cachedItems = filterCachedItems(cachedResponse.items || [], hasBuyingIntent, catalogFilters, requestId, effectiveIntent.intentKey);
+      const cachedItems = filterCachedItems(cachedResponse.items || [], hasBuyingIntent, catalogFilters, requestId, effectiveIntent.intentKey, qNorm);
       finalCacheStatus = "HIT";
       // Compute TTL remaining
       const expiresAt = cacheResult.data?._meta?.cachedAt ? new Date(cacheResult.data._meta.cachedAt).getTime() + 7 * 24 * 60 * 60 * 1000 : 0;
@@ -632,7 +632,7 @@ Deno.serve(async (req: Request) => {
       }, requestId);
 
       if (nearMatch.hit && nearMatch.data) {
-        const nearItems = filterCachedItems(nearMatch.data.items || [], hasBuyingIntent, catalogFilters, requestId, effectiveIntent.intentKey);
+        const nearItems = filterCachedItems(nearMatch.data.items || [], hasBuyingIntent, catalogFilters, requestId, effectiveIntent.intentKey, qNorm);
         if (nearItems.length > 0) {
           finalCacheStatus = "NEAR_HIT";
           cacheMatchedQuery = nearMatch.matchedQuery;
@@ -663,7 +663,7 @@ Deno.serve(async (req: Request) => {
     const staleItemCount = cacheResult.data?.items?.length ?? 0;
 
     if (isStaleCache && cacheResult.data && staleItemCount > 0) {
-      const staleItems = filterCachedItems(cacheResult.data.items || [], hasBuyingIntent, catalogFilters, requestId, effectiveIntent.intentKey);
+      const staleItems = filterCachedItems(cacheResult.data.items || [], hasBuyingIntent, catalogFilters, requestId, effectiveIntent.intentKey, qNorm);
       const staleDuration = Date.now() - startTime;
 
       // Fire-and-forget background refresh

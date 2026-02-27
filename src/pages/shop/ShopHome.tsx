@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { prefetchCatalogCategory } from '@/lib/catalogCache';
-import { Clock } from 'lucide-react';
+import { Clock, Loader2 } from 'lucide-react';
 import { LazySection } from '@/components/shop/LazySection';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
@@ -17,6 +17,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { translations } from '@/lib/i18n/translations';
 import { getRecentlyViewed } from '@/lib/recentlyViewed';
+import { supabase } from '@/integrations/supabase/client';
 
 const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   phones: { fr: 'Téléphones', en: 'Phones' },
@@ -308,6 +309,51 @@ export default function ShopHome() {
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
   const [providerFilter, setProviderFilter] = useState('all');
   const fetchedRef = useRef(false);
+
+  // Store-filtered products (flat grid from DB)
+  const [storeProducts, setStoreProducts] = useState<Product[]>([]);
+  const [storeProductsLoading, setStoreProductsLoading] = useState(false);
+
+  // Fetch all products for a specific store from the DB
+  useEffect(() => {
+    if (!providerFilter || providerFilter === 'all') {
+      setStoreProducts([]);
+      return;
+    }
+    const providerKey = providerFilter === 'amazon' ? 'amazon' : providerFilter;
+    setStoreProductsLoading(true);
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('catalog_items')
+          .select('id, provider, provider_product_id, title, image_url, product_url, price_usd, rating, in_stock')
+          .eq('provider', providerKey)
+          .eq('is_active', true)
+          .eq('is_disallowed', false)
+          .not('image_url', 'is', null)
+          .gt('price_usd', 0)
+          .order('first_seen_at', { ascending: false })
+          .limit(200);
+        if (error) throw error;
+        const mapped = (data || []).map((item: any): Product => ({
+          id: item.provider_product_id || item.id,
+          provider: item.provider || providerKey,
+          title: item.title || 'Product',
+          imageUrl: item.image_url || '',
+          priceUsd: item.price_usd || 0,
+          rating: item.rating,
+          inStock: item.in_stock !== false,
+          productUrl: item.product_url,
+        }));
+        setStoreProducts(mapped);
+      } catch (err) {
+        console.warn(`[ShopHome] Store fetch for ${providerKey} failed:`, err);
+        setStoreProducts([]);
+      } finally {
+        setStoreProductsLoading(false);
+      }
+    })();
+  }, [providerFilter]);
 
   /** Client-side provider filter helper */
   const filterByProvider = useCallback((items: Product[]) => {
@@ -914,7 +960,37 @@ export default function ShopHome() {
             </Select>
           </div>
 
-          {isInitialLoading ? (
+          {providerFilter && providerFilter !== 'all' ? (
+            /* ====== STORE-FILTERED FLAT GRID ====== */
+            storeProductsLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="h-8 w-8 animate-spin text-white/40" />
+              </div>
+            ) : storeProducts.length === 0 ? (
+              <div className="text-center py-20">
+                <p className="text-white/50 text-lg">
+                  {language === 'fr'
+                    ? `Aucun produit trouvé pour ${providerFilter}`
+                    : `No products found for ${providerFilter}`}
+                </p>
+                <p className="text-white/30 text-sm mt-2">
+                  {language === 'fr' ? 'Les produits sont en cours d\'indexation...' : 'Products are being indexed...'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-white/90">
+                    {providerFilter.charAt(0).toUpperCase() + providerFilter.slice(1)} — {storeProducts.length} {language === 'fr' ? 'produits' : 'products'}
+                  </h2>
+                </div>
+                <SectionBlock
+                  items={storeProducts}
+                  mode="static-grid"
+                />
+              </div>
+            )
+          ) : isInitialLoading ? (
             <div className="space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {Array.from({ length: 4 }).map((_, i) => (

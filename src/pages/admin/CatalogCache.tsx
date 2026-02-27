@@ -923,6 +923,22 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
     staleTime: 60_000,
   });
 
+  // Dedicated provider-only count
+  const { data: providerOnlyCount } = useQuery({
+    queryKey: ['catalog-provider-count', appliedFilters.provider],
+    queryFn: async () => {
+      const prov = appliedFilters.provider;
+      if (!prov) return null;
+      const { count } = await supabase
+        .from('catalog_items')
+        .select('*', { count: 'exact', head: true })
+        .eq('provider', prov);
+      return count ?? null;
+    },
+    enabled: !!appliedFilters.provider,
+    staleTime: 60_000,
+  });
+
   // Display count: filtered count when filters active, otherwise total
   const displayCount = hasActiveFilters && filteredCount !== null ? filteredCount : totalCount;
   const countLabel = hasActiveFilters && filteredCount !== null ? 'filtered' : 'total';
@@ -1020,10 +1036,25 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
                 <SelectItem value="_all">All Providers</SelectItem>
                 <SelectItem value="amazon">Amazon</SelectItem>
                 <SelectItem value="ebay">eBay</SelectItem>
+                <SelectItem value="shein">SHEIN</SelectItem>
                 <SelectItem value="cargurus">CarGurus</SelectItem>
                 <SelectItem value="carvana">Carvana</SelectItem>
               </SelectContent>
             </Select>
+            {appliedFilters.provider && (
+              <div className="col-span-2 md:col-span-1 flex items-center">
+                <Badge variant="secondary" className="text-xs gap-1">
+                  <Package className="h-3 w-3" />
+                  {typeof providerOnlyCount === 'number' ? (
+                    <>
+                      {providerOnlyCount.toLocaleString()} items from "{appliedFilters.provider}"
+                    </>
+                  ) : (
+                    <>items from "{appliedFilters.provider}"</>
+                  )}
+                </Badge>
+              </div>
+            )}
             <Select value={filters.is_active || '_all'} onValueChange={(v) => setFilters((f) => ({ ...f, is_active: v === '_all' ? '' : v }))}>
               <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Status" /></SelectTrigger>
               <SelectContent>

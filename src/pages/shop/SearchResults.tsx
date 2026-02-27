@@ -354,12 +354,21 @@ export default function SearchResults() {
         seenIdsRef.current = new Set();
         const deduped = dedupeWithSet(mappedProducts, seenIdsRef.current);
 
-        // Sort primary results by relevance to original query
-        if (query) {
-          const expanded = expandQuery(query);
+        // Sort primary results by relevance using TRANSLATED query tokens (not French)
+        // The backend returns searchMeta.rewrittenQuery which is the English translation
+        const rewrittenQuery = data?.searchMeta?.rewrittenQuery || data?.meta?.rewrittenQuery || query;
+        if (rewrittenQuery) {
+          // Combine both original and translated tokens for best scoring
+          const expandedOriginal = expandQuery(query);
+          const expandedTranslated = rewrittenQuery !== query ? expandQuery(rewrittenQuery) : null;
+          const allTokens = expandedTranslated 
+            ? [...new Set([...expandedTranslated.tokens, ...expandedOriginal.tokens])]
+            : expandedOriginal.tokens;
+          const year = expandedOriginal.year || expandedTranslated?.year || null;
+          
           deduped.sort((a, b) => {
-            const scoreA = relevanceScore(a.title || '', expanded.tokens, expanded.year);
-            const scoreB = relevanceScore(b.title || '', expanded.tokens, expanded.year);
+            const scoreA = relevanceScore(a.title || '', allTokens, year);
+            const scoreB = relevanceScore(b.title || '', allTokens, year);
             return scoreB - scoreA;
           });
         }

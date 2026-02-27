@@ -175,7 +175,8 @@ const HOME_GARDEN_PHRASES: Record<string, string> = {
   "frigo grande capacite": "large refrigerator",
   "congelateur": "freezer", "micro onde": "microwave", "microonde": "microwave",
   "cuisiniere": "stove", "blender": "blender", "mixeur": "blender",
-  "machine laver": "washing machine", "lave linge": "washing machine",
+  "machine laver": "washing machine", "machine lave": "washing machine",
+  "machine a lave": "washing machine", "lave linge": "washing machine",
   "climatiseur": "air conditioner", "panneau solaire": "solar panel",
   "generateur": "generator", "groupe electrogene": "generator",
   "ventilateur": "fan", "aspirateur": "vacuum cleaner",
@@ -200,6 +201,11 @@ const ELECTRONICS_PHRASES: Record<string, string> = {
   "clavier": "keyboard", "souris": "mouse", "imprimante": "printer",
   "tablette": "tablet", "projecteur": "projector", "moniteur": "monitor",
   "disque dur": "hard drive", "routeur": "router", "webcam": "webcam",
+  "ordinateur": "laptop computer", "ordinateur portable": "laptop",
+  "ordinateur hp": "hp laptop", "ordinateur hp portable": "hp laptop",
+  "ordinateur dell": "dell laptop", "ordinateur lenovo": "lenovo laptop",
+  "ordinateur asus": "asus laptop", "ordinateur acer": "acer laptop",
+  "ordinateur bureau": "desktop computer",
 };
 
 const JEWELRY_PHRASES: Record<string, string> = {
@@ -247,7 +253,7 @@ const GAMING_TOKENS = new Set([
 
 const ELECTRONICS_TOKENS = new Set([
   "tv", "television", "smart tv", "laptop", "macbook", "pc", "ipad",
-  "airpods", "camera",
+  "airpods", "camera", "ordinateur",
 ]);
 
 // ─── Category definition with phrase map + token set ────────────────────────

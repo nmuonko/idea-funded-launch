@@ -316,6 +316,19 @@ function scoreOne(
       if (intent.phoneDeviceIntent && hasAny(title, PHONE_ACCESSORY_KW)) score -= 30;
       // Drop wrong-category for general with phone intent
       if (intent.phoneDeviceIntent && hasAny(title, WRONG_CATEGORY_KW)) return null;
+      
+      // ── GENERAL RELEVANCE: drop items with NO query token match at all ──
+      // This prevents "computer chair" appearing for "laptop computer" queries
+      const hasAnyTokenMatch = qTokens.some(tok => tok.length >= 3 && title.includes(tok));
+      if (qTokens.length > 0 && !hasAnyTokenMatch) return null;
+      
+      // Penalize furniture/chair items when query has tech/electronics terms
+      const TECH_QUERY_TOKENS = ["laptop","computer","ordinateur","pc","monitor","tablet","phone","camera","printer"];
+      const FURNITURE_KW = ["chair","desk","table","shelf","cabinet","stand","rack","organizer","mat","cushion","pillow","ottoman","bench","stool","cart","furniture"];
+      const queryHasTech = qTokens.some(tok => TECH_QUERY_TOKENS.includes(tok));
+      if (queryHasTech && hasAny(title, FURNITURE_KW) && !hasAny(title, ["laptop","computer","monitor","tablet","phone","camera","printer","keyboard"])) {
+        return null; // Drop furniture from tech searches
+      }
       break;
     }
   }

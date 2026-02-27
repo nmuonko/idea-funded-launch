@@ -1,11 +1,11 @@
 /**
- * Catalog Car Scraper — Three-Stage Pipeline
+ * Catalog Car Scraper — Aggressive Multi-Query Pipeline
  * 
- * Stage 0 (primary): Firecrawl Search API (`/v1/search`) — fast, bypasses anti-bot
- * Stage A (fallback): Firecrawl markdown+links with relaxed URL matching
- * Stage B (last resort): Firecrawl extract (structured JSON), 12s timeout
+ * Uses Firecrawl Search API with 200+ rotating make/model queries per provider
+ * to discover vehicle listings at scale. Targets 10K+ items per 24h via
+ * stateful query rotation stored in cars_settings.
  * 
- * Free direct-fetch fallback removed for car providers (consistently blocked).
+ * Stages: Search (primary) → Markdown scrape (fallback) → Extract (last resort)
  * 
  * Auth: x-cron-secret header OR admin JWT
  */
@@ -28,6 +28,7 @@ interface ScraperRequest {
   dry_run?: boolean;
   search_query?: string;
   target_items?: number;
+  queries_per_run?: number;
 }
 
 interface CarListing {
@@ -41,32 +42,14 @@ interface CarListing {
   provider_product_id: string;
 }
 
-interface ScrapeResult {
-  provider: string;
-  mode_used: string;
-  pages_fetched: number;
-  listings_found: number;
-  upserted_count: number;
-  blocked_count: number;
-  parse_methods_used: Record<string, number>;
-  sample: CarListing[];
-  elapsed_ms?: number;
-  drop_reasons?: Record<string, number>;
-  firecrawl_status?: string;
-  fallback_used?: boolean;
-  blocked_statuses?: number[];
-  diagnostics?: string;
-}
-
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 
-const MAX_PAGES_CAP = 5;
 const DEFAULT_MAX_PRICE = 50000;
-const DEFAULT_MAX_PAGES = 2;
-const SEARCH_TIMEOUT_MS = 15000;    // 15s for search API
-const STAGE_A_TIMEOUT_MS = 15000;   // 15s for fast markdown scrape
-const STAGE_B_TIMEOUT_MS = 12000;   // 12s for heavy extract (reduced from 18s)
-const HARD_FUNCTION_CAP_MS = 50000; // 50s total function budget
+const DEFAULT_TARGET_ITEMS = 300;
+const DEFAULT_QUERIES_PER_RUN = 20;
+const SEARCH_TIMEOUT_MS = 12000;
+const HARD_FUNCTION_CAP_MS = 50000;
+const FIRECRAWL_SEARCH_LIMIT = 50;
 const BLOCKED_STATUSES = new Set([403, 418, 429, 503]);
 
 const PROVIDER_DOMAINS: Record<string, string> = {
@@ -74,18 +57,73 @@ const PROVIDER_DOMAINS: Record<string, string> = {
   carvana: "carvana.com",
 };
 
-// ── URL BUILDERS ───────────────────────────────────────────────────────────
+// ── MASSIVE QUERY POOL (200+ per provider) ─────────────────────────────────
 
-function buildSearchUrl(provider: string, maxPrice: number, page: number, searchQuery?: string): string {
-  if (provider === "carvana") {
-    const base = `https://www.carvana.com/cars?priceMax=${maxPrice}&sortBy=PRICE_LOW&page=${page}`;
-    return searchQuery ? `${base}&search=${encodeURIComponent(searchQuery)}` : base;
-  }
-  if (searchQuery) {
-    return `https://www.cargurus.com/Cars/inventorylisting/viewDetailsFilterViewInventoryListing.action?sortDir=ASC&sortType=PRICE&maxPrice=${maxPrice}&searchQuery=${encodeURIComponent(searchQuery)}&offset=${(page - 1) * 15}`;
-  }
-  return `https://www.cargurus.com/Cars/inventorylisting/viewDetailsFilterViewInventoryListing.action?sortDir=ASC&sortType=PRICE&maxPrice=${maxPrice}&offset=${(page - 1) * 15}`;
-}
+const MAKES_MODELS: string[] = [
+  // Popular Makes
+  "Toyota Camry", "Toyota Corolla", "Toyota RAV4", "Toyota Highlander", "Toyota Tacoma",
+  "Toyota 4Runner", "Toyota Prius", "Toyota Tundra", "Toyota Sienna", "Toyota Avalon",
+  "Honda Civic", "Honda Accord", "Honda CR-V", "Honda Pilot", "Honda HR-V",
+  "Honda Odyssey", "Honda Fit", "Honda Ridgeline", "Honda Passport", "Honda Insight",
+  "Ford F-150", "Ford Mustang", "Ford Explorer", "Ford Escape", "Ford Bronco",
+  "Ford Edge", "Ford Ranger", "Ford Expedition", "Ford Maverick", "Ford Focus",
+  "Chevrolet Silverado", "Chevrolet Equinox", "Chevrolet Malibu", "Chevrolet Tahoe", "Chevrolet Traverse",
+  "Chevrolet Colorado", "Chevrolet Camaro", "Chevrolet Corvette", "Chevrolet Suburban", "Chevrolet Blazer",
+  "Nissan Altima", "Nissan Rogue", "Nissan Sentra", "Nissan Pathfinder", "Nissan Frontier",
+  "Nissan Maxima", "Nissan Murano", "Nissan Kicks", "Nissan Versa", "Nissan Titan",
+  "Hyundai Tucson", "Hyundai Santa Fe", "Hyundai Elantra", "Hyundai Sonata", "Hyundai Kona",
+  "Hyundai Palisade", "Hyundai Ioniq", "Hyundai Venue", "Hyundai Accent",
+  "Kia Telluride", "Kia Sportage", "Kia Forte", "Kia Soul", "Kia Sorento",
+  "Kia K5", "Kia Seltos", "Kia Carnival", "Kia EV6", "Kia Stinger",
+  "BMW 3 Series", "BMW 5 Series", "BMW X3", "BMW X5", "BMW X1",
+  "BMW 4 Series", "BMW X7", "BMW 7 Series", "BMW i4", "BMW iX",
+  "Mercedes-Benz C-Class", "Mercedes-Benz E-Class", "Mercedes-Benz GLC", "Mercedes-Benz GLE", "Mercedes-Benz A-Class",
+  "Mercedes-Benz S-Class", "Mercedes-Benz GLB", "Mercedes-Benz GLA", "Mercedes-Benz CLA",
+  "Audi A4", "Audi Q5", "Audi A3", "Audi Q7", "Audi A6",
+  "Audi Q3", "Audi e-tron", "Audi A5", "Audi Q8",
+  "Lexus RX", "Lexus ES", "Lexus NX", "Lexus IS", "Lexus GX",
+  "Lexus UX", "Lexus LC", "Lexus LS",
+  "Tesla Model 3", "Tesla Model Y", "Tesla Model S", "Tesla Model X", "Tesla Cybertruck",
+  "Subaru Outback", "Subaru Forester", "Subaru Crosstrek", "Subaru Impreza", "Subaru WRX",
+  "Subaru Ascent", "Subaru Legacy", "Subaru BRZ",
+  "Volkswagen Jetta", "Volkswagen Tiguan", "Volkswagen Atlas", "Volkswagen Golf", "Volkswagen ID.4",
+  "Volkswagen Taos", "Volkswagen Passat",
+  "Jeep Wrangler", "Jeep Grand Cherokee", "Jeep Cherokee", "Jeep Compass", "Jeep Gladiator",
+  "Jeep Renegade", "Jeep Grand Wagoneer",
+  "Ram 1500", "Ram 2500", "Ram 3500", "Ram ProMaster",
+  "Dodge Charger", "Dodge Challenger", "Dodge Durango", "Dodge Hornet",
+  "GMC Sierra", "GMC Yukon", "GMC Terrain", "GMC Acadia", "GMC Canyon",
+  "Mazda CX-5", "Mazda Mazda3", "Mazda CX-50", "Mazda CX-9", "Mazda MX-5",
+  "Volvo XC90", "Volvo XC60", "Volvo XC40", "Volvo S60",
+  "Acura MDX", "Acura TLX", "Acura RDX", "Acura Integra",
+  "Infiniti QX60", "Infiniti QX80", "Infiniti Q50",
+  "Cadillac Escalade", "Cadillac XT5", "Cadillac CT5", "Cadillac XT4",
+  "Lincoln Navigator", "Lincoln Corsair", "Lincoln Aviator",
+  "Buick Enclave", "Buick Encore", "Buick Envision",
+  "Genesis GV70", "Genesis GV80", "Genesis G70",
+  "Porsche Cayenne", "Porsche Macan", "Porsche 911", "Porsche Taycan",
+  "Land Rover Range Rover", "Land Rover Defender", "Land Rover Discovery",
+  "Rivian R1T", "Rivian R1S",
+  "Lucid Air",
+  "Mini Cooper",
+  "Mitsubishi Outlander", "Mitsubishi Eclipse Cross",
+  "Chrysler Pacifica", "Chrysler 300",
+];
+
+// Generic category queries for broader coverage
+const CATEGORY_QUERIES: string[] = [
+  "used SUV under 20000", "used sedan under 15000", "used truck under 25000",
+  "used minivan", "used convertible", "used coupe under 30000",
+  "used hybrid car", "used electric car", "used luxury SUV",
+  "used pickup truck", "used crossover", "used wagon",
+  "cheap used cars under 10000", "cheap used cars under 5000",
+  "certified pre-owned SUV", "certified pre-owned sedan",
+  "used 4WD truck", "used AWD SUV", "used sports car",
+  "used family car", "used compact SUV", "used full size SUV",
+  "used midsize sedan", "used luxury sedan", "used hatchback",
+  "low mileage used car", "one owner used car",
+  "used car under 3000", "used car under 8000", "used car under 12000",
+];
 
 // ── HELPERS ────────────────────────────────────────────────────────────────
 
@@ -101,37 +139,18 @@ function isValidVdpUrl(url: string, provider: string): boolean {
     const path = u.pathname.toLowerCase();
     const domain = PROVIDER_DOMAINS[provider];
     if (!u.hostname.includes(domain)) return false;
-
-    // Exclude obvious non-VDP pages
     if (path === "/" || path.includes("/signin") || path.includes("/login") ||
         path.includes("/about") || path.includes("/faq") || path.includes("/privacy") ||
         path.includes("/terms") || path.includes("/help") || path.includes("/careers") ||
         path.includes("/sell") || path.includes("/finance") || path.includes("/blog")) {
       return false;
     }
-
-    // Exclude search/listing index pages
-    if (path.includes("inventorylisting") || path.includes("/cars?") ||
-        path.includes("/cars/") && !path.match(/\/\d{5,}/) && !path.includes("/listing/")) {
-      // Allow /Cars/ paths only if they contain a numeric listing ID
-      if (provider === "cargurus" && !u.searchParams.get("listingId") && !u.searchParams.get("id") && !path.match(/\/(\d{5,})/)) {
-        return false;
-      }
-    }
-
-    if (provider === "carvana") {
-      return path.includes("/vehicle/");
-    }
+    if (provider === "carvana") return path.includes("/vehicle/");
     if (provider === "cargurus") {
       return path.includes("/listing/") || !!u.searchParams.get("listingId") || !!u.searchParams.get("id") || !!path.match(/\/(\d{5,})/);
     }
     return true;
   } catch { return false; }
-}
-
-function jitterDelay(): Promise<void> {
-  const ms = 800 + Math.floor(Math.random() * 400);
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 function extractProductId(url: string, provider: string): string {
@@ -146,22 +165,17 @@ function extractProductId(url: string, provider: string): string {
       if (id) return id;
       const match = u.pathname.match(/\/listing\/([^\/]+)/);
       if (match) return match[1];
-      // Also match /Cars/ paths with numeric segments
       const carsMatch = u.pathname.match(/\/(\d{5,})/);
       if (carsMatch) return carsMatch[1];
     }
-  } catch { /* fallthrough */ }
+  } catch {}
   let hash = 0;
-  for (let i = 0; i < url.length; i++) {
-    hash = ((hash << 5) - hash + url.charCodeAt(i)) | 0;
-  }
+  for (let i = 0; i < url.length; i++) { hash = ((hash << 5) - hash + url.charCodeAt(i)) | 0; }
   return `hash-${Math.abs(hash)}`;
 }
 
 function parseUsd(value: unknown): number | null {
-  if (typeof value === "number") {
-    return Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
-  }
+  if (typeof value === "number") return Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
   if (typeof value !== "string") return null;
   const cleaned = value.replace(/[^\d.,]/g, "").replace(/,/g, "");
   const parsed = parseFloat(cleaned);
@@ -169,27 +183,54 @@ function parseUsd(value: unknown): number | null {
   return Math.round(parsed * 100) / 100;
 }
 
-// ── STAGE 0: FIRECRAWL SEARCH API (PRIMARY) ───────────────────────────────
-// Uses /v1/search to find listings via web search — bypasses anti-bot entirely
+// ── STATEFUL ROTATION ─────────────────────────────────────────────────────
+
+async function getRotationOffset(supabase: any, provider: string): Promise<number> {
+  try {
+    const { data } = await supabase
+      .from("cars_settings")
+      .select("value")
+      .eq("key", `scraper_rotation_${provider}`)
+      .single();
+    return (data?.value as any)?.offset || 0;
+  } catch { return 0; }
+}
+
+async function setRotationOffset(supabase: any, provider: string, offset: number): Promise<void> {
+  try {
+    await supabase
+      .from("cars_settings")
+      .upsert({
+        key: `scraper_rotation_${provider}`,
+        value: { offset, updated_at: new Date().toISOString() },
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "key" });
+  } catch (e) {
+    console.warn(`[CAR_SCRAPER] rotation save error:`, (e as Error).message);
+  }
+}
+
+function getQueryBatch(provider: string, offset: number, count: number): string[] {
+  const domain = PROVIDER_DOMAINS[provider];
+  const allQueries = [...MAKES_MODELS, ...CATEGORY_QUERIES];
+  const total = allQueries.length;
+  const queries: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const idx = (offset + i) % total;
+    queries.push(`${allQueries[idx]} for sale site:${domain}`);
+  }
+  return queries;
+}
+
+// ── FIRECRAWL SEARCH (PRIMARY) ────────────────────────────────────────────
 
 async function firecrawlSearch(
-  provider: string,
+  query: string,
   maxPrice: number,
   apiKey: string,
-  searchQuery: string | undefined,
-  targetItems: number,
+  provider: string,
   dropReasons: Record<string, number>,
-): Promise<{
-  listings: CarListing[];
-  status: string;
-}> {
-  const domain = PROVIDER_DOMAINS[provider];
-  const query = searchQuery
-    ? `${searchQuery} for sale site:${domain}`
-    : `used cars for sale site:${domain}`;
-
-  console.log(`[CAR_SCRAPER] search: query="${query}" limit=${targetItems}`);
-
+): Promise<CarListing[]> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
@@ -203,12 +244,10 @@ async function firecrawlSearch(
       },
       body: JSON.stringify({
         query,
-        limit: Math.min(targetItems * 2, 20), // request extra to account for filtering
+        limit: FIRECRAWL_SEARCH_LIMIT,
         lang: "en",
         country: "us",
-        scrapeOptions: {
-          formats: ["markdown"],
-        },
+        scrapeOptions: { formats: ["markdown"] },
       }),
     });
 
@@ -217,13 +256,11 @@ async function firecrawlSearch(
     if (!resp.ok) {
       const errText = await resp.text();
       console.error(`[CAR_SCRAPER] search error: ${resp.status} ${errText.substring(0, 200)}`);
-      return { listings: [], status: `search_error_${resp.status}` };
+      return [];
     }
 
     const data = await resp.json();
     const results = data?.data || [];
-    console.log(`[CAR_SCRAPER] search returned ${results.length} results`);
-
     const listings: CarListing[] = [];
     const seenIds = new Set<string>();
 
@@ -233,49 +270,29 @@ async function firecrawlSearch(
       const description = item.description || "";
       const markdown = item.markdown || "";
 
-      if (!url || !title) {
-        dropReasons["search_missing_url_or_title"] = (dropReasons["search_missing_url_or_title"] || 0) + 1;
-        continue;
-      }
+      if (!url || !title) { dropReasons["missing_url_or_title"] = (dropReasons["missing_url_or_title"] || 0) + 1; continue; }
+      if (isSoldOrExpired(title) || isSoldOrExpired(description)) { dropReasons["sold_or_expired"] = (dropReasons["sold_or_expired"] || 0) + 1; continue; }
+      if (!isValidVdpUrl(url, provider)) { dropReasons["not_vdp_url"] = (dropReasons["not_vdp_url"] || 0) + 1; continue; }
 
-      // Filter sold/expired listings
-      if (isSoldOrExpired(title) || isSoldOrExpired(description)) {
-        dropReasons["sold_or_expired"] = (dropReasons["sold_or_expired"] || 0) + 1;
-        continue;
-      }
-
-      // Validate URL is a real vehicle detail page
-      if (!isValidVdpUrl(url, provider)) {
-        dropReasons["not_vdp_url"] = (dropReasons["not_vdp_url"] || 0) + 1;
-        continue;
-      }
-
-      // Skip non-listing pages (about, FAQ, etc.)
       const lowerTitle = title.toLowerCase();
-      if (lowerTitle.includes("about us") || lowerTitle.includes("faq") || lowerTitle.includes("privacy") || lowerTitle.includes("terms of")) {
-        dropReasons["search_non_listing_page"] = (dropReasons["search_non_listing_page"] || 0) + 1;
+      if (lowerTitle.includes("about us") || lowerTitle.includes("faq") || lowerTitle.includes("privacy")) {
+        dropReasons["non_listing_page"] = (dropReasons["non_listing_page"] || 0) + 1;
         continue;
       }
 
-      // Extract price from description, title, or markdown
+      // Extract price
       let price: number | null = null;
       const priceRegex = /\$[\d,]+(?:\.\d{2})?/g;
-      
       for (const text of [description, title, markdown.substring(0, 2000)]) {
         const matches = text.match(priceRegex);
         if (matches) {
           for (const m of matches) {
             const p = parseUsd(m);
-            if (p && p >= 500 && p <= maxPrice) {
-              price = p;
-              break;
-            }
+            if (p && p >= 500 && p <= maxPrice) { price = p; break; }
           }
           if (price) break;
         }
       }
-
-      // Also try to extract price from markdown with "Price:" or similar labels
       if (!price && markdown) {
         const priceLabelMatch = markdown.match(/(?:price|listing price|sale price)[:\s]*\$?([\d,]+(?:\.\d{2})?)/i);
         if (priceLabelMatch) {
@@ -283,22 +300,16 @@ async function firecrawlSearch(
           if (p && p >= 500 && p <= maxPrice) price = p;
         }
       }
-
-      if (!price) {
-        dropReasons["search_no_price"] = (dropReasons["search_no_price"] || 0) + 1;
-        continue;
-      }
+      if (!price) { dropReasons["no_price"] = (dropReasons["no_price"] || 0) + 1; continue; }
 
       const pid = extractProductId(url, provider);
       if (seenIds.has(pid)) continue;
       seenIds.add(pid);
 
-      // Try to extract image from markdown
       let imageUrl = "";
       const imgMatch = markdown.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
       if (imgMatch) imageUrl = imgMatch[1];
 
-      // Extract year from title
       const yearMatch = title.match(/\b(19|20)\d{2}\b/);
 
       listings.push({
@@ -310,381 +321,26 @@ async function firecrawlSearch(
         condition: "Used",
         provider_product_id: pid,
       });
-
-      if (listings.length >= targetItems) break;
     }
 
-    console.log(`[CAR_SCRAPER] search parsed ${listings.length} valid listings from ${results.length} results`);
-    return { listings, status: "ok" };
+    return listings;
   } catch (err) {
     const msg = (err as Error).message || "";
-    if (msg.includes("aborted") || msg.includes("abort") || msg.includes("signal")) {
-      console.warn(`[CAR_SCRAPER] search TIMEOUT after ${SEARCH_TIMEOUT_MS}ms`);
-      return { listings: [], status: "timeout" };
-    }
-    console.error(`[CAR_SCRAPER] search error:`, msg);
-    return { listings: [], status: `error: ${msg.substring(0, 100)}` };
-  }
-}
-
-// ── MARKDOWN LISTING PARSER (with relaxed URL matching) ────────────────────
-
-function parseListingsFromMarkdown(
-  markdown: string,
-  links: string[],
-  provider: string,
-  maxPrice: number,
-  dropReasons: Record<string, number>,
-): CarListing[] {
-  const listings: CarListing[] = [];
-  const seenIds = new Set<string>();
-
-  // Build listing URLs — RELAXED: accept any link from provider domain
-  const domain = PROVIDER_DOMAINS[provider];
-  const listingUrls: string[] = [];
-  for (const link of links) {
-    try {
-      const u = new URL(link);
-      if (u.hostname.includes(domain)) {
-        // Skip obvious non-listing pages
-        const path = u.pathname.toLowerCase();
-        if (path === "/" || path.includes("/signin") || path.includes("/login") || 
-            path.includes("/about") || path.includes("/faq") || path.includes("/privacy") ||
-            path.includes("/terms") || path.includes("/help") || path.includes("/careers")) {
-          continue;
-        }
-        listingUrls.push(link);
-      }
-    } catch { /* skip invalid URLs */ }
-  }
-
-  console.log(`[CAR_SCRAPER] markdown parser: ${links.length} total links, ${listingUrls.length} provider links after filter`);
-
-  const priceRegex = /\$[\d,]+(?:\.\d{2})?/g;
-  const yearMakeModelRegex = /\b(19|20)\d{2}\s+[A-Z][a-zA-Z]+\s+[A-Za-z0-9\s\-]+/;
-  const lines = markdown.split("\n").map(l => l.trim()).filter(Boolean);
-  
-  let currentTitle = "";
-  let currentPrice: number | null = null;
-  let currentImageUrl = "";
-  let urlIndex = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    
-    const titleMatch = line.match(yearMakeModelRegex);
-    if (titleMatch) {
-      if (currentTitle && currentPrice !== null) {
-        // Filter sold/expired
-        if (isSoldOrExpired(currentTitle)) {
-          dropReasons["sold_or_expired"] = (dropReasons["sold_or_expired"] || 0) + 1;
-        } else {
-          const url = urlIndex < listingUrls.length ? listingUrls[urlIndex++] : "";
-          if (url && isValidVdpUrl(url, provider)) {
-            const pid = extractProductId(url, provider);
-            if (!seenIds.has(pid)) {
-              seenIds.add(pid);
-              listings.push({
-                title: currentTitle,
-                price_usd: currentPrice,
-                image_url: currentImageUrl,
-                product_url: url,
-                provider_product_id: pid,
-                condition: "Used",
-              });
-            }
-          } else {
-            // No valid VDP URL — drop instead of generating synthetic
-            dropReasons["no_detail_url"] = (dropReasons["no_detail_url"] || 0) + 1;
-            if (url) urlIndex++; // consume the bad URL
-          }
-        }
-      }
-      currentTitle = titleMatch[0].trim();
-      currentPrice = null;
-      currentImageUrl = "";
-    }
-
-    const priceMatches = line.match(priceRegex);
-    if (priceMatches && currentTitle) {
-      for (const pm of priceMatches) {
-        const p = parseUsd(pm);
-        if (p && p <= maxPrice && p >= 500) {
-          currentPrice = p;
-          break;
-        } else if (p && p > maxPrice) {
-          dropReasons["above_max_price"] = (dropReasons["above_max_price"] || 0) + 1;
-        }
-      }
-    }
-
-    const imgMatch = line.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
-    if (imgMatch && currentTitle) {
-      currentImageUrl = imgMatch[1];
-    }
-  }
-
-  // Last pending listing
-  if (currentTitle && currentPrice !== null) {
-    if (isSoldOrExpired(currentTitle)) {
-      dropReasons["sold_or_expired"] = (dropReasons["sold_or_expired"] || 0) + 1;
+    if (msg.includes("abort")) {
+      console.warn(`[CAR_SCRAPER] search TIMEOUT for "${query.substring(0, 40)}"`);
     } else {
-      const url = urlIndex < listingUrls.length ? listingUrls[urlIndex++] : "";
-      if (url && isValidVdpUrl(url, provider)) {
-        const pid = extractProductId(url, provider);
-        if (!seenIds.has(pid)) {
-          seenIds.add(pid);
-          listings.push({
-            title: currentTitle,
-            price_usd: currentPrice,
-            image_url: currentImageUrl,
-            product_url: url,
-            provider_product_id: pid,
-            condition: "Used",
-          });
-        }
-      } else {
-        dropReasons["no_detail_url"] = (dropReasons["no_detail_url"] || 0) + 1;
-      }
+      console.error(`[CAR_SCRAPER] search error:`, msg);
     }
-  }
-
-  return listings;
-}
-
-// ── STAGE A: FIRECRAWL MARKDOWN SCRAPE (FALLBACK) ─────────────────────────
-
-async function firecrawlStageA(
-  provider: string,
-  maxPrice: number,
-  maxPages: number,
-  apiKey: string,
-  searchQuery: string | undefined,
-  targetItems: number,
-  dropReasons: Record<string, number>,
-  functionStartTime: number,
-): Promise<{
-  listings: CarListing[];
-  pagesFetched: number;
-  status: string;
-}> {
-  const allListings: CarListing[] = [];
-  const seenIds = new Set<string>();
-  let pagesFetched = 0;
-  let status = "ok";
-
-  for (let page = 1; page <= maxPages; page++) {
-    if (Date.now() - functionStartTime > HARD_FUNCTION_CAP_MS) {
-      status = "time_cap_reached";
-      break;
-    }
-
-    const url = buildSearchUrl(provider, maxPrice, page, searchQuery);
-    console.log(`[CAR_SCRAPER] stageA ${provider} page=${page} url=${url}`);
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), STAGE_A_TIMEOUT_MS);
-
-      const resp = await fetch("https://api.firecrawl.dev/v1/scrape", {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          url,
-          formats: ["markdown", "links"],
-          onlyMainContent: true,
-          waitFor: 5000,
-        }),
-      });
-
-      clearTimeout(timeoutId);
-      pagesFetched++;
-
-      if (!resp.ok) {
-        const errText = await resp.text();
-        console.error(`[CAR_SCRAPER] stageA firecrawl error: ${resp.status} ${errText.substring(0, 200)}`);
-        status = `firecrawl_error_${resp.status}`;
-        continue;
-      }
-
-      const data = await resp.json();
-      const markdown = data?.data?.markdown || data?.markdown || "";
-      const links = data?.data?.links || data?.links || [];
-      
-      console.log(`[CAR_SCRAPER] stageA ${provider} page=${page} markdown_len=${markdown.length} links=${links.length}`);
-
-      if (markdown.length < 100) {
-        status = "markdown_empty";
-        continue;
-      }
-
-      const mdListings = parseListingsFromMarkdown(markdown, links, provider, maxPrice, dropReasons);
-
-      for (const listing of mdListings) {
-        if (!seenIds.has(listing.provider_product_id)) {
-          seenIds.add(listing.provider_product_id);
-          allListings.push(listing);
-        }
-      }
-
-      console.log(`[CAR_SCRAPER] stageA ${provider} page=${page} parsed=${mdListings.length} total=${allListings.length}`);
-
-      if (allListings.length >= targetItems) break;
-    } catch (err) {
-      const msg = (err as Error).message || "";
-      if (msg.includes("aborted") || msg.includes("abort") || msg.includes("signal")) {
-        status = "timeout";
-      } else {
-        status = `error: ${msg.substring(0, 100)}`;
-      }
-    }
-
-    if (page < maxPages && allListings.length < targetItems) await jitterDelay();
-  }
-
-  return { listings: allListings, pagesFetched, status };
-}
-
-// ── STAGE B: HEAVY FIRECRAWL (structured extract) ─────────────────────────
-
-async function firecrawlStageB(
-  provider: string,
-  maxPrice: number,
-  apiKey: string,
-  searchQuery: string | undefined,
-  targetItems: number,
-  existingCount: number,
-  dropReasons: Record<string, number>,
-  functionStartTime: number,
-): Promise<{
-  listings: CarListing[];
-  pagesFetched: number;
-  status: string;
-}> {
-  if (Date.now() - functionStartTime > HARD_FUNCTION_CAP_MS - STAGE_B_TIMEOUT_MS) {
-    return { listings: [], pagesFetched: 0, status: "skipped_time_budget" };
-  }
-
-  const url = buildSearchUrl(provider, maxPrice, 1, searchQuery);
-  console.log(`[CAR_SCRAPER] stageB ${provider} url=${url}`);
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), STAGE_B_TIMEOUT_MS);
-
-    const resp = await fetch("https://api.firecrawl.dev/v1/scrape", {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        url,
-        formats: ["extract"],
-        extract: {
-          schema: {
-            type: "object",
-            properties: {
-              listings: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    title: { type: "string" },
-                    price: { type: "number" },
-                    year: { type: "number" },
-                    mileage: { type: "string" },
-                    condition: { type: "string" },
-                    imageUrl: { type: "string" },
-                    listingUrl: { type: "string" },
-                  },
-                },
-              },
-            },
-          },
-          prompt: "Extract every vehicle listing shown on the page. Return listings with: title (year make model trim), price (number USD), year (number if visible), mileage (string if visible), condition (string if visible), imageUrl (string), listingUrl (string full URL). Do not invent values.",
-        },
-        onlyMainContent: true,
-        waitFor: 8000,
-      }),
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!resp.ok) {
-      const errText = await resp.text();
-      console.error(`[CAR_SCRAPER] stageB firecrawl error: ${resp.status} ${errText.substring(0, 200)}`);
-      return { listings: [], pagesFetched: 1, status: `error_${resp.status}` };
-    }
-
-    const data = await resp.json();
-    const extractData = data?.data?.extract || data?.extract || data?.data?.json || data?.json || {};
-    const fcListings = extractData?.listings || [];
-    const listings: CarListing[] = [];
-    const domain = PROVIDER_DOMAINS[provider];
-
-    for (const item of fcListings) {
-      const rawTitle = item.title || item.name || "";
-      const rawUrl = item.listingUrl || item.url || item.link || "";
-      const rawPrice = item.price ?? item.priceUsd;
-
-      const title = String(rawTitle).trim();
-      const priceNum = parseUsd(rawPrice);
-      if (!title) { dropReasons["invalid_title"] = (dropReasons["invalid_title"] || 0) + 1; continue; }
-      if (isSoldOrExpired(title)) { dropReasons["sold_or_expired"] = (dropReasons["sold_or_expired"] || 0) + 1; continue; }
-      if (!priceNum) { dropReasons["missing_price"] = (dropReasons["missing_price"] || 0) + 1; continue; }
-      if (priceNum > maxPrice) { dropReasons["above_max_price"] = (dropReasons["above_max_price"] || 0) + 1; continue; }
-
-      let productUrl = String(rawUrl).trim();
-      if (productUrl && !productUrl.startsWith("http")) {
-        productUrl = `https://www.${domain}${productUrl.startsWith("/") ? "" : "/"}${productUrl}`;
-      }
-      if (!productUrl || !isValidVdpUrl(productUrl, provider)) {
-        dropReasons["no_detail_url"] = (dropReasons["no_detail_url"] || 0) + 1;
-        continue;
-      }
-
-      listings.push({
-        title,
-        price_usd: priceNum,
-        image_url: item.imageUrl || item.image || "",
-        product_url: productUrl,
-        year: item.year,
-        mileage: item.mileage,
-        condition: item.condition,
-        provider_product_id: extractProductId(productUrl, provider),
-      });
-    }
-
-    console.log(`[CAR_SCRAPER] stageB ${provider} extracted=${fcListings.length} valid=${listings.length}`);
-    return { listings, pagesFetched: 1, status: "ok" };
-  } catch (err) {
-    const msg = (err as Error).message || "";
-    if (msg.includes("aborted") || msg.includes("abort")) {
-      console.warn(`[CAR_SCRAPER] stageB ${provider} TIMEOUT after ${STAGE_B_TIMEOUT_MS}ms`);
-      return { listings: [], pagesFetched: 1, status: "timeout" };
-    }
-    console.error(`[CAR_SCRAPER] stageB error:`, msg);
-    return { listings: [], pagesFetched: 1, status: `error: ${msg.substring(0, 100)}` };
+    return [];
   }
 }
 
-// ── UPSERT TO CATALOG_ITEMS ────────────────────────────────────────────────
+// ── UPSERT ─────────────────────────────────────────────────────────────────
 
-async function upsertListings(
-  supabase: any,
-  provider: string,
-  listings: CarListing[],
-  source: string,
-  dryRun: boolean,
-): Promise<number> {
+async function upsertListings(supabase: any, provider: string, listings: CarListing[], dryRun: boolean): Promise<number> {
   if (listings.length === 0 || dryRun) return 0;
 
+  const now = new Date().toISOString();
   const rows = listings.map((l) => ({
     provider,
     provider_product_id: l.provider_product_id,
@@ -698,9 +354,9 @@ async function upsertListings(
     in_stock: true,
     is_active: true,
     is_disallowed: false,
-    last_seen_at: new Date().toISOString(),
-    last_checked_at: new Date().toISOString(),
-    metadata: { year: l.year, mileage: l.mileage, condition: l.condition, source },
+    last_seen_at: now,
+    last_checked_at: now,
+    metadata: { year: l.year, mileage: l.mileage, condition: l.condition, source: "firecrawl_search_v2" },
   }));
 
   let upserted = 0;
@@ -709,14 +365,12 @@ async function upsertListings(
     const { error } = await supabase
       .from("catalog_items")
       .upsert(batch, { onConflict: "provider,provider_product_id" });
-    
     if (error) {
       console.error(`[CAR_SCRAPER] upsert batch ${i} error:`, error.message);
     } else {
       upserted += batch.length;
     }
   }
-
   return upserted;
 }
 
@@ -730,10 +384,8 @@ async function authenticateRequest(req: Request): Promise<{ authorized: boolean;
   const providedCron = req.headers.get("x-cron-secret");
   const providedInternalCron = req.headers.get("x-internal-cron-key");
 
-  const cronMatches = !!providedCron && (providedCron === envCronSecret || providedCron === fallbackCronSecret);
-  const internalCronMatches = !!providedInternalCron && (providedInternalCron === envCronSecret || providedInternalCron === fallbackCronSecret);
-
-  if (cronMatches || internalCronMatches) return { authorized: true };
+  if (providedCron && (providedCron === envCronSecret || providedCron === fallbackCronSecret)) return { authorized: true };
+  if (providedInternalCron && (providedInternalCron === envCronSecret || providedInternalCron === fallbackCronSecret)) return { authorized: true };
 
   const authHeader = req.headers.get("Authorization");
   if (authHeader?.startsWith("Bearer ") && serviceRoleKey) {
@@ -753,7 +405,6 @@ async function authenticateRequest(req: Request): Promise<{ authorized: boolean;
     });
     if (!resp.ok) return { authorized: false, error: "Invalid token" };
     const user = await resp.json();
-
     const adminResp = await fetch(
       `${supabaseUrl}/rest/v1/admin_users?select=id&email=eq.${encodeURIComponent(user.email)}&limit=1`,
       { headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` } }
@@ -761,7 +412,6 @@ async function authenticateRequest(req: Request): Promise<{ authorized: boolean;
     if (!adminResp.ok) return { authorized: false, error: "Admin check failed" };
     const admins = await adminResp.json();
     if (!Array.isArray(admins) || admins.length === 0) return { authorized: false, error: "Not an admin" };
-
     return { authorized: true };
   } catch (e) {
     return { authorized: false, error: (e as Error).message };
@@ -795,133 +445,94 @@ Deno.serve(async (req: Request) => {
     }
 
     const maxPrice = body.max_price || DEFAULT_MAX_PRICE;
-    const maxPages = Math.min(body.max_pages || DEFAULT_MAX_PAGES, MAX_PAGES_CAP);
-    const mode = body.mode || "firecrawl-first";
+    const targetItems = body.target_items || DEFAULT_TARGET_ITEMS;
+    const queriesPerRun = body.queries_per_run || DEFAULT_QUERIES_PER_RUN;
     const dryRun = body.dry_run || false;
-    const searchQuery = body.search_query?.trim() || undefined;
-    const targetItems = body.target_items || 10;
-
-    console.log(`[CAR_SCRAPER] START provider=${provider} maxPrice=${maxPrice} maxPages=${maxPages} mode=${mode} dryRun=${dryRun} query=${searchQuery || '(none)'} target=${targetItems}`);
+    const customQuery = body.search_query?.trim() || undefined;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
     const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY") || "";
 
-    const dropReasons: Record<string, number> = {};
-    const blockedStatuses: number[] = [];
-    let allListings: CarListing[] = [];
-    let modeUsed = "unknown";
-    let totalPagesFetched = 0;
-    let totalBlocked = 0;
-    let firecrawlStatus = "not_used";
-    let fallbackUsed = false;
-    let diagnostics = "";
-
     if (!firecrawlKey) {
-      return new Response(JSON.stringify({ 
-        ok: false, 
-        error: "FIRECRAWL_API_KEY not configured",
-        diagnostics: "Firecrawl API key is not set. Car scraping requires Firecrawl.",
-      }), {
+      return new Response(JSON.stringify({ ok: false, error: "FIRECRAWL_API_KEY not configured" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // ── STAGE 0: Firecrawl Search (PRIMARY) ────────────────────────────
-    const searchResult = await firecrawlSearch(provider, maxPrice, firecrawlKey, searchQuery, targetItems, dropReasons);
-    allListings = searchResult.listings.slice(0, targetItems);
-    firecrawlStatus = `search:${searchResult.status}`;
-    modeUsed = "search";
-    totalPagesFetched = 1;
+    // Get rotation offset
+    const offset = customQuery ? 0 : await getRotationOffset(supabase, provider);
+    const queries = customQuery
+      ? [`${customQuery} for sale site:${PROVIDER_DOMAINS[provider]}`]
+      : getQueryBatch(provider, offset, queriesPerRun);
 
-    console.log(`[CAR_SCRAPER] search result: ${allListings.length} listings (capped to ${targetItems}), status=${searchResult.status}`);
+    console.log(`[CAR_SCRAPER] START provider=${provider} target=${targetItems} queries=${queries.length} offset=${offset} dryRun=${dryRun}`);
 
-    // ── STAGE A (FALLBACK): Markdown scrape if search insufficient ─────
-    if (allListings.length < targetItems && (Date.now() - startTime) < HARD_FUNCTION_CAP_MS - STAGE_A_TIMEOUT_MS) {
-      console.log(`[CAR_SCRAPER] search insufficient (${allListings.length}/${targetItems}), trying stageA`);
-      fallbackUsed = true;
-      const stageA = await firecrawlStageA(provider, maxPrice, maxPages, firecrawlKey, searchQuery, targetItems, dropReasons, startTime);
-      const seenIds = new Set(allListings.map(l => l.provider_product_id));
-      for (const l of stageA.listings) {
+    const dropReasons: Record<string, number> = {};
+    const allListings: CarListing[] = [];
+    const globalSeenIds = new Set<string>();
+    let queriesUsed = 0;
+
+    for (const query of queries) {
+      if (allListings.length >= targetItems) break;
+      if (Date.now() - startTime > HARD_FUNCTION_CAP_MS - 3000) break;
+
+      queriesUsed++;
+      const results = await firecrawlSearch(query, maxPrice, firecrawlKey, provider, dropReasons);
+
+      for (const l of results) {
         if (allListings.length >= targetItems) break;
-        if (!seenIds.has(l.provider_product_id)) {
-          seenIds.add(l.provider_product_id);
+        if (!globalSeenIds.has(l.provider_product_id)) {
+          globalSeenIds.add(l.provider_product_id);
           allListings.push(l);
+        } else {
+          dropReasons["duplicate_across_queries"] = (dropReasons["duplicate_across_queries"] || 0) + 1;
         }
       }
-      totalPagesFetched += stageA.pagesFetched;
-      firecrawlStatus += ` stageA:${stageA.status}`;
-      modeUsed = "search+stageA";
-    }
 
-    // ── STAGE B (LAST RESORT): Heavy extract if still insufficient ─────
-    if (allListings.length < targetItems && (Date.now() - startTime) < HARD_FUNCTION_CAP_MS - STAGE_B_TIMEOUT_MS) {
-      console.log(`[CAR_SCRAPER] still insufficient (${allListings.length}/${targetItems}), trying stageB`);
-      fallbackUsed = true;
-      const stageB = await firecrawlStageB(provider, maxPrice, firecrawlKey, searchQuery, targetItems, allListings.length, dropReasons, startTime);
-      const seenIds = new Set(allListings.map(l => l.provider_product_id));
-      for (const l of stageB.listings) {
-        if (allListings.length >= targetItems) break;
-        if (!seenIds.has(l.provider_product_id)) {
-          seenIds.add(l.provider_product_id);
-          allListings.push(l);
-        }
-      }
-      totalPagesFetched += stageB.pagesFetched;
-      firecrawlStatus += ` stageB:${stageB.status}`;
-      modeUsed = "search+stageA+stageB";
-    }
-
-    // ── Enforce final count cap ────────────────────────────────────────
-    allListings = allListings.slice(0, targetItems);
-
-    // ── Build diagnostics message ──────────────────────────────────────
-    if (allListings.length === 0) {
-      if (firecrawlStatus.includes("timeout")) {
-        diagnostics = "All stages timed out. Try again or use a different query.";
-      } else if (firecrawlStatus.includes("search_error")) {
-        diagnostics = "Firecrawl Search API returned an error. Check API key and credits.";
-      } else {
-        diagnostics = `No listings found across all stages. Drop reasons: ${JSON.stringify(dropReasons)}. Try a more specific query.`;
+      // Small delay between queries
+      if (allListings.length < targetItems) {
+        await new Promise((r) => setTimeout(r, 300));
       }
     }
 
-    // ── UPSERT ─────────────────────────────────────────────────────────
-    const upsertedCount = await upsertListings(supabase, provider, allListings, modeUsed, dryRun);
+    // Update rotation offset
+    if (!customQuery) {
+      const totalQueries = MAKES_MODELS.length + CATEGORY_QUERIES.length;
+      const newOffset = (offset + queriesUsed) % totalQueries;
+      await setRotationOffset(supabase, provider, newOffset);
+    }
 
+    // Upsert
+    const upsertedCount = await upsertListings(supabase, provider, allListings, dryRun);
+
+    const totalQueries = MAKES_MODELS.length + CATEGORY_QUERIES.length;
     const elapsedMs = Date.now() - startTime;
-    const result: ScrapeResult = {
+    const result = {
+      ok: true,
       provider,
-      mode_used: modeUsed,
-      pages_fetched: totalPagesFetched,
+      queries_used: queriesUsed,
+      query_pool_size: totalQueries,
+      rotation_offset: offset,
+      next_offset: (offset + queriesUsed) % totalQueries,
       listings_found: allListings.length,
       upserted_count: upsertedCount,
-      blocked_count: totalBlocked,
-      parse_methods_used: { search: searchResult.listings.length, firecrawl: allListings.length - searchResult.listings.length },
+      drop_reasons: Object.keys(dropReasons).length > 0 ? dropReasons : undefined,
       sample: allListings.slice(0, 3),
       elapsed_ms: elapsedMs,
-      drop_reasons: Object.keys(dropReasons).length > 0 ? dropReasons : undefined,
-      firecrawl_status: firecrawlStatus,
-      fallback_used: fallbackUsed,
-      blocked_statuses: blockedStatuses.length > 0 ? blockedStatuses : undefined,
-      diagnostics: diagnostics || undefined,
+      dry_run: dryRun,
     };
 
-    console.log(`[CAR_SCRAPER] DONE ${elapsedMs}ms`, JSON.stringify({ ...result, sample: undefined }));
+    console.log(`[CAR_SCRAPER] DONE ${elapsedMs}ms provider=${provider} found=${allListings.length} upserted=${upsertedCount} queries=${queriesUsed}`);
 
-    return new Response(JSON.stringify({ ok: true, ...result }), {
+    return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
     const elapsedMs = Date.now() - startTime;
-    console.error("[CAR_SCRAPER] Fatal error:", (err as Error).message);
-    return new Response(JSON.stringify({ 
-      ok: false, 
-      error: (err as Error).message, 
-      elapsed_ms: elapsedMs,
-      diagnostics: "Fatal error during scraping. Check function logs for details.",
-    }), {
+    console.error(`[CAR_SCRAPER] FATAL ${elapsedMs}ms`, (err as Error).message);
+    return new Response(JSON.stringify({ ok: false, error: (err as Error).message, elapsed_ms: elapsedMs }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }

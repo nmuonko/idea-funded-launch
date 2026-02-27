@@ -284,6 +284,9 @@ async function firecrawlSearch(
 
       if (!url || !title) { dropReasons["missing_url_or_title"] = (dropReasons["missing_url_or_title"] || 0) + 1; continue; }
       if (!isValidSheinUrl(url)) { dropReasons["not_shein_url"] = (dropReasons["not_shein_url"] || 0) + 1; continue; }
+      // Reject category pages
+      if (/-cat-\d+\.html/i.test(url)) { dropReasons["category_page_url"] = (dropReasons["category_page_url"] || 0) + 1; continue; }
+      if (/^(Women|Men|Plus Size|Kids)\s+\w+\s*[\|–\-]\s*SHEIN/i.test(title)) { dropReasons["category_page_title"] = (dropReasons["category_page_title"] || 0) + 1; continue; }
 
       const pid = extractSheinProductId(url);
       if (!pid) { dropReasons["no_product_id"] = (dropReasons["no_product_id"] || 0) + 1; continue; }
@@ -334,11 +337,8 @@ async function firecrawlSearch(
         const imgMatch = markdown.match(/!\[.*?\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp)[^\s)]*)\)/i);
         if (imgMatch) imageUrl = imgMatch[1];
       }
-      // Last resort: derive from SHEIN CDN using product ID
-      if (!imageUrl && pid.startsWith("p")) {
-        const numericId = pid.substring(1);
-        imageUrl = `https://img.ltwebstatic.com/images3_pi/2024/01/01/00/${numericId}_thumbnail_900x.webp`;
-      }
+      // Skip items with no image — don't use fabricated CDN URLs
+      if (!imageUrl) { dropReasons["no_image"] = (dropReasons["no_image"] || 0) + 1; continue; }
 
       let brand = "SHEIN";
       const brandMatch = title.match(/^(SHEIN|MOTF|DAZY|CUCCOO|EMERY ROSE|MOD|ROMWE)\b/i);

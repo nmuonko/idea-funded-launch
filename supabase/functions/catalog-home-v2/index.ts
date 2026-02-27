@@ -334,7 +334,7 @@ async function bootstrapFromDatabase(correlationId: string): Promise<CatalogItem
     console.log(`[CATALOG_HOME_V2][BOOTSTRAP] correlationId=${correlationId} fetching from catalog_items`);
     
     const res = await fetch(
-      `${supabaseUrl}/rest/v1/catalog_items?`${supabaseUrl}/rest/v1/catalog_items?provider=in.(amazon,ebay,cargurus,carvana,shein)&price_usd=gt.0&image_url=neq.null&is_disallowed=eq.false&order=updated_at.desc.nullslast&limit=300`,&image_url=neq.null&is_disallowed=eq.false&order=updated_at.desc.nullslast&limit=300`,
+      `${supabaseUrl}/rest/v1/catalog_items?provider=in.(amazon,ebay,cargurus,carvana,shein)&price_usd=gt.0&image_url=neq.null&is_disallowed=eq.false&order=updated_at.desc.nullslast&limit=300`,
       {
         headers: {
           apikey: serviceRoleKey,

@@ -187,11 +187,7 @@ const App = () => {
                 <Checkout />
               </ShopProtectedRoute>
             } />
-            <Route path="/payment-pending" element={
-              <ShopProtectedRoute>
-                <PaymentPending />
-              </ShopProtectedRoute>
-            } />
+            <Route path="/payment-pending" element={<PaymentPending />} />
             <Route path="/card-payment" element={
               <ShopProtectedRoute>
                 <CardPayment />

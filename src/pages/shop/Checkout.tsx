@@ -261,16 +261,41 @@ export default function Checkout() {
         
         console.log('[WEB_CHECKOUT] Select provider payload:', selectPayload);
         
-        const { data: providerData, error: providerError } = await supabase.functions.invoke(
-          'select-payment-provider',
-          { body: selectPayload }
-        );
+        let providerData: any = null;
+        try {
+          const providerResponse = await supabase.functions.invoke(
+            'select-payment-provider',
+            { body: selectPayload }
+          );
+          providerData = providerResponse.data;
+          const providerError = providerResponse.error;
+          
+          console.log('[WEB_CHECKOUT] Provider selection response:', { providerData, providerError });
+          
+          if (providerError) {
+            console.error('[WEB_CHECKOUT] Provider invoke error:', providerError);
+            // Don't throw - the USSD may have been sent. Check if we got usable data.
+            if (!providerData?.order_id && !providerData?.success) {
+              throw new Error(providerData?.message || providerError?.message || 'Failed to initiate payment');
+            }
+          }
+        } catch (invokeErr: any) {
+          console.error('[WEB_CHECKOUT] Provider invoke exception:', invokeErr);
+          // If we have no provider data at all, show error gracefully via toast, don't crash
+          if (!providerData) {
+            toast({
+              title: shop.paymentError || 'Payment Error',
+              description: invokeErr?.message || 'Failed to contact payment provider. Please try again.',
+              variant: 'destructive',
+            });
+            setLoading(false);
+            return;
+          }
+        }
         
-        console.log('[WEB_CHECKOUT] Provider selection response:', { providerData, providerError });
-        
-        if (providerError || providerData?.error) {
-          console.error('[WEB_CHECKOUT] Provider selection error:', providerError || providerData);
-          throw new Error(providerData?.message || providerError?.message || 'Failed to initiate payment');
+        if (providerData?.error && !providerData?.success) {
+          console.error('[WEB_CHECKOUT] Provider response error:', providerData);
+          throw new Error(providerData?.message || 'Failed to initiate payment');
         }
         
         if (providerData?.provider === 'pawapay' && providerData?.status === 'pending_user_confirmation') {

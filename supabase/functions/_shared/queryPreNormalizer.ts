@@ -40,7 +40,7 @@ function depluralize(token: string): string {
 export type InferredCategory =
   | "clothing" | "phones" | "electronics" | "vehicles" | "gaming"
   | "home_garden" | "toys" | "sporting_goods" | "jewelry_watches"
-  | "refurbished" | "parts_accessories" | null;
+  | "refurbished" | "parts_accessories" | "beauty" | null;
 
 export interface PreNormalizeResult {
   effectiveQuery: string;
@@ -238,6 +238,23 @@ const PARTS_PHRASES: Record<string, string> = {
   "housse": "case", "etui": "case",
 };
 
+const BEAUTY_PHRASES: Record<string, string> = {
+  "creme visage": "face cream", "creme": "cream", "creme corps": "body cream",
+  "creme hydratante": "moisturizer", "creme solaire": "sunscreen",
+  "maquillage": "makeup", "fond teint": "foundation",
+  "rouge levre": "lipstick", "mascara": "mascara",
+  "vernis ongle": "nail polish", "vernis": "nail polish",
+  "shampooing": "shampoo", "shampoing": "shampoo",
+  "apres shampooing": "conditioner", "apres shampoing": "conditioner",
+  "savon": "soap", "gel douche": "shower gel",
+  "deodorant": "deodorant", "lotion": "lotion",
+  "huile cheveux": "hair oil", "huile corps": "body oil",
+  "serum visage": "face serum", "serum": "serum",
+  "masque visage": "face mask", "masque cheveux": "hair mask",
+  "beurre karite": "shea butter", "karite": "shea butter",
+  "lait corporel": "body lotion", "lait corps": "body lotion",
+};
+
 // ─── Token detection sets (for fallback when no phrase matches) ──────────────
 
 const PHONE_BRANDS = new Set([
@@ -278,6 +295,7 @@ const CATEGORY_DEFS: CategoryDef[] = [
   { key: "electronics", phrases: ELECTRONICS_PHRASES, tokens: ELECTRONICS_TOKENS, keepQuery: true },
   { key: "home_garden", phrases: HOME_GARDEN_PHRASES },
   { key: "jewelry_watches", phrases: JEWELRY_PHRASES },
+  { key: "beauty", phrases: BEAUTY_PHRASES },
   { key: "toys", phrases: TOYS_PHRASES },
   { key: "sporting_goods", phrases: SPORTS_PHRASES },
   { key: "refurbished", phrases: REFURBISHED_PHRASES },
@@ -297,12 +315,28 @@ function tryPhraseMatch(
   phrases: Record<string, string>,
   joined: string,
   depluralJoined: string,
-): string | null {
+): { translated: string; matchedPhrase: string } | null {
   // Sort by key length desc so multi-word phrases match first
   const sorted = Object.keys(phrases).sort((a, b) => b.length - a.length);
   for (const phrase of sorted) {
-    if (joined === phrase || depluralJoined === phrase) return phrases[phrase];
-    if (joined.includes(phrase) || depluralJoined.includes(phrase)) return phrases[phrase];
+    if (joined === phrase || depluralJoined === phrase) {
+      return { translated: phrases[phrase], matchedPhrase: phrase };
+    }
+    // Partial match: replace the matched phrase and preserve remaining tokens
+    if (joined.includes(phrase)) {
+      const remaining = joined.replace(phrase, "").replace(/\s+/g, " ").trim();
+      const translated = remaining
+        ? `${remaining} ${phrases[phrase]}`
+        : phrases[phrase];
+      return { translated, matchedPhrase: phrase };
+    }
+    if (depluralJoined.includes(phrase)) {
+      const remaining = depluralJoined.replace(phrase, "").replace(/\s+/g, " ").trim();
+      const translated = remaining
+        ? `${remaining} ${phrases[phrase]}`
+        : phrases[phrase];
+      return { translated, matchedPhrase: phrase };
+    }
   }
   return null;
 }
@@ -352,11 +386,11 @@ export function preNormalizeQuery(
     const phraseMatch = tryPhraseMatch(def.phrases, joined, depluralJoined);
     if (phraseMatch) {
       return {
-        effectiveQuery: phraseMatch,
+        effectiveQuery: phraseMatch.translated,
         inferredCategory: def.key,
         skipAI: true,
         matched: true,
-        matchRule: `${def.key}:phrase:${phraseMatch}`,
+        matchRule: `${def.key}:phrase:${phraseMatch.matchedPhrase}`,
         qNormalizedNoStops: joined,
       };
     }

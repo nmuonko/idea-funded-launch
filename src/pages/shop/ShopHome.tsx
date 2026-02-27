@@ -313,31 +313,40 @@ export default function ShopHome() {
   // Store-filtered products (flat grid from DB)
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
   const [storeProductsLoading, setStoreProductsLoading] = useState(false);
+  const [storeTotalCount, setStoreTotalCount] = useState(0);
 
   // Fetch all products for a specific store from the DB
   useEffect(() => {
     if (!providerFilter || providerFilter === 'all') {
       setStoreProducts([]);
+      setStoreTotalCount(0);
       return;
     }
-    const providerKey = providerFilter === 'amazon' ? 'amazon' : providerFilter;
+
+    const providerKeys =
+      providerFilter === 'amazon'
+        ? ['rainforest', 'amazon']
+        : [providerFilter];
+
     setStoreProductsLoading(true);
     (async () => {
       try {
-        const { data, error } = await supabase
+        const { data, error, count } = await supabase
           .from('catalog_items')
-          .select('id, provider, provider_product_id, title, image_url, product_url, price_usd, rating, in_stock')
-          .eq('provider', providerKey)
+          .select('id, provider, provider_product_id, title, image_url, product_url, price_usd, rating, in_stock', { count: 'exact' })
+          .in('provider', providerKeys)
           .eq('is_active', true)
           .eq('is_disallowed', false)
           .not('image_url', 'is', null)
           .gt('price_usd', 0)
           .order('first_seen_at', { ascending: false })
           .limit(200);
+
         if (error) throw error;
+
         const mapped = (data || []).map((item: any): Product => ({
           id: item.provider_product_id || item.id,
-          provider: item.provider || providerKey,
+          provider: item.provider || providerFilter,
           title: item.title || 'Product',
           imageUrl: item.image_url || '',
           priceUsd: item.price_usd || 0,
@@ -345,10 +354,13 @@ export default function ShopHome() {
           inStock: item.in_stock !== false,
           productUrl: item.product_url,
         }));
+
         setStoreProducts(mapped);
+        setStoreTotalCount(count ?? mapped.length);
       } catch (err) {
-        console.warn(`[ShopHome] Store fetch for ${providerKey} failed:`, err);
+        console.warn(`[ShopHome] Store fetch for ${providerFilter} failed:`, err);
         setStoreProducts([]);
+        setStoreTotalCount(0);
       } finally {
         setStoreProductsLoading(false);
       }
@@ -981,7 +993,7 @@ export default function ShopHome() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-white/90">
-                    {providerFilter.charAt(0).toUpperCase() + providerFilter.slice(1)} — {storeProducts.length} {language === 'fr' ? 'produits' : 'products'}
+                    {providerFilter.charAt(0).toUpperCase() + providerFilter.slice(1)} — {storeTotalCount.toLocaleString()} {language === 'fr' ? 'produits' : 'products'}
                   </h2>
                 </div>
                 <SectionBlock

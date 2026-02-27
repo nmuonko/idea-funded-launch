@@ -115,6 +115,7 @@ export default function SearchResults() {
     { value: 'all', label: language === 'fr' ? 'Tous' : 'All' },
     { value: 'amazon', label: 'Amazon' },
     { value: 'ebay', label: 'eBay' },
+    { value: 'shein', label: 'SHEIN' },
     { value: 'cargurus', label: 'CarGurus' },
     { value: 'carvana', label: 'Carvana' },
   ];

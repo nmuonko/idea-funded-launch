@@ -329,6 +329,25 @@ function scoreOne(
       if (queryHasTech && hasAny(title, FURNITURE_KW) && !hasAny(title, ["laptop","computer","monitor","tablet","phone","camera","printer","keyboard"])) {
         return null; // Drop furniture from tech searches
       }
+
+      // Hard-drop computer accessories when user intent is computer/laptop device search
+      const COMPUTER_DEVICE_TOKENS = ["laptop", "computer", "ordinateur", "notebook", "macbook", "pc", "desktop", "chromebook", "thinkpad"];
+      const COMPUTER_ACCESSORY_KW = [
+        "mouse", "wireless mouse", "optical mouse", "keyboard", "mouse pad", "laptop stand", "monitor stand",
+        "dock", "docking station", "usb hub", "adapter", "charger", "cable", "webcam", "headset",
+        "case", "cover", "sleeve", "replacement", "spare part", "video signal cable",
+      ];
+      const COMPUTER_DEVICE_SIGNALS = [
+        "laptop", "notebook", "macbook", "chromebook", "thinkpad", "ultrabook", "desktop computer",
+        "all-in-one", "intel core", "ryzen", "ssd", "ram", "windows", "dell latitude", "hp elitebook",
+        "lenovo", "asus", "acer", "msi",
+      ];
+      const queryHasComputerIntent = qTokens.some(tok => COMPUTER_DEVICE_TOKENS.includes(tok));
+      if (queryHasComputerIntent) {
+        const hasAccessory = hasAny(title, COMPUTER_ACCESSORY_KW);
+        const hasDeviceSignal = hasAny(title, COMPUTER_DEVICE_SIGNALS);
+        if (hasAccessory && !hasDeviceSignal) return null;
+      }
       break;
     }
   }

@@ -81,24 +81,31 @@ export function filterCachedItems(
   catalogFilters: any,
   requestId: string,
   intentKey?: string,
+  qNorm?: string,
 ): any[] {
   let result = items;
 
-  // ── Intent-based scoring (gaming, phone_device, vehicle_listing) ──
-  if (intentKey && intentKey !== "general" && result.length > 0) {
-    // Build a minimal SearchIntent object from the intentKey
+  // ── Intent-based scoring (including general) with real query tokens ──
+  if (result.length > 0) {
+    const resolvedIntentKey = intentKey || "general";
     const intent: SearchIntent = {
-      intentKey,
-      vehicleListingIntent: intentKey === "vehicle_listing",
-      vehiclePartsIntent: intentKey === "vehicle_parts",
-      phoneDeviceIntent: intentKey === "phone_device",
+      intentKey: resolvedIntentKey,
+      vehicleListingIntent: resolvedIntentKey === "vehicle_listing",
+      vehiclePartsIntent: resolvedIntentKey === "vehicle_parts",
+      phoneDeviceIntent: resolvedIntentKey === "phone_device",
+      phoneAccessoryIntent: resolvedIntentKey === "phone_accessory",
+      isHeavyEquipment: resolvedIntentKey === "heavy_equipment",
     };
-    const queryTokens: string[] = []; // No query tokens needed — scorer uses title-based rules
+    const queryTokens: string[] = (qNorm || "")
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((t) => t.length >= 2);
+
     const before = result.length;
     const scored = scoreAndRankItems(result, intent, queryTokens, result.length);
     result = scored.items;
     if (before !== result.length) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_intent_filter(${intentKey}): ${before} → ${result.length} (dropped=${scored.dropped})`);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_intent_filter(${resolvedIntentKey}): ${before} → ${result.length} (dropped=${scored.dropped})`);
     }
   }
 

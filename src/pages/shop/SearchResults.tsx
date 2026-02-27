@@ -436,11 +436,24 @@ export default function SearchResults() {
       const data = await cachedCatalogFetch<any>('catalog-search', params, { skipCache: true });
       if (token !== activeSearchTokenRef.current) return;
 
-      // Page-0 revalidation should replace the full primary list, not append.
-      // This guarantees stale cached mismatches are fully corrected.
-      seenIdsRef.current = new Set();
-      const freshDeduped = dedupeWithSet(mapItems(data?.items || []), seenIdsRef.current);
-      setAllProducts(freshDeduped);
+      // Page-0 revalidation: merge fresh results with existing (preserving broadened items).
+      // Only replace if fresh data is substantially better (more items) to prevent flickering.
+      const freshMapped = mapItems(data?.items || []);
+      setAllProducts(prev => {
+        // If fresh data has more or equal items, use it as the base
+        if (freshMapped.length >= prev.length) {
+          const freshSeenIds = new Set<string>();
+          const freshDeduped = dedupeWithSet(freshMapped, freshSeenIds);
+          seenIdsRef.current = freshSeenIds;
+          return freshDeduped;
+        }
+        // Otherwise merge: keep existing, add any new fresh items
+        const mergedSeenIds = new Set<string>();
+        const existing = dedupeWithSet([...prev], mergedSeenIds);
+        const newFromFresh = dedupeWithSet(freshMapped, mergedSeenIds);
+        seenIdsRef.current = mergedSeenIds;
+        return [...existing, ...newFromFresh];
+      });
 
       if (token === activeSearchTokenRef.current) {
         const backendHasMore = data?.hasMore === true;

@@ -13,9 +13,10 @@ interface SectionBlockProps {
   mode?: 'scroll' | 'grid' | 'static-grid';
   categoryKey?: string;
   seeAllLink?: string;
+  maxItems?: number;
 }
 
-export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll', categoryKey, seeAllLink }: SectionBlockProps) {
+export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll', categoryKey, seeAllLink, maxItems = 16 }: SectionBlockProps) {
   const { language } = useLanguage();
 
   // For grid mode, always render (show loading skeleton if empty)
@@ -34,6 +35,8 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
   }
 
   if (mode === 'static-grid') {
+    const visibleItems = items.slice(0, Math.max(1, maxItems));
+
     const getProductLink = (product: Product) => {
       const provider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider?.toLowerCase();
       let pid = product.id;
@@ -57,7 +60,7 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
           </div>
         )}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 xl:grid-cols-8 gap-2">
-          {items.slice(0, 16).map((product, idx) => (
+          {visibleItems.map((product, idx) => (
             <Link
               key={`${product.id}-${idx}`}
               to={getProductLink(product)}
@@ -70,6 +73,10 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
                   alt={product.title}
                   className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105"
                   loading="lazy"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = '/placeholder.svg';
+                  }}
                 />
               </div>
               <p className="mt-1 text-[11px] text-white/70 line-clamp-2 leading-tight">

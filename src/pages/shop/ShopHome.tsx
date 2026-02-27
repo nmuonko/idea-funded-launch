@@ -236,6 +236,30 @@ const mapSearchItemToProduct = (item: any): Product => ({
 
 const isValidProduct = (p: Product) => p.id && p.priceUsd > 0 && p.imageUrl;
 
+const isRenderableImageUrl = (url?: string | null): boolean => {
+  if (!url || typeof url !== 'string') return false;
+  const lower = url.toLowerCase();
+  if (!lower.startsWith('http')) return false;
+  if (lower.includes('.html')) return false;
+  if (lower.includes('site-cars/merchandising') || lower.includes('heliosconditionaltiles')) return false;
+  if (lower.endsWith('.svg') || lower.endsWith('.gif')) return false;
+  return true;
+};
+
+const extractFirstImageFromJson = (images: any): string | null => {
+  if (!Array.isArray(images)) return null;
+  for (const img of images) {
+    if (typeof img === 'string' && isRenderableImageUrl(img)) return img;
+    if (img && typeof img === 'object') {
+      const candidates = [img.url, img.image, img.src, img.large, img.hiRes, img.hi_res, img.main];
+      for (const candidate of candidates) {
+        if (typeof candidate === 'string' && isRenderableImageUrl(candidate)) return candidate;
+      }
+    }
+  }
+  return null;
+};
+
 /** Run async tasks with a concurrency limit */
 async function runWithConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
   const results: T[] = [];
@@ -317,6 +341,8 @@ export default function ShopHome() {
 
   // Fetch all products for a specific store from the DB
   useEffect(() => {
+    let cancelled = false;
+
     if (!providerFilter || providerFilter === 'all') {
       setStoreProducts([]);
       setStoreTotalCount(0);
@@ -331,40 +357,72 @@ export default function ShopHome() {
     setStoreProductsLoading(true);
     (async () => {
       try {
-        const { data, error, count } = await supabase
-          .from('catalog_items')
-          .select('id, provider, provider_product_id, title, image_url, product_url, price_usd, rating, in_stock', { count: 'exact' })
-          .in('provider', providerKeys)
-          .eq('is_active', true)
-          .eq('is_disallowed', false)
-          .not('image_url', 'is', null)
-          .gt('price_usd', 0)
-          .order('first_seen_at', { ascending: false })
-          .limit(200);
+        const pageSize = 1000;
+        let from = 0;
+        let totalCount = 0;
+        let allRows: any[] = [];
 
-        if (error) throw error;
+        while (true) {
+          const isFirstPage = from === 0;
+          const baseQuery = supabase
+            .from('catalog_items')
+            .select(
+              'id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock',
+              isFirstPage ? { count: 'exact' } : undefined
+            )
+            .in('provider', providerKeys)
+            .eq('is_active', true)
+            .eq('is_disallowed', false)
+            .gt('price_usd', 0)
+            .order('first_seen_at', { ascending: false })
+            .range(from, from + pageSize - 1);
 
-        const mapped = (data || []).map((item: any): Product => ({
-          id: item.provider_product_id || item.id,
-          provider: item.provider || providerFilter,
-          title: item.title || 'Product',
-          imageUrl: item.image_url || '',
-          priceUsd: item.price_usd || 0,
-          rating: item.rating,
-          inStock: item.in_stock !== false,
-          productUrl: item.product_url,
-        }));
+          const { data, error, count } = await baseQuery;
+          if (error) throw error;
 
+          if (isFirstPage) totalCount = count ?? 0;
+
+          const rows = data || [];
+          if (rows.length === 0) break;
+
+          allRows = allRows.concat(rows);
+          from += pageSize;
+
+          if (rows.length < pageSize) break;
+          if (from >= 5000) break;
+        }
+
+        const mapped = allRows.map((item: any): Product => {
+          const fallbackImage = extractFirstImageFromJson(item.images);
+          const preferred = isRenderableImageUrl(item.image_url) ? item.image_url : fallbackImage;
+          return {
+            id: item.provider_product_id || item.id,
+            provider: item.provider || providerFilter,
+            title: item.title || 'Product',
+            imageUrl: preferred || '/placeholder.svg',
+            priceUsd: item.price_usd || 0,
+            rating: item.rating,
+            inStock: item.in_stock !== false,
+            productUrl: item.product_url,
+          };
+        });
+
+        if (cancelled) return;
         setStoreProducts(mapped);
-        setStoreTotalCount(count ?? mapped.length);
+        setStoreTotalCount(totalCount || mapped.length);
       } catch (err) {
         console.warn(`[ShopHome] Store fetch for ${providerFilter} failed:`, err);
+        if (cancelled) return;
         setStoreProducts([]);
         setStoreTotalCount(0);
       } finally {
-        setStoreProductsLoading(false);
+        if (!cancelled) setStoreProductsLoading(false);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [providerFilter]);
 
   /** Client-side provider filter helper */
@@ -999,6 +1057,7 @@ export default function ShopHome() {
                 <SectionBlock
                   items={storeProducts}
                   mode="static-grid"
+                  maxItems={storeProducts.length}
                 />
               </div>
             )

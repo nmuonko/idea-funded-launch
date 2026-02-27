@@ -43,7 +43,7 @@ const corsHeaders = {
 
 function buildDiagHeaders(opts: {
   variantsCache: "HIT" | "MISS" | "SKIP";
-  provider: "amazon" | "ebay";
+  provider: string;
   upstreamMs: number;
   totalMs: number;
   source: string;
@@ -432,7 +432,7 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
   }
   
   // Set external provider
-  externalProvider = provider === "ebay" ? "ebay" : "amazon";
+  externalProvider = provider || "amazon";
 
   // Normalize ASIN to uppercase for amazon
   if (provider === "amazon" && productId) {
@@ -692,6 +692,7 @@ Deno.serve(async (req: Request) => {
         productId = decodeURIComponent(String(body.id));
         rawId = provider && productId ? `${provider}:${productId}` : productId;
       }
+      externalProvider = provider || externalProvider;
       console.log(`[CATALOG_PRODUCT] start correlationId=${correlationId} method=POST provider=${provider} idRaw=${productId?.substring(0, 40)}`);
     } catch {
       // Fall through to GET params
@@ -741,10 +742,10 @@ Deno.serve(async (req: Request) => {
   if (idError) return errorResponse("INVALID_ID", idError);
   if (!productId) return errorResponse("MISSING_ID", "Product ID is required");
   
-  // Accept amazon, rainforest, ebay - normalize amazon to rainforest for internal use
-  const SUPPORTED_PROVIDERS = ["amazon", "rainforest", "ebay"];
+  // Accept amazon/rainforest/ebay plus DB-only providers
+  const SUPPORTED_PROVIDERS = ["amazon", "rainforest", "ebay", "shein", "cargurus", "carvana"];
   if (provider && !SUPPORTED_PROVIDERS.includes(provider)) {
-    return errorResponse("PROVIDER_NOT_SUPPORTED", `Provider '${provider}' not supported. Use 'amazon' or 'ebay'.`);
+    return errorResponse("PROVIDER_NOT_SUPPORTED", `Provider '${provider}' not supported.`);
   }
 
   // Internal provider: amazon -> rainforest for DB lookups
@@ -758,9 +759,14 @@ Deno.serve(async (req: Request) => {
     const db = createAdminPostgrestClient();
 
     // ========== VARIANTS CACHE HELPER ==========
-    const variantsSource = internalProvider === "rainforest" ? "amazon" : "ebay";
+    const variantsSource = internalProvider === "rainforest"
+      ? "amazon"
+      : internalProvider === "ebay"
+        ? "ebay"
+        : null;
     
     async function getCachedVariants(): Promise<CatalogItem["variants"] | null> {
+      if (!variantsSource) return null;
       try {
         const { data } = await db
           .from("product_variants_cache")
@@ -777,6 +783,7 @@ Deno.serve(async (req: Request) => {
     }
 
     async function cacheVariants(variants: CatalogItem["variants"]): Promise<void> {
+      if (!variantsSource) return;
       if (!variants || variants.length === 0) return;
       const ttlDays = variantsSource === "amazon" ? 7 : 2;
       const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
@@ -1013,10 +1020,15 @@ Deno.serve(async (req: Request) => {
         error: null,
       }), {
         status: 200,
-        headers: buildDiagHeaders({ variantsCache: variantsCacheStatus, provider: externalProvider as "amazon" | "ebay", upstreamMs: 0, totalMs: Date.now() - startTime, source: `db+variants_${variantsCacheStatus.toLowerCase()}` }),
+        headers: buildDiagHeaders({ variantsCache: variantsCacheStatus, provider: externalProvider, upstreamMs: 0, totalMs: Date.now() - startTime, source: `db+variants_${variantsCacheStatus.toLowerCase()}` }),
       });
     }
     
+    // DB-only providers (SHEIN/CarGurus/Carvana): no live fallback
+    if (internalProvider !== "rainforest" && internalProvider !== "ebay") {
+      return errorResponse("NOT_FOUND", `Product not found for provider '${internalProvider}'.`);
+    }
+
     console.log(`[DETAIL_DB] correlationId=${correlationId} miss, fetching_live...`);
 
     // ========== FALLBACK: Legacy catalog_products (Rainforest only) ==========

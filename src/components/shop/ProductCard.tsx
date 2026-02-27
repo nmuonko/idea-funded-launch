@@ -100,8 +100,7 @@ export function ProductCard({ product, className, compact = false, coverImage = 
   const getProviderForUrl = (): string => {
     const provider = product.provider.toLowerCase();
     if (provider === 'rainforest') return 'amazon';
-    if (provider === 'amazon' || provider === 'ebay') return provider;
-    return 'amazon';
+    return provider;
   };
 
   return (

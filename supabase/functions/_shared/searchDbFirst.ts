@@ -95,18 +95,19 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
   }
 
   const DB_MIN_RESULTS = policy.dbMinResults;
-  const TARGET_RESULTS = 200; // Target for expansion tiers — increased from 100 to pull more from 75K+ cached catalog
+  const TARGET_RESULTS = 400; // Target for expansion tiers — pull broadly from 200K+ cached catalog
 
-  // Build tokens from primary query
+  // Build tokens from primary query — use only top 2 longest tokens
+  // to cast a wider net (3 tokens is too restrictive for most queries)
   const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2);
-  const topTokens = [...searchTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);
+  const topTokens = [...searchTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 2);
 
   if (topTokens.length === 0) {
     return { items: null, fallbackItems: null, dbCount: 0, durationMs: Date.now() - dbStartMs, tier: "none", fuzzyUsed: false, expansionUsed: false };
   }
 
   // ─── TIER A: Token ilike match (fast, indexed) ─────────────────────────────
-  const tierAItems = await tierASearch(supabase, topTokens, categoryKey, Math.max(limit, 500), requestId, offset);
+  const tierAItems = await tierASearch(supabase, topTokens, categoryKey, Math.max(limit, 800), requestId, offset);
   const tierACount = tierAItems.length;
   console.log(`[CATALOG_SEARCH] requestId=${requestId} db_tier_A q="${qNorm}" tokens=${JSON.stringify(topTokens)} count=${tierACount} minRequired=${DB_MIN_RESULTS}`);
 
@@ -121,7 +122,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
 
   // ─── TIER B: Fuzzy pg_trgm similarity (typo-tolerant) ─────────────────────
   const elapsed = Date.now() - dbStartMs;
-  if (elapsed < 350) { // Only if we have time budget
+  if (elapsed < 500) { // Only if we have time budget
     const tierBItems = await tierBFuzzySearch(supabase, qNorm, categoryKey, limit, requestId);
     // Merge and dedupe with Tier A
     const seenIds = new Set(tierAItems.map((i: any) => i.id));
@@ -141,20 +142,20 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
 
     // ─── TIER C: Query expansion ──────────────────────────────────────────────
     const elapsed2 = Date.now() - dbStartMs;
-    if (elapsed2 < 400 && mergedCount < TARGET_RESULTS) {
+    if (elapsed2 < 600 && mergedCount < TARGET_RESULTS) {
       const expansionQueries = generateExpansionQueries(qNorm);
       let pool = [...mergedAB];
       const poolIds = new Set(pool.map((i: any) => i.id));
 
       for (const eq of expansionQueries) {
         if (pool.length >= TARGET_RESULTS) break;
-        if (Date.now() - dbStartMs > 450) break;
+        if (Date.now() - dbStartMs > 700) break;
 
         const eqTokens = eq.split(/\s+/).filter((t: string) => t.length >= 2);
         const eqTop = [...eqTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);
         if (eqTop.length === 0) continue;
 
-        const exItems = await tierASearch(supabase, eqTop, categoryKey, 50, requestId);
+        const exItems = await tierASearch(supabase, eqTop, categoryKey, 200, requestId);
         const newItems = exItems.filter((i: any) => !poolIds.has(i.id));
         newItems.forEach((i: any) => poolIds.add(i.id));
         pool = [...pool, ...newItems];
@@ -248,7 +249,7 @@ async function tierBFuzzySearch(
       p_query: qNorm,
       p_min_price: 0,
       p_max_price: null,
-      p_limit: Math.min(limit, 50),
+      p_limit: Math.min(limit, 200),
     });
 
     if (error) {
@@ -340,13 +341,13 @@ function generateExpansionQueries(qNorm: string): string[] {
           results.push(q);
           seen.add(q);
         }
-        if (results.length >= 5) break;
+        if (results.length >= 8) break;
       }
     }
-    if (results.length >= 5) break;
+    if (results.length >= 8) break;
   }
 
-  return results.slice(0, 5);
+  return results.slice(0, 8);
 }
 
 function escapeRegex(str: string): string {

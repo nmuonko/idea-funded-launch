@@ -3,7 +3,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { getTranslation } from '@/lib/i18n/translations';
 import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher';
 import { SUPPORT_WHATSAPP_E164 } from '@/lib/supportConfig';
-import { Download, Globe, MessageCircle, Sparkles } from 'lucide-react';
+import { Globe, MessageCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import afrishopLogo from '@/assets/afrishop-logo.png';
 import { motion } from 'framer-motion';
@@ -98,9 +98,9 @@ export default function GetApp() {
     <div className="min-h-screen bg-[hsl(222,47%,5%)] text-white flex flex-col items-center justify-center px-4 py-8 relative overflow-hidden">
       {/* Ambient glow effects */}
       <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-gradient-to-b from-orange-500/12 via-yellow-500/5 to-transparent rounded-full blur-3xl" />
-        <div className="absolute bottom-0 left-1/4 w-[300px] h-[300px] bg-blue-500/5 rounded-full blur-3xl" />
-        <div className="absolute top-1/3 right-0 w-[200px] h-[400px] bg-orange-500/5 rounded-full blur-3xl" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-gradient-to-b from-blue-500/12 via-cyan-500/5 to-transparent rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-1/4 w-[300px] h-[300px] bg-blue-400/5 rounded-full blur-3xl" />
+        <div className="absolute top-1/3 right-0 w-[200px] h-[400px] bg-cyan-500/5 rounded-full blur-3xl" />
       </div>
 
       {/* Floating language switcher */}
@@ -122,12 +122,14 @@ export default function GetApp() {
           className="flex justify-center"
         >
           <div className="relative">
-            <div className="absolute -inset-3 bg-gradient-to-br from-orange-500/20 to-yellow-500/10 rounded-3xl blur-xl" />
-            <img
-              src={afrishopLogo}
-              alt="AfriShop"
-              className="relative w-24 h-24 rounded-2xl shadow-2xl shadow-orange-500/10 brightness-0 invert"
-            />
+            <div className="absolute -inset-4 bg-gradient-to-br from-blue-500/20 to-cyan-400/10 rounded-[28px] blur-xl" />
+            <div className="relative w-28 h-28 rounded-[22px] bg-[hsl(222,30%,10%)] border border-white/[0.08] shadow-2xl shadow-blue-500/10 flex items-center justify-center overflow-hidden">
+              <img
+                src={afrishopLogo}
+                alt="AfriShop"
+                className="w-[85%] h-[85%] object-contain brightness-0 invert"
+              />
+            </div>
           </div>
         </motion.div>
 
@@ -138,7 +140,7 @@ export default function GetApp() {
           transition={{ duration: 0.5, delay: 0.2 }}
           className="space-y-3"
         >
-          <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-orange-300 via-yellow-300 to-orange-400 bg-clip-text text-transparent">
+          <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-blue-300 via-cyan-300 to-blue-400 bg-clip-text text-transparent">
             {dl?.title || 'Get AfriShop'}
           </h1>
           <p className="text-white/50 text-base sm:text-lg leading-relaxed">
@@ -155,11 +157,13 @@ export default function GetApp() {
         >
           <a
             href={PLAY_STORE_URL}
-            className="group relative flex items-center justify-center gap-2.5 w-full py-4 px-6 bg-gradient-to-r from-orange-500 to-yellow-500 text-black font-bold rounded-2xl transition-all shadow-lg shadow-orange-500/25 hover:shadow-orange-500/40 hover:scale-[1.02] active:scale-[0.98]"
+            className="group relative flex items-center justify-center gap-2.5 w-full py-4 px-6 bg-gradient-to-r from-emerald-500 to-green-500 text-white font-bold rounded-2xl transition-all shadow-lg shadow-green-500/25 hover:shadow-green-500/40 hover:scale-[1.02] active:scale-[0.98]"
           >
-            <Download className="w-5 h-5" />
+            {/* Android robot icon */}
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h2v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V8H6v10zM3.5 8C2.67 8 2 8.67 2 9.5v7c0 .83.67 1.5 1.5 1.5S5 17.33 5 16.5v-7C5 8.67 4.33 8 3.5 8zm17 0c-.83 0-1.5.67-1.5 1.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7c0-.83-.67-1.5-1.5-1.5zm-4.97-5.84l1.3-1.3c.2-.2.2-.51 0-.71-.2-.2-.51-.2-.71 0l-1.48 1.48C13.85 1.23 12.95 1 12 1c-.96 0-1.86.23-2.66.63L7.85.15c-.2-.2-.51-.2-.71 0-.2.2-.2.51 0 .71l1.31 1.31C6.97 3.26 6 5.01 6 7h12c0-1.99-.97-3.75-2.47-4.84zM10 5H9V4h1v1zm5 0h-1V4h1v1z"/>
+            </svg>
             {dl?.androidButton || 'Download Android App'}
-            <Sparkles className="w-4 h-4 opacity-60" />
           </a>
 
           <a

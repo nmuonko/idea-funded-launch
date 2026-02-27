@@ -115,7 +115,6 @@ function scoreOne(
     if (SCORING_STOPLIST.has(tok)) continue;
     if (tokenMatchesBoundary(title, tok)) score += 2;
   }
-  }
 
   // ── INTENT-SPECIFIC SCORING ─────────────────────────────────────────
   switch (intent.intentKey) {

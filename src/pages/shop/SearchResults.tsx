@@ -378,6 +378,16 @@ export default function SearchResults() {
         }, 500);
       }
 
+      // Force a fresh revalidation when page-0 comes from cache for typed search queries.
+      // This prevents stale/misclassified cached results (e.g. old "ordinateur" cache) from sticking.
+      if (pageNum === 0 && !append && fromCache && query.trim().length >= 2) {
+        const capturedToken = token ?? activeSearchTokenRef.current;
+        revalidateTimerRef.current = setTimeout(() => {
+          if (capturedToken !== activeSearchTokenRef.current) return;
+          revalidateInBackground(capturedToken);
+        }, 100);
+      }
+
       const fetchResult = { returnedCount, backendHasMore, incomplete: isIncomplete };
       
       if (!controller.signal.aborted) {
@@ -423,30 +433,20 @@ export default function SearchResults() {
     setPrefetchingNext(true);
     try {
       const params = buildSearchParams(0);
-      const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search`);
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== '') {
-          url.searchParams.set(key, String(value));
-        }
-      });
-      const response = await fetch(url.toString(), {
-        method: 'GET',
-        headers: {
-          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-      });
+      const data = await cachedCatalogFetch<any>('catalog-search', params, { skipCache: true });
       if (token !== activeSearchTokenRef.current) return;
-      if (!response.ok) return;
 
-      const data = await response.json();
-      const mappedProducts = mapItems(data?.items || []);
-      const newUnique = dedupeWithSet(mappedProducts, seenIdsRef.current);
+      // Page-0 revalidation should replace the full primary list, not append.
+      // This guarantees stale cached mismatches are fully corrected.
+      seenIdsRef.current = new Set();
+      const freshDeduped = dedupeWithSet(mapItems(data?.items || []), seenIdsRef.current);
+      setAllProducts(freshDeduped);
 
-      if (newUnique.length > 0 && token === activeSearchTokenRef.current) {
-        setAllProducts(prev => [...prev, ...newUnique]);
+      if (token === activeSearchTokenRef.current) {
+        const backendHasMore = data?.hasMore === true;
+        const isIncomplete = !!data?.incomplete || !!data?.partial;
+        setHasMore(backendHasMore || isIncomplete);
+        setIncomplete(isIncomplete);
       }
 
       if (token === activeSearchTokenRef.current) {

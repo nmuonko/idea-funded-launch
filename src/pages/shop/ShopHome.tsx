@@ -280,6 +280,10 @@ const deriveProviderImageFallback = (provider: string, providerProductId?: strin
   if (p === 'carvana') {
     return `https://vexgateway.fastly.carvana.io/${providerProductId}/standardizedHero.jpg?width=800`;
   }
+  if (p === 'shein' && providerProductId.startsWith('p')) {
+    const numericId = providerProductId.substring(1);
+    return `https://img.ltwebstatic.com/images3_pi/2024/01/01/00/${numericId}_thumbnail_900x.webp`;
+  }
   return null;
 };
 

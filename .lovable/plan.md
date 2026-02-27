@@ -1,103 +1,93 @@
 
-## Goal
-Make search reliably return relevant items for French/local-language queries (example: **“haut talon”** should show high heels, not cars/tires/wheels), while keeping results dynamic and fast.
+# Fix SHEIN, CarGurus & Carvana: Scraping Volume + Missing Images
 
-## What I found
-1. The backend currently has polluted cache entries for fashion queries:
-   - Query `heels` has cached results containing many **“hot wheels” / wheel / car** items.
-2. Main technical cause:
-   - In backend relevance scoring, token matching uses substring logic (`title.includes(token)`), so:
-     - `heels` matches `wheels`
-     - `high` matches many unrelated titles
-   - This inflates irrelevant results and then they get cached.
-3. Additional risk:
-   - “near-match cache” lookup currently does not strictly enforce same intent/category/provider before reusing cached responses, so contamination can spread.
-4. Translation path is mostly correct for French terms like `haut talon` (map has `haut talon -> high heels`), but downstream ranking/cache contamination still breaks output quality.
+## Problems Identified
+
+1. **Cron jobs are silently failing (auth rejection)**: All 3 cron jobs (`shein-scraper-15m`, `car-scraper-cargurus-15m`, `car-scraper-carvana-15m`) pass the **anon key** as `Authorization: Bearer`, but the scrapers require either a `x-cron-secret` header or admin-level JWT. The anon key fails the admin check, so scrapers return 401 on every cron run. This is why SHEIN has only 6 items and car providers have limited items.
+
+2. **SHEIN images are bad quality**: The 6 SHEIN items in the DB have image URLs that are either banner thumbnails (`_thumbnail_126x.webp`) or even HTML page URLs stored as `image_url`. The frontend's `isRenderableImageUrl` filter correctly rejects these, showing broken/placeholder images.
+
+3. **CarGurus/Carvana missing images**: ~40% of car listings have empty `image_url` because Firecrawl's markdown response doesn't always contain embedded images. The frontend has a Carvana hero URL derivation but only for Carvana, not for CarGurus.
 
 ---
 
-## Implementation plan
+## Implementation Plan
 
-### 1) Fix core relevance matching in backend scorer (highest impact)
-**Files:**
-- `supabase/functions/_shared/searchIntentScorer.ts`
+### Step 1: Fix cron job authentication (root cause)
 
-**Changes:**
-- Replace raw substring token scoring with **word-boundary token matching**.
-  - Prevent `heels` matching `wheels`.
-- Add a small **generic-token stoplist** for scoring (e.g. `high`, `low`, etc.) so weak adjectives don’t dominate relevance.
-- Update “general relevance must match token” check to use boundary matching, not `includes`.
-- Strengthen **fashion intent hard-drop** with vehicle/wheel terms (`wheel`, `wheels`, `rim`, `tire`, `tyre`, etc.) and model-toy terms (`hot wheels`, `diecast`, etc.).
+**What**: Update all 3 `pg_cron` jobs to include the `x-cron-secret` header instead of relying on the anon key for auth.
 
-**Expected outcome:**
-- Fashion searches stop returning automotive/wheel inventory caused by lexical overlap.
+**How**: Drop and recreate the 3 cron jobs with the correct `x-cron-secret` header using `CRON_SECRET` or the fallback value already in the scraper code.
 
----
+**SQL migration**: Recreate the 3 cron jobs with headers including `"x-cron-secret": "afrishop-internal-cron-2026"`.
 
-### 2) Add strict cache safety for near-match reuse
-**Files:**
-- `supabase/functions/_shared/searchCacheSimilarity.ts`
-- `supabase/functions/catalog-search/index.ts` (if needed for metadata wiring)
+### Step 2: Fix SHEIN image extraction in scraper
 
-**Changes:**
-- Enforce compatibility checks before accepting near-match candidates:
-  - same `intentKey`
-  - same category context
-  - same provider mode/page shape already intended by key
-- Reject near-match candidates whose cached metadata is missing required intent/category fields for current strict mode.
+**File**: `supabase/functions/catalog-shein-scraper/index.ts`
 
-**Expected outcome:**
-- Cached “similar query” reuse won’t cross-contaminate fashion with automotive results.
+**Changes**:
+- Filter out non-product URLs before upsert: reject URLs that are category pages (e.g., `/Women-Skirts-p-XXXXX-cat-XXXX.html` without a valid product ID pattern).
+- Improve image extraction: prioritize `img.ltwebstatic.com` URLs that contain `/items/` or `/product/` paths (actual product images), and reject banner/thumbnail URLs (`_thumbnail_`, `/banner`).
+- Add a fallback image URL derivation using SHEIN's CDN pattern when no image is found from markdown.
 
----
+### Step 3: Fix CarGurus/Carvana image extraction in scraper
 
-### 3) Tighten deterministic-first behavior for clear fashion queries
-**Files:**
-- `supabase/functions/catalog-search/index.ts`
-- (possibly) `supabase/functions/_shared/queryPreNormalizer.ts`
+**File**: `supabase/functions/catalog-car-scraper/index.ts`
 
-**Changes:**
-- For strongly recognized footwear/fashion translations (`high heels`, `women heels`, etc.), reduce chance of AI rewrite overriding deterministic translation.
-- Keep AI as fallback for ambiguous cases, but avoid rewriting already-clean high-confidence fashion intents.
+**Changes**:
+- **Carvana**: When no image is found in markdown, derive the hero image URL using the known pattern: `https://vexgateway.fastly.carvana.io/{productId}/standardizedHero.jpg?width=800`
+- **CarGurus**: When no image is found in markdown, try the `static.cargurus.com` image pattern from the listing URL metadata, or attempt a secondary image extraction from the markdown using CarGurus-specific patterns.
+- Both: Add `waitFor: 3000` to the Firecrawl search to allow JS-rendered content (including images) to load.
 
-**Expected outcome:**
-- French/local fashion queries stay stable and predictable.
+### Step 4: Fix frontend image fallback for all providers
+
+**File**: `src/pages/shop/ShopHome.tsx`
+
+**Changes**:
+- Extend `deriveProviderImageFallback` to handle SHEIN items: derive a product image URL from the `provider_product_id` using SHEIN's CDN pattern.
+- Ensure the fallback is applied consistently in all rendering paths (store grid, search results).
+
+### Step 5: Backfill existing items with missing images
+
+**File**: `supabase/functions/backfill-product-images/index.ts` (existing function)
+
+**Changes**:
+- Add logic to backfill Carvana items using the `standardizedHero.jpg` pattern for items currently missing `image_url`.
+- Run a one-time DB update to set `image_url` for all Carvana items that have a numeric `provider_product_id` but empty `image_url`.
 
 ---
 
-### 4) Invalidate stale bad caches
-**Files:**
-- `supabase/functions/_shared/catalogCache.ts`
-- `src/lib/catalogCache.ts`
+## Technical Details
 
-**Changes:**
-- Bump backend search cache version constant.
-- Bump frontend cache prefix version.
-- This forces refresh away from polluted cached entries.
+### Cron job SQL (Step 1)
+```sql
+-- Drop old jobs
+SELECT cron.unschedule('shein-scraper-15m');
+SELECT cron.unschedule('car-scraper-cargurus-15m');
+SELECT cron.unschedule('car-scraper-carvana-15m');
 
-**Expected outcome:**
-- Users get corrected ranking immediately after rollout, not old wrong cache.
+-- Recreate with x-cron-secret header
+SELECT cron.schedule('shein-scraper-15m', '*/15 * * * *', $$
+  SELECT net.http_post(
+    url:='https://...functions/v1/catalog-shein-scraper',
+    headers:='{"Content-Type":"application/json","x-cron-secret":"afrishop-internal-cron-2026"}'::jsonb,
+    body:='{}'::jsonb
+  );
+$$);
+-- (similar for cargurus and carvana)
+```
 
----
+### Image backfill SQL (Step 5)
+```sql
+UPDATE catalog_items 
+SET image_url = 'https://vexgateway.fastly.carvana.io/' || provider_product_id || '/standardizedHero.jpg?width=800'
+WHERE provider = 'carvana' 
+  AND (image_url IS NULL OR image_url = '')
+  AND provider_product_id ~ '^\d+$';
+```
 
-### 5) Validation steps (must pass)
-1. Search in French:
-   - `haut talon`
-   - `talon haut`
-   - `chaussure dame haut talon`
-2. Verify top 20 contain only footwear/fashion-relevant products.
-3. Confirm no “wheels/tires/car” contamination.
-4. Confirm English equivalents still behave:
-   - `high heels`
-   - `women heels`
-5. Confirm unrelated searches still work (regression check):
-   - `ordinateur`
-   - `laptop`
-   - `toyota tires` (should remain automotive-relevant)
-
----
-
-## Technical notes
-- This is primarily a backend relevance bug, not just frontend rendering.
-- The key fix is lexical precision in scorer + safer cache reuse.
-- Cache version bump is required, otherwise old polluted entries can keep appearing.
+### Expected Outcome
+- Cron jobs will authenticate successfully and run every 15 minutes
+- SHEIN will grow from 6 to hundreds of items per day (targeting 300/run)
+- CarGurus/Carvana will grow similarly with each 15-minute run
+- All providers will have valid product images displayed in the frontend

@@ -808,7 +808,7 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
     if (cursor) p.cursor = cursor;
     if (cursorId) p.cursor_id = cursorId;
     if (appliedFilters.category_key) p.category_key = appliedFilters.category_key;
-    if (appliedFilters.provider) p.provider = appliedFilters.provider;
+    if (appliedFilters.provider) p.provider = appliedFilters.provider === 'amazon' ? 'rainforest' : appliedFilters.provider;
     if (appliedFilters.is_active) p.is_active = appliedFilters.is_active;
     if (appliedFilters.q) p.q = appliedFilters.q;
     if (appliedFilters.stale_price_days) p.stale_price_days = appliedFilters.stale_price_days;
@@ -832,7 +832,10 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
           if (appliedFilters.category_key) {
             q = q.or(`category_key.eq.${appliedFilters.category_key},unified_category.eq.${appliedFilters.category_key}`);
           }
-          if (appliedFilters.provider) q = q.eq('provider', appliedFilters.provider);
+          if (appliedFilters.provider) {
+            if (appliedFilters.provider === 'amazon') q = q.in('provider', ['rainforest', 'amazon']);
+            else q = q.eq('provider', appliedFilters.provider);
+          }
           if (appliedFilters.is_active === 'true') q = q.eq('is_active', true);
           else if (appliedFilters.is_active === 'false') q = q.eq('is_active', false);
           if (appliedFilters.q) q = q.ilike('title', `%${appliedFilters.q}%`);
@@ -929,10 +932,11 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
     queryFn: async () => {
       const prov = appliedFilters.provider;
       if (!prov) return null;
-      const { count } = await supabase
+      let q = supabase
         .from('catalog_items')
-        .select('*', { count: 'exact', head: true })
-        .eq('provider', prov);
+        .select('*', { count: 'exact', head: true });
+      q = prov === 'amazon' ? q.in('provider', ['rainforest', 'amazon']) : q.eq('provider', prov);
+      const { count } = await q;
       return count ?? null;
     },
     enabled: !!appliedFilters.provider,

@@ -331,6 +331,81 @@ function validateAsin(asin: string): string | null {
   return null;
 }
 
+function sanitizeScrapedImage(url: string, provider: string): string {
+  let out = url.trim();
+  if (provider === "shein" && out.includes("_thumbnail_126x")) {
+    out = out.replace("_thumbnail_126x", "");
+  }
+  return out;
+}
+
+function isLikelyRealImage(url: string): boolean {
+  const lower = url.toLowerCase();
+  if (!lower.startsWith("http")) return false;
+  if (lower.includes(".svg") || lower.includes(".gif")) return false;
+  if (lower.includes("site-cars/merchandising") || lower.includes("heliosconditionaltiles")) return false;
+  if (lower.includes("assets.fastly.carvana.io/merchui/images")) return false;
+  if (lower.includes("pt.ispot.tv")) return false;
+  if (lower.includes("placeholder") || lower.includes("avatar")) return false;
+  return /(\.(jpe?g|png|webp|avif))(\?|$)/i.test(lower) || lower.includes("image") || lower.includes("photo");
+}
+
+async function scrapeProviderGalleryFromPage(provider: string, productUrl: string | null): Promise<string[]> {
+  if (!productUrl) return [];
+  try {
+    const res = await fetch(productUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      redirect: "follow",
+    });
+    if (!res.ok) return [];
+
+    const html = await res.text();
+    const seen = new Set<string>();
+    const out: string[] = [];
+
+    const push = (u: string) => {
+      const cleaned = sanitizeScrapedImage(u, provider);
+      if (!isLikelyRealImage(cleaned)) return;
+      if (seen.has(cleaned)) return;
+      seen.add(cleaned);
+      out.push(cleaned);
+    };
+
+    // OpenGraph / Twitter images
+    for (const m of html.matchAll(/<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)["'][^>]*>/gi)) {
+      push(m[1]);
+    }
+
+    // JSON-LD image blocks
+    for (const m of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+      try {
+        const parsed = JSON.parse(m[1]);
+        const stack = Array.isArray(parsed) ? parsed : [parsed];
+        for (const node of stack) {
+          const imgs = node?.image;
+          if (Array.isArray(imgs)) imgs.forEach((i: any) => typeof i === "string" ? push(i) : push(i?.url || i?.contentUrl || ""));
+          else if (typeof imgs === "string") push(imgs);
+        }
+      } catch {
+        // ignore invalid json
+      }
+    }
+
+    // Generic image URL extraction
+    for (const m of html.matchAll(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp|avif)(?:\?[^\s"'<>]*)?/gi)) {
+      push(m[0]);
+    }
+
+    return out.slice(0, 20);
+  } catch {
+    return [];
+  }
+}
+
 function isLikelyEbayId(id: string): boolean {
   return id.startsWith("v1|") || id.includes("|") || /^\d{12,}$/.test(id);
 }
@@ -984,6 +1059,36 @@ Deno.serve(async (req: Request) => {
             }, { onConflict: "provider,provider_item_id" })
             .then(() => {})
             .catch((e: any) => console.warn(`[GALLERY_ENRICH] Amazon media persist failed: ${e}`));
+        }
+      }
+
+      // ========== DB-only providers Gallery Enrichment (SHEIN/CarGurus/Carvana) ==========
+      if ((dbItem.provider === "shein" || dbItem.provider === "cargurus" || dbItem.provider === "carvana") && (item.images?.length || 0) <= 1) {
+        const scraped = await scrapeProviderGalleryFromPage(dbItem.provider, item.productUrl || dbItem.product_url);
+        if (scraped.length > (item.images?.length || 0)) {
+          item.images = scraped;
+          item.imageUrls = scraped;
+          item.mainImageUrl = scraped[0] || item.mainImageUrl;
+          item.imageUrl = scraped[0] || item.imageUrl;
+
+          const dbRowId = dbItem.id || fullProductId;
+          db.from("catalog_items")
+            .update({ images: scraped, image_url: scraped[0] || dbItem.image_url, updated_at: new Date().toISOString() })
+            .eq("id", dbRowId)
+            .then(() => {})
+            .catch(() => {});
+
+          db.from("catalog_item_media")
+            .upsert({
+              provider: dbItem.provider,
+              provider_item_id: dbItem.provider_product_id || productId!,
+              image_urls: scraped,
+              image_count: scraped.length,
+              fetched_at: new Date().toISOString(),
+              expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            }, { onConflict: "provider,provider_item_id" })
+            .then(() => {})
+            .catch(() => {});
         }
       }
 

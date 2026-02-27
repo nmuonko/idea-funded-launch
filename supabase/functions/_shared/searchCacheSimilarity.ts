@@ -117,16 +117,11 @@ export async function findNearMatch(
   if (queryTokens.length === 0) return noHit;
 
   const queryFingerprint = buildFingerprint(queryTokens);
+  const currentIntentKey = params.intentKey || "general";
 
   try {
-    // Build a prefix pattern to narrow down candidates
-    // We match on cache_type='search' and look for entries with the same provider/vehicleMode
-    const vmMarker = params.vehicleMode ? 1 : 0;
-    const intentKey = params.intentKey || "general";
     const now = new Date().toISOString();
 
-    // Fetch recent non-expired search cache entries
-    // Use equality filters only (no LIKE) to leverage indexes
     const { data: candidates, error } = await supabase
       .from("catalog_cache")
       .select("cache_key, query, response, updated_at, expires_at, stale_at")
@@ -145,6 +140,25 @@ export async function findNearMatch(
     for (const candidate of candidates) {
       const candidateQuery = candidate.query || "";
       if (!candidateQuery) continue;
+
+      // ── STRICT INTENT/CATEGORY GUARD ─────────────────────────────────────
+      // Reject candidates whose cached metadata doesn't match current intent/category
+      const cachedMeta = candidate.response?._meta;
+      if (cachedMeta) {
+        // Reject if intent keys are different (prevents fashion↔automotive cross-contamination)
+        const cachedIntent = cachedMeta.intentKey || cachedMeta.in || "general";
+        if (cachedIntent !== currentIntentKey && cachedIntent !== "general" && currentIntentKey !== "general") {
+          continue;
+        }
+        // Reject if vehicle modes differ
+        if (cachedMeta.vehicleMode !== undefined && cachedMeta.vehicleMode !== params.vehicleMode) {
+          continue;
+        }
+        // Reject if category keys differ (when both are set)
+        if (params.categoryKey && cachedMeta.category_key && cachedMeta.category_key !== params.categoryKey) {
+          continue;
+        }
+      }
 
       // Check exact fingerprint match first
       const candidateTokens = tokenizeForFingerprint(candidateQuery);
@@ -184,7 +198,7 @@ export async function findNearMatch(
     }
 
     if (bestMatch.hit) {
-      console.log(`[NEAR_MATCH] requestId=${requestId} FOUND: q="${canonicalQuery}" matched="${bestMatch.matchedQuery}" similarity=${bestMatch.similarity.toFixed(3)} age=${bestMatch.cacheAgeSec}s ttl=${bestMatch.ttlRemainingSec}s items=${bestMatch.data?.items?.length}`);
+      console.log(`[NEAR_MATCH] requestId=${requestId} FOUND: q="${canonicalQuery}" matched="${bestMatch.matchedQuery}" similarity=${bestMatch.similarity.toFixed(3)} age=${bestMatch.cacheAgeSec}s ttl=${bestMatch.ttlRemainingSec}s items=${bestMatch.data?.items?.length} intent=${currentIntentKey}`);
     }
 
     return bestMatch;

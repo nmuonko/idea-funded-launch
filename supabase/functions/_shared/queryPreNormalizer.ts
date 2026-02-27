@@ -160,7 +160,12 @@ const CLOTHING_PHRASES: Record<string, string> = {
   "basket": "sneakers", "basket femme": "women sneakers", "basket homme": "men sneakers",
   "botte": "boots", "botte femme": "women boots", "botte homme": "men boots",
   "sandale": "sandals", "sandale femme": "women sandals", "sandale homme": "men sandals",
-  "talon": "heels", "talon femme": "women heels",
+  "talon": "high heels", "talon femme": "women high heels",
+  "haut talon": "high heels", "talon haut": "high heels",
+  "talons hauts": "high heels", "talons": "high heels",
+  "chaussure talon": "heel shoes", "chaussure haut talon": "high heel shoes",
+  "chaussure dame haut talon": "women high heel shoes",
+  "chaussure femme talon": "women heel shoes",
   // sac (expanded)
   "sac": "bag", "sac femme": "women bag", "sac dame": "women bag",
   "sac dames": "women bag", "sac homme": "men bag", "sacoche": "messenger bag",

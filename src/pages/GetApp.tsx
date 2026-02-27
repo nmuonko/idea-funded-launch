@@ -3,8 +3,10 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { getTranslation } from '@/lib/i18n/translations';
 import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher';
 import { SUPPORT_WHATSAPP_E164 } from '@/lib/supportConfig';
-import { Download, Globe, MessageCircle } from 'lucide-react';
+import { Download, Globe, MessageCircle, Sparkles } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import afrishopLogo from '@/assets/afrishop-logo.png';
+import { motion } from 'framer-motion';
 
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.afrishop.usadrc';
 const WEBSITE_URL = 'https://afrishop-usa.com';
@@ -93,72 +95,113 @@ export default function GetApp() {
   const webUrlWithParams = buildUrlWithParams(WEBSITE_URL, params);
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center px-4 py-8 relative">
+    <div className="min-h-screen bg-[hsl(222,47%,5%)] text-white flex flex-col items-center justify-center px-4 py-8 relative overflow-hidden">
+      {/* Ambient glow effects */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-gradient-to-b from-orange-500/12 via-yellow-500/5 to-transparent rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-1/4 w-[300px] h-[300px] bg-blue-500/5 rounded-full blur-3xl" />
+        <div className="absolute top-1/3 right-0 w-[200px] h-[400px] bg-orange-500/5 rounded-full blur-3xl" />
+      </div>
+
       {/* Floating language switcher */}
       <div className="absolute top-4 right-4 z-10">
         <LanguageSwitcher />
       </div>
 
-      <div className="w-full max-w-md space-y-8 text-center">
-        {/* Logo */}
-        <div className="flex justify-center">
-          <img
-            src="/favicon.png"
-            alt="AfriShop"
-            className="w-20 h-20 rounded-2xl shadow-lg"
-          />
-        </div>
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, ease: 'easeOut' }}
+        className="w-full max-w-sm space-y-8 text-center relative z-10"
+      >
+        {/* Logo with glow ring */}
+        <motion.div 
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+          className="flex justify-center"
+        >
+          <div className="relative">
+            <div className="absolute -inset-3 bg-gradient-to-br from-orange-500/20 to-yellow-500/10 rounded-3xl blur-xl" />
+            <img
+              src={afrishopLogo}
+              alt="AfriShop"
+              className="relative w-24 h-24 rounded-2xl shadow-2xl shadow-orange-500/10 brightness-0 invert"
+            />
+          </div>
+        </motion.div>
 
         {/* Title & Subtitle */}
-        <div className="space-y-2">
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-orange-400 to-yellow-400 bg-clip-text text-transparent">
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+          className="space-y-3"
+        >
+          <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-orange-300 via-yellow-300 to-orange-400 bg-clip-text text-transparent">
             {dl?.title || 'Get AfriShop'}
           </h1>
-          <p className="text-gray-400 text-lg">
+          <p className="text-white/50 text-base sm:text-lg leading-relaxed">
             {dl?.subtitle || 'Shop from the USA, deliver to Africa'}
           </p>
-        </div>
+        </motion.div>
 
         {/* Action Buttons */}
-        <div className="space-y-3">
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.35 }}
+          className="space-y-3 pt-2"
+        >
           <a
             href={PLAY_STORE_URL}
-            className="flex items-center justify-center gap-2 w-full py-3.5 px-6 bg-gradient-to-r from-orange-500 to-yellow-500 text-black font-semibold rounded-xl hover:from-orange-600 hover:to-yellow-600 transition-all shadow-lg shadow-orange-500/20"
+            className="group relative flex items-center justify-center gap-2.5 w-full py-4 px-6 bg-gradient-to-r from-orange-500 to-yellow-500 text-black font-bold rounded-2xl transition-all shadow-lg shadow-orange-500/25 hover:shadow-orange-500/40 hover:scale-[1.02] active:scale-[0.98]"
           >
             <Download className="w-5 h-5" />
             {dl?.androidButton || 'Download Android App'}
+            <Sparkles className="w-4 h-4 opacity-60" />
           </a>
 
           <a
             href={webUrlWithParams}
-            className="flex items-center justify-center gap-2 w-full py-3.5 px-6 border border-gray-600 text-gray-200 font-medium rounded-xl hover:bg-white/5 transition-all"
+            className="flex items-center justify-center gap-2.5 w-full py-4 px-6 bg-white/[0.06] border border-white/[0.1] text-white/90 font-semibold rounded-2xl hover:bg-white/[0.1] hover:border-white/[0.15] transition-all hover:scale-[1.02] active:scale-[0.98] backdrop-blur-sm"
           >
-            <Globe className="w-5 h-5" />
+            <Globe className="w-5 h-5 text-white/60" />
             {dl?.webButton || 'Open the Website'}
           </a>
-        </div>
+        </motion.div>
 
         {/* Helper text */}
-        <p className="text-gray-500 text-sm">
+        <motion.p 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5 }}
+          className="text-white/30 text-sm"
+        >
           {dl?.helper || 'You can choose the app or the website.'}
-        </p>
+        </motion.p>
 
         {/* Support section */}
-        <div className="pt-4 border-t border-gray-800 space-y-3">
-          <p className="text-gray-500 text-xs uppercase tracking-wider">
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.6 }}
+          className="pt-6 border-t border-white/[0.06] space-y-3"
+        >
+          <p className="text-white/25 text-xs uppercase tracking-[0.2em] font-medium">
             {dl?.supportTitle || 'Help / Support'}
           </p>
           <a
             href={whatsappUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-green-400 hover:text-green-300 text-sm transition-colors"
+            className="inline-flex items-center gap-2 text-emerald-400/80 hover:text-emerald-300 text-sm transition-colors"
           >
             <MessageCircle className="w-4 h-4" />
             {dl?.whatsapp || 'Contact on WhatsApp'}
           </a>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
     </div>
   );
 }

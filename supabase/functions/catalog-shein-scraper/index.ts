@@ -1,15 +1,14 @@
 /**
- * Catalog SHEIN Scraper — Firecrawl Search Pipeline
+ * Catalog SHEIN Scraper — Aggressive Firecrawl Search Pipeline
  * 
- * Uses Firecrawl Search API (`/v1/search`) with `site:shein.com` queries
- * to discover and cache SHEIN clothing products into `catalog_items`.
+ * Uses Firecrawl Search API with 300+ rotating seed queries to discover
+ * SHEIN clothing products at scale. Targets 10K+ items per 24h via
+ * stateful query rotation stored in cars_settings.
  * 
- * Duplicates prevented via:
- *  1. In-memory Set of provider_product_id per run
- *  2. DB unique constraint (provider, provider_product_id) with upsert
- *  3. Normalized pXXXXXXX SKU extraction from SHEIN URLs
+ * Each run picks the next batch of queries, searches, deduplicates,
+ * and upserts into catalog_items.
  * 
- * Auth: x-cron-secret header OR admin JWT (same as car scraper)
+ * Auth: x-cron-secret header OR admin JWT
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -26,6 +25,7 @@ interface ScraperRequest {
   target_items?: number;
   search_query?: string;
   dry_run?: boolean;
+  queries_per_run?: number;
 }
 
 interface SheinProduct {
@@ -39,37 +39,128 @@ interface SheinProduct {
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 
-const SEARCH_TIMEOUT_MS = 15000;
+const SEARCH_TIMEOUT_MS = 12000;
 const HARD_FUNCTION_CAP_MS = 50000;
-const DEFAULT_TARGET_ITEMS = 20;
+const DEFAULT_TARGET_ITEMS = 300;
+const DEFAULT_QUERIES_PER_RUN = 25;
+const FIRECRAWL_SEARCH_LIMIT = 50; // Firecrawl supports up to 50
 
-const SEED_QUERIES = [
-  "women dresses site:shein.com",
-  "men shirts site:shein.com",
-  "modest fashion site:shein.com",
-  "maxi dress site:shein.com",
-  "abaya site:shein.com",
-  "women tops site:shein.com",
-  "men pants site:shein.com",
-  "women skirts site:shein.com",
-  "hijab fashion site:shein.com",
-  "women jackets site:shein.com",
-  "men jackets site:shein.com",
-  "women shoes site:shein.com",
-  "women bags site:shein.com",
-  "plus size dresses site:shein.com",
-  "activewear women site:shein.com",
-  "women jeans site:shein.com",
-  "modest swimwear site:shein.com",
-  "men shoes site:shein.com",
-  "kids clothing site:shein.com",
-  "women accessories site:shein.com",
-];
-
-// Words that indicate non-clothing items — ingestion guardrails
+// Words that indicate non-clothing items
 const DISALLOWED_KEYWORDS = /\b(appliance|refrigerator|washer|dryer|dishwasher|microwave|oven|stove|vacuum|blender|toaster|laptop|computer|monitor|tablet|phone|television|tv|gaming console|playstation|xbox|nintendo|toy|action figure|lego|doll|drone|robot)\b/i;
-
 const SOLD_KEYWORDS = /\b(sold out|out of stock|unavailable|discontinued|no longer available)\b/i;
+
+// ── MASSIVE SEED QUERY POOL (300+) ────────────────────────────────────────
+const SEED_QUERIES: string[] = [
+  // Women's Dresses (30)
+  "women dresses", "maxi dress", "mini dress", "midi dress", "summer dress",
+  "cocktail dress", "party dress", "casual dress", "work dress", "wrap dress",
+  "bodycon dress", "a-line dress", "shift dress", "shirt dress", "sweater dress",
+  "floral dress", "lace dress", "velvet dress", "satin dress", "chiffon dress",
+  "plus size dress", "petite dress", "maternity dress", "bridesmaid dress", "prom dress",
+  "boho dress", "vintage dress", "formal dress", "evening gown", "sundress",
+
+  // Women's Tops (25)
+  "women blouse", "women camisole", "crop top women", "tank top women", "bodysuit women",
+  "women turtleneck", "women sweater", "women cardigan", "women pullover", "women hoodie",
+  "peplum top", "off shoulder top", "halter top", "tube top", "corset top",
+  "graphic tee women", "button down women", "women polo", "women vest", "women tunic",
+  "ruffle top", "lace top women", "mesh top women", "knit top women", "silk blouse",
+
+  // Women's Bottoms (20)
+  "women jeans", "women leggings", "women pants", "wide leg pants women", "cargo pants women",
+  "women shorts", "women skirts", "pleated skirt", "pencil skirt", "mini skirt",
+  "denim skirt", "maxi skirt", "palazzo pants", "joggers women", "culottes women",
+  "high waist jeans", "mom jeans", "straight leg jeans", "flare jeans", "skinny jeans women",
+
+  // Women's Outerwear (15)
+  "women jacket", "women blazer", "women coat", "trench coat women", "puffer jacket women",
+  "denim jacket women", "leather jacket women", "bomber jacket women", "windbreaker women", "cape women",
+  "women poncho", "women kimono", "rain jacket women", "quilted jacket women", "cropped jacket women",
+
+  // Women's Activewear (15)
+  "activewear women", "sports bra", "yoga pants", "workout leggings", "running shorts women",
+  "gym top women", "athletic skirt", "track suit women", "compression leggings", "cycling shorts women",
+  "sports jacket women", "tennis skirt", "golf dress", "hiking pants women", "swim leggings",
+
+  // Women's Swimwear (15)
+  "women bikini", "one piece swimsuit", "tankini", "swimsuit cover up", "high waisted bikini",
+  "modest swimwear women", "rash guard women", "swim dress", "bathing suit women", "beach cover up",
+  "swimsuit plus size", "halter bikini", "bandeau swimsuit", "swim shorts women", "surfing wetsuit women",
+
+  // Women's Loungewear & Sleepwear (10)
+  "women pajamas", "silk pajamas women", "nightgown", "robe women", "loungewear set women",
+  "sleep shirt women", "onesie women", "thermal underwear women", "house dress", "caftan women",
+
+  // Modest Fashion (15)
+  "modest fashion", "abaya", "hijab fashion", "modest maxi dress", "long sleeve maxi dress",
+  "modest swimwear", "modest blouse", "wide leg modest pants", "modest skirt below knee", "kaftan dress",
+  "modest evening dress", "tunic dress modest", "high neck dress", "modest jumpsuit", "long cardigan modest",
+
+  // Men's Clothing (30)
+  "men shirts", "men t-shirt", "men polo shirt", "men dress shirt", "men flannel shirt",
+  "men pants", "men jeans", "men chinos", "men shorts", "men cargo pants",
+  "men jacket", "men blazer", "men hoodie", "men sweater", "men coat",
+  "men suit", "men vest", "men sweatshirt", "men joggers", "men track pants",
+  "men swim trunks", "men underwear", "men pajamas", "men tank top", "men henley",
+  "men bomber jacket", "men denim jacket", "men leather jacket", "men windbreaker", "men overcoat",
+
+  // Men's Activewear (10)
+  "men gym shorts", "men workout tank", "men running shoes", "men compression shirt", "men track jacket",
+  "men basketball shorts", "men athletic pants", "men cycling jersey", "men sports hoodie", "men training set",
+
+  // Women's Shoes (20)
+  "women sneakers", "women sandals", "women heels", "women flats", "women boots",
+  "women ankle boots", "women loafers", "women mules", "women platforms", "women wedges",
+  "women espadrilles", "women slides", "women pumps", "women kitten heels", "women oxfords",
+  "women Chelsea boots", "women combat boots", "women knee high boots", "women rain boots", "women slippers",
+
+  // Men's Shoes (15)
+  "men sneakers", "men boots", "men loafers", "men sandals", "men dress shoes",
+  "men oxford shoes", "men slip-on shoes", "men Chelsea boots", "men hiking boots", "men canvas shoes",
+  "men running sneakers", "men moccasins", "men flip flops", "men slippers", "men work boots",
+
+  // Bags & Accessories (20)
+  "women handbag", "crossbody bag", "tote bag", "backpack women", "clutch bag",
+  "shoulder bag", "bucket bag", "satchel bag", "wallet women", "coin purse",
+  "belt bag", "beach bag", "laptop bag women", "evening bag", "quilted bag",
+  "men backpack", "men messenger bag", "men wallet", "duffle bag", "travel bag",
+
+  // Jewelry (15)
+  "necklace women", "earrings women", "bracelet women", "rings women", "anklet",
+  "pendant necklace", "hoop earrings", "stud earrings", "chain necklace", "layered necklace",
+  "charm bracelet", "cuff bracelet", "choker necklace", "pearl earrings", "statement earrings",
+
+  // Hair Accessories & Hats (10)
+  "hair clips", "headband women", "scrunchies", "hair ties", "barrettes",
+  "sun hat women", "beanie women", "baseball cap women", "bucket hat women", "visor hat",
+
+  // Kids Clothing (15)
+  "kids dresses", "kids t-shirts", "kids pants", "baby clothes", "toddler outfit",
+  "girls dress", "boys shirts", "kids swimwear", "kids pajamas", "kids jacket",
+  "newborn clothes", "kids school uniform", "kids activewear", "teens clothing", "kids socks",
+
+  // Plus Size (10)
+  "plus size tops", "plus size jeans", "plus size swimwear", "plus size activewear", "plus size lingerie",
+  "plus size formal dress", "plus size skirt", "plus size jacket", "plus size leggings", "plus size romper",
+
+  // Seasonal & Trending (15)
+  "spring outfit", "summer clothes", "fall fashion", "winter clothing", "holiday dress",
+  "festival outfit", "vacation clothes", "wedding guest dress", "graduation dress", "date night outfit",
+  "workwear women", "streetwear women", "y2k fashion", "cottagecore dress", "dark academia outfit",
+
+  // Lingerie & Intimates (10)
+  "women bra", "women underwear set", "lingerie set", "sports bra pack", "shapewear women",
+  "bralette", "bodysuit lingerie", "corset lingerie", "thermal underwear women", "strapless bra",
+
+  // Specific Styles (15)
+  "bohemian clothing", "preppy fashion", "minimalist clothing", "gothic fashion", "korean fashion",
+  "retro clothing", "vintage style dress", "western wear women", "athleisure women", "normcore fashion",
+  "grunge fashion", "romantic style dress", "classic style women", "edgy fashion", "elegant clothing",
+
+  // Home & Lifestyle (10)
+  "throw blanket", "cushion cover", "curtains", "bath towels", "kitchen apron",
+  "storage organizer", "makeup bag", "phone case cute", "desk organizer", "wall decor",
+];
 
 // ── HELPERS ────────────────────────────────────────────────────────────────
 
@@ -77,28 +168,22 @@ function extractSheinProductId(url: string): string | null {
   try {
     const u = new URL(url);
     if (!u.hostname.includes("shein.com")) return null;
-    
-    // Pattern: /product-pXXXXXXX or -p-XXXXXXX or pXXXXXXX in path
     const match = u.pathname.match(/[_-]p[_-]?(\d{5,})/i);
     if (match) return `p${match[1]}`;
-    
-    // Also try query param "id"
     const id = u.searchParams.get("id");
     if (id && /^\d{5,}$/.test(id)) return `p${id}`;
-    
+    // Fallback: use the full path as ID
+    const pathId = u.pathname.replace(/\//g, "_").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 60);
+    if (pathId.length > 10) return `path_${pathId}`;
     return null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function isValidSheinUrl(url: string): boolean {
   try {
     const u = new URL(url);
     return u.hostname.includes("shein.com") && u.pathname.length > 5;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 function parseUsd(value: unknown): number | null {
@@ -112,9 +197,41 @@ function parseUsd(value: unknown): number | null {
   return Math.round(parsed * 100) / 100;
 }
 
-function pickRandomQueries(count: number): string[] {
-  const shuffled = [...SEED_QUERIES].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
+// ── STATEFUL ROTATION ─────────────────────────────────────────────────────
+
+async function getRotationOffset(supabase: any): Promise<number> {
+  try {
+    const { data } = await supabase
+      .from("cars_settings")
+      .select("value")
+      .eq("key", "scraper_rotation_shein")
+      .single();
+    return (data?.value as any)?.offset || 0;
+  } catch { return 0; }
+}
+
+async function setRotationOffset(supabase: any, offset: number): Promise<void> {
+  try {
+    await supabase
+      .from("cars_settings")
+      .upsert({
+        key: "scraper_rotation_shein",
+        value: { offset, updated_at: new Date().toISOString() },
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "key" });
+  } catch (e) {
+    console.warn(`[SHEIN_SCRAPER] rotation save error:`, (e as Error).message);
+  }
+}
+
+function getQueryBatch(offset: number, count: number): string[] {
+  const queries: string[] = [];
+  const total = SEED_QUERIES.length;
+  for (let i = 0; i < count; i++) {
+    const idx = (offset + i) % total;
+    queries.push(SEED_QUERIES[idx] + " site:shein.com");
+  }
+  return queries;
 }
 
 // ── FIRECRAWL SEARCH ──────────────────────────────────────────────────────
@@ -125,8 +242,6 @@ async function firecrawlSearch(
   limit: number,
   dropReasons: Record<string, number>,
 ): Promise<SheinProduct[]> {
-  console.log(`[SHEIN_SCRAPER] search: query="${query}" limit=${limit}`);
-
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
@@ -140,7 +255,7 @@ async function firecrawlSearch(
       },
       body: JSON.stringify({
         query,
-        limit: Math.min(limit * 2, 20),
+        limit: Math.min(limit, FIRECRAWL_SEARCH_LIMIT),
         lang: "en",
         country: "us",
         scrapeOptions: { formats: ["markdown"] },
@@ -157,7 +272,6 @@ async function firecrawlSearch(
 
     const data = await resp.json();
     const results = data?.data || [];
-    console.log(`[SHEIN_SCRAPER] search returned ${results.length} results`);
 
     const products: SheinProduct[] = [];
     const seenIds = new Set<string>();
@@ -168,61 +282,28 @@ async function firecrawlSearch(
       const description = item.description || "";
       const markdown = item.markdown || "";
 
-      if (!url || !title) {
-        dropReasons["missing_url_or_title"] = (dropReasons["missing_url_or_title"] || 0) + 1;
-        continue;
-      }
+      if (!url || !title) { dropReasons["missing_url_or_title"] = (dropReasons["missing_url_or_title"] || 0) + 1; continue; }
+      if (!isValidSheinUrl(url)) { dropReasons["not_shein_url"] = (dropReasons["not_shein_url"] || 0) + 1; continue; }
 
-      // Must be a SHEIN product URL
-      if (!isValidSheinUrl(url)) {
-        dropReasons["not_shein_url"] = (dropReasons["not_shein_url"] || 0) + 1;
-        continue;
-      }
-
-      // Extract product ID
       const pid = extractSheinProductId(url);
-      if (!pid) {
-        dropReasons["no_product_id"] = (dropReasons["no_product_id"] || 0) + 1;
-        continue;
-      }
+      if (!pid) { dropReasons["no_product_id"] = (dropReasons["no_product_id"] || 0) + 1; continue; }
+      if (seenIds.has(pid)) { dropReasons["duplicate_in_run"] = (dropReasons["duplicate_in_run"] || 0) + 1; continue; }
+      if (SOLD_KEYWORDS.test(title) || SOLD_KEYWORDS.test(description)) { dropReasons["sold_out"] = (dropReasons["sold_out"] || 0) + 1; continue; }
+      if (DISALLOWED_KEYWORDS.test(title)) { dropReasons["disallowed_category"] = (dropReasons["disallowed_category"] || 0) + 1; continue; }
 
-      // Dedup within run
-      if (seenIds.has(pid)) {
-        dropReasons["duplicate_in_run"] = (dropReasons["duplicate_in_run"] || 0) + 1;
-        continue;
-      }
-
-      // Skip sold out
-      if (SOLD_KEYWORDS.test(title) || SOLD_KEYWORDS.test(description)) {
-        dropReasons["sold_out"] = (dropReasons["sold_out"] || 0) + 1;
-        continue;
-      }
-
-      // Ingestion guardrails — skip non-clothing
-      if (DISALLOWED_KEYWORDS.test(title)) {
-        dropReasons["disallowed_category"] = (dropReasons["disallowed_category"] || 0) + 1;
-        continue;
-      }
-
-      // Extract price from description, title, or markdown
+      // Extract price
       let price: number | null = null;
       const priceRegex = /\$[\d,]+(?:\.\d{2})?/g;
-
       for (const text of [description, title, markdown.substring(0, 2000)]) {
         const matches = text.match(priceRegex);
         if (matches) {
           for (const m of matches) {
             const p = parseUsd(m);
-            if (p && p > 0 && p <= 5000) {
-              price = p;
-              break;
-            }
+            if (p && p > 0 && p <= 5000) { price = p; break; }
           }
           if (price) break;
         }
       }
-
-      // Also try label-based extraction
       if (!price && markdown) {
         const priceLabelMatch = markdown.match(/(?:price|sale price|now)[:\s]*\$?([\d,]+(?:\.\d{2})?)/i);
         if (priceLabelMatch) {
@@ -230,26 +311,19 @@ async function firecrawlSearch(
           if (p && p > 0 && p <= 5000) price = p;
         }
       }
-
-      if (!price) {
-        dropReasons["no_price"] = (dropReasons["no_price"] || 0) + 1;
-        continue;
-      }
+      if (!price) { dropReasons["no_price"] = (dropReasons["no_price"] || 0) + 1; continue; }
 
       seenIds.add(pid);
 
-      // Extract image from markdown
+      // Extract image
       let imageUrl = "";
       const imgMatch = markdown.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
       if (imgMatch) imageUrl = imgMatch[1];
-
-      // Also check for img.ltwebstatic.com URLs in markdown
       if (!imageUrl) {
         const staticImgMatch = markdown.match(/(https?:\/\/img\.ltwebstatic\.com\/[^\s)"]+)/);
         if (staticImgMatch) imageUrl = staticImgMatch[1];
       }
 
-      // Extract brand — SHEIN often has "SHEIN" or sub-brands like "MOTF", "DAZY"
       let brand = "SHEIN";
       const brandMatch = title.match(/^(SHEIN|MOTF|DAZY|CUCCOO|EMERY ROSE|MOD|ROMWE)\b/i);
       if (brandMatch) brand = brandMatch[1].toUpperCase();
@@ -262,16 +336,13 @@ async function firecrawlSearch(
         provider_product_id: pid,
         brand,
       });
-
-      if (products.length >= limit) break;
     }
 
-    console.log(`[SHEIN_SCRAPER] search parsed ${products.length} valid products from ${results.length} results`);
     return products;
   } catch (err) {
     const msg = (err as Error).message || "";
-    if (msg.includes("aborted") || msg.includes("abort") || msg.includes("signal")) {
-      console.warn(`[SHEIN_SCRAPER] search TIMEOUT after ${SEARCH_TIMEOUT_MS}ms`);
+    if (msg.includes("abort")) {
+      console.warn(`[SHEIN_SCRAPER] search TIMEOUT for "${query.substring(0, 40)}"`);
     } else {
       console.error(`[SHEIN_SCRAPER] search error:`, msg);
     }
@@ -281,11 +352,7 @@ async function firecrawlSearch(
 
 // ── UPSERT ─────────────────────────────────────────────────────────────────
 
-async function upsertProducts(
-  supabase: any,
-  products: SheinProduct[],
-  dryRun: boolean,
-): Promise<number> {
+async function upsertProducts(supabase: any, products: SheinProduct[], dryRun: boolean): Promise<number> {
   if (products.length === 0 || dryRun) return 0;
 
   const now = new Date().toISOString();
@@ -305,7 +372,7 @@ async function upsertProducts(
     is_disallowed: false,
     last_seen_at: now,
     last_checked_at: now,
-    metadata: { source: "firecrawl_search" },
+    metadata: { source: "firecrawl_search_v2" },
   }));
 
   let upserted = 0;
@@ -314,14 +381,12 @@ async function upsertProducts(
     const { error } = await supabase
       .from("catalog_items")
       .upsert(batch, { onConflict: "provider,provider_product_id" });
-
     if (error) {
       console.error(`[SHEIN_SCRAPER] upsert batch ${i} error:`, error.message);
     } else {
       upserted += batch.length;
     }
   }
-
   return upserted;
 }
 
@@ -335,10 +400,8 @@ async function authenticateRequest(req: Request): Promise<{ authorized: boolean;
   const providedCron = req.headers.get("x-cron-secret");
   const providedInternalCron = req.headers.get("x-internal-cron-key");
 
-  const cronMatches = !!providedCron && (providedCron === envCronSecret || providedCron === fallbackCronSecret);
-  const internalCronMatches = !!providedInternalCron && (providedInternalCron === envCronSecret || providedInternalCron === fallbackCronSecret);
-
-  if (cronMatches || internalCronMatches) return { authorized: true };
+  if (providedCron && (providedCron === envCronSecret || providedCron === fallbackCronSecret)) return { authorized: true };
+  if (providedInternalCron && (providedInternalCron === envCronSecret || providedInternalCron === fallbackCronSecret)) return { authorized: true };
 
   const authHeader = req.headers.get("Authorization");
   if (authHeader?.startsWith("Bearer ") && serviceRoleKey) {
@@ -358,7 +421,6 @@ async function authenticateRequest(req: Request): Promise<{ authorized: boolean;
     });
     if (!resp.ok) return { authorized: false, error: "Invalid token" };
     const user = await resp.json();
-
     const adminResp = await fetch(
       `${supabaseUrl}/rest/v1/admin_users?select=id&email=eq.${encodeURIComponent(user.email)}&limit=1`,
       { headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` } }
@@ -366,7 +428,6 @@ async function authenticateRequest(req: Request): Promise<{ authorized: boolean;
     if (!adminResp.ok) return { authorized: false, error: "Admin check failed" };
     const admins = await adminResp.json();
     if (!Array.isArray(admins) || admins.length === 0) return { authorized: false, error: "Not an admin" };
-
     return { authorized: true };
   } catch (e) {
     return { authorized: false, error: (e as Error).message };
@@ -383,24 +444,19 @@ Deno.serve(async (req: Request) => {
   const auth = await authenticateRequest(req);
   if (!auth.authorized) {
     return new Response(JSON.stringify({ ok: false, error: auth.error || "Unauthorized" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
   const startTime = Date.now();
 
   try {
-    const body: ScraperRequest = req.method === "POST"
-      ? await req.json()
-      : {};
+    const body: ScraperRequest = req.method === "POST" ? await req.json() : {};
 
     const targetItems = body.target_items || DEFAULT_TARGET_ITEMS;
-    const maxPages = Math.min(body.max_pages || 3, 5);
+    const queriesPerRun = body.queries_per_run || DEFAULT_QUERIES_PER_RUN;
     const dryRun = body.dry_run || false;
     const customQuery = body.search_query?.trim() || undefined;
-
-    console.log(`[SHEIN_SCRAPER] START target=${targetItems} maxPages=${maxPages} dryRun=${dryRun} query=${customQuery || '(rotating seed)'}`);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -413,19 +469,26 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Get rotation offset
+    const offset = customQuery ? 0 : await getRotationOffset(supabase);
+    const queries = customQuery
+      ? [`${customQuery} site:shein.com`]
+      : getQueryBatch(offset, queriesPerRun);
+
+    console.log(`[SHEIN_SCRAPER] START target=${targetItems} queries=${queries.length} offset=${offset} dryRun=${dryRun}`);
+
     const dropReasons: Record<string, number> = {};
     const allProducts: SheinProduct[] = [];
     const globalSeenIds = new Set<string>();
-
-    // If custom query provided, use it; otherwise rotate seed queries
-    const queries = customQuery ? [customQuery] : pickRandomQueries(maxPages);
+    let queriesUsed = 0;
 
     for (const query of queries) {
       if (allProducts.length >= targetItems) break;
-      if (Date.now() - startTime > HARD_FUNCTION_CAP_MS) break;
+      if (Date.now() - startTime > HARD_FUNCTION_CAP_MS - 3000) break;
 
+      queriesUsed++;
       const remaining = targetItems - allProducts.length;
-      const results = await firecrawlSearch(query, firecrawlKey, remaining, dropReasons);
+      const results = await firecrawlSearch(query, firecrawlKey, Math.min(remaining, FIRECRAWL_SEARCH_LIMIT), dropReasons);
 
       for (const p of results) {
         if (allProducts.length >= targetItems) break;
@@ -437,10 +500,16 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // Small delay between queries to be polite
-      if (allProducts.length < targetItems && queries.indexOf(query) < queries.length - 1) {
-        await new Promise((r) => setTimeout(r, 500));
+      // Small delay between queries
+      if (allProducts.length < targetItems) {
+        await new Promise((r) => setTimeout(r, 300));
       }
+    }
+
+    // Update rotation offset for next run
+    if (!customQuery) {
+      const newOffset = (offset + queriesUsed) % SEED_QUERIES.length;
+      await setRotationOffset(supabase, newOffset);
     }
 
     // Upsert to DB
@@ -450,7 +519,10 @@ Deno.serve(async (req: Request) => {
     const result = {
       ok: true,
       provider: "shein",
-      queries_used: queries.length,
+      queries_used: queriesUsed,
+      query_pool_size: SEED_QUERIES.length,
+      rotation_offset: offset,
+      next_offset: (offset + queriesUsed) % SEED_QUERIES.length,
       products_found: allProducts.length,
       upserted_count: upsertedCount,
       drop_reasons: Object.keys(dropReasons).length > 0 ? dropReasons : undefined,
@@ -459,7 +531,7 @@ Deno.serve(async (req: Request) => {
       dry_run: dryRun,
     };
 
-    console.log(`[SHEIN_SCRAPER] DONE ${elapsedMs}ms found=${allProducts.length} upserted=${upsertedCount}`);
+    console.log(`[SHEIN_SCRAPER] DONE ${elapsedMs}ms found=${allProducts.length} upserted=${upsertedCount} queries=${queriesUsed}`);
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

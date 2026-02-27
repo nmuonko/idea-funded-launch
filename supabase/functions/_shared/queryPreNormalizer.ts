@@ -98,12 +98,27 @@ const GAMING_SYNONYMS: Record<string, string[]> = {
   "controller": ["gamepad", "game controller", "wireless controller"],
 };
 
+const BEAUTY_SYNONYMS: Record<string, string[]> = {
+  "face cream": ["face moisturizer", "facial cream", "skincare cream", "anti aging cream"],
+  "cream": ["moisturizer", "lotion", "skincare"],
+  "moisturizer": ["face cream", "hydrating cream", "skin moisturizer"],
+  "makeup": ["cosmetics", "beauty products", "makeup kit"],
+  "lipstick": ["lip color", "lip gloss", "lip makeup"],
+  "shampoo": ["hair shampoo", "hair care", "hair wash"],
+  "soap": ["body wash", "bar soap", "cleansing soap"],
+  "lotion": ["body lotion", "skin lotion", "moisturizing lotion"],
+  "serum": ["face serum", "skincare serum", "anti aging serum"],
+  "sunscreen": ["sun protection", "SPF cream", "sun block"],
+  "shea butter": ["raw shea butter", "african shea butter", "body butter"],
+};
+
 const CATEGORY_SYNONYM_MAP: Record<string, Record<string, string[]>> = {
   clothing: CLOTHING_SYNONYMS,
   electronics: ELECTRONICS_SYNONYMS,
   home_garden: HOME_GARDEN_SYNONYMS,
   vehicles: VEHICLE_SYNONYMS,
   gaming: GAMING_SYNONYMS,
+  beauty: BEAUTY_SYNONYMS,
 };
 
 /**

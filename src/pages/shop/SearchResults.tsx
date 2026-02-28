@@ -93,6 +93,8 @@ export default function SearchResults() {
   const revalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pageRef = useRef(0);
   const lastRequestedPageRef = useRef<number | null>(null);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Derived: client-side provider filtering for instant results
   const products = useMemo(() => {
@@ -239,6 +241,11 @@ export default function SearchResults() {
       token = activeSearchTokenRef.current;
       seenIdsRef.current = new Set();
       searchIdentityRef.current = currentIdentity;
+      retryCountRef.current = 0;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       pageRef.current = 0;
       if (revalidateTimerRef.current) {
         clearTimeout(revalidateTimerRef.current);
@@ -333,6 +340,19 @@ export default function SearchResults() {
       const responseCursor = data?.cursor || data?.nextCursor || data?.cursorNext || data?.meta?.cursor || data?.meta?.nextCursor || null;
 
       console.log('[SEARCH_RES]', { page: pageNum, got: returnedCount, hasMore: backendHasMore, incomplete: isIncomplete, nextCursor: responseCursor, fromCache, totalFromBackend: data?.total });
+
+      // Auto-retry when backend signals rate-limited empty results
+      if (data?.retryable && returnedCount === 0 && pageNum === 0 && retryCountRef.current < 2) {
+        retryCountRef.current += 1;
+        const delay = data.retryAfterMs || 3000;
+        console.log(`[SEARCH_RETRY] Rate-limited empty results, auto-retrying in ${delay}ms (attempt ${retryCountRef.current}/2)`);
+        // Keep loading state active during retry
+        retryTimerRef.current = setTimeout(() => {
+          if (token !== null && token !== activeSearchTokenRef.current) return;
+          fetchProducts(0, false);
+        }, delay);
+        return null; // Don't update UI yet
+      }
 
       if (data?.providersStatus) {
         setProvidersStatus(data.providersStatus);

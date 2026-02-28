@@ -1708,6 +1708,7 @@ Deno.serve(async (req: Request) => {
 
         console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_CASCADE: candidates=${JSON.stringify(candidateQueries)}`);
 
+        let cascadeRateLimited = false;
         for (const candidateQ of candidateQueries) {
           if (relatedItems.length > 0) break;
           console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_CASCADE: trying q="${candidateQ}" (relaxed filters)`);
@@ -1722,6 +1723,14 @@ Deno.serve(async (req: Request) => {
             });
             const lastResortTimer = new Promise<null>(r => setTimeout(() => r(null), lastResortTimeout));
             const lastResortResult = await Promise.race([lastResortPromise, lastResortTimer]);
+
+            // Short-circuit on rate limit — no point trying more candidates
+            if (lastResortResult && lastResortResult.rateLimited) {
+              console.warn(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_CASCADE: eBay rate-limited on q="${candidateQ}", stopping cascade`);
+              recordProviderFailure("ebay", 429);
+              cascadeRateLimited = true;
+              break;
+            }
 
             if (lastResortResult && lastResortResult.items && lastResortResult.items.length > 0) {
               relatedItems = lastResortResult.items.map((item: any) => ({
@@ -1750,12 +1759,25 @@ Deno.serve(async (req: Request) => {
         }
 
         if (relatedItems.length === 0) {
-          console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_CASCADE: all candidates exhausted, no results`);
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_CASCADE: all candidates exhausted, no results (rateLimited=${cascadeRateLimited})`);
         }
       }
 
       if (relatedItems.length === 0) {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} NO_FALLBACK: returning empty results after all attempts`);
+        // If cascade was rate-limited, signal frontend to auto-retry
+        const wasRateLimited = typeof cascadeRateLimited !== "undefined" && cascadeRateLimited;
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} NO_FALLBACK: returning empty results after all attempts (rateLimited=${wasRateLimited})`);
+        if (wasRateLimited) {
+          const retryResponse: any = {
+            ...buildEmptyResponse(qOriginal, envName, searchMeta, startTime),
+            retryable: true,
+            retryAfterMs: 3000,
+          };
+          return new Response(JSON.stringify(retryResponse), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store, max-age=0" },
+          });
+        }
         fallbackReason = null;
       }
 

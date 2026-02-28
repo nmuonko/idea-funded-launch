@@ -781,6 +781,13 @@ Deno.serve(async (req: Request) => {
     console.log(`[CATALOG_SEARCH] requestId=${requestId} query_pipeline: qOriginal="${qOriginal}" qCanon="${qCanonicalized}" qRewrite="${qRewrite}" providerQuery="${providerQuery}"`);
 
     // ─── DB-FIRST SEARCH (always run — providers may be down/rate-limited) ──
+    // IMPORTANT: keep DB lookup anchored to canonical user query, not over-refined AI
+    // rewrites (e.g. "topicrem da" should not become strictly "topicrem da balm").
+    const dbQuery = qCanonicalized || qNorm;
+    if (dbQuery !== qNorm) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} db_query_anchor: using canonical dbQuery="${dbQuery}" over qNorm="${qNorm}"`);
+    }
+
     let dbFallbackItems: any[] | null = null;
     let dbCount = 0;
     const dbFirstStart = Date.now();
@@ -793,7 +800,7 @@ Deno.serve(async (req: Request) => {
         const dbTimeout = new Promise<null>((r) => setTimeout(() => r(null), isFirstPage ? DB_BUDGET_MS_P0 : DB_BUDGET_MS));
         const dbOffset = page * limit;
         const dbWork = searchDbFirst({
-          supabase, qNorm, aiExpandedTerms, limit, offset: dbOffset, categoryKey, requestId,
+          supabase, qNorm: dbQuery, aiExpandedTerms, limit, offset: dbOffset, categoryKey, requestId,
         });
         const dbResult = await Promise.race([dbWork, dbTimeout]);
         
@@ -803,7 +810,8 @@ Deno.serve(async (req: Request) => {
           if (dbResult.items) {
             let dbItems = dbResult.items;
             // Always apply intent scoring to filter irrelevant items
-            const dbQueryTokens = providerQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
+            // Use DB-anchored tokens (canonical query) to avoid over-strict drops from AI suffixes.
+            const dbQueryTokens = dbQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
             const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, limit);
             dbItems = dbScoreResult.items as any[];
             console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_scored: before=${dbResult.items.length} after=${dbItems.length} dropped=${dbScoreResult.dropped}`);

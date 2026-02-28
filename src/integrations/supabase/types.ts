@@ -5835,6 +5835,15 @@ export type Database = {
           title: string
         }[]
       }
+      get_catalog_breakdown_stats: {
+        Args: never
+        Returns: {
+          category_count: number
+          provider: string
+          provider_count: number
+          unified_category: string
+        }[]
+      }
       get_catalog_price_stats: {
         Args: never
         Returns: {

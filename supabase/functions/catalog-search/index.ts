@@ -1604,11 +1604,52 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // ─── NO UNIVERSAL "popular_db" FALLBACK ──────────────────────────────────
-      // Previously we returned random popular items here. This caused shoe contamination
-      // in phone/vehicle/gaming searches. Instead, return empty with proper status.
+      // ─── LAST-RESORT: Direct eBay live search (no scoring/filtering) ────────
+      // If DB and providers returned nothing usable, do a raw eBay search with the
+      // original query. This ensures products that exist on eBay are never missed.
       if (relatedItems.length === 0) {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} NO_FALLBACK: returning empty results (no popular_db contamination)`);
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_EBAY: attempting raw eBay search q="${providerQuery}"`);
+        try {
+          const lastResortTimeout = 4000;
+          const lastResortPromise = fetchEbayItems({
+            supabase, query: providerQuery, effectiveMode, isVehicle: false,
+            hasBuyingIntent: false, isHeavyEquipment: false,
+            categoryKey: undefined, page: 1, limit,
+            catalogFilters: {}, requestId: requestId + "-lastresort",
+          });
+          const lastResortTimer = new Promise<null>(r => setTimeout(() => r(null), lastResortTimeout));
+          const lastResortResult = await Promise.race([lastResortPromise, lastResortTimer]);
+
+          if (lastResortResult && lastResortResult.items && lastResortResult.items.length > 0) {
+            relatedItems = lastResortResult.items.map((item: any) => ({
+              id: item.id, provider: item.provider || "ebay",
+              providerProductId: item.providerProductId || item.provider_product_id,
+              title: item.title, priceUsd: item.priceUsd || item.price_usd,
+              currency: item.currency || "USD",
+              mainImageUrl: item.imageUrl || item.image_url,
+              imageUrl: item.imageUrl || item.image_url,
+              images: item.images || (item.imageUrl ? [item.imageUrl] : []),
+              imageUrls: item.images || (item.imageUrl ? [item.imageUrl] : []),
+              imageCount: item.imageCount || 1,
+              productUrl: item.productUrl || item.product_url,
+              inStock: true, rating: item.rating,
+              category: categoryKey || undefined, store: "ebay",
+            }));
+            fallbackReason = "last_resort_ebay";
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_EBAY: found ${relatedItems.length} items`);
+
+            // Auto-cache these results for future searches (fire-and-forget)
+            autoCacheLiveResults(supabase, lastResortResult.items as any[], categoryKey, requestId + "-lastresort").catch(() => {});
+          } else {
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_EBAY: no results or timeout`);
+          }
+        } catch (lrErr) {
+          console.warn(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_EBAY error:`, (lrErr as Error).message);
+        }
+      }
+
+      if (relatedItems.length === 0) {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} NO_FALLBACK: returning empty results after all attempts`);
         fallbackReason = null;
       }
 

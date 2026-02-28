@@ -5835,6 +5835,13 @@ export type Database = {
           title: string
         }[]
       }
+      get_catalog_price_stats: {
+        Args: never
+        Returns: {
+          avg_price: number
+          total_value: number
+        }[]
+      }
       get_language_for_country: { Args: { p_country: string }; Returns: string }
       get_popular_queries: {
         Args: { p_limit?: number; p_window_hours?: number }

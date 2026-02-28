@@ -618,6 +618,96 @@ async function extractWithOcr(url: string, timeout: number): Promise<number | nu
   }
 }
 
+async function extractViaFirecrawlFull(
+  url: string,
+  store: StoreType,
+  timeout: number
+): Promise<{ price: number; currencyCode: string | null; title: string | null; imageUrl: string | null } | null> {
+  const firecrawlApiKey = Deno.env.get('FIRECRAWL_API_KEY');
+  if (!firecrawlApiKey) return null;
+
+  try {
+    console.log(`[extract-price] Firecrawl full fallback attempting for ${store}: ${url.substring(0, 80)}`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${firecrawlApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url, formats: ['html'], onlyMainContent: false }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      console.warn(`[extract-price] Firecrawl scrape failed: status=${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const html = data?.data?.html || data?.html;
+    if (!html || html.length < 100) {
+      console.warn('[extract-price] Firecrawl returned empty/short HTML');
+      return null;
+    }
+
+    // Extract price using the same methods as direct scraping
+    let price: number | null = null;
+    let currencyCode: string | null = null;
+
+    // Try JSON-LD first
+    const jsonLdResult = extractFromJsonLd(html);
+    if (jsonLdResult) {
+      price = jsonLdResult.price;
+      currencyCode = jsonLdResult.currency ?? null;
+    }
+
+    // Try meta tags / selectors
+    if (!price) {
+      price = extractFromSelectors(html, store);
+    }
+
+    // Try regex
+    if (!price) {
+      const regexResult = extractWithRegex(html);
+      if (regexResult) {
+        price = regexResult.price;
+        currencyCode = regexResult.currencyHint;
+      }
+    }
+
+    if (!price) {
+      console.warn('[extract-price] Firecrawl HTML returned but no price found');
+      return null;
+    }
+
+    // Extract product info (title, image)
+    const productInfo = extractProductInfo(html, store);
+
+    // Detect currency if not already found
+    if (!currencyCode) {
+      const detected = detectCurrency(html, url);
+      currencyCode = detected.code;
+    }
+
+    console.log(`[extract-price] Firecrawl full extraction succeeded for ${store}: price=${price} currency=${currencyCode}`);
+
+    return {
+      price,
+      currencyCode,
+      title: productInfo.title,
+      imageUrl: productInfo.imageUrl,
+    };
+  } catch (error) {
+    console.warn('[extract-price] Firecrawl full fallback failed:', error);
+    return null;
+  }
+}
+
 async function extractViaMirror(url: string, store: StoreType, timeout: number): Promise<{ price: number; currencyCode: string | null; title: string | null; imageUrl: string | null } | null> {
   try {
     const urlWithoutProtocol = url.replace(/^https?:\/\//i, '');
@@ -1217,7 +1307,7 @@ Deno.serve(async (req) => {
       }
 
       // Try live Rainforest product lookup for uncached ASINs
-      const rainforest = await extractViaRainforestProduct(formattedUrl, 5000);
+      const rainforest = await extractViaRainforestProduct(formattedUrl, 8000);
       if (rainforest?.price) {
         const now = new Date().toISOString();
         const resolvedCurrencyCode = rainforest.currencyCode || 'USD';
@@ -1293,6 +1383,47 @@ Deno.serve(async (req) => {
           rawCurrencyCode: resolvedCurrencyCode,
           title: mirror.title,
           imageUrl: mirror.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        } as PriceResolveResponse);
+      }
+
+      // Try Firecrawl as final automated fallback for Amazon
+      const firecrawlResult = await extractViaFirecrawlFull(formattedUrl, store, 10000);
+      if (firecrawlResult?.price) {
+        const now = new Date().toISOString();
+        const resolvedCurrencyCode = firecrawlResult.currencyCode || 'USD';
+        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: firecrawlResult.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: firecrawlResult.title,
+          imageUrl: firecrawlResult.imageUrl,
+        });
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: firecrawlResult.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          store,
+          title: firecrawlResult.title,
+          imageUrl: firecrawlResult.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        logData = { ...logData, cacheHit: false, method: 'amazon_firecrawl_fallback', priceFound: true, duration: Date.now() - startTime };
+        console.log(JSON.stringify(logData));
+
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: firecrawlResult.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: firecrawlResult.title,
+          imageUrl: firecrawlResult.imageUrl,
           cacheHit: false,
           lastFetchedAt: now,
         } as PriceResolveResponse);
@@ -1455,6 +1586,47 @@ Deno.serve(async (req) => {
         return jsonSuccess(fallbackResponse);
       }
 
+      // Try Firecrawl as final fallback for HTTP error responses
+      const firecrawlHttpResult = await extractViaFirecrawlFull(formattedUrl, store, 10000);
+      if (firecrawlHttpResult?.price) {
+        const now = new Date().toISOString();
+        const resolvedCurrencyCode = firecrawlHttpResult.currencyCode || 'USD';
+        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: firecrawlHttpResult.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: firecrawlHttpResult.title,
+          imageUrl: firecrawlHttpResult.imageUrl,
+        });
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: firecrawlHttpResult.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          store,
+          title: firecrawlHttpResult.title,
+          imageUrl: firecrawlHttpResult.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        logData = { ...logData, cacheHit: false, method: 'firecrawl_fallback_http_error', priceFound: true, duration: Date.now() - startTime };
+        console.log(JSON.stringify(logData));
+
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: firecrawlHttpResult.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: firecrawlHttpResult.title,
+          imageUrl: firecrawlHttpResult.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        } as PriceResolveResponse);
+      }
+
       logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', reason: 'http_error', httpStatus: response.status, store };
       console.log(JSON.stringify(logData));
       return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, `Store returned error ${response.status}`);
@@ -1568,6 +1740,47 @@ Deno.serve(async (req) => {
           lastFetchedAt: now,
         };
         return jsonSuccess(fallbackResponse);
+      }
+
+      // Try Firecrawl as final fallback before giving up on bot-blocked stores
+      const firecrawlBotResult = await extractViaFirecrawlFull(formattedUrl, store, 10000);
+      if (firecrawlBotResult?.price) {
+        const now = new Date().toISOString();
+        const resolvedCurrencyCode = firecrawlBotResult.currencyCode || 'USD';
+        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: firecrawlBotResult.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: firecrawlBotResult.title,
+          imageUrl: firecrawlBotResult.imageUrl,
+        });
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: firecrawlBotResult.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          store,
+          title: firecrawlBotResult.title,
+          imageUrl: firecrawlBotResult.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        logData = { ...logData, cacheHit: false, method: 'firecrawl_fallback_bot_blocked', priceFound: true, duration: Date.now() - startTime };
+        console.log(JSON.stringify(logData));
+
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: firecrawlBotResult.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: firecrawlBotResult.title,
+          imageUrl: firecrawlBotResult.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        } as PriceResolveResponse);
       }
 
       logData = { ...logData, status: 403, error: 'SCRAPE_BLOCKED', store, duration: Date.now() - startTime };

@@ -75,7 +75,7 @@ export default function PasteLink() {
 
       if (fnError) throw fnError;
 
-      const priceUsd = data?.price ?? data?.priceUsd ?? null;
+      const priceUsd = data?.basePrice ?? data?.price ?? data?.priceUsd ?? null;
       const title = data?.title || extractDomain(trimmed);
       const imageUrl = data?.image || data?.imageUrl || null;
       const store = extractDomain(trimmed);

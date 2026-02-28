@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Database, DollarSign, Layers, Tag, ShoppingBag, BarChart3, Clock } from 'lucide-react';
+import { Database, DollarSign, Layers, Tag, ShoppingBag, BarChart3, Clock, ArrowDown, ArrowUp, Sigma } from 'lucide-react';
 import { formatUSD } from '@/lib/formatCurrency';
 
 interface CatalogStats {
@@ -10,6 +10,8 @@ interface CatalogStats {
   disallowedProducts: number;
   totalValue: number;
   avgPrice: number;
+  cheapestPrice: number | null;
+  mostExpensivePrice: number | null;
   providerBreakdown: { provider: string; count: number }[];
   categoryBreakdown: { category: string; count: number }[];
   recentlyAdded24h: number;
@@ -26,6 +28,8 @@ async function loadCatalogStats(): Promise<CatalogStats> {
     recentRes,
     oldestRes,
     newestRes,
+    cheapestRes,
+    expensiveRes,
   ] = await Promise.all([
     supabase.from('catalog_items').select('id', { count: 'exact', head: true }),
     supabase.from('catalog_items').select('id', { count: 'exact', head: true })
@@ -46,6 +50,16 @@ async function loadCatalogStats(): Promise<CatalogStats> {
     supabase.from('catalog_items').select('first_seen_at')
       .eq('is_active', true).not('first_seen_at', 'is', null)
       .order('first_seen_at', { ascending: false }).limit(1),
+    // Cheapest item
+    supabase.from('catalog_items').select('price_usd')
+      .eq('is_active', true).eq('is_disallowed', false)
+      .not('price_usd', 'is', null).gt('price_usd', 0)
+      .order('price_usd', { ascending: true }).limit(1),
+    // Most expensive item
+    supabase.from('catalog_items').select('price_usd')
+      .eq('is_active', true).eq('is_disallowed', false)
+      .not('price_usd', 'is', null).gt('price_usd', 0)
+      .order('price_usd', { ascending: false }).limit(1),
   ]);
 
   const totalProducts = totalRes.count || 0;
@@ -78,10 +92,13 @@ async function loadCatalogStats(): Promise<CatalogStats> {
 
   const oldestItem = oldestRes.data?.[0]?.first_seen_at || null;
   const newestItem = newestRes.data?.[0]?.first_seen_at || null;
+  const cheapestPrice = cheapestRes.data?.[0]?.price_usd ?? null;
+  const mostExpensivePrice = expensiveRes.data?.[0]?.price_usd ?? null;
 
   return {
     totalProducts, activeProducts, disallowedProducts,
-    totalValue, avgPrice, providerBreakdown, categoryBreakdown,
+    totalValue, avgPrice, cheapestPrice, mostExpensivePrice,
+    providerBreakdown, categoryBreakdown,
     recentlyAdded24h, oldestItem, newestItem,
   };
 }
@@ -189,8 +206,10 @@ export function CatalogStatsTab({ embedded }: { embedded?: boolean }) {
 
       {/* Detail rows */}
       <div className="rounded-lg border border-border/40 bg-card/30 px-4">
-        <StatRow icon={DollarSign} label="Inventory Value (sampled)" value={formatUSD(stats.totalValue)} />
-        <StatRow icon={Tag} label="Avg Price" value={formatUSD(stats.avgPrice)} />
+        <StatRow icon={Sigma} label="Total Catalog Value" value={formatUSD(stats.totalValue)} subValue="(sampled)" />
+        <StatRow icon={ArrowDown} label="Cheapest Item" value={stats.cheapestPrice !== null ? formatUSD(stats.cheapestPrice) : '—'} />
+        <StatRow icon={ArrowUp} label="Most Expensive" value={stats.mostExpensivePrice !== null ? formatUSD(stats.mostExpensivePrice) : '—'} />
+        <StatRow icon={Tag} label="Average Price" value={formatUSD(stats.avgPrice)} />
         <StatRow icon={Database} label="Disallowed / Blocked" value={stats.disallowedProducts.toLocaleString()} />
         <StatRow icon={Clock} label="Oldest Item" value={formatDate(stats.oldestItem)} />
         <StatRow icon={Clock} label="Newest Item" value={formatDate(stats.newestItem)} />

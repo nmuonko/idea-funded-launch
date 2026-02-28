@@ -660,6 +660,84 @@ async function extractViaMirror(url: string, store: StoreType, timeout: number):
   }
 }
 
+async function extractViaRainforestProduct(
+  url: string,
+  timeout: number
+): Promise<{ price: number; currencyCode: string | null; title: string | null; imageUrl: string | null } | null> {
+  const apiKey = Deno.env.get('RAINFOREST_API_KEY');
+  if (!apiKey) return null;
+
+  const asin = extractProductIdFromUrl(url, 'amazon');
+  if (!asin) return null;
+
+  try {
+    const parsedUrl = new URL(url);
+    const host = parsedUrl.hostname.toLowerCase();
+    const domainMatch = host.match(/amazon\.(com|ca|co\.uk|de|fr|it|es|nl|com\.au|com\.br|co\.jp|com\.mx|in|ae|sg|sa|se|pl|com\.tr)$/i);
+    const amazonDomain = domainMatch ? `amazon.${domainMatch[1]}` : 'amazon.com';
+
+    const requestUrl = new URL('https://api.rainforestapi.com/request');
+    requestUrl.searchParams.set('api_key', apiKey);
+    requestUrl.searchParams.set('type', 'product');
+    requestUrl.searchParams.set('amazon_domain', amazonDomain);
+    requestUrl.searchParams.set('asin', asin);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    const response = await fetch(requestUrl.toString(), {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      console.warn(`[extract-price] Rainforest product fetch failed: asin=${asin} status=${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const product = data?.product;
+    if (!product) return null;
+
+    const priceCandidate =
+      Number(product?.buybox_winner?.price?.value) ||
+      Number(product?.price?.value) ||
+      Number(product?.current_price?.value) ||
+      Number(product?.prices?.[0]?.value);
+
+    if (!Number.isFinite(priceCandidate) || priceCandidate <= 0) return null;
+
+    const currencyCode =
+      product?.buybox_winner?.price?.currency ||
+      product?.price?.currency ||
+      product?.current_price?.currency ||
+      product?.prices?.[0]?.currency ||
+      'USD';
+
+    const imageUrl =
+      product?.main_image?.link ||
+      product?.image ||
+      product?.images?.[0]?.link ||
+      null;
+
+    const title = typeof product?.title === 'string' ? product.title : null;
+
+    console.log(`[extract-price] Rainforest product extraction succeeded for amazon asin=${asin} price=${priceCandidate}`);
+
+    return {
+      price: priceCandidate,
+      currencyCode,
+      title,
+      imageUrl,
+    };
+  } catch (error) {
+    console.warn('[extract-price] Rainforest product fallback failed:', error);
+    return null;
+  }
+}
 
 interface CachedPrice {
   basePrice: number;
@@ -1136,6 +1214,47 @@ Deno.serve(async (req) => {
           )
           .then(() => {})
           .catch(() => {});
+      }
+
+      // Try live Rainforest product lookup for uncached ASINs
+      const rainforest = await extractViaRainforestProduct(formattedUrl, 5000);
+      if (rainforest?.price) {
+        const now = new Date().toISOString();
+        const resolvedCurrencyCode = rainforest.currencyCode || 'USD';
+        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: rainforest.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: rainforest.title,
+          imageUrl: rainforest.imageUrl,
+        });
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: rainforest.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          store,
+          title: rainforest.title,
+          imageUrl: rainforest.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        logData = { ...logData, cacheHit: false, method: 'amazon_rainforest_fallback', priceFound: true, duration: Date.now() - startTime };
+        console.log(JSON.stringify(logData));
+
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: rainforest.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: rainforest.title,
+          imageUrl: rainforest.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        } as PriceResolveResponse);
       }
 
       // For Amazon, still try mirror scraping as last resort before failing

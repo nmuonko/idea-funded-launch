@@ -1604,6 +1604,58 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      // ─── LAST-RESORT DB FALLBACK (ebay-only, loose token OR) ───────────────
+      // If provider calls failed/timed out/rate-limited, do one final DB-only pass
+      // against ebay catalog rows so we don't return empty for known items.
+      if (relatedItems.length === 0) {
+        try {
+          const looseTokens = providerQuery
+            .toLowerCase()
+            .split(/\s+/)
+            .filter((t: string) => t.length >= 2)
+            .slice(0, 4);
+
+          if (looseTokens.length > 0) {
+            const orFilter = looseTokens.map((t: string) => `title.ilike.%${t}%`).join(",");
+            const { data: ebayDbLoose } = await supabase
+              .from("catalog_items")
+              .select("id, title, price_usd, image_url, images, product_url, provider, provider_product_id, rating, unified_category, in_stock")
+              .eq("provider", "ebay")
+              .eq("is_active", true)
+              .eq("is_disallowed", false)
+              .not("image_url", "is", null)
+              .or(orFilter)
+              .order("updated_at", { ascending: false })
+              .limit(Math.max(limit, 24));
+
+            if (ebayDbLoose && ebayDbLoose.length > 0) {
+              relatedItems = ebayDbLoose.map((item: any) => ({
+                id: item.id,
+                provider: "ebay",
+                providerProductId: item.provider_product_id,
+                title: item.title,
+                priceUsd: item.price_usd,
+                currency: "USD",
+                mainImageUrl: item.image_url,
+                imageUrl: item.image_url,
+                images: item.images || (item.image_url ? [item.image_url] : []),
+                imageUrls: item.images || (item.image_url ? [item.image_url] : []),
+                imageCount: item.images?.length || 1,
+                productUrl: item.product_url,
+                inStock: item.in_stock ?? true,
+                rating: item.rating,
+                category: item.unified_category || categoryKey || undefined,
+                store: "ebay",
+              }));
+              fallbackReason = "related_db_ebay_loose";
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} related_db_ebay_loose fallback: ${relatedItems.length} items`);
+            }
+          }
+        } catch (looseErr) {
+          console.warn(`[CATALOG_SEARCH] requestId=${requestId} related_db_ebay_loose error:`, (looseErr as Error).message);
+        }
+      }
+
       // ─── LAST-RESORT: Direct eBay live search (no scoring/filtering) ────────
       // If DB and providers returned nothing usable, do a raw eBay search with the
       // original query. This ensures products that exist on eBay are never missed.
@@ -1721,18 +1773,26 @@ Deno.serve(async (req: Request) => {
       minPriceUsed: hasBuyingIntent ? (catalogFilters.minPrice || 1000) : 0,
     };
 
+    const shouldAvoidNegativeCache = providerTimedOut
+      || !!amazonError
+      || !!ebayError
+      || /429|rate[_ -]?limit|deadline_exceeded|circuit_breaker/i.test(String(ebayDebug.error || ""))
+      || /429|rate[_ -]?limit|deadline_exceeded|circuit_breaker/i.test(String(amazonDebug.error || ""));
+
     if (finalItems.length > 0) {
       setCache(supabase, "search", globalCacheKey, { ...response, _meta: { ...cacheMeta, cachedAt: new Date().toISOString() } }, {
         provider: "mixed", query: qNorm, category: categoryKey || undefined,
         page: cacheMeta.page, pageSize: limit, amazonDomain: "amazon.com",
       }).catch(err => console.warn(`[CATALOG_SEARCH] requestId=${requestId} Cache write failed:`, err));
-    } else {
+    } else if (!shouldAvoidNegativeCache) {
       setCache(supabase, "search", globalCacheKey, {
         ...response, _meta: { ...cacheMeta, cachedAt: new Date().toISOString(), isNegative: true }, _negativeTtlSeconds: 120,
       }, {
         provider: "mixed", query: qNorm, category: categoryKey || undefined,
         page: cacheMeta.page, pageSize: limit, amazonDomain: "amazon.com", ttlOverrideSeconds: 120,
       }).catch(() => {});
+    } else {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIP_NEGATIVE_CACHE due_to_provider_issue amazonErr=${amazonError || amazonDebug.error || "none"} ebayErr=${ebayError || ebayDebug.error || "none"}`);
     }
 
     // Finalize timings

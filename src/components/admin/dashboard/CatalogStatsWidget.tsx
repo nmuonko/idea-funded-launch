@@ -24,7 +24,8 @@ async function loadCatalogStats(): Promise<CatalogStats> {
     totalRes,
     activeRes,
     disallowedRes,
-    priceRes,
+    breakdownRes,
+    priceStatsRes,
     recentRes,
     oldestRes,
     newestRes,
@@ -37,10 +38,12 @@ async function loadCatalogStats(): Promise<CatalogStats> {
     supabase.from('catalog_items').select('id', { count: 'exact', head: true })
       .eq('is_disallowed', true),
     supabase.from('catalog_items')
-      .select('price_usd, provider, unified_category')
+      .select('provider, unified_category')
       .eq('is_active', true).eq('is_disallowed', false)
       .not('price_usd', 'is', null).gt('price_usd', 0)
       .limit(1000),
+    // Accurate total value + avg via RPC (no row limit)
+    supabase.rpc('get_catalog_price_stats') as unknown as { data: { total_value: number; avg_price: number }[] | null },
     supabase.from('catalog_items').select('id', { count: 'exact', head: true })
       .eq('is_active', true)
       .gte('first_seen_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()),
@@ -50,12 +53,10 @@ async function loadCatalogStats(): Promise<CatalogStats> {
     supabase.from('catalog_items').select('first_seen_at')
       .eq('is_active', true).not('first_seen_at', 'is', null)
       .order('first_seen_at', { ascending: false }).limit(1),
-    // Cheapest item
     supabase.from('catalog_items').select('price_usd')
       .eq('is_active', true).eq('is_disallowed', false)
       .not('price_usd', 'is', null).gt('price_usd', 0)
       .order('price_usd', { ascending: true }).limit(1),
-    // Most expensive item
     supabase.from('catalog_items').select('price_usd')
       .eq('is_active', true).eq('is_disallowed', false)
       .not('price_usd', 'is', null).gt('price_usd', 0)
@@ -67,12 +68,14 @@ async function loadCatalogStats(): Promise<CatalogStats> {
   const disallowedProducts = disallowedRes.count || 0;
   const recentlyAdded24h = recentRes.count || 0;
 
-  const priceData = priceRes.data || [];
-  const totalValue = priceData.reduce((sum, item) => sum + Number(item.price_usd || 0), 0);
-  const avgPrice = priceData.length > 0 ? totalValue / priceData.length : 0;
+  // Accurate values from DB-side aggregation
+  const priceStats = priceStatsRes.data?.[0];
+  const totalValue = Number(priceStats?.total_value ?? 0);
+  const avgPrice = Number(priceStats?.avg_price ?? 0);
 
+  const breakdownData = breakdownRes.data || [];
   const providerMap = new Map<string, number>();
-  priceData.forEach(item => {
+  breakdownData.forEach(item => {
     const p = item.provider || 'unknown';
     providerMap.set(p, (providerMap.get(p) || 0) + 1);
   });
@@ -81,7 +84,7 @@ async function loadCatalogStats(): Promise<CatalogStats> {
     .sort((a, b) => b.count - a.count);
 
   const catMap = new Map<string, number>();
-  priceData.forEach(item => {
+  breakdownData.forEach(item => {
     const c = item.unified_category || 'uncategorized';
     catMap.set(c, (catMap.get(c) || 0) + 1);
   });
@@ -206,7 +209,7 @@ export function CatalogStatsTab({ embedded }: { embedded?: boolean }) {
 
       {/* Detail rows */}
       <div className="rounded-lg border border-border/40 bg-card/30 px-4">
-        <StatRow icon={Sigma} label="Total Catalog Value" value={formatUSD(stats.totalValue)} subValue="(sampled)" />
+        <StatRow icon={Sigma} label="Total Catalog Value" value={formatUSD(stats.totalValue)} />
         <StatRow icon={ArrowDown} label="Cheapest Item" value={stats.cheapestPrice !== null ? formatUSD(stats.cheapestPrice) : '—'} />
         <StatRow icon={ArrowUp} label="Most Expensive" value={stats.mostExpensivePrice !== null ? formatUSD(stats.mostExpensivePrice) : '—'} />
         <StatRow icon={Tag} label="Average Price" value={formatUSD(stats.avgPrice)} />

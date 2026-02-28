@@ -814,7 +814,7 @@ interface CatalogFallbackResult {
   basePrice: number;
   title: string | null;
   imageUrl: string | null;
-  source: 'catalog';
+  source: 'catalog' | 'catalog_cache';
 }
 
 function extractProductIdFromUrl(url: string, store: StoreType): string | null {
@@ -869,7 +869,7 @@ async function getCatalogFallbackPrice(
     const baseQuery = supabase
       .from('catalog_items')
       .select('price_usd,title,image_url,provider,provider_product_id,product_url,updated_at')
-      .not('price_usd', 'is', null)
+      .gt('price_usd', 0)
       .eq('is_active', true)
       .order('updated_at', { ascending: false })
       .limit(1);
@@ -893,7 +893,7 @@ async function getCatalogFallbackPrice(
     let idQuery = supabase
       .from('catalog_items')
       .select('price_usd,title,image_url,provider,provider_product_id,updated_at')
-      .not('price_usd', 'is', null)
+      .gt('price_usd', 0)
       .eq('is_active', true)
       .eq('provider_product_id', productId)
       .order('updated_at', { ascending: false })
@@ -917,7 +917,7 @@ async function getCatalogFallbackPrice(
     const likeQuery = supabase
       .from('catalog_items')
       .select('price_usd,title,image_url,provider,provider_product_id,updated_at')
-      .not('price_usd', 'is', null)
+      .gt('price_usd', 0)
       .eq('is_active', true)
       .ilike('product_url', `%${productId}%`)
       .order('updated_at', { ascending: false })
@@ -932,6 +932,34 @@ async function getCatalogFallbackPrice(
         imageUrl: looseMatch[0].image_url ?? null,
         source: 'catalog',
       };
+    }
+
+    // Extra fallback for Amazon: inspect recent cached search payloads (catalog_cache.response.items)
+    if (store === 'amazon') {
+      const { data: cacheRows } = await supabase
+        .from('catalog_cache')
+        .select('response,updated_at')
+        .order('updated_at', { ascending: false })
+        .limit(25);
+
+      for (const row of cacheRows ?? []) {
+        const items = Array.isArray(row?.response?.items) ? row.response.items : [];
+        const matched = items.find((item: any) => {
+          const id = String(item?.providerProductId ?? '').toUpperCase();
+          const candidatePrice = Number(item?.priceUsd);
+          return id === productId && Number.isFinite(candidatePrice) && candidatePrice > 0;
+        });
+
+        if (matched) {
+          console.log(`[extract-price] Catalog cache fallback hit for amazon id=${productId}`);
+          return {
+            basePrice: Number(matched.priceUsd),
+            title: matched.title ?? null,
+            imageUrl: matched.imageUrl ?? null,
+            source: 'catalog_cache',
+          };
+        }
+      }
     }
 
     return null;

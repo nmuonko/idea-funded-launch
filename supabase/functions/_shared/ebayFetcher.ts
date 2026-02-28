@@ -37,6 +37,10 @@ export interface EbayFetchResult {
   mappedCount?: number;
   filteredCount?: number;
   failOpenUsed?: boolean;
+  /** True when eBay returned 429 rate-limit */
+  rateLimited?: boolean;
+  /** Warning from eBay API (e.g. rate limit) */
+  warning?: { message: string; code: string };
 }
 
 const CATEGORY_MAPPING: Record<string, string> = {
@@ -147,6 +151,13 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
       },
       requestId
     );
+
+    // Propagate rate-limit signal from searchEbay
+    const isRateLimited = ebayResult.warning?.code === "RATE_LIMITED";
+    if (isRateLimited) {
+      console.warn(`[EBAY_FETCH] requestId=${requestId} eBay RATE_LIMITED — propagating signal to caller`);
+      return { items: [], hasMore: false, total: 0, rateLimited: true, warning: ebayResult.warning };
+    }
 
     const rawCount = ebayResult.items.length;
 

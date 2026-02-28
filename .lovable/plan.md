@@ -1,121 +1,80 @@
 
-Goal: make search consistently return relevant items (no false “0 products”), increase result depth, and ensure product pages reliably show full galleries.
+# Fix: "Topicrem DA" and similar niche searches returning zero results
 
-What I found from your live backend + code:
-1) Primary root cause of “no products” for valid searches
-- For “Topicrem DA”, logs show:
-  - query rewritten to “topicrem da balm”
-  - eBay last-resort call executed with that term
-  - eBay returned 429 rate-limited
-  - response stayed empty
-- There is also a hard filter in eBay search URL builder:
-  - `buyingOptions:{FIXED_PRICE}`
-  - `itemLocationCountry:US`
-  These filters reduce recall for beauty/skincare and international listings.
-- Current last-resort only tries one strict rewritten phrase, so one miss/rate limit still yields 0.
+## Root Cause (from live logs)
 
-2) Why unrelated items appear
-- The “loose DB fallback” uses OR token matching with tokens as short as 2 chars.
-- Example: token `da` matches many unrelated titles.
-- This fallback currently does not apply strict final relevance scoring before returning.
+The logs show the exact failure chain:
+1. **eBay is rate-limited (429)** on ALL cascade attempts -- the cascade fires 3 eBay API calls in rapid succession, but since the first one already got 429'd, the next two always fail too (wasted calls).
+2. **DB has no "topicrem" items** because they were never cached (first-time search for this brand).
+3. **Negative cache is skipped** (correct behavior), but the user still sees "No products found."
 
-3) Why result count feels too small
-- Over-strict provider query selection (AI rewrite suffixes like “balm”) can narrow recall.
-- eBay global filter restrictions (US + fixed-price only) further reduce pool.
-- Provider health can stay unhealthy/rate-limited, and with sparse DB index for niche terms that leads to very few results.
+The cascade mechanism (added in the previous fix) is structurally correct but has two critical bugs:
+- It doesn't detect 429 from the first call and stop early -- it blindly tries all 3 candidates against a rate-limited API.
+- `fetchEbayItems` **swallows the rate-limit warning** from `searchEbay` and returns `{ items: [], total: 0 }` with no signal that the failure was due to rate limiting vs genuinely empty results.
 
-4) Why “no full gallery” can happen
-- Product details page starts with one thumbnail from search state.
-- If detail fetch fails silently (with nav-state fallback), user still sees product page but can remain with single image.
-- Gallery enrichment is implemented backend-side, but if detail fetch path fails/doesn’t resolve the right item, frontend can stay on partial gallery.
+## Implementation Plan
 
-Implementation plan (what I will change next after approval):
-Phase 1 — Fix recall and “no results” behavior in catalog-search
-A. Safer query cascade (from most precise to broader), not just one rewritten query
-- Add ordered fallback query candidates:
-  1. canonical original user query
-  2. AI query_en (if confidence high)
-  3. original query (raw)
-  4. token-pruned version (drop low-signal suffixes)
-- For last-resort provider search, iterate through candidates with short per-attempt budgets and stop at first non-empty result.
-- Keep dedupe across attempts.
+### 1. Propagate rate-limit signal from fetchEbayItems
 
-B. Relax eBay filters in fallback mode
-- In fallback mode only:
-  - remove mandatory `itemLocationCountry:US`
-  - allow non-fixed price when needed (or do staged fallback: fixed-price first, then no buyingOptions filter)
-- Preserve stricter filters for normal high-confidence/primary passes where relevant.
+**File**: `supabase/functions/_shared/ebayFetcher.ts`
 
-C. Prevent unrelated fallback results
-- Tighten loose DB fallback:
-  - ignore tokens shorter than 3 chars
-  - prioritize longest/brand-like tokens first
-  - require at least one strong-token boundary match before returning
-- Run final `scoreAndRankItems` and minimum relevance gate before emitting fallback items.
+Add a `rateLimited` boolean to `EbayFetchResult` interface. When `searchEbay` returns a warning with code `RATE_LIMITED`, set `rateLimited: true` in the return value so callers can detect this.
 
-D. Improve negative-cache safety
-- Keep skipping negative cache on provider errors (already partly present).
-- Also skip/shorten negative cache when fallback attempts ended due upstream warnings (429, timeout, circuit-breaker), not true empty market.
+### 2. Stop cascade on first 429 detection
 
-Phase 2 — Improve relevance quality globally
-A. Use original-intent anchor for scoring
-- Keep DB token anchor truly based on user-origin canonical string (not post-AI rewritten suffix).
-- Use hybrid scoring tokens:
-  - anchor tokens from user query
-  - provider tokens from translated query
-- This avoids “balm” over-constraining while still leveraging translation.
+**File**: `supabase/functions/catalog-search/index.ts` (lines ~1711-1750)
 
-B. Add “hard unrelated guard” for fallback responses
-- Before returning fallback items, enforce:
-  - token boundary match to at least one meaningful query token
-  - drop items failing minimum lexical overlap
-- This reduces random/off-topic cards.
+In the last-resort cascade loop, check `lastResortResult.rateLimited`. If true:
+- Record the failure in the circuit breaker (`recordProviderFailure("ebay", 429)`)
+- Break the loop immediately (no point trying more candidates)
+- Log the early exit
 
-Phase 3 — Make gallery completeness reliable
-A. Ensure ProductDetails always attempts authoritative detail fetch
-- Keep nav-state thumbnail as temporary.
-- If backend fetch fails, surface non-blocking warning and retry once with canonical ID derivation variants.
-- Do not silently settle forever on 1 image when detail lookup can be recovered.
+### 3. Auto-retry on frontend when rate-limited with 0 results
 
-B. Canonical ID robustness checks
-- Validate provider/id transformations between SearchResults → ProductCard URL → ProductDetails fetch.
-- Add fallback resolution path using `provider_product_id` and canonical `provider_id` forms.
+**File**: `supabase/functions/catalog-search/index.ts` (response building, line ~1757)
 
-C. Gallery fallback hydration on frontend
-- If detail response has 1 image and `image_count_status` indicates pending/unknown, trigger one background refresh call and merge if more images arrive.
+When all fallbacks return 0 AND the reason is rate limiting (not genuine empty), include a signal in the response:
+```json
+{ "retryable": true, "retryAfterMs": 3000 }
+```
 
-Validation plan (end-to-end)
-1) Query tests for recall/relevance
-- “Topicrem DA”, “Topicrem”, “lotion Topicrem”, and similar niche terms.
-- Verify:
-  - no false zero when provider has items
-  - top results stay related
-  - result count improves vs current baseline
+**File**: `src/pages/shop/SearchResults.tsx` (lines ~329-390)
 
-2) Error-path tests
-- Simulate/observe 429 and timeout conditions.
-- Verify:
-  - fallback query cascade runs
-  - negative empty caching is avoided on upstream errors
-  - user still receives best possible related results
+When `data.retryable === true` and `returnedCount === 0`:
+- Don't show "No products found" immediately
+- Show a "Loading products..." spinner
+- Auto-retry after `retryAfterMs` (default 3s), up to 2 retries
+- Only show empty state after retries are exhausted
 
-3) Gallery tests
-- Open products from search results across providers.
-- Verify:
-  - detail page upgrades from thumbnail to full gallery
-  - retry logic works when initial detail fetch fails
-  - no silent single-image lock unless source truly has one image
+### 4. Record rate-limit in circuit breaker from provider fetch path
 
-Technical notes (for implementation consistency)
-- Files to update:
-  - `supabase/functions/catalog-search/index.ts`
-  - `supabase/functions/_shared/ebayBrowseSearch.ts`
-  - `src/pages/shop/ProductDetails.tsx`
-  - possibly `src/pages/shop/SearchResults.tsx` (ID/state robustness helpers)
-- No schema migration is required for this fix set.
-- Existing architecture (DB-first + provider fallback + media enrichment) remains; this plan hardens recall/relevance and failure behavior.
+**File**: `supabase/functions/catalog-search/index.ts` (lines ~1081-1104)
 
-Expected outcome after implementation:
-- Far fewer “No products found” false negatives.
-- Better relevance (less unrelated noise from fallback).
-- More consistent product image galleries after opening an item.
+When the primary eBay provider fetch returns 0 items with a rate-limit warning, call `recordProviderFailure("ebay", 429)` so that subsequent searches within the cooldown window skip eBay entirely (and rely on DB + Amazon).
+
+## Technical Details
+
+### ebayFetcher.ts changes
+- Add `rateLimited?: boolean` and `warning?: { message: string; code: string }` to `EbayFetchResult`
+- Propagate `ebayResult.warning` to the return value
+- When `ebayResult.warning?.code === "RATE_LIMITED"`, set `rateLimited: true`
+
+### catalog-search/index.ts changes (last-resort cascade)
+- After each cascade attempt, check `lastResortResult?.rateLimited`
+- If rate-limited, log and break the loop
+- Call `recordProviderFailure("ebay", 429)` on rate-limit detection
+- When returning empty after rate-limit, add `retryable: true, retryAfterMs: 3000` to response
+
+### SearchResults.tsx changes (frontend auto-retry)
+- Add `retryCountRef` to track retry attempts (max 2)
+- In `fetchProducts`, detect `data.retryable === true` with 0 items
+- Set a timer for `data.retryAfterMs || 3000` to re-call `fetchProducts`
+- During retry, show loading state instead of empty state
+- Reset retry counter on new search queries
+
+## Expected Outcome
+
+- "Topicrem DA" search: first attempt may hit 429, frontend auto-retries after 3s, second attempt succeeds (rate limit window passed) and shows products
+- No more wasted cascade calls (3x API calls reduced to 1x on rate limit)
+- Circuit breaker prevents other concurrent users from also hitting 429
+- User never sees "No products found" for a temporarily rate-limited query -- they see a brief loading state instead

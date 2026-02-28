@@ -102,6 +102,7 @@ import ShopAuth from "./pages/shop/ShopAuth";
 import Onboarding from "./pages/shop/Onboarding";
 import PaymentPending from "./pages/shop/PaymentPending";
 import CardPayment from "./pages/shop/CardPayment";
+import PasteLink from "./pages/shop/PasteLink";
 import ShopPaymentSuccess from "./pages/shop/PaymentSuccess";
 
 // Suspense fallback for lazy-loaded routes
@@ -128,8 +129,8 @@ const App = () => {
   // Skip splash for public pages - only show for admin routes
   const [showSplash, setShowSplash] = useState(() => {
     const path = window.location.pathname;
-    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/get', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account', '/about', '/payouts', '/contact', '/browse', '/cart', '/checkout', '/saved', '/my-orders', '/account', '/search', '/product', '/shop-auth', '/onboarding', '/payment-pending', '/card-payment', '/payment-success-shop'];
-    return !publicPaths.some(p => path === p || path.startsWith('/payment') || path.startsWith('/browse') || path.startsWith('/product') || path.startsWith('/search') || path.startsWith('/cart') || path.startsWith('/checkout') || path.startsWith('/saved') || path.startsWith('/my-orders') || path.startsWith('/account') || path.startsWith('/shop') || path.startsWith('/get'));
+    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/get', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account', '/about', '/payouts', '/contact', '/browse', '/cart', '/checkout', '/saved', '/my-orders', '/account', '/search', '/product', '/shop-auth', '/onboarding', '/payment-pending', '/card-payment', '/payment-success-shop', '/paste-link'];
+    return !publicPaths.some(p => path === p || path.startsWith('/payment') || path.startsWith('/browse') || path.startsWith('/product') || path.startsWith('/search') || path.startsWith('/cart') || path.startsWith('/checkout') || path.startsWith('/saved') || path.startsWith('/my-orders') || path.startsWith('/account') || path.startsWith('/shop') || path.startsWith('/get') || path.startsWith('/paste-link'));
   });
 
   return (
@@ -175,6 +176,7 @@ const App = () => {
             <Route path="/category/:key" element={<CategoryResultsPage />} />
             <Route path="/product/:provider/:id" element={<ProductDetailErrorBoundary><ProductDetails /></ProductDetailErrorBoundary>} />
             <Route path="/cart" element={<ShopCart />} />
+            <Route path="/paste-link" element={<PasteLink />} />
             <Route path="/saved" element={<SavedItems />} />
             <Route path="/my-orders" element={
               <ShopProtectedRoute>

@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Truck, CreditCard, ShoppingBag, Activity } from 'lucide-react';
+import { Truck, CreditCard, ShoppingBag, Activity, Database } from 'lucide-react';
 import { ShippingMetrics } from './ShippingMetrics';
 import { PaymentsBreakdown } from './PaymentsBreakdown';
 import { SavedCartsReport } from './SavedCartsReport';
+import { CatalogStatsTab } from './CatalogStatsWidget';
 import type { DateRange } from './DateRangeFilter';
 
 interface OperationalInsightsTabsProps {
@@ -24,7 +25,7 @@ export function OperationalInsightsTabs({ dateRange }: OperationalInsightsTabsPr
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 bg-muted/50 mb-4">
+          <TabsList className="grid w-full grid-cols-4 bg-muted/50 mb-4">
             <TabsTrigger value="shipping" className="gap-2 text-sm">
               <Truck className="h-4 w-4" />
               <span className="hidden sm:inline">Shipping</span>
@@ -35,7 +36,11 @@ export function OperationalInsightsTabs({ dateRange }: OperationalInsightsTabsPr
             </TabsTrigger>
             <TabsTrigger value="carts" className="gap-2 text-sm">
               <ShoppingBag className="h-4 w-4" />
-              <span className="hidden sm:inline">Saved Carts</span>
+              <span className="hidden sm:inline">Carts</span>
+            </TabsTrigger>
+            <TabsTrigger value="catalog" className="gap-2 text-sm">
+              <Database className="h-4 w-4" />
+              <span className="hidden sm:inline">Catalog</span>
             </TabsTrigger>
           </TabsList>
           <TabsContent value="shipping" className="mt-0">
@@ -46,6 +51,9 @@ export function OperationalInsightsTabs({ dateRange }: OperationalInsightsTabsPr
           </TabsContent>
           <TabsContent value="carts" className="mt-0">
             {activeTab === 'carts' && <SavedCartsReport embedded />}
+          </TabsContent>
+          <TabsContent value="catalog" className="mt-0">
+            {activeTab === 'catalog' && <CatalogStatsTab embedded />}
           </TabsContent>
         </Tabs>
       </CardContent>

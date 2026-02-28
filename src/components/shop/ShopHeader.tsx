@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LogIn, User, Menu, Globe, ChevronDown, Home, Package, Heart, Gift } from 'lucide-react';
+import { LogIn, User, Menu, Globe, ChevronDown, Home, Package, Heart, Gift, Link2 } from 'lucide-react';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from './SearchBar';
@@ -172,6 +172,14 @@ export function ShopHeader() {
                                 {savedItems.length > 99 ? '99+' : savedItems.length}
                               </span>
                             )}
+                          </Link>
+                          <Link
+                            to="/paste-link"
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
+                          >
+                            <Link2 className="h-4 w-4" />
+                            {language === 'fr' ? 'Coller un lien' : 'Paste a Link'}
                           </Link>
                           <Drawer>
                             <DrawerTrigger asChild>

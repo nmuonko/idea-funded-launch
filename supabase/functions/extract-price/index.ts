@@ -889,6 +889,7 @@ async function getCatalogFallbackPrice(
     if (!productId) return null;
 
     const provider = store === 'generic' ? null : store;
+    const amazonProviders = ['amazon', 'rainforest'];
 
     let idQuery = supabase
       .from('catalog_items')
@@ -899,7 +900,9 @@ async function getCatalogFallbackPrice(
       .order('updated_at', { ascending: false })
       .limit(1);
 
-    if (provider) {
+    if (store === 'amazon') {
+      idQuery = idQuery.in('provider', amazonProviders);
+    } else if (provider) {
       idQuery = idQuery.eq('provider', provider);
     }
 
@@ -923,7 +926,9 @@ async function getCatalogFallbackPrice(
       .order('updated_at', { ascending: false })
       .limit(1);
 
-    const { data: looseMatch } = provider ? await likeQuery.eq('provider', provider) : await likeQuery;
+    const { data: looseMatch } = store === 'amazon'
+      ? await likeQuery.in('provider', amazonProviders)
+      : (provider ? await likeQuery.eq('provider', provider) : await likeQuery);
     if (looseMatch?.[0]?.price_usd) {
       console.log(`[extract-price] Catalog fallback hit by URL fragment for ${store} id=${productId}`);
       return {
@@ -1075,6 +1080,124 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ===== AMAZON FAST PATH: Check catalog FIRST before any scraping =====
+    // Amazon almost always blocks scraping, so check our indexed catalog first
+    if (store === 'amazon') {
+      const catalogResult = await getCatalogFallbackPrice(supabase, formattedUrl, normalizedUrl, store);
+      if (catalogResult) {
+        const now = new Date().toISOString();
+        const currencyCodeFb = 'USD';
+        const currencySymbolFb = getCurrencySymbol(currencyCodeFb);
+
+        // Cache for faster subsequent access
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: catalogResult.basePrice,
+          currencySymbol: currencySymbolFb,
+          rawCurrencyCode: currencyCodeFb,
+          title: catalogResult.title,
+          imageUrl: catalogResult.imageUrl,
+        });
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: catalogResult.basePrice,
+          currencySymbol: currencySymbolFb,
+          rawCurrencyCode: currencyCodeFb,
+          store,
+          title: catalogResult.title,
+          imageUrl: catalogResult.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        logData = { ...logData, cacheHit: false, method: 'amazon_catalog_fast_path', priceFound: true, duration: Date.now() - startTime };
+        console.log(JSON.stringify(logData));
+
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: catalogResult.basePrice,
+          currencySymbol: currencySymbolFb,
+          rawCurrencyCode: currencyCodeFb,
+          title: catalogResult.title,
+          imageUrl: catalogResult.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        } as PriceResolveResponse);
+      }
+
+      // ASIN not in catalog — enqueue for background ingestion so it works next time
+      const asin = extractProductIdFromUrl(formattedUrl, 'amazon');
+      if (asin) {
+        console.log(`[extract-price] Amazon ASIN ${asin} not in catalog, enqueuing for ingestion`);
+        supabase
+          .from('amazon_ingest_queue')
+          .upsert(
+            { query: asin, reason: 'paste_link_miss', priority: 10, status: 'pending', attempts: 0 },
+            { onConflict: 'query' }
+          )
+          .then(() => {})
+          .catch(() => {});
+      }
+
+      // For Amazon, still try mirror scraping as last resort before failing
+      const mirror = await extractViaMirror(formattedUrl, store, 4000);
+      if (mirror?.price) {
+        const now = new Date().toISOString();
+        const resolvedCurrencyCode = mirror.currencyCode || 'USD';
+        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+        });
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          store,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        logData = { ...logData, cacheHit: false, method: 'amazon_mirror_fallback', priceFound: true, duration: Date.now() - startTime };
+        console.log(JSON.stringify(logData));
+
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        } as PriceResolveResponse);
+      }
+
+      // Amazon: all automated methods failed — return clear error with manual fallback
+      logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', reason: 'amazon_all_methods_failed', duration: Date.now() - startTime };
+      console.log(JSON.stringify(logData));
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          code: 'PRICE_NOT_FOUND',
+          message: 'Amazon product not yet indexed',
+          message_en: 'This Amazon product is not yet in our catalog. Please enter the price manually.',
+          message_fr: 'Ce produit Amazon n\'est pas encore dans notre catalogue. Veuillez entrer le prix manuellement.',
+          retryable: false,
+          webviewFallback: true,
+          suggestedFallback: 'MANUAL',
+        }),
+        { status: 404, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ===== NON-AMAZON STORES: Standard scraping flow =====
     // Get store-specific timeout (fail fast for problematic stores)
     const storeTimeouts = STORE_TIMEOUTS[store] || STORE_TIMEOUTS.generic;
     const fetchTimeout = mode === 'fast' ? storeTimeouts.fast : storeTimeouts.standard;

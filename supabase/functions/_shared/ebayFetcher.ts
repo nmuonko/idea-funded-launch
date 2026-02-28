@@ -25,6 +25,8 @@ export interface EbayFetchParams {
   limit: number;
   catalogFilters: CatalogFilters;
   requestId: string;
+  /** When true, removes US-only and FIXED_PRICE filters for broader recall */
+  relaxFilters?: boolean;
 }
 
 export interface EbayFetchResult {
@@ -75,7 +77,7 @@ const VEHICLE_MODEL_NORMALIZE: Record<string, string> = {
 };
 
 export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetchResult> {
-  const { supabase, query, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey, page, limit, catalogFilters, requestId } = params;
+  const { supabase, query, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey, page, limit, catalogFilters, requestId, relaxFilters } = params;
 
   let items: CatalogItem[] = [];
   let hasMore = false;
@@ -141,6 +143,7 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
         categoryId: ebayCategory,
         marketplaceId: "EBAY_US",
         filters: catalogFilters,
+        relaxFilters: relaxFilters || false,
       },
       requestId
     );

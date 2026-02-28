@@ -24,7 +24,7 @@ async function loadCatalogStats(): Promise<CatalogStats> {
     totalRes,
     activeRes,
     disallowedRes,
-    breakdownRes,
+    breakdownStatsRes,
     priceStatsRes,
     recentRes,
     oldestRes,
@@ -37,11 +37,7 @@ async function loadCatalogStats(): Promise<CatalogStats> {
       .eq('is_active', true).eq('is_disallowed', false),
     supabase.from('catalog_items').select('id', { count: 'exact', head: true })
       .eq('is_disallowed', true),
-    supabase.from('catalog_items')
-      .select('provider, unified_category')
-      .eq('is_active', true).eq('is_disallowed', false)
-      .not('price_usd', 'is', null).gt('price_usd', 0)
-      .limit(1000),
+    supabase.rpc('get_catalog_breakdown_stats') as unknown as { data: { provider: string | null; provider_count: number | null; unified_category: string | null; category_count: number | null }[] | null },
     // Accurate total value + avg via RPC (no row limit)
     supabase.rpc('get_catalog_price_stats') as unknown as { data: { total_value: number; avg_price: number }[] | null },
     supabase.from('catalog_items').select('id', { count: 'exact', head: true })
@@ -73,25 +69,16 @@ async function loadCatalogStats(): Promise<CatalogStats> {
   const totalValue = Number(priceStats?.total_value ?? 0);
   const avgPrice = Number(priceStats?.avg_price ?? 0);
 
-  const breakdownData = breakdownRes.data || [];
-  const providerMap = new Map<string, number>();
-  breakdownData.forEach(item => {
-    const p = item.provider || 'unknown';
-    providerMap.set(p, (providerMap.get(p) || 0) + 1);
-  });
-  const providerBreakdown = Array.from(providerMap.entries())
-    .map(([provider, count]) => ({ provider, count }))
+  const breakdownRows = breakdownStatsRes.data || [];
+  const providerBreakdown = breakdownRows
+    .filter(r => r.provider != null)
+    .map(r => ({ provider: r.provider!, count: Number(r.provider_count ?? 0) }))
     .sort((a, b) => b.count - a.count);
 
-  const catMap = new Map<string, number>();
-  breakdownData.forEach(item => {
-    const c = item.unified_category || 'uncategorized';
-    catMap.set(c, (catMap.get(c) || 0) + 1);
-  });
-  const categoryBreakdown = Array.from(catMap.entries())
-    .map(([category, count]) => ({ category, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 8);
+  const categoryBreakdown = breakdownRows
+    .filter(r => r.unified_category != null)
+    .map(r => ({ category: r.unified_category!, count: Number(r.category_count ?? 0) }))
+    .sort((a, b) => b.count - a.count);
 
   const oldestItem = oldestRes.data?.[0]?.first_seen_at || null;
   const newestItem = newestRes.data?.[0]?.first_seen_at || null;

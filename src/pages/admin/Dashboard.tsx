@@ -16,6 +16,7 @@ import { PendingActionsSidebar } from '@/components/admin/dashboard/PendingActio
 import { OperationalInsightsTabs } from '@/components/admin/dashboard/OperationalInsightsTabs';
 import { DateRangeFilter, type DateRange, getDateRangeFromPreset } from '@/components/admin/dashboard/DateRangeFilter';
 import { CustomerOverviewWidget } from '@/components/admin/dashboard/CustomerOverviewWidget';
+import { CatalogStatsWidget } from '@/components/admin/dashboard/CatalogStatsWidget';
 
 interface DashboardStats {
   totalOrders: number;
@@ -148,6 +149,7 @@ export default function AdminDashboard() {
 
         <div className="lg:sticky lg:top-4 lg:self-start space-y-6">
           <PendingActionsSidebar />
+          <CatalogStatsWidget />
           <CustomerOverviewWidget />
         </div>
       </div>

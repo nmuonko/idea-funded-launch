@@ -1615,12 +1615,14 @@ Deno.serve(async (req: Request) => {
       // ─── LAST-RESORT DB FALLBACK (ebay-only, loose token OR) ───────────────
       // If provider calls failed/timed out/rate-limited, do one final DB-only pass
       // against ebay catalog rows so we don't return empty for known items.
+      // Phase 1C: Tighten tokens to >=3 chars, sort by longest first, apply relevance gate
       if (relatedItems.length === 0) {
         try {
-          const looseTokens = providerQuery
+          const looseTokens = (dbQuery || providerQuery)
             .toLowerCase()
             .split(/\s+/)
-            .filter((t: string) => t.length >= 2)
+            .filter((t: string) => t.length >= 3) // Phase 1C: min 3 chars to avoid "da","le" etc.
+            .sort((a: string, b: string) => b.length - a.length) // longest/brand-like first
             .slice(0, 4);
 
           if (looseTokens.length > 0) {
@@ -1628,83 +1630,127 @@ Deno.serve(async (req: Request) => {
             const { data: ebayDbLoose } = await supabase
               .from("catalog_items")
               .select("id, title, price_usd, image_url, images, product_url, provider, provider_product_id, rating, unified_category, in_stock")
-              .eq("provider", "ebay")
+              .in("provider", ["ebay", "amazon", "rainforest"])
               .eq("is_active", true)
               .eq("is_disallowed", false)
               .not("image_url", "is", null)
               .or(orFilter)
               .order("updated_at", { ascending: false })
-              .limit(Math.max(limit, 24));
+              .limit(Math.max(limit, 40));
 
             if (ebayDbLoose && ebayDbLoose.length > 0) {
-              relatedItems = ebayDbLoose.map((item: any) => ({
-                id: item.id,
-                provider: "ebay",
-                providerProductId: item.provider_product_id,
-                title: item.title,
-                priceUsd: item.price_usd,
-                currency: "USD",
-                mainImageUrl: item.image_url,
-                imageUrl: item.image_url,
-                images: item.images || (item.image_url ? [item.image_url] : []),
-                imageUrls: item.images || (item.image_url ? [item.image_url] : []),
-                imageCount: item.images?.length || 1,
-                productUrl: item.product_url,
-                inStock: item.in_stock ?? true,
-                rating: item.rating,
-                category: item.unified_category || categoryKey || undefined,
-                store: "ebay",
-              }));
-              fallbackReason = "related_db_ebay_loose";
-              console.log(`[CATALOG_SEARCH] requestId=${requestId} related_db_ebay_loose fallback: ${relatedItems.length} items`);
+              // Phase 1C: Apply relevance gate — require at least one strong token boundary match
+              const anchorTokens = (dbQuery || qOriginal).toLowerCase().split(/\s+/).filter((t: string) => t.length >= 3);
+              const relevantItems = ebayDbLoose.filter((item: any) => {
+                const titleLower = (item.title || "").toLowerCase();
+                // At least one anchor token must appear as a word boundary match
+                return anchorTokens.some((tok: string) => {
+                  const re = new RegExp(`\\b${tok.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
+                  return re.test(titleLower);
+                });
+              });
+
+              if (relevantItems.length > 0) {
+                relatedItems = relevantItems.map((item: any) => ({
+                  id: item.id,
+                  provider: item.provider === "rainforest" ? "amazon" : item.provider,
+                  providerProductId: item.provider_product_id,
+                  title: item.title,
+                  priceUsd: item.price_usd,
+                  currency: "USD",
+                  mainImageUrl: item.image_url,
+                  imageUrl: item.image_url,
+                  images: item.images || (item.image_url ? [item.image_url] : []),
+                  imageUrls: item.images || (item.image_url ? [item.image_url] : []),
+                  imageCount: item.images?.length || 1,
+                  productUrl: item.product_url,
+                  inStock: item.in_stock ?? true,
+                  rating: item.rating,
+                  category: item.unified_category || categoryKey || undefined,
+                  store: item.provider === "rainforest" ? "amazon" : item.provider,
+                }));
+                fallbackReason = "related_db_loose";
+                console.log(`[CATALOG_SEARCH] requestId=${requestId} related_db_loose fallback: ${relevantItems.length}/${ebayDbLoose.length} passed relevance gate`);
+              } else {
+                console.log(`[CATALOG_SEARCH] requestId=${requestId} related_db_loose: ${ebayDbLoose.length} items found but 0 passed relevance gate`);
+              }
             }
           }
         } catch (looseErr) {
-          console.warn(`[CATALOG_SEARCH] requestId=${requestId} related_db_ebay_loose error:`, (looseErr as Error).message);
+          console.warn(`[CATALOG_SEARCH] requestId=${requestId} related_db_loose error:`, (looseErr as Error).message);
         }
       }
 
-      // ─── LAST-RESORT: Direct eBay live search (no scoring/filtering) ────────
-      // If DB and providers returned nothing usable, do a raw eBay search with the
-      // original query. This ensures products that exist on eBay are never missed.
+      // ─── LAST-RESORT: Query cascade with relaxed eBay filters ────────────────
+      // Phase 1A: Try multiple query candidates, not just providerQuery.
+      // Phase 1B: Use relaxed filters (no US-only, no FIXED_PRICE restriction).
       if (relatedItems.length === 0) {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_EBAY: attempting raw eBay search q="${providerQuery}"`);
-        try {
-          const lastResortTimeout = 4000;
-          const lastResortPromise = fetchEbayItems({
-            supabase, query: providerQuery, effectiveMode, isVehicle: false,
-            hasBuyingIntent: false, isHeavyEquipment: false,
-            categoryKey: undefined, page: 1, limit,
-            catalogFilters: {}, requestId: requestId + "-lastresort",
-          });
-          const lastResortTimer = new Promise<null>(r => setTimeout(() => r(null), lastResortTimeout));
-          const lastResortResult = await Promise.race([lastResortPromise, lastResortTimer]);
-
-          if (lastResortResult && lastResortResult.items && lastResortResult.items.length > 0) {
-            relatedItems = lastResortResult.items.map((item: any) => ({
-              id: item.id, provider: item.provider || "ebay",
-              providerProductId: item.providerProductId || item.provider_product_id,
-              title: item.title, priceUsd: item.priceUsd || item.price_usd,
-              currency: item.currency || "USD",
-              mainImageUrl: item.imageUrl || item.image_url,
-              imageUrl: item.imageUrl || item.image_url,
-              images: item.images || (item.imageUrl ? [item.imageUrl] : []),
-              imageUrls: item.images || (item.imageUrl ? [item.imageUrl] : []),
-              imageCount: item.imageCount || 1,
-              productUrl: item.productUrl || item.product_url,
-              inStock: true, rating: item.rating,
-              category: categoryKey || undefined, store: "ebay",
-            }));
-            fallbackReason = "last_resort_ebay";
-            console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_EBAY: found ${relatedItems.length} items`);
-
-            // Auto-cache these results for future searches (fire-and-forget)
-            autoCacheLiveResults(supabase, lastResortResult.items as any[], categoryKey, requestId + "-lastresort").catch(() => {});
-          } else {
-            console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_EBAY: no results or timeout`);
+        // Build ordered candidate queries: canonical → AI rewrite → original → token-pruned
+        const candidateQueries: string[] = [];
+        const seenCandidates = new Set<string>();
+        const addCandidate = (q: string | null | undefined) => {
+          if (!q) return;
+          const norm = q.toLowerCase().trim();
+          if (norm && !seenCandidates.has(norm)) {
+            seenCandidates.add(norm);
+            candidateQueries.push(q.trim());
           }
-        } catch (lrErr) {
-          console.warn(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_EBAY error:`, (lrErr as Error).message);
+        };
+        addCandidate(qCanonicalized);            // 1. canonical user query
+        addCandidate(providerQuery);             // 2. AI-translated/rewritten
+        addCandidate(qOriginal);                 // 3. raw original
+        // 4. token-pruned: keep only longest 2-3 tokens (brand + product)
+        const prunedTokens = (qCanonicalized || qOriginal).toLowerCase().split(/\s+/)
+          .filter((t: string) => t.length >= 3)
+          .sort((a: string, b: string) => b.length - a.length)
+          .slice(0, 3);
+        if (prunedTokens.length >= 1) addCandidate(prunedTokens.join(" "));
+
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_CASCADE: candidates=${JSON.stringify(candidateQueries)}`);
+
+        for (const candidateQ of candidateQueries) {
+          if (relatedItems.length > 0) break;
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_CASCADE: trying q="${candidateQ}" (relaxed filters)`);
+          try {
+            const lastResortTimeout = 3500;
+            const lastResortPromise = fetchEbayItems({
+              supabase, query: candidateQ, effectiveMode, isVehicle: false,
+              hasBuyingIntent: false, isHeavyEquipment: false,
+              categoryKey: undefined, page: 1, limit,
+              catalogFilters: {}, requestId: requestId + "-lr",
+              relaxFilters: true, // Phase 1B: no US-only, no FIXED_PRICE
+            });
+            const lastResortTimer = new Promise<null>(r => setTimeout(() => r(null), lastResortTimeout));
+            const lastResortResult = await Promise.race([lastResortPromise, lastResortTimer]);
+
+            if (lastResortResult && lastResortResult.items && lastResortResult.items.length > 0) {
+              relatedItems = lastResortResult.items.map((item: any) => ({
+                id: item.id, provider: item.provider || "ebay",
+                providerProductId: item.providerProductId || item.provider_product_id,
+                title: item.title, priceUsd: item.priceUsd || item.price_usd,
+                currency: item.currency || "USD",
+                mainImageUrl: item.imageUrl || item.image_url,
+                imageUrl: item.imageUrl || item.image_url,
+                images: item.images || (item.imageUrl ? [item.imageUrl] : []),
+                imageUrls: item.images || (item.imageUrl ? [item.imageUrl] : []),
+                imageCount: item.imageCount || 1,
+                productUrl: item.productUrl || item.product_url,
+                inStock: true, rating: item.rating,
+                category: categoryKey || undefined, store: "ebay",
+              }));
+              fallbackReason = `last_resort_cascade:${candidateQ}`;
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_CASCADE: found ${relatedItems.length} items with q="${candidateQ}"`);
+
+              // Auto-cache these results for future searches (fire-and-forget)
+              autoCacheLiveResults(supabase, lastResortResult.items as any[], categoryKey, requestId + "-lr").catch(() => {});
+            }
+          } catch (lrErr) {
+            console.warn(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_CASCADE error q="${candidateQ}":`, (lrErr as Error).message);
+          }
+        }
+
+        if (relatedItems.length === 0) {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_CASCADE: all candidates exhausted, no results`);
         }
       }
 

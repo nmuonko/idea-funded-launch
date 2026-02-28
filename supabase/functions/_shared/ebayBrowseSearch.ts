@@ -85,6 +85,8 @@ export interface EbaySearchParams {
   marketplaceId?: string;
   sort?: SortOption;
   filters?: CatalogFilters;
+  /** When true, removes itemLocationCountry and buyingOptions filters for broader recall */
+  relaxFilters?: boolean;
 }
 
 export interface EbaySearchResult {
@@ -355,7 +357,7 @@ function buildSearchUrl(params: EbaySearchParams, offset: number): string {
   const VEHICLE_LISTING_CAT_IDS = new Set(["6001", "6024", "6723", "6000"]);
   const isVehicleListingCategory = params.categoryId && VEHICLE_LISTING_CAT_IDS.has(params.categoryId);
   
-  if (!isVehicleListingCategory) {
+  if (!isVehicleListingCategory && !params.relaxFilters) {
     // Buy It Now only (FIXED_PRICE) - exclude auctions for non-vehicle categories
     filters.push("buyingOptions:{FIXED_PRICE}");
   }
@@ -365,8 +367,10 @@ function buildSearchUrl(params: EbaySearchParams, offset: number): string {
     filters.push(`price:[${params.minPrice}..],priceCurrency:USD`);
   }
   
-  // US items preferred
-  filters.push("itemLocationCountry:US");
+  // US items preferred (skip in relaxed mode for broader international recall)
+  if (!params.relaxFilters) {
+    filters.push("itemLocationCountry:US");
+  }
 
   // ── GAMING CONDITION FILTER: New + Refurbished only ──
   // eBay conditionIds: 1000=New, 1500=Open Box, 2000=Certified Refurbished, 2010=Excellent Refurbished, 2020=Very Good Refurbished, 2500=Seller Refurbished

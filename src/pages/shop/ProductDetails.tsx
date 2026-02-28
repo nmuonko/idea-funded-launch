@@ -130,6 +130,7 @@ export default function ProductDetailsPage() {
   const navProductRef = useRef<ProductData | null>(null);
   const didAutoSelectRef = useRef(false);
   const userInteractedRef = useRef(false);
+  const retryAttemptedRef = useRef(false);
 
   const isVehicleFromState = !!(
     (location.state as any)?.product?.isVehicle ||
@@ -201,6 +202,7 @@ export default function ProductDetailsPage() {
     setCurrentImageIndex(0);
     didAutoSelectRef.current = false;
     userInteractedRef.current = false;
+    retryAttemptedRef.current = false;
     setSimilarProducts([]);
     setQuantity(1);
     setAdded(false);
@@ -345,6 +347,58 @@ export default function ProductDetailsPage() {
           durationMs: Date.now() - fetchStart,
           hadInitialData,
         });
+
+        // Phase 3A: Retry once with alternate ID form if first fetch failed
+        if (!retryAttemptedRef.current) {
+          retryAttemptedRef.current = true;
+          console.log('[ProductDetails] retrying with alternate ID derivation');
+          try {
+            const productIdDecoded = decodeURIComponent(id);
+            const normalizedProvider = provider.toLowerCase() === 'rainforest' ? 'amazon' : provider.toLowerCase();
+            // Try with raw ID (no prefix stripping)
+            const retryUrl = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product`);
+            retryUrl.searchParams.set('provider', normalizedProvider);
+            retryUrl.searchParams.set('id', productIdDecoded);
+            if (normalizedProvider === 'amazon') {
+              retryUrl.searchParams.set('amazon_domain', 'amazon.com');
+            }
+            const retryResp = await fetch(retryUrl.toString(), {
+              signal: controller.signal,
+              headers: {
+                'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+                'Content-Type': 'application/json',
+              },
+            });
+            if (retryResp.ok) {
+              const retryData = await retryResp.json();
+              if (retryData?.item) {
+                const item = retryData.item;
+                const newImages: string[] = item.images || item.imageUrls || (item.image_url ? [item.image_url] : []);
+                setProduct(prev => ({
+                  id: item.provider_product_id || item.id || prev?.id || '',
+                  provider: item.provider || provider || prev?.provider || '',
+                  title: item.title || prev?.title || 'Product',
+                  description: item.description || prev?.description,
+                  images: newImages.length > 0 ? newImages : (prev?.images || ['/placeholder.svg']),
+                  priceUsd: item.price_usd || item.priceUsd || prev?.priceUsd || 0,
+                  rating: item.rating ?? prev?.rating,
+                  reviewCount: item.review_count || item.reviewCount || prev?.reviewCount,
+                  inStock: item.in_stock !== false,
+                  productUrl: item.product_url || item.productUrl || prev?.productUrl,
+                  brand: item.brand || prev?.brand,
+                  categoryKey: item.categoryKey || prev?.categoryKey || null,
+                  vehiclesSubkey: item.vehiclesSubkey || prev?.vehiclesSubkey || null,
+                  variants: item.variants || undefined,
+                }));
+                console.log('[ProductDetails] retry succeeded with alternate ID');
+                return;
+              }
+            }
+          } catch {
+            // Retry also failed — fall through to error handling
+          }
+        }
+
         if (!navProductRef.current) {
           setError(err.message || 'Failed to load product');
         }

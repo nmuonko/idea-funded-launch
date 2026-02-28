@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Home, ShoppingCart, Heart, Package, User } from 'lucide-react';
+import { Home, ShoppingCart, Heart, Package, User, Link2 } from 'lucide-react';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 
 const tabs = [
   { key: 'browse', icon: Home, path: '/' },
+  { key: 'paste', icon: Link2, path: '/paste-link' },
   { key: 'cart', icon: ShoppingCart, path: '/cart' },
   { key: 'saved', icon: Heart, path: '/saved' },
   { key: 'orders', icon: Package, path: '/my-orders' },
@@ -26,6 +27,7 @@ export function BottomNavigation() {
     const shopT = t.shop as any;
     const labels: Record<string, string> = {
       browse: shopT?.browseTab || 'Browse',
+      paste: shopT?.pasteTab || (language === 'fr' ? 'Coller' : 'Paste'),
       cart: shopT?.cart || 'Cart',
       saved: shopT?.savedTab || 'Saved',
       orders: shopT?.ordersTab || 'Orders',

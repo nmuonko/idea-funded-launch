@@ -618,7 +618,48 @@ async function extractWithOcr(url: string, timeout: number): Promise<number | nu
   }
 }
 
-// ============== CACHE FUNCTIONS ==============
+async function extractViaMirror(url: string, store: StoreType, timeout: number): Promise<{ price: number; currencyCode: string | null; title: string | null; imageUrl: string | null } | null> {
+  try {
+    const urlWithoutProtocol = url.replace(/^https?:\/\//i, '');
+    const mirrorUrl = `https://r.jina.ai/http://${urlWithoutProtocol}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    const response = await fetch(mirrorUrl, {
+      headers: {
+        'Accept': 'text/plain,text/markdown;q=0.9,*/*;q=0.8',
+        'User-Agent': 'Mozilla/5.0',
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) return null;
+
+    const content = await response.text();
+    if (!content || content.length < 50) return null;
+
+    const regexResult = extractWithRegex(content);
+    if (!regexResult?.price) return null;
+
+    const headingMatch = content.match(/^#\s+(.+)$/m) || content.match(/^Title:\s*(.+)$/mi);
+    const title = headingMatch?.[1]?.trim() || null;
+
+    console.log(`[extract-price] Mirror extraction succeeded for ${store}: ${regexResult.price} ${regexResult.currencyHint}`);
+
+    return {
+      price: regexResult.price,
+      currencyCode: regexResult.currencyHint ?? null,
+      title,
+      imageUrl: null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 
 interface CachedPrice {
   basePrice: number;
@@ -765,6 +806,138 @@ async function setCachedPrice(
     );
   } catch (error) {
     console.error('[extract-price] Cache write failed:', error);
+  }
+}
+
+
+interface CatalogFallbackResult {
+  basePrice: number;
+  title: string | null;
+  imageUrl: string | null;
+  source: 'catalog';
+}
+
+function extractProductIdFromUrl(url: string, store: StoreType): string | null {
+  const matchers: Record<StoreType, RegExp[]> = {
+    amazon: [
+      /\/dp\/([A-Z0-9]{10})/i,
+      /\/gp\/product\/([A-Z0-9]{10})/i,
+      /\/gp\/aw\/d\/([A-Z0-9]{10})/i,
+      /\/gp\/offer-listing\/([A-Z0-9]{10})/i,
+    ],
+    ebay: [
+      /\/itm\/(?:[^/]+\/)?(\d{9,14})/i,
+      /[?&]item=(\d{9,14})/i,
+    ],
+    walmart: [/\/ip\/(?:[^/]+\/)?(\d{6,20})/i],
+    bestbuy: [/\/site\/[^/]*\/(\d+)\.p/i],
+    target: [/\/A-(\d{4,})/i],
+    aliexpress: [/\/item\/(\d+)\.html/i],
+    shein: [/-p-(\d+)\.html/i],
+    macys: [],
+    homedepot: [],
+    mercari: [/\/item\/(m\w+)/i],
+    wayfair: [/-([A-Z0-9]+)\.html/i],
+    carvana: [/\/vehicle\/(\d+)/i],
+    cargurus: [/\/Cars\/in\/[^/]+\/(\w+)/i],
+    tesla_used: [/\/inventory\/[A-Z0-9]+\/(\w+)/i],
+    edmunds: [/\/vin\/(\w+)/i],
+    generic: [],
+  };
+
+  for (const regex of matchers[store] ?? []) {
+    const match = url.match(regex);
+    if (match?.[1]) {
+      return match[1].toUpperCase();
+    }
+  }
+
+  return null;
+}
+
+async function getCatalogFallbackPrice(
+  supabase: any,
+  formattedUrl: string,
+  normalizedUrl: string,
+  store: StoreType
+): Promise<CatalogFallbackResult | null> {
+  try {
+    const parsed = new URL(formattedUrl);
+    const baseUrl = `${parsed.origin}${parsed.pathname}`;
+    const urlCandidates = Array.from(new Set([formattedUrl, normalizedUrl, baseUrl].filter(Boolean)));
+
+    const baseQuery = supabase
+      .from('catalog_items')
+      .select('price_usd,title,image_url,provider,provider_product_id,product_url,updated_at')
+      .not('price_usd', 'is', null)
+      .eq('is_active', true)
+      .order('updated_at', { ascending: false })
+      .limit(1);
+
+    const { data: exactUrlMatch } = await baseQuery.in('product_url', urlCandidates);
+    if (exactUrlMatch?.[0]?.price_usd) {
+      console.log(`[extract-price] Catalog fallback hit by URL for ${store}`);
+      return {
+        basePrice: Number(exactUrlMatch[0].price_usd),
+        title: exactUrlMatch[0].title ?? null,
+        imageUrl: exactUrlMatch[0].image_url ?? null,
+        source: 'catalog',
+      };
+    }
+
+    const productId = extractProductIdFromUrl(formattedUrl, store);
+    if (!productId) return null;
+
+    const provider = store === 'generic' ? null : store;
+
+    let idQuery = supabase
+      .from('catalog_items')
+      .select('price_usd,title,image_url,provider,provider_product_id,updated_at')
+      .not('price_usd', 'is', null)
+      .eq('is_active', true)
+      .eq('provider_product_id', productId)
+      .order('updated_at', { ascending: false })
+      .limit(1);
+
+    if (provider) {
+      idQuery = idQuery.eq('provider', provider);
+    }
+
+    const { data: idMatch } = await idQuery;
+    if (idMatch?.[0]?.price_usd) {
+      console.log(`[extract-price] Catalog fallback hit by provider_product_id for ${store} id=${productId}`);
+      return {
+        basePrice: Number(idMatch[0].price_usd),
+        title: idMatch[0].title ?? null,
+        imageUrl: idMatch[0].image_url ?? null,
+        source: 'catalog',
+      };
+    }
+
+    const likeQuery = supabase
+      .from('catalog_items')
+      .select('price_usd,title,image_url,provider,provider_product_id,updated_at')
+      .not('price_usd', 'is', null)
+      .eq('is_active', true)
+      .ilike('product_url', `%${productId}%`)
+      .order('updated_at', { ascending: false })
+      .limit(1);
+
+    const { data: looseMatch } = provider ? await likeQuery.eq('provider', provider) : await likeQuery;
+    if (looseMatch?.[0]?.price_usd) {
+      console.log(`[extract-price] Catalog fallback hit by URL fragment for ${store} id=${productId}`);
+      return {
+        basePrice: Number(looseMatch[0].price_usd),
+        title: looseMatch[0].title ?? null,
+        imageUrl: looseMatch[0].image_url ?? null,
+        source: 'catalog',
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.warn('[extract-price] Catalog fallback failed:', error);
+    return null;
   }
 }
 
@@ -915,6 +1088,103 @@ Deno.serve(async (req) => {
     }
 
     if (!response.ok) {
+      const mirror = await extractViaMirror(formattedUrl, store, 3500);
+      if (mirror?.price) {
+        const now = new Date().toISOString();
+        const resolvedCurrencyCode = mirror.currencyCode || 'USD';
+        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+        });
+
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          store,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        logData = {
+          ...logData,
+          cacheHit: false,
+          method: 'mirror_fallback_http_error',
+          priceFound: true,
+          duration: Date.now() - startTime,
+          httpStatus: response.status,
+        };
+        console.log(JSON.stringify(logData));
+
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        } as PriceResolveResponse);
+      }
+
+      const fallback = await getCatalogFallbackPrice(supabase, formattedUrl, normalizedUrl, store);
+      if (fallback) {
+        const now = new Date().toISOString();
+        const fallbackCurrencyCode = 'USD';
+        const fallbackCurrencySymbol = getCurrencySymbol(fallbackCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: fallback.basePrice,
+          currencySymbol: fallbackCurrencySymbol,
+          rawCurrencyCode: fallbackCurrencyCode,
+          title: fallback.title,
+          imageUrl: fallback.imageUrl,
+        });
+
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: fallback.basePrice,
+          currencySymbol: fallbackCurrencySymbol,
+          rawCurrencyCode: fallbackCurrencyCode,
+          store,
+          title: fallback.title,
+          imageUrl: fallback.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        logData = {
+          ...logData,
+          cacheHit: false,
+          method: 'catalog_fallback_http_error',
+          priceFound: true,
+          duration: Date.now() - startTime,
+          httpStatus: response.status,
+        };
+        console.log(JSON.stringify(logData));
+
+        const fallbackResponse: PriceResolveResponse = {
+          url: normalizedUrl,
+          store,
+          basePrice: fallback.basePrice,
+          currencySymbol: fallbackCurrencySymbol,
+          rawCurrencyCode: fallbackCurrencyCode,
+          title: fallback.title,
+          imageUrl: fallback.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        };
+        return jsonSuccess(fallbackResponse);
+      }
+
       logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', reason: 'http_error', httpStatus: response.status, store };
       console.log(JSON.stringify(logData));
       return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, `Store returned error ${response.status}`);
@@ -935,6 +1205,101 @@ Deno.serve(async (req) => {
 
     // Check for bot detection / captcha pages
     if (detectBotBlock(html)) {
+      const mirror = await extractViaMirror(formattedUrl, store, 3500);
+      if (mirror?.price) {
+        const now = new Date().toISOString();
+        const resolvedCurrencyCode = mirror.currencyCode || 'USD';
+        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+        });
+
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          store,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        logData = {
+          ...logData,
+          cacheHit: false,
+          method: 'mirror_fallback_bot_blocked',
+          priceFound: true,
+          duration: Date.now() - startTime,
+        };
+        console.log(JSON.stringify(logData));
+
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        } as PriceResolveResponse);
+      }
+
+      const fallback = await getCatalogFallbackPrice(supabase, formattedUrl, normalizedUrl, store);
+      if (fallback) {
+        const now = new Date().toISOString();
+        const fallbackCurrencyCode = 'USD';
+        const fallbackCurrencySymbol = getCurrencySymbol(fallbackCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: fallback.basePrice,
+          currencySymbol: fallbackCurrencySymbol,
+          rawCurrencyCode: fallbackCurrencyCode,
+          title: fallback.title,
+          imageUrl: fallback.imageUrl,
+        });
+
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: fallback.basePrice,
+          currencySymbol: fallbackCurrencySymbol,
+          rawCurrencyCode: fallbackCurrencyCode,
+          store,
+          title: fallback.title,
+          imageUrl: fallback.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        logData = {
+          ...logData,
+          cacheHit: false,
+          method: 'catalog_fallback_bot_blocked',
+          priceFound: true,
+          duration: Date.now() - startTime,
+        };
+        console.log(JSON.stringify(logData));
+
+        const fallbackResponse: PriceResolveResponse = {
+          url: normalizedUrl,
+          store,
+          basePrice: fallback.basePrice,
+          currencySymbol: fallbackCurrencySymbol,
+          rawCurrencyCode: fallbackCurrencyCode,
+          title: fallback.title,
+          imageUrl: fallback.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        };
+        return jsonSuccess(fallbackResponse);
+      }
+
       logData = { ...logData, status: 403, error: 'SCRAPE_BLOCKED', store, duration: Date.now() - startTime };
       console.log(JSON.stringify(logData));
       // Return SCRAPE_BLOCKED with explicit webviewFallback hint
@@ -998,33 +1363,40 @@ Deno.serve(async (req) => {
 
     // Fail fast if no price found
     if (!price) {
-      const duration = Date.now() - startTime;
-      logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', store, duration, triedMethods: ['jsonld', 'selector', 'regex', allowOcr ? 'ocr' : 'none'] };
-      console.log(JSON.stringify(logData));
-      
-      // For dynamic content stores, suggest WebView fallback
-      const isDynamicStore = DYNAMIC_CONTENT_STORES.includes(store);
-      const errorCode = isDynamicStore ? 'DYNAMIC_CONTENT' : 'PRICE_NOT_FOUND';
-      
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          code: errorCode,
-          message: isDynamicStore 
-            ? `${store} requires manual viewing`
-            : `Could not extract price from ${store}`,
-          message_en: isDynamicStore 
-            ? `${store} requires manual viewing. Please open the product page.`
-            : `Could not extract price from ${store}. Try opening the page manually.`,
-          message_fr: isDynamicStore 
-            ? `${store} nécessite une consultation manuelle. Veuillez ouvrir la page.`
-            : `Impossible d'extraire le prix de ${store}. Essayez d'ouvrir la page manuellement.`,
-          retryable: false,
-          webviewFallback: true,
-          suggestedFallback: 'WEBVIEW',
-        }),
-        { status: 404, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }
-      );
+      const fallback = await getCatalogFallbackPrice(supabase, formattedUrl, normalizedUrl, store);
+      if (fallback) {
+        price = fallback.basePrice;
+        currencyCode = 'USD';
+        extractionMethod = 'catalog_fallback_no_price';
+      } else {
+        const duration = Date.now() - startTime;
+        logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', store, duration, triedMethods: ['jsonld', 'selector', 'regex', allowOcr ? 'ocr' : 'none', 'catalog_fallback'] };
+        console.log(JSON.stringify(logData));
+        
+        // For dynamic content stores, suggest WebView fallback
+        const isDynamicStore = DYNAMIC_CONTENT_STORES.includes(store);
+        const errorCode = isDynamicStore ? 'DYNAMIC_CONTENT' : 'PRICE_NOT_FOUND';
+        
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            code: errorCode,
+            message: isDynamicStore 
+              ? `${store} requires manual viewing`
+              : `Could not extract price from ${store}`,
+            message_en: isDynamicStore 
+              ? `${store} requires manual viewing. Please open the product page.`
+              : `Could not extract price from ${store}. Try opening the page manually.`,
+            message_fr: isDynamicStore 
+              ? `${store} nécessite une consultation manuelle. Veuillez ouvrir la page.`
+              : `Impossible d'extraire le prix de ${store}. Essayez d'ouvrir la page manuellement.`,
+            retryable: false,
+            webviewFallback: true,
+            suggestedFallback: 'WEBVIEW',
+          }),
+          { status: 404, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     // Extract product info

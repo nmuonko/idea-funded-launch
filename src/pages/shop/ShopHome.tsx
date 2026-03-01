@@ -1129,13 +1129,13 @@ export default function ShopHome() {
                   <div className="flex-1 min-w-0">
                     <p className="text-base sm:text-lg font-bold text-white">
                       {language === 'fr'
-                        ? "Vous ne trouvez pas ce que vous cherchez ?"
-                        : "Can't find what you're looking for?"}
+                        ? "Trouvez un produit sur n'importe quel site"
+                        : "Find a product on any site?"}
                     </p>
                     <p className="text-sm text-white/60 mt-0.5">
                       {language === 'fr'
-                        ? "Collez un lien de n'importe quel site et commandez-le ici"
-                        : "Paste a link from any store and order it here"}
+                        ? "Collez le lien depuis un magasin populaire et commandez-le ici"
+                        : "Paste the link from a popular store and order it here"}
                     </p>
                   </div>
                   <ArrowRight className="h-5 w-5 text-primary flex-shrink-0 group-hover:translate-x-1 transition-transform" />

@@ -380,12 +380,10 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       .select("version, ui, providers, search, home, blocks")
       .eq("env", envName)
       .maybeSingle(),
-    // Fetch support contact from bank_transfer_settings
+    // Fetch support contact from settings table (single source of truth)
     supabase
-      .from("bank_transfer_settings")
+      .from("settings")
       .select("support_whatsapp, support_email")
-      .eq("is_active", true)
-      .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
   ]);

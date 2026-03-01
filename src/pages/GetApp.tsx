@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getTranslation } from '@/lib/i18n/translations';
 import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher';
-import { SUPPORT_WHATSAPP_E164 } from '@/lib/supportConfig';
+import { useSupportContact } from '@/hooks/useSupportContact';
 import { Globe, MessageCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import afrishopLogo from '@/assets/afrishop-logo.png';
@@ -34,6 +34,7 @@ export default function GetApp() {
   const dl = (t as any).download;
   const params = useMemo(() => getQueryParams(), []);
   const refCode = params.get('ref');
+  const { whatsapp } = useSupportContact();
 
   // Store ref code in localStorage for 30 days
   useEffect(() => {
@@ -91,7 +92,7 @@ export default function GetApp() {
     }
   }, [dl]);
 
-  const whatsappUrl = `https://wa.me/${SUPPORT_WHATSAPP_E164}`;
+  const whatsappUrl = `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}`;
   const webUrlWithParams = buildUrlWithParams(WEBSITE_URL, params);
 
   return (

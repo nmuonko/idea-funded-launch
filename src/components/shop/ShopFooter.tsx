@@ -4,7 +4,7 @@ import afrishopLogo from '@/assets/afrishop-logo.png';
  import { useSupportChat } from '@/contexts/SupportChatContext';
  import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
- import { SUPPORT_WHATSAPP_E164 } from '@/lib/supportConfig';
+ import { useSupportContact } from '@/hooks/useSupportContact';
  
  // WhatsApp icon component
  function WhatsAppIcon({ className }: { className?: string }) {
@@ -22,6 +22,7 @@ import { translations } from '@/lib/i18n/translations';
    const common = t.common as Record<string, string>;
    const currentYear = new Date().getFullYear();
    const { openChat } = useSupportChat();
+   const { whatsapp, email: supportEmail } = useSupportContact();
  
    return (
     <footer className="bg-black pb-24 md:pb-0">
@@ -151,7 +152,7 @@ import { translations } from '@/lib/i18n/translations';
          {/* Contact Row - Compact inline links */}
          <div className="flex flex-wrap items-center justify-center gap-6 py-6 border-t border-white/10">
            <a
-             href={`https://wa.me/${SUPPORT_WHATSAPP_E164.replace(/[^0-9]/g, '')}`}
+             href={`https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}`}
              target="_blank"
              rel="noopener noreferrer"
              className="flex items-center gap-2 text-white/70 hover:text-white text-sm transition-colors group"
@@ -161,7 +162,7 @@ import { translations } from '@/lib/i18n/translations';
            </a>
            <span className="text-white/20">•</span>
            <a
-             href="mailto:nkadimisha@afrishop-usa.com"
+             href={`mailto:${supportEmail}`}
              className="flex items-center gap-2 text-white/70 hover:text-white text-sm transition-colors group"
            >
              <Mail className="h-4 w-4 text-sky-500 group-hover:text-sky-400" />

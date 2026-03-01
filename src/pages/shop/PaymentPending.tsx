@@ -24,6 +24,8 @@ export default function PaymentPending() {
   const [loading, setLoading] = useState(false);
   const [checkCount, setCheckCount] = useState(0);
   const [orderAmount, setOrderAmount] = useState<{ usd: number; cdf: number } | null>(null);
+  const draftSeenAtRef = useRef<number | null>(null);
+  const DRAFT_TIMEOUT_MS = 60_000; // 60 seconds grace period for DRAFT -> PENDING_PAYMENT transition
   
   // Poll for payment status
   useEffect(() => {
@@ -51,9 +53,20 @@ export default function PaymentPending() {
             await clearCartOnPaymentSuccess();
             console.log('[PAYMENT] success orderId=', orderId, '-> cart cleared');
           }
-       } else if (order?.status === 'DRAFT') {
+       } else if (order?.status === 'CANCELLED') {
+          // Immediately fail on terminal negative statuses
           setStatus('failed');
           clearPendingCheckout();
+        } else if (order?.status === 'DRAFT') {
+          // DRAFT may be transitioning to PENDING_PAYMENT — give it time
+          if (!draftSeenAtRef.current) {
+            draftSeenAtRef.current = Date.now();
+            console.log('[PaymentPending] DRAFT seen, starting grace period');
+          } else if (Date.now() - draftSeenAtRef.current > DRAFT_TIMEOUT_MS) {
+            console.log('[PaymentPending] DRAFT timeout exceeded, marking as failed');
+            setStatus('failed');
+            clearPendingCheckout();
+          }
         }
         setCheckCount(prev => prev + 1);
       } catch (error) {

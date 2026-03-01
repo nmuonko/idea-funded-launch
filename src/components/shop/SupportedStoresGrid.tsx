@@ -31,27 +31,28 @@ function StorePill({ store }: { store: StoreInfo }) {
       href={store.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group flex flex-col items-center gap-2 py-3 px-2 rounded-xl hover:bg-white/[0.04] transition-colors"
+      className="group flex flex-col items-center gap-2 py-2.5 px-1 rounded-xl hover:bg-white/[0.04] transition-colors"
     >
-      <div className={`w-12 h-12 rounded-2xl bg-white ring-2 ${store.color} flex items-center justify-center overflow-hidden shadow-md shadow-black/20 group-hover:scale-105 transition-transform`}>
+      <div className={`w-full max-w-[96px] h-12 rounded-xl bg-white ring-2 ${store.color} flex items-center justify-center overflow-hidden shadow-md shadow-black/20 group-hover:scale-[1.03] transition-transform px-2`}>
         <img
           src={store.logo}
-          alt={store.name}
-          className="w-8 h-8 object-contain"
+          alt={`${store.name} logo`}
+          className="w-full h-full object-contain"
+          loading="lazy"
           onError={(e) => {
             (e.target as HTMLImageElement).style.display = 'none';
             const parent = (e.target as HTMLImageElement).parentElement;
             if (parent) {
-              parent.innerHTML = `<span class="text-base font-bold text-gray-700">${store.name[0]}</span>`;
+              parent.innerHTML = `<span class=\"text-sm font-bold text-gray-700\">${store.name}</span>`;
             }
           }}
         />
       </div>
       <div className="flex items-center gap-1">
-        <span className="text-xs text-white/60 group-hover:text-white/90 transition-colors font-medium">
+        <span className="text-xs text-white/70 group-hover:text-white transition-colors font-medium">
           {store.name}
         </span>
-        <ExternalLink className="h-2.5 w-2.5 text-white/20 group-hover:text-white/50 transition-colors" />
+        <ExternalLink className="h-2.5 w-2.5 text-white/25 group-hover:text-white/60 transition-colors" />
       </div>
     </a>
   );

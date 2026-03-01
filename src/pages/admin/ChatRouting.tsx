@@ -16,6 +16,7 @@ import {
   Users,
   MessageCircle,
   Settings2,
+  MailCheck,
 } from 'lucide-react';
 import {
   Select,
@@ -39,7 +40,9 @@ interface RoutingEntry {
 
 interface AdminUser {
   id: string;
-  email: string;
+  displayName: string;
+  email: string | null;
+  role: string;
 }
 
 export default function ChatRouting() {
@@ -49,6 +52,7 @@ export default function ChatRouting() {
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAdminToAdd, setSelectedAdminToAdd] = useState('');
+  const [syncingEmails, setSyncingEmails] = useState(false);
 
   const txt = {
     title: language === 'fr' ? 'Routage des Chats' : 'Chat Routing',
@@ -68,8 +72,10 @@ export default function ChatRouting() {
     remove: language === 'fr' ? 'Retirer' : 'Remove',
     howItWorks: language === 'fr' ? 'Fonctionnement' : 'How it works',
     howItWorksDesc: language === 'fr' 
-      ? 'Les nouveaux chats sont automatiquement assignés à l\'agent disponible suivant dans l\'ordre de priorité (round-robin).'
-      : 'New chats are automatically assigned to the next available agent in priority order (round-robin).',
+      ? 'Quand un client démarre un chat en direct et demande un agent humain, le système l\'assigne automatiquement au prochain agent disponible ci-dessous. Les super admins voient toutes les conversations ; les agents limités ne voient que celles qui leur sont assignées.'
+      : 'When a customer starts a live chat and requests a human agent, the system automatically assigns it to the next available agent below. Super admins see all conversations; limited agents only see those assigned to them.',
+    syncEmails: language === 'fr' ? 'Sync Emails' : 'Sync Emails',
+    role: language === 'fr' ? 'Rôle' : 'Role',
   };
 
   useEffect(() => {
@@ -91,14 +97,14 @@ export default function ChatRouting() {
       // Load all admins from user_roles + profiles for the dropdown
       const { data: rolesData, error: rolesError } = await supabase
         .from('user_roles')
-        .select('user_id, role')
+        .select('user_id, role, admin_role')
         .eq('role', 'admin');
 
       if (rolesError) throw rolesError;
 
       // Get profiles for these admin user_ids
       const adminUserIds = (rolesData || []).map(r => r.user_id);
-      let profilesMap: Record<string, { email?: string; full_name?: string; name?: string }> = {};
+      let profilesMap: Record<string, { email?: string | null; full_name?: string | null; name?: string | null }> = {};
       
       if (adminUserIds.length > 0) {
         const { data: profiles } = await supabase
@@ -111,12 +117,15 @@ export default function ChatRouting() {
         });
       }
 
-      // Build admin users list
-      const admins: AdminUser[] = adminUserIds.map(uid => {
-        const profile = profilesMap[uid];
+      // Build admin users list with role info
+      const admins: AdminUser[] = (rolesData || []).map(r => {
+        const profile = profilesMap[r.user_id];
+        const displayName = profile?.full_name || profile?.name || profile?.email || r.user_id.slice(0, 8) + '...';
         return {
-          id: uid,
-          email: profile?.email || profile?.full_name || profile?.name || uid.slice(0, 8) + '...',
+          id: r.user_id,
+          displayName,
+          email: profile?.email || null,
+          role: r.admin_role === 'super_admin' ? 'Super Admin' : 'Limited Admin',
         };
       });
 
@@ -125,6 +134,19 @@ export default function ChatRouting() {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const syncEmails = async () => {
+    setSyncingEmails(true);
+    try {
+      await supabase.rpc('sync_profile_emails');
+      toast({ title: language === 'fr' ? 'Emails synchronisés' : 'Emails synced' });
+      loadData();
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setSyncingEmails(false);
     }
   };
 
@@ -138,7 +160,7 @@ export default function ChatRouting() {
       const { error } = await supabase.from('chat_routing_config').insert({
         admin_user_id: admin.id,
         admin_email: admin.email,
-        admin_name: admin.email.split('@')[0],
+        admin_name: admin.displayName,
         priority_order: maxOrder + 1,
         is_available: true,
       });
@@ -217,15 +239,21 @@ export default function ChatRouting() {
           <h1 className="text-2xl font-bold">{txt.title}</h1>
           <p className="text-muted-foreground">{txt.subtitle}</p>
         </div>
-        <Button variant="outline" size="icon" onClick={loadData}>
-          <RefreshCw className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={syncEmails} disabled={syncingEmails}>
+            {syncingEmails ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <MailCheck className="h-4 w-4 mr-1" />}
+            {txt.syncEmails}
+          </Button>
+          <Button variant="outline" size="icon" onClick={loadData}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* How it works */}
       <Card className="border-primary/20 bg-primary/5">
         <CardContent className="flex items-start gap-3 pt-4">
-          <Settings2 className="h-5 w-5 text-primary mt-0.5" />
+          <Settings2 className="h-5 w-5 text-primary mt-0.5 shrink-0" />
           <div>
             <p className="font-medium text-sm">{txt.howItWorks}</p>
             <p className="text-sm text-muted-foreground">{txt.howItWorksDesc}</p>
@@ -278,13 +306,16 @@ export default function ChatRouting() {
         <Card>
           <CardContent className="flex items-center gap-3 pt-4">
             <Select value={selectedAdminToAdd} onValueChange={setSelectedAdminToAdd}>
-              <SelectTrigger className="w-64">
+              <SelectTrigger className="w-72">
                 <SelectValue placeholder={txt.selectAgent} />
               </SelectTrigger>
               <SelectContent>
                 {availableAdminsToAdd.map(admin => (
                   <SelectItem key={admin.id} value={admin.id}>
-                    {admin.email}
+                    <div className="flex items-center gap-2">
+                      <span>{admin.displayName}</span>
+                      <Badge variant="outline" className="text-[10px] px-1 py-0">{admin.role}</Badge>
+                    </div>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -316,6 +347,7 @@ export default function ChatRouting() {
                 <TableRow>
                   <TableHead>{txt.priority}</TableHead>
                   <TableHead>{txt.agent}</TableHead>
+                  <TableHead>{txt.role}</TableHead>
                   <TableHead>{txt.available}</TableHead>
                   <TableHead>{txt.assigned}</TableHead>
                   <TableHead>{txt.lastAssigned}</TableHead>
@@ -323,70 +355,78 @@ export default function ChatRouting() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {entries.sort((a, b) => a.priority_order - b.priority_order).map((entry, idx) => (
-                  <TableRow key={entry.id} className={nextAgent?.id === entry.id ? 'bg-primary/5' : ''}>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <span className="font-mono text-sm">{idx + 1}</span>
-                        <div className="flex flex-col">
+                {entries.sort((a, b) => a.priority_order - b.priority_order).map((entry, idx) => {
+                  const adminInfo = adminUsers.find(a => a.id === entry.admin_user_id);
+                  return (
+                    <TableRow key={entry.id} className={nextAgent?.id === entry.id ? 'bg-primary/5' : ''}>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <span className="font-mono text-sm">{idx + 1}</span>
+                          <div className="flex flex-col">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5"
+                              disabled={idx === 0}
+                              onClick={() => movePriority(entry, 'up')}
+                            >
+                              <ArrowUp className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5"
+                              disabled={idx === entries.length - 1}
+                              onClick={() => movePriority(entry, 'down')}
+                            >
+                              <ArrowDown className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium">{entry.admin_name || adminInfo?.displayName || entry.admin_email?.split('@')[0] || 'Unknown'}</p>
+                          <p className="text-xs text-muted-foreground">{entry.admin_email || adminInfo?.email || ''}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {adminInfo?.role || 'Admin'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Switch
+                          checked={entry.is_available}
+                          onCheckedChange={() => toggleAvailability(entry)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">{entry.chats_assigned_count}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        {entry.last_assigned_at
+                          ? format(new Date(entry.last_assigned_at), 'MMM d, HH:mm')
+                          : '—'}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {nextAgent?.id === entry.id && (
+                            <Badge className="bg-green-600">{txt.nextInQueue}</Badge>
+                          )}
                           <Button
                             variant="ghost"
-                            size="icon"
-                            className="h-5 w-5"
-                            disabled={idx === 0}
-                            onClick={() => movePriority(entry, 'up')}
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => removeAgent(entry.id)}
                           >
-                            <ArrowUp className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5"
-                            disabled={idx === entries.length - 1}
-                            onClick={() => movePriority(entry, 'down')}
-                          >
-                            <ArrowDown className="h-3 w-3" />
+                            {txt.remove}
                           </Button>
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{entry.admin_name || entry.admin_email?.split('@')[0]}</p>
-                        <p className="text-xs text-muted-foreground">{entry.admin_email}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Switch
-                        checked={entry.is_available}
-                        onCheckedChange={() => toggleAvailability(entry)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{entry.chats_assigned_count}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      {entry.last_assigned_at
-                        ? format(new Date(entry.last_assigned_at), 'MMM d, HH:mm')
-                        : '—'}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {nextAgent?.id === entry.id && (
-                          <Badge className="bg-green-600">{txt.nextInQueue}</Badge>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => removeAgent(entry.id)}
-                        >
-                          {txt.remove}
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

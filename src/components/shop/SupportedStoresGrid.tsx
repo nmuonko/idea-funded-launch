@@ -9,20 +9,20 @@ interface StoreInfo {
 }
 
 const stores: StoreInfo[] = [
-  { name: 'Amazon', url: 'https://www.amazon.com', logo: 'https://logo.clearbit.com/amazon.com', color: 'ring-orange-500/40' },
-  { name: 'eBay', url: 'https://www.ebay.com', logo: 'https://logo.clearbit.com/ebay.com', color: 'ring-blue-500/40' },
-  { name: 'Walmart', url: 'https://www.walmart.com', logo: 'https://logo.clearbit.com/walmart.com', color: 'ring-yellow-500/40' },
-  { name: 'SHEIN', url: 'https://www.shein.com', logo: 'https://logo.clearbit.com/shein.com', color: 'ring-pink-500/40' },
-  { name: 'Best Buy', url: 'https://www.bestbuy.com', logo: 'https://logo.clearbit.com/bestbuy.com', color: 'ring-blue-600/40' },
-  { name: "Macy's", url: 'https://www.macys.com', logo: 'https://logo.clearbit.com/macys.com', color: 'ring-red-500/40' },
-  { name: 'Home Depot', url: 'https://www.homedepot.com', logo: 'https://logo.clearbit.com/homedepot.com', color: 'ring-orange-600/40' },
-  { name: 'Wayfair', url: 'https://www.wayfair.com', logo: 'https://logo.clearbit.com/wayfair.com', color: 'ring-purple-500/40' },
+  { name: 'Amazon', url: 'https://www.amazon.com', logo: '/images/stores/amazon.png', color: 'ring-orange-500/40' },
+  { name: 'eBay', url: 'https://www.ebay.com', logo: '/images/stores/ebay.png', color: 'ring-blue-500/40' },
+  { name: 'Walmart', url: 'https://www.walmart.com', logo: '/images/stores/walmart.png', color: 'ring-yellow-500/40' },
+  { name: 'SHEIN', url: 'https://www.shein.com', logo: '/images/stores/shein.png', color: 'ring-pink-500/40' },
+  { name: 'Best Buy', url: 'https://www.bestbuy.com', logo: '/images/stores/bestbuy.png', color: 'ring-blue-600/40' },
+  { name: "Macy's", url: 'https://www.macys.com', logo: '/images/stores/macys.png', color: 'ring-red-500/40' },
+  { name: 'Home Depot', url: 'https://www.homedepot.com', logo: '/images/stores/homedepot.png', color: 'ring-orange-600/40' },
+  { name: 'Wayfair', url: 'https://www.wayfair.com', logo: '/images/stores/wayfair.png', color: 'ring-purple-500/40' },
 ];
 
 const vehicleStores: StoreInfo[] = [
-  { name: 'Ford', url: 'https://www.ford.com', logo: 'https://logo.clearbit.com/ford.com', color: 'ring-blue-500/40' },
-  { name: 'Toyota', url: 'https://www.toyota.com', logo: 'https://logo.clearbit.com/toyota.com', color: 'ring-red-500/40' },
-  { name: 'Tesla', url: 'https://www.tesla.com', logo: 'https://logo.clearbit.com/tesla.com', color: 'ring-slate-400/40' },
+  { name: 'Ford', url: 'https://www.ford.com', logo: '/images/stores/ford.png', color: 'ring-blue-500/40' },
+  { name: 'Toyota', url: 'https://www.toyota.com', logo: '/images/stores/toyota.png', color: 'ring-red-500/40' },
+  { name: 'Tesla', url: 'https://www.tesla.com', logo: '/images/stores/tesla.png', color: 'ring-slate-400/40' },
 ];
 
 function StorePill({ store }: { store: StoreInfo }) {

@@ -10,7 +10,7 @@ interface StoreInfo {
 
 const stores: StoreInfo[] = [
   { name: 'Amazon', url: 'https://www.amazon.com', logo: '/images/stores/amazon.png', color: 'ring-orange-500/40' },
-  { name: 'eBay', url: 'https://www.ebay.com', logo: '/images/stores/ebay.png', color: 'ring-blue-500/40' },
+  { name: 'Temu', url: 'https://www.temu.com', logo: '/images/stores/temu.png', color: 'ring-orange-500/40' },
   { name: 'Walmart', url: 'https://www.walmart.com', logo: '/images/stores/walmart.png', color: 'ring-yellow-500/40' },
   { name: 'SHEIN', url: 'https://www.shein.com', logo: '/images/stores/shein.png', color: 'ring-pink-500/40' },
   { name: 'Best Buy', url: 'https://www.bestbuy.com', logo: '/images/stores/bestbuy.png', color: 'ring-blue-600/40' },
@@ -106,12 +106,12 @@ export function SupportedStoresGrid() {
         </div>
       </div>
 
-      {/* Any store note */}
+      {/* Supported stores only note */}
       <div className="text-center pb-4">
         <p className="text-xs text-white/25">
           {language === 'fr'
-            ? '+ tout autre magasin en ligne avec un lien produit'
-            : '+ any other online store with a product link'}
+            ? 'Uniquement les magasins américains listés ci-dessus'
+            : 'Only the U.S. stores listed above are supported'}
         </p>
       </div>
     </div>

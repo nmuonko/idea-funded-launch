@@ -2,11 +2,7 @@
  * Email Templates for AfriShop / AfriFund
  * 
  * All templates return { subject, html, text? } for use with sendEmail()
- * 
- * To add new email types:
- * 1. Create a new function following the pattern below
- * 2. Return an object with subject and html
- * 3. Optionally provide custom plain text (otherwise html is auto-converted)
+ * All customer-facing templates are bilingual: French first, English below.
  */
 
 export interface EmailTemplate {
@@ -46,6 +42,10 @@ const buttonStyle = `
   font-weight: 600;
 `;
 
+const sectionDivider = `<hr style="margin: 25px 0; border: none; border-top: 1px solid #e5e7eb;" />`;
+const enLabel = `<p style="color: #9ca3af; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">🇬🇧 English</p>`;
+const frLabel = `<p style="color: #9ca3af; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">🇫🇷 Français</p>`;
+
 /**
  * Test email to verify Resend integration
  */
@@ -78,13 +78,27 @@ export function buildTestEmail(recipientName?: string): EmailTemplate {
  */
 export function buildWelcomeEmail(userName: string, userEmail: string): EmailTemplate {
   return {
-    subject: "Welcome to AfriShop! 🛒",
+    subject: "Bienvenue sur AfriShop! / Welcome to AfriShop! 🛒",
     html: `
       <div style="max-width: 600px; margin: 0 auto; ${baseStyles}">
         <div style="${headerStyle}">
-          <h1 style="color: white; margin: 0;">Welcome to AfriShop!</h1>
+          <h1 style="color: white; margin: 0;">Bienvenue sur AfriShop!</h1>
+          <p style="color: #93c5fd; margin: 8px 0 0;">Welcome to AfriShop!</p>
         </div>
         <div style="padding: 30px; background: #f9fafb;">
+          ${frLabel}
+          <p>Bonjour ${userName || 'cher client'},</p>
+          <p>Merci d'avoir créé un compte chez AfriShop ! Nous sommes ravis de vous accueillir dans notre communauté de shopping reliant les USA et la RDC.</p>
+          <p>Avec AfriShop, vous pouvez :</p>
+          <ul>
+            <li>Acheter auprès des meilleurs détaillants américains (Amazon, Walmart, eBay, et plus)</li>
+            <li>Recevoir vos produits en RDC</li>
+            <li>Suivre vos commandes en temps réel</li>
+            <li>Profiter de paiements mobiles sécurisés</li>
+          </ul>
+
+          ${sectionDivider}
+          ${enLabel}
           <p>Hello ${userName || 'there'},</p>
           <p>Thank you for creating an account with AfriShop! We're excited to have you join our community of shoppers connecting the USA and DRC.</p>
           <p>With AfriShop, you can:</p>
@@ -94,13 +108,11 @@ export function buildWelcomeEmail(userName: string, userEmail: string): EmailTem
             <li>Track your orders in real-time</li>
             <li>Enjoy secure mobile payments</li>
           </ul>
-          <p>Your registered email: <strong>${userEmail}</strong></p>
-          <p style="margin-top: 20px;">
-            Ready to start shopping? Browse our supported stores and find great products!
-          </p>
+
+          <p>Votre email / Your email: <strong>${userEmail}</strong></p>
         </div>
         <div style="${footerStyle}">
-          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
+          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop — Shopping sans frontières 🌍</p>
         </div>
       </div>
     `,
@@ -108,7 +120,7 @@ export function buildWelcomeEmail(userName: string, userEmail: string): EmailTem
 }
 
 /**
- * Order confirmation email
+ * Order confirmation email — Bilingual FR / EN
  */
 export function buildOrderConfirmationEmail(params: {
   customerName: string;
@@ -129,47 +141,65 @@ export function buildOrderConfirmationEmail(params: {
     </tr>
   `).join('');
 
+  const itemsTable = `
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+      <thead>
+        <tr style="background: #1e3a5f; color: white;">
+          <th style="padding: 10px; text-align: left;">Article / Item</th>
+          <th style="padding: 10px; text-align: center;">Qté / Qty</th>
+          <th style="padding: 10px; text-align: right;">Prix / Price</th>
+        </tr>
+      </thead>
+      <tbody>${itemsHtml}</tbody>
+      <tfoot>
+        <tr style="background: #f3f4f6; font-weight: bold;">
+          <td colspan="2" style="padding: 10px;">Total</td>
+          <td style="padding: 10px; text-align: right;">$${totalUsd.toFixed(2)}${totalCdf ? ` (${totalCdf.toLocaleString()} CDF)` : ''}</td>
+        </tr>
+      </tfoot>
+    </table>
+  `;
+
   return {
-    subject: `Order Confirmation - ${orderRef} | AfriShop`,
+    subject: `✅ Commande confirmée / Order Confirmed - ${orderRef} | AfriShop`,
     html: `
       <div style="max-width: 600px; margin: 0 auto; ${baseStyles}">
         <div style="${headerStyle}">
-          <h1 style="color: white; margin: 0;">Order Confirmed! 🎉</h1>
+          <h1 style="color: white; margin: 0;">Commande confirmée ! 🎉</h1>
+          <p style="color: #93c5fd; margin: 8px 0 0;">Order Confirmed!</p>
         </div>
         <div style="padding: 30px; background: #f9fafb;">
+          ${frLabel}
+          <p>Bonjour ${customerName},</p>
+          <p>Merci pour votre commande ! Nous l'avons bien reçue et allons commencer à la traiter sous peu.</p>
+          
+          <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h2 style="margin-top: 0; color: #1e3a5f;">Détails de la commande</h2>
+            <p><strong>Référence :</strong> ${orderRef}</p>
+            <p><strong>N° de commande :</strong> ${orderId.slice(0, 8)}</p>
+            ${paymentMethod ? `<p><strong>Mode de paiement :</strong> ${paymentMethod}</p>` : ''}
+          </div>
+
+          ${itemsTable}
+
+          <p>Nous vous enverrons un autre email lorsque votre commande sera expédiée.</p>
+
+          ${sectionDivider}
+          ${enLabel}
           <p>Hello ${customerName},</p>
-          <p>Thank you for your order! We've received your order and will begin processing it shortly.</p>
+          <p>Thank you for your order! We've received it and will begin processing it shortly.</p>
           
           <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
             <h2 style="margin-top: 0; color: #1e3a5f;">Order Details</h2>
-            <p><strong>Order Reference:</strong> ${orderRef}</p>
+            <p><strong>Reference:</strong> ${orderRef}</p>
             <p><strong>Order ID:</strong> ${orderId.slice(0, 8)}</p>
             ${paymentMethod ? `<p><strong>Payment Method:</strong> ${paymentMethod}</p>` : ''}
           </div>
 
-          <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-            <thead>
-              <tr style="background: #1e3a5f; color: white;">
-                <th style="padding: 10px; text-align: left;">Item</th>
-                <th style="padding: 10px; text-align: center;">Qty</th>
-                <th style="padding: 10px; text-align: right;">Price</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${itemsHtml}
-            </tbody>
-            <tfoot>
-              <tr style="background: #f3f4f6; font-weight: bold;">
-                <td colspan="2" style="padding: 10px;">Total</td>
-                <td style="padding: 10px; text-align: right;">$${totalUsd.toFixed(2)}${totalCdf ? ` (${totalCdf.toLocaleString()} CDF)` : ''}</td>
-              </tr>
-            </tfoot>
-          </table>
-
           <p>We'll send you another email when your order ships.</p>
         </div>
         <div style="${footerStyle}">
-          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
+          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop — Shopping sans frontières 🌍</p>
         </div>
       </div>
     `,
@@ -177,7 +207,7 @@ export function buildOrderConfirmationEmail(params: {
 }
 
 /**
- * Payment success email
+ * Payment success email — Bilingual FR / EN
  */
 export function buildPaymentSuccessEmail(params: {
   customerName: string;
@@ -191,13 +221,29 @@ export function buildPaymentSuccessEmail(params: {
   const { customerName, confirmationCode, amountUsd, amountCdf, transactionId, orderId, frontendBaseUrl = 'https://afrishop-usa.com' } = params;
 
   return {
-    subject: `Payment Received - ${confirmationCode} | AfriShop`,
+    subject: `💰 Paiement reçu / Payment Received - ${confirmationCode} | AfriShop`,
     html: `
       <div style="max-width: 600px; margin: 0 auto; ${baseStyles}">
         <div style="${headerStyle}">
-          <h1 style="color: white; margin: 0;">✓ Payment Received!</h1>
+          <h1 style="color: white; margin: 0;">✓ Paiement reçu !</h1>
+          <p style="color: #93c5fd; margin: 8px 0 0;">Payment Received!</p>
         </div>
         <div style="padding: 30px; background: #f9fafb;">
+          ${frLabel}
+          <p>Bonjour ${customerName},</p>
+          <p>Bonne nouvelle ! Nous avons reçu votre paiement avec succès.</p>
+          
+          <div style="background: #dcfce7; padding: 20px; border-radius: 8px; border-left: 4px solid #22c55e; margin: 20px 0;">
+            <h2 style="margin-top: 0; color: #166534;">Paiement confirmé</h2>
+            <p style="margin: 5px 0;"><strong>Code de confirmation :</strong> ${confirmationCode}</p>
+            <p style="margin: 5px 0;"><strong>Montant :</strong> $${amountUsd.toFixed(2)}${amountCdf ? ` (${amountCdf.toLocaleString()} CDF)` : ''}</p>
+            ${transactionId ? `<p style="margin: 5px 0;"><strong>ID de transaction :</strong> ${transactionId}</p>` : ''}
+          </div>
+
+          <p>Votre commande est maintenant en cours de traitement. Nous vous enverrons une mise à jour d'expédition bientôt !</p>
+
+          ${sectionDivider}
+          ${enLabel}
           <p>Hello ${customerName},</p>
           <p>Great news! We've received your payment successfully.</p>
           
@@ -206,19 +252,18 @@ export function buildPaymentSuccessEmail(params: {
             <p style="margin: 5px 0;"><strong>Confirmation Code:</strong> ${confirmationCode}</p>
             <p style="margin: 5px 0;"><strong>Amount:</strong> $${amountUsd.toFixed(2)}${amountCdf ? ` (${amountCdf.toLocaleString()} CDF)` : ''}</p>
             ${transactionId ? `<p style="margin: 5px 0;"><strong>Transaction ID:</strong> ${transactionId}</p>` : ''}
-            <p style="margin: 5px 0;"><strong>Order ID:</strong> ${orderId.slice(0, 8)}</p>
           </div>
 
           <p>Your order is now being processed. We'll send you a shipping update soon!</p>
           
-          <p style="margin-top: 20px;">
+          <p style="margin-top: 20px; text-align: center;">
             <a href="${frontendBaseUrl}/track-order?code=${confirmationCode}" style="${buttonStyle}">
-              Track Your Order
+              Suivre ma commande / Track Your Order
             </a>
           </p>
         </div>
         <div style="${footerStyle}">
-          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
+          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop — Shopping sans frontières 🌍</p>
         </div>
       </div>
     `,
@@ -226,7 +271,7 @@ export function buildPaymentSuccessEmail(params: {
 }
 
 /**
- * Payment failed email
+ * Payment failed email — Bilingual FR / EN
  */
 export function buildPaymentFailedEmail(params: {
   customerName: string;
@@ -237,13 +282,27 @@ export function buildPaymentFailedEmail(params: {
   const { customerName, orderId, amountUsd, reason } = params;
 
   return {
-    subject: "Payment Issue - Action Required | AfriShop",
+    subject: "❌ Problème de paiement / Payment Issue - Action Required | AfriShop",
     html: `
       <div style="max-width: 600px; margin: 0 auto; ${baseStyles}">
         <div style="background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); padding: 30px; text-align: center;">
-          <h1 style="color: white; margin: 0;">Payment Issue</h1>
+          <h1 style="color: white; margin: 0;">Problème de paiement</h1>
+          <p style="color: #fca5a5; margin: 8px 0 0;">Payment Issue</p>
         </div>
         <div style="padding: 30px; background: #f9fafb;">
+          ${frLabel}
+          <p>Bonjour ${customerName},</p>
+          <p>Nous avons rencontré un problème lors du traitement de votre paiement pour la commande ${orderId.slice(0, 8)}.</p>
+          
+          <div style="background: #fef2f2; padding: 20px; border-radius: 8px; border-left: 4px solid #dc2626; margin: 20px 0;">
+            <p style="margin: 5px 0;"><strong>Montant :</strong> $${amountUsd.toFixed(2)}</p>
+            ${reason ? `<p style="margin: 5px 0;"><strong>Raison :</strong> ${reason}</p>` : ''}
+          </div>
+
+          <p>Veuillez réessayer ou contacter notre équipe d'assistance si vous avez besoin d'aide.</p>
+
+          ${sectionDivider}
+          ${enLabel}
           <p>Hello ${customerName},</p>
           <p>We encountered an issue processing your payment for order ${orderId.slice(0, 8)}.</p>
           
@@ -255,11 +314,11 @@ export function buildPaymentFailedEmail(params: {
           <p>Please try again or contact our support team if you need assistance.</p>
           
           <p style="color: #6b7280; font-size: 14px;">
-            If you believe this is an error, please contact us at nkadimisha@afrishop-usa.com
+            Contact : nkadimisha@afrishop-usa.com
           </p>
         </div>
         <div style="${footerStyle}">
-          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
+          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop — Shopping sans frontières 🌍</p>
         </div>
       </div>
     `,
@@ -267,7 +326,7 @@ export function buildPaymentFailedEmail(params: {
 }
 
 /**
- * Order shipped email
+ * Order shipped email — Bilingual FR / EN
  */
 export function buildOrderShippedEmail(params: {
   customerName: string;
@@ -278,23 +337,43 @@ export function buildOrderShippedEmail(params: {
   estimatedDelivery?: string;
 }): EmailTemplate {
   const { customerName, orderId, items, trackingNumber, carrier, estimatedDelivery } = params;
-
+  const orderRef = orderId.substring(0, 8).toUpperCase();
   const itemsList = items.map(item => `<li>${item.title} (x${item.quantity})</li>`).join('');
 
   return {
-    subject: `Your Order Has Shipped! 📦 | AfriShop`,
+    subject: `🚚 Commande #${orderRef} expédiée / Order Shipped | AfriShop`,
     html: `
       <div style="max-width: 600px; margin: 0 auto; ${baseStyles}">
         <div style="${headerStyle}">
-          <h1 style="color: white; margin: 0;">Your Order Has Shipped! 📦</h1>
+          <h1 style="color: white; margin: 0;">🚚 Commande expédiée !</h1>
+          <p style="color: #93c5fd; margin: 8px 0 0;">Your Order Has Shipped!</p>
         </div>
         <div style="padding: 30px; background: #f9fafb;">
+          ${frLabel}
+          <p>Bonjour ${customerName},</p>
+          <p>Bonne nouvelle ! Votre commande <strong>#${orderRef}</strong> est en route.</p>
+          
+          <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h2 style="margin-top: 0; color: #1e3a5f;">Détails d'expédition</h2>
+            <p style="margin: 5px 0;"><strong>N° de commande :</strong> ${orderRef}</p>
+            ${carrier ? `<p style="margin: 5px 0;"><strong>Transporteur :</strong> ${carrier}</p>` : ''}
+            ${trackingNumber ? `<p style="margin: 5px 0;"><strong>N° de suivi :</strong> ${trackingNumber}</p>` : ''}
+            ${estimatedDelivery ? `<p style="margin: 5px 0;"><strong>Livraison estimée :</strong> ${estimatedDelivery}</p>` : ''}
+          </div>
+
+          <h3>Articles expédiés :</h3>
+          <ul>${itemsList}</ul>
+
+          <p>Nous vous informerons dès que votre commande arrivera.</p>
+
+          ${sectionDivider}
+          ${enLabel}
           <p>Hello ${customerName},</p>
-          <p>Great news! Your order is on its way.</p>
+          <p>Great news! Your order <strong>#${orderRef}</strong> is on its way.</p>
           
           <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
             <h2 style="margin-top: 0; color: #1e3a5f;">Shipping Details</h2>
-            <p style="margin: 5px 0;"><strong>Order ID:</strong> ${orderId.slice(0, 8)}</p>
+            <p style="margin: 5px 0;"><strong>Order ID:</strong> ${orderRef}</p>
             ${carrier ? `<p style="margin: 5px 0;"><strong>Carrier:</strong> ${carrier}</p>` : ''}
             ${trackingNumber ? `<p style="margin: 5px 0;"><strong>Tracking Number:</strong> ${trackingNumber}</p>` : ''}
             ${estimatedDelivery ? `<p style="margin: 5px 0;"><strong>Estimated Delivery:</strong> ${estimatedDelivery}</p>` : ''}
@@ -303,10 +382,10 @@ export function buildOrderShippedEmail(params: {
           <h3>Items Shipped:</h3>
           <ul>${itemsList}</ul>
 
-          <p>Thank you for shopping with AfriShop!</p>
+          <p>We'll notify you when your order arrives.</p>
         </div>
         <div style="${footerStyle}">
-          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
+          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop — Shopping sans frontières 🌍</p>
         </div>
       </div>
     `,
@@ -314,7 +393,7 @@ export function buildOrderShippedEmail(params: {
 }
 
 /**
- * Order delivered email
+ * Order delivered email — Bilingual FR / EN
  */
 export function buildOrderDeliveredEmail(params: {
   customerName: string;
@@ -322,37 +401,52 @@ export function buildOrderDeliveredEmail(params: {
   deliveredAt: string;
 }): EmailTemplate {
   const { customerName, orderId, deliveredAt } = params;
+  const orderRef = orderId.substring(0, 8).toUpperCase();
+  const deliveredDate = new Date(deliveredAt).toLocaleDateString('fr-FR', { 
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+  });
+  const deliveredDateEn = new Date(deliveredAt).toLocaleDateString('en-US', { 
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+  });
 
   return {
-    subject: "Your Order Has Been Delivered! ✓ | AfriShop",
+    subject: `✅ Commande #${orderRef} livrée / Order Delivered | AfriShop`,
     html: `
       <div style="max-width: 600px; margin: 0 auto; ${baseStyles}">
         <div style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); padding: 30px; text-align: center;">
-          <h1 style="color: white; margin: 0;">✓ Order Delivered!</h1>
+          <h1 style="color: white; margin: 0;">✓ Commande livrée !</h1>
+          <p style="color: #a7f3d0; margin: 8px 0 0;">Order Delivered!</p>
         </div>
         <div style="padding: 30px; background: #f9fafb;">
+          ${frLabel}
+          <p>Bonjour ${customerName},</p>
+          <p>Votre commande a été livrée avec succès !</p>
+          
+          <div style="background: #dcfce7; padding: 20px; border-radius: 8px; border-left: 4px solid #059669; margin: 20px 0;">
+            <h2 style="margin-top: 0; color: #166534;">Livraison confirmée</h2>
+            <p style="margin: 5px 0;"><strong>N° de commande :</strong> ${orderRef}</p>
+            <p style="margin: 5px 0;"><strong>Livrée le :</strong> ${deliveredDate}</p>
+          </div>
+
+          <p>Nous espérons que vous apprécierez votre achat ! Si vous avez des questions, n'hésitez pas à nous contacter.</p>
+          <p>Merci d'avoir choisi AfriShop. Au plaisir de vous servir à nouveau !</p>
+
+          ${sectionDivider}
+          ${enLabel}
           <p>Hello ${customerName},</p>
           <p>Your order has been successfully delivered!</p>
           
           <div style="background: #dcfce7; padding: 20px; border-radius: 8px; border-left: 4px solid #059669; margin: 20px 0;">
             <h2 style="margin-top: 0; color: #166534;">Delivery Confirmed</h2>
-            <p style="margin: 5px 0;"><strong>Order ID:</strong> ${orderId.slice(0, 8)}</p>
-            <p style="margin: 5px 0;"><strong>Delivered on:</strong> ${new Date(deliveredAt).toLocaleDateString('en-US', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit'
-            })}</p>
+            <p style="margin: 5px 0;"><strong>Order ID:</strong> ${orderRef}</p>
+            <p style="margin: 5px 0;"><strong>Delivered on:</strong> ${deliveredDateEn}</p>
           </div>
 
-          <p>We hope you love your purchase! If you have any questions or concerns, please don't hesitate to contact us.</p>
-          
+          <p>We hope you love your purchase! If you have any questions, please don't hesitate to contact us.</p>
           <p>Thank you for shopping with AfriShop. We look forward to serving you again!</p>
         </div>
         <div style="${footerStyle}">
-          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
+          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop — Shopping sans frontières 🌍</p>
         </div>
       </div>
     `,
@@ -360,7 +454,7 @@ export function buildOrderDeliveredEmail(params: {
 }
 
 /**
- * Order processing email - sent when admin starts processing the order
+ * Order processing email — Bilingual FR / EN (already was bilingual, cleaning up)
  */
 export function buildOrderProcessingEmail(params: {
   customerName: string;
@@ -368,39 +462,51 @@ export function buildOrderProcessingEmail(params: {
   items: Array<{ title: string; quantity: number }>;
 }): EmailTemplate {
   const { customerName, orderId, items } = params;
-
+  const orderRef = orderId.substring(0, 8).toUpperCase();
   const itemsList = items.map(item => `<li>${item.title} (x${item.quantity})</li>`).join('');
 
   return {
-    subject: `🔄 Votre commande est en cours de traitement / Your order is being processed | AfriShop`,
+    subject: `🔄 Commande #${orderRef} en traitement / Order Processing | AfriShop`,
     html: `
       <div style="max-width: 600px; margin: 0 auto; ${baseStyles}">
         <div style="${headerStyle}">
-          <h1 style="color: white; margin: 0;">🔄 Order Being Processed</h1>
+          <h1 style="color: white; margin: 0;">🔄 Commande en traitement</h1>
+          <p style="color: #93c5fd; margin: 8px 0 0;">Order Being Processed</p>
         </div>
         <div style="padding: 30px; background: #f9fafb;">
+          ${frLabel}
           <p>Bonjour ${customerName},</p>
-          <p>Bonne nouvelle ! Nous avons commencé à traiter votre commande. Notre équipe prépare vos articles pour l'expédition.</p>
-          
-          <p>Hello ${customerName},</p>
-          <p>Good news! We've started processing your order. Our team is preparing your items for shipment.</p>
+          <p>Bonne nouvelle ! Nous avons commencé à traiter votre commande <strong>#${orderRef}</strong>. Notre équipe prépare vos articles pour l'expédition.</p>
           
           <div style="background: #fef3c7; padding: 20px; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 20px 0;">
-            <h2 style="margin-top: 0; color: #92400e;">Order In Progress / Commande en cours</h2>
-            <p style="margin: 5px 0;"><strong>Order ID / N° de commande:</strong> ${orderId.slice(0, 8).toUpperCase()}</p>
-            <p style="margin: 5px 0;"><strong>Status / Statut:</strong> Processing / En traitement</p>
+            <h2 style="margin-top: 0; color: #92400e;">Commande en cours</h2>
+            <p style="margin: 5px 0;"><strong>N° de commande :</strong> ${orderRef}</p>
+            <p style="margin: 5px 0;"><strong>Statut :</strong> En traitement</p>
           </div>
 
-          <h3>Articles / Items:</h3>
+          <h3>Articles :</h3>
           <ul>${itemsList}</ul>
 
           <p>Nous vous informerons dès que votre commande sera expédiée.</p>
-          <p>We'll notify you as soon as your order ships.</p>
+
+          ${sectionDivider}
+          ${enLabel}
+          <p>Hello ${customerName},</p>
+          <p>Good news! We've started processing your order <strong>#${orderRef}</strong>. Our team is preparing your items for shipment.</p>
           
-          <p>Merci pour votre confiance ! / Thank you for shopping with AfriShop!</p>
+          <div style="background: #fef3c7; padding: 20px; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 20px 0;">
+            <h2 style="margin-top: 0; color: #92400e;">Order In Progress</h2>
+            <p style="margin: 5px 0;"><strong>Order ID:</strong> ${orderRef}</p>
+            <p style="margin: 5px 0;"><strong>Status:</strong> Processing</p>
+          </div>
+
+          <h3>Items:</h3>
+          <ul>${itemsList}</ul>
+
+          <p>We'll notify you as soon as your order ships.</p>
         </div>
         <div style="${footerStyle}">
-          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
+          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop — Shopping sans frontières 🌍</p>
         </div>
       </div>
     `,
@@ -408,7 +514,7 @@ export function buildOrderProcessingEmail(params: {
 }
 
 /**
- * Admin notification for new order/payment
+ * Admin notification for new order/payment (admin-only, no need for bilingual)
  */
 export function buildAdminNotificationEmail(params: {
   type: 'new_order' | 'payment_received' | 'quote_request' | 'error' | 'new_user';
@@ -485,7 +591,6 @@ export function buildOrderAssistanceEmail(params: {
     supportEmail = 'nkadimisha@afrishop-usa.com',
   } = params;
   
-  // Format WhatsApp for display: +243 973 141 627
   const formatWhatsappDisplay = (phone: string): string => {
     const cleaned = phone.replace(/\D/g, '');
     if (cleaned.startsWith('243')) {
@@ -497,7 +602,6 @@ export function buildOrderAssistanceEmail(params: {
   const whatsappLink = supportWhatsapp.replace(/\D/g, '');
   const firstName = customerName.split(' ')[0] || customerName;
 
-  // Language-specific content
   const content: Record<AssistanceEmailLanguage, {
     subject: string;
     greeting: string;
@@ -562,7 +666,6 @@ export function buildOrderAssistanceEmail(params: {
 
   const c = content[language] || content.fr;
 
-  // Build single-language or combined section
   const buildSection = (lang: AssistanceEmailLanguage) => {
     const t = content[lang];
     return `
@@ -589,10 +692,8 @@ export function buildOrderAssistanceEmail(params: {
     `;
   };
 
-  // Build email body based on language selection
   let bodyContent: string;
   if (language === 'en_sw') {
-    // Combined English + Swahili
     bodyContent = `
       ${buildSection('en')}
       <hr style="margin: 30px 0; border: none; border-top: 2px solid #e5e7eb;" />
@@ -613,7 +714,7 @@ export function buildOrderAssistanceEmail(params: {
           ${bodyContent}
         </div>
         <div style="${footerStyle}">
-          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
+          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop — Shopping sans frontières 🌍</p>
         </div>
       </div>
     `,

@@ -1,130 +1,58 @@
 import { useLanguage } from '@/contexts/LanguageContext';
-import { ExternalLink, Car } from 'lucide-react';
+import { ExternalLink, Car, ShoppingBag } from 'lucide-react';
 
-const stores = [
-  {
-    name: 'Amazon',
-    url: 'https://www.amazon.com',
-    logo: 'https://logo.clearbit.com/amazon.com',
-    gradient: 'from-orange-500/20 to-orange-600/5',
-    accent: 'border-orange-500/30 hover:border-orange-400/60',
-    textColor: 'text-orange-400',
-  },
-  {
-    name: 'eBay',
-    url: 'https://www.ebay.com',
-    logo: 'https://logo.clearbit.com/ebay.com',
-    gradient: 'from-blue-500/20 to-blue-600/5',
-    accent: 'border-blue-500/30 hover:border-blue-400/60',
-    textColor: 'text-blue-400',
-  },
-  {
-    name: 'Walmart',
-    url: 'https://www.walmart.com',
-    logo: 'https://logo.clearbit.com/walmart.com',
-    gradient: 'from-yellow-500/20 to-yellow-600/5',
-    accent: 'border-yellow-500/30 hover:border-yellow-400/60',
-    textColor: 'text-yellow-400',
-  },
-  {
-    name: 'SHEIN',
-    url: 'https://www.shein.com',
-    logo: 'https://logo.clearbit.com/shein.com',
-    gradient: 'from-pink-500/20 to-pink-600/5',
-    accent: 'border-pink-500/30 hover:border-pink-400/60',
-    textColor: 'text-pink-400',
-  },
-  {
-    name: 'Best Buy',
-    url: 'https://www.bestbuy.com',
-    logo: 'https://logo.clearbit.com/bestbuy.com',
-    gradient: 'from-blue-600/20 to-blue-700/5',
-    accent: 'border-blue-600/30 hover:border-blue-500/60',
-    textColor: 'text-blue-300',
-  },
-  {
-    name: "Macy's",
-    url: 'https://www.macys.com',
-    logo: 'https://logo.clearbit.com/macys.com',
-    gradient: 'from-red-500/20 to-red-600/5',
-    accent: 'border-red-500/30 hover:border-red-400/60',
-    textColor: 'text-red-400',
-  },
-  {
-    name: 'Home Depot',
-    url: 'https://www.homedepot.com',
-    logo: 'https://logo.clearbit.com/homedepot.com',
-    gradient: 'from-orange-600/20 to-orange-700/5',
-    accent: 'border-orange-600/30 hover:border-orange-500/60',
-    textColor: 'text-orange-300',
-  },
-  {
-    name: 'Wayfair',
-    url: 'https://www.wayfair.com',
-    logo: 'https://logo.clearbit.com/wayfair.com',
-    gradient: 'from-purple-500/20 to-purple-600/5',
-    accent: 'border-purple-500/30 hover:border-purple-400/60',
-    textColor: 'text-purple-400',
-  },
+interface StoreInfo {
+  name: string;
+  url: string;
+  logo: string;
+  color: string; // tailwind bg class for the icon ring
+}
+
+const stores: StoreInfo[] = [
+  { name: 'Amazon', url: 'https://www.amazon.com', logo: 'https://logo.clearbit.com/amazon.com', color: 'ring-orange-500/40' },
+  { name: 'eBay', url: 'https://www.ebay.com', logo: 'https://logo.clearbit.com/ebay.com', color: 'ring-blue-500/40' },
+  { name: 'Walmart', url: 'https://www.walmart.com', logo: 'https://logo.clearbit.com/walmart.com', color: 'ring-yellow-500/40' },
+  { name: 'SHEIN', url: 'https://www.shein.com', logo: 'https://logo.clearbit.com/shein.com', color: 'ring-pink-500/40' },
+  { name: 'Best Buy', url: 'https://www.bestbuy.com', logo: 'https://logo.clearbit.com/bestbuy.com', color: 'ring-blue-600/40' },
+  { name: "Macy's", url: 'https://www.macys.com', logo: 'https://logo.clearbit.com/macys.com', color: 'ring-red-500/40' },
+  { name: 'Home Depot', url: 'https://www.homedepot.com', logo: 'https://logo.clearbit.com/homedepot.com', color: 'ring-orange-600/40' },
+  { name: 'Wayfair', url: 'https://www.wayfair.com', logo: 'https://logo.clearbit.com/wayfair.com', color: 'ring-purple-500/40' },
 ];
 
-const vehicleStores = [
-  {
-    name: 'Ford',
-    url: 'https://www.ford.com',
-    logo: 'https://logo.clearbit.com/ford.com',
-    gradient: 'from-blue-500/20 to-blue-600/5',
-    accent: 'border-blue-500/30 hover:border-blue-400/60',
-    textColor: 'text-blue-400',
-  },
-  {
-    name: 'Toyota',
-    url: 'https://www.toyota.com',
-    logo: 'https://logo.clearbit.com/toyota.com',
-    gradient: 'from-red-500/20 to-red-600/5',
-    accent: 'border-red-500/30 hover:border-red-400/60',
-    textColor: 'text-red-400',
-  },
-  {
-    name: 'Tesla',
-    url: 'https://www.tesla.com',
-    logo: 'https://logo.clearbit.com/tesla.com',
-    gradient: 'from-slate-400/20 to-slate-500/5',
-    accent: 'border-slate-400/30 hover:border-slate-300/60',
-    textColor: 'text-slate-300',
-  },
+const vehicleStores: StoreInfo[] = [
+  { name: 'Ford', url: 'https://www.ford.com', logo: 'https://logo.clearbit.com/ford.com', color: 'ring-blue-500/40' },
+  { name: 'Toyota', url: 'https://www.toyota.com', logo: 'https://logo.clearbit.com/toyota.com', color: 'ring-red-500/40' },
+  { name: 'Tesla', url: 'https://www.tesla.com', logo: 'https://logo.clearbit.com/tesla.com', color: 'ring-slate-400/40' },
 ];
 
-function StoreCard({ store, isVehicle, language }: { store: typeof stores[0]; isVehicle?: boolean; language: string }) {
+function StorePill({ store }: { store: StoreInfo }) {
   return (
     <a
       href={store.url}
       target="_blank"
       rel="noopener noreferrer"
-      className={`group relative flex items-center gap-3 px-4 py-3.5 rounded-xl border bg-gradient-to-br ${store.gradient} ${store.accent} transition-all hover:shadow-lg hover:shadow-black/20 hover:scale-[1.02] active:scale-[0.98]`}
+      className="group flex flex-col items-center gap-2 py-3 px-2 rounded-xl hover:bg-white/[0.04] transition-colors"
     >
-      <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center overflow-hidden">
+      <div className={`w-12 h-12 rounded-2xl bg-white ring-2 ${store.color} flex items-center justify-center overflow-hidden shadow-md shadow-black/20 group-hover:scale-105 transition-transform`}>
         <img
           src={store.logo}
           alt={store.name}
-          className="w-6 h-6 object-contain"
+          className="w-8 h-8 object-contain"
           onError={(e) => {
-            // Fallback: hide image and show first letter
             (e.target as HTMLImageElement).style.display = 'none';
             const parent = (e.target as HTMLImageElement).parentElement;
             if (parent) {
-              parent.innerHTML = `<span class="text-sm font-bold ${store.textColor}">${store.name[0]}</span>`;
+              parent.innerHTML = `<span class="text-base font-bold text-gray-700">${store.name[0]}</span>`;
             }
           }}
         />
       </div>
-      <span className={`text-sm font-semibold flex-1 ${store.textColor}`}>{store.name}</span>
-      {isVehicle && (
-        <span className="text-[9px] font-medium bg-primary/20 text-primary px-2 py-0.5 rounded-full border border-primary/20">
-          {language === 'fr' ? 'Devis' : 'Quote'}
+      <div className="flex items-center gap-1">
+        <span className="text-xs text-white/60 group-hover:text-white/90 transition-colors font-medium">
+          {store.name}
         </span>
-      )}
-      <ExternalLink className="h-3.5 w-3.5 opacity-30 group-hover:opacity-70 transition-opacity text-muted-foreground" />
+        <ExternalLink className="h-2.5 w-2.5 text-white/20 group-hover:text-white/50 transition-colors" />
+      </div>
     </a>
   );
 }
@@ -135,38 +63,55 @@ export function SupportedStoresGrid() {
   return (
     <div className="mt-8 space-y-6">
       {/* General Stores */}
-      <div>
-        <h3 className="text-sm font-semibold text-foreground mb-1">
-          {language === 'fr' ? 'Magasins supportés' : 'Supported Stores'}
-        </h3>
-        <p className="text-xs text-muted-foreground mb-4">
+      <div className="rounded-2xl border border-white/[0.06] bg-[#1a1d23]/60 p-4 sm:p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <ShoppingBag className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-semibold text-white/90">
+            {language === 'fr' ? 'Magasins populaires' : 'Popular Stores'}
+          </h3>
+        </div>
+        <p className="text-[11px] text-white/35 mb-4 ml-6">
           {language === 'fr'
-            ? 'Cliquez pour parcourir, puis collez le lien du produit ci-dessus'
-            : 'Click to browse, then paste the product link above'}
+            ? 'Parcourez, trouvez un produit, puis collez le lien ci-dessus'
+            : 'Browse, find a product, then paste the link above'}
         </p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-4 sm:grid-cols-4 gap-1">
           {stores.map((store) => (
-            <StoreCard key={store.name} store={store} language={language} />
+            <StorePill key={store.name} store={store} />
           ))}
         </div>
       </div>
 
       {/* Vehicle Stores */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
+      <div className="rounded-2xl border border-white/[0.06] bg-[#1a1d23]/60 p-4 sm:p-5">
+        <div className="flex items-center gap-2 mb-1">
           <Car className="h-4 w-4 text-primary" />
-          <h3 className="text-sm font-semibold text-foreground">
+          <h3 className="text-sm font-semibold text-white/90">
             {language === 'fr' ? 'Véhicules' : 'Vehicles'}
           </h3>
-          <span className="text-[10px] bg-primary/15 text-primary px-2 py-0.5 rounded-full border border-primary/20">
-            {language === 'fr' ? 'Devis requis' : 'Quote required'}
+          <span className="text-[10px] bg-primary/10 text-primary/80 px-2 py-0.5 rounded-full border border-primary/15 font-medium">
+            {language === 'fr' ? 'Devis requis' : 'Quote only'}
           </span>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+        <p className="text-[11px] text-white/35 mb-4 ml-6">
+          {language === 'fr'
+            ? 'Collez un lien véhicule pour demander un devis personnalisé'
+            : 'Paste a vehicle link to request a custom quote'}
+        </p>
+        <div className="grid grid-cols-3 gap-1">
           {vehicleStores.map((store) => (
-            <StoreCard key={store.name} store={store} isVehicle language={language} />
+            <StorePill key={store.name} store={store} />
           ))}
         </div>
+      </div>
+
+      {/* Any store note */}
+      <div className="text-center pb-4">
+        <p className="text-xs text-white/25">
+          {language === 'fr'
+            ? '+ tout autre magasin en ligne avec un lien produit'
+            : '+ any other online store with a product link'}
+        </p>
       </div>
     </div>
   );

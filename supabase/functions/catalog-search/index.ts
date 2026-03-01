@@ -80,6 +80,13 @@ const MODEL_TOKENS = new Set([
   "hot","note","nintendo","switch","airpods","ipad","dell","hp","lenovo","asus",
   "acer","msi","razer","jbl","sony","lg","hisense","bose","canon","nikon",
   "gopro","garmin","fitbit","dyson","karcher","bosch","makita","dewalt",
+  // Vehicle makes & models
+  "gmc","yukon","tahoe","silverado","sierra","suburban","ford","f150",
+  "mustang","bronco","explorer","expedition","ram","wrangler","jeep",
+  "4runner","tundra","camry","corolla","civic","accord",
+  "escalade","navigator","ranger","tacoma","highlander","rav4","crv",
+  "chevrolet","chevy","toyota","honda","nissan","hyundai","kia","bmw",
+  "mercedes","audi","lexus","cadillac","lincoln","dodge","chrysler",
 ]);
 const BROAD_SINGLE_TERMS = new Set([
   "telephone","téléphone","tv","frigo","vetement","vêtement","chaussure",
@@ -107,11 +114,16 @@ function isDirectQuery(q: string): boolean {
 }
 
 // ─── QUERY BROADENING (eBay-style progressive relaxation) ──────────────────
-// Strips year, qualifiers, and progressively shortens to generate broader queries
+// Strips year, qualifiers, vehicle type words, and progressively shortens to generate broader queries
 const QUALIFIER_WORDS = new Set([
   "plaid","used","new","certified","cpo","rebuilt","salvage","clean",
   "loaded","limited","premium","ultimate","sport","base","se","sel",
   "xle","xse","touring","diesel","hybrid","electric","ev",
+]);
+const VEHICLE_TYPE_WORDS = new Set([
+  "suv","sedan","truck","pickup","coupe","convertible","minivan",
+  "van","hatchback","wagon","crossover","motorcycle","car","vehicle",
+  "camion","voiture","moto","véhicule","vehicule",
 ]);
 
 function generateBroadenedQueries(query: string): string[] {
@@ -127,16 +139,24 @@ function generateBroadenedQueries(query: string): string[] {
     seen.add(noYear);
   }
 
-  // Step 2: Strip qualifier words from the no-year version
-  const tokens = (noYear || original).split(/\s+/).filter(t => !QUALIFIER_WORDS.has(t));
+  // Step 2: Strip vehicle type words (SUV, sedan, truck, etc.)
+  const baseForVehicle = noYear || original;
+  const noVehicleType = baseForVehicle.split(/\s+/).filter(t => !VEHICLE_TYPE_WORDS.has(t)).join(" ").trim();
+  if (noVehicleType && noVehicleType !== baseForVehicle && !seen.has(noVehicleType)) {
+    results.push(noVehicleType);
+    seen.add(noVehicleType);
+  }
+
+  // Step 3: Strip qualifier words from the cleaned version
+  const tokens = (noVehicleType || noYear || original).split(/\s+/).filter(t => !QUALIFIER_WORDS.has(t));
   const noQualifiers = tokens.join(" ").trim();
-  if (noQualifiers && !seen.has(noQualifiers) && noQualifiers !== noYear) {
+  if (noQualifiers && !seen.has(noQualifiers) && noQualifiers !== (noVehicleType || noYear)) {
     results.push(noQualifiers);
     seen.add(noQualifiers);
   }
 
-  // Step 3: Progressive shortening (keep first N tokens, min 2)
-  const baseTokens = (noQualifiers || noYear || original).split(/\s+/);
+  // Step 4: Progressive shortening (keep first N tokens, min 2)
+  const baseTokens = (noQualifiers || noVehicleType || noYear || original).split(/\s+/);
   for (let len = baseTokens.length - 1; len >= 2; len--) {
     const shortened = baseTokens.slice(0, len).join(" ");
     if (!seen.has(shortened)) {
@@ -1175,7 +1195,7 @@ Deno.serve(async (req: Request) => {
     const BROADEN_THRESHOLD = 30;
     const BROADEN_TARGET = 80;
     const totalAfterPrimary = amazonItems.length + ebayItems.length;
-    if (directQuery && totalAfterPrimary < BROADEN_THRESHOLD && !providerTimedOut) {
+    if ((directQuery || hasBuyingIntent || effectiveIntent.vehicleListingIntent) && totalAfterPrimary < BROADEN_THRESHOLD && !providerTimedOut) {
       const broadenBudgetMs = isFirstPage ? 3000 : 4000;
       const broadenDeadline = startTime + (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS);
       const broadenedQueries = generateBroadenedQueries(providerQuery);

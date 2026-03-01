@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { prefetchCatalogCategory } from '@/lib/catalogCache';
-import { Clock, Loader2 } from 'lucide-react';
+import { Clock, Loader2, Link2, ArrowRight } from 'lucide-react';
 import { LazySection } from '@/components/shop/LazySection';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
@@ -1124,6 +1125,32 @@ export default function ShopHome() {
                   seeAllLink="/category/all"
                 />
               )}
+
+              {/* Paste-Link CTA Banner */}
+              <Link
+                to="/paste-link"
+                className="group relative block overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent p-5 sm:p-6 transition-all hover:border-primary/50 hover:shadow-[0_0_30px_-5px_hsl(var(--primary)/0.3)]"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="relative flex items-center gap-4">
+                  <div className="flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-xl bg-primary/20 border border-primary/30 group-hover:bg-primary/30 transition-colors">
+                    <Link2 className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-base sm:text-lg font-bold text-white">
+                      {language === 'fr'
+                        ? "Vous ne trouvez pas ce que vous cherchez ?"
+                        : "Can't find what you're looking for?"}
+                    </p>
+                    <p className="text-sm text-white/60 mt-0.5">
+                      {language === 'fr'
+                        ? "Collez un lien de n'importe quel site et commandez-le ici"
+                        : "Paste a link from any store and order it here"}
+                    </p>
+                  </div>
+                  <ArrowRight className="h-5 w-5 text-primary flex-shrink-0 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </Link>
 
               {/* 3) Promo Tiles — top 4 categories */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

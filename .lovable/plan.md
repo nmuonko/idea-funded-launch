@@ -1,56 +1,63 @@
 
 
-# Fix: Return More Search Results on Mobile
+# Fix Live Chat and Chat Routing
 
-## Problem
-Most searches return only 20-50 items because of several compounding limits in the search pipeline:
+## Problems Identified
 
-1. **Backend hard caps results at 100** (`MAX_LIMIT = 100`) -- even though the web app requests 200, and the DB has hundreds of matching items
-2. **DB Fast Path triggers at only 20 items** (`DB_SUFFICIENT_THRESHOLD = 20`) -- returns results immediately without fetching from live providers. While it does return ALL DB items found, the intent scorer then trims them back down using the capped `limit` of 100
-3. **Intent scorer uses the capped `limit` (100)** as its cap -- so even when DB Tier A pulls 400+ items, scoring trims to 100
-4. **Mobile app is frozen** and reads `categoryPageSize: 100` from backend config -- it can only fetch 100 per page
-5. **Fuzzy search (Tier B) caps at 200** -- `Math.min(limit, 200)` when limit is already 100
+### 1. Chat Routing shows only 1 admin
+The dropdown queries `user_roles` for admins, then fetches their `profiles`. But many admin profiles have a `NULL` email field (the `email` column in profiles isn't always synced). So admins without an email in their profile don't show up meaningfully. The fix: also look up emails from `auth.users` via a fallback, and ensure the dropdown shows all admins with their name or email.
 
-## Changes
+### 2. Chat Routing is disconnected from Live Chat
+The Chat Routing page lets you configure a round-robin queue, but **the Support Inbox completely ignores it**. Conversations just sit as "Unclaimed" until someone manually claims them. The routing config table (`chat_routing_config`) is never consulted when a new conversation arrives.
 
-### 1. Increase backend MAX_LIMIT from 100 to 200
-**File**: `supabase/functions/catalog-search/index.ts`
-- Change `MAX_LIMIT = 100` to `MAX_LIMIT = 200`
-- Change `DEFAULT_LIMIT = 100` to `DEFAULT_LIMIT = 200`
-- This allows the web frontend's `PAGE_SIZE = 200` to actually work end-to-end
+**Fix**: When a conversation enters `waiting_agent` status, auto-assign it to the next available agent from the routing config. Show a "Reassign" button for super admins so they can move conversations between agents.
 
-### 2. Increase DB_SUFFICIENT_THRESHOLD from 20 to 50
-**File**: `supabase/functions/catalog-search/index.ts`
-- Change `DB_SUFFICIENT_THRESHOLD = 20` to `DB_SUFFICIENT_THRESHOLD = 50`
-- Currently, if DB has only 20 items, it skips live providers. With 50, it will also try eBay/Amazon for broader results on sparser queries
+### 3. Super admin can't assign conversations or restrict access
+Currently any admin with `can_view_tickets` sees ALL conversations. There's no way to assign a specific conversation to a specific person, or restrict which agents see which chats.
 
-### 3. Pass full DB count (not capped limit) to intent scorer for DB fast-path
-**File**: `supabase/functions/catalog-search/index.ts`
-- In the DB-first scoring block (~line 835), change `limit` to `Math.max(limit, 400)` so intent scoring keeps more items instead of trimming to 100
-- In the DB fast-path block (~line 873), ensure all filtered DB items are returned (already the case, but verify no slicing)
+**Fix**: 
+- Add a "Reassign" dropdown in the chat header (super admin only) to reassign a conversation to any configured agent
+- Filter the conversation list so non-super-admin agents only see conversations assigned to them (or unclaimed ones)
+- Auto-assign new conversations using the round-robin config
 
-### 4. Increase mobile categoryPageSize from 100 to 200
-**File**: `supabase/functions/mobile-public-config/index.ts`
-- Change `categoryPageSize: 100` to `categoryPageSize: 200`
-- This tells the frozen mobile app to request more items per page
+## Implementation Plan
 
-### 5. Increase Tier B fuzzy search cap from 200 to 400
-**File**: `supabase/functions/_shared/searchDbFirst.ts`
-- Change `Math.min(limit, 200)` to `Math.min(limit, 400)` in the Tier B fuzzy search call
-- Allows more fuzzy matches to contribute results
+### 1. Fix Chat Routing admin dropdown to show ALL admins
+- In `ChatRouting.tsx`, update the profile fetch to use `full_name` or `name` as primary display, falling back to `email`, then user ID prefix
+- Run `sync_profile_emails` on admin profiles that are missing emails (the function already exists)
+- Show admin name + role in the dropdown for clarity
 
-### 6. Increase search_catalog_items_ranked default limit
-**Database migration**: Change the RPC's default `p_limit` from 100 to 200 to return more fuzzy results by default
+### 2. Connect Chat Routing to Support Inbox (auto-assign)
+- Create a helper function `getNextAvailableAgent()` that reads `chat_routing_config` and returns the next agent (round-robin by lowest `chats_assigned_count` among available agents)
+- In `SupportInbox.tsx`, when a conversation status changes to `waiting_agent`, auto-assign it to the next agent and increment their count
+- Add a realtime listener so the assignment happens immediately
 
-## Expected Impact
-- Searches that currently return 20-50 items should return 100-400+ items
-- Mobile app will request 200 items per page instead of 100
-- DB fast-path still fires quickly but returns significantly more results
-- Web infinite scroll will load 200 per page (matching frontend expectation)
+### 3. Add "Reassign" capability for super admins
+- In the chat header of `SupportInbox.tsx`, add a "Reassign" dropdown (visible only to super admins)
+- The dropdown lists all agents from `chat_routing_config`
+- Selecting an agent reassigns the conversation and sends a system message "Conversation reassigned to [Agent Name]"
+
+### 4. Filter conversations by agent for non-super-admins
+- Non-super-admin agents with `can_view_tickets` only see:
+  - Conversations assigned to them
+  - Unclaimed (`waiting_agent`) conversations
+- Super admins continue to see everything
+
+### 5. Improve Chat Routing UX clarity
+- Add a clear explanation card: "When a customer starts a live chat and requests a human agent, the system automatically assigns it to the next available agent below"
+- Show each agent's name, email, role, and current chat count
+- Add a "Sync Emails" button to fix missing email displays
 
 ## Files to Edit
-- `supabase/functions/catalog-search/index.ts` -- MAX_LIMIT, DEFAULT_LIMIT, DB_SUFFICIENT_THRESHOLD, scorer limit
-- `supabase/functions/mobile-public-config/index.ts` -- categoryPageSize
-- `supabase/functions/_shared/searchDbFirst.ts` -- Tier B cap
-- Database migration for `search_catalog_items_ranked` default limit
+- `src/pages/admin/ChatRouting.tsx` -- Fix admin dropdown display, improve UX
+- `src/pages/admin/SupportInbox.tsx` -- Add auto-assign, reassign dropdown, agent-based filtering
+
+## Files to Create
+None -- all changes fit within existing files.
+
+## What Changes for Users
+
+- **You (super admin)**: See all conversations. Can reassign any conversation to any agent with one click. Chat Routing now actually controls who gets new chats.
+- **Limited admins**: Only see their own assigned conversations and unclaimed ones. Can claim unclaimed chats.
+- **Customers**: No visible change -- they just get connected to an agent faster (auto-assignment instead of waiting for someone to notice).
 

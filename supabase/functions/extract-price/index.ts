@@ -829,6 +829,56 @@ async function extractViaRainforestProduct(
   }
 }
 
+// ============== CATALOG PERSISTENCE ==============
+// Saves successful paste-link extractions to catalog_items permanently
+// so future users get instant, zero-credit responses.
+
+const CAR_STORES: StoreType[] = ['carvana', 'cargurus', 'tesla_used', 'edmunds'];
+
+async function saveToCatalogItems(
+  supabase: any,
+  store: StoreType,
+  url: string,
+  price: number,
+  title: string | null,
+  imageUrl: string | null
+): Promise<void> {
+  try {
+    // Skip car dealerships — prices change too fast
+    if (CAR_STORES.includes(store)) return;
+    // Skip if no price
+    if (!price || price <= 0) return;
+    // Extract product ID; skip if we can't identify the product
+    const productId = extractProductIdFromUrl(url, store);
+    if (!productId) return;
+
+    const provider = store === 'generic' ? null : store;
+    if (!provider) return;
+
+    const now = new Date().toISOString();
+
+    await supabase.from('catalog_items').upsert(
+      {
+        provider,
+        provider_product_id: productId,
+        product_url: url,
+        price_usd: price,
+        title: title || null,
+        image_url: imageUrl || null,
+        is_active: true,
+        price_updated_at: now,
+        last_seen_at: now,
+        updated_at: now,
+      },
+      { onConflict: 'provider,provider_product_id' }
+    );
+
+    console.log(`[extract-price] Saved to catalog_items: provider=${provider} id=${productId} price=${price}`);
+  } catch (error) {
+    console.warn('[extract-price] catalog_items save failed (non-blocking):', error);
+  }
+}
+
 interface CachedPrice {
   basePrice: number;
   currencySymbol: string;
@@ -1331,6 +1381,9 @@ Deno.serve(async (req) => {
           lastFetchedAt: now,
         }).catch(() => {});
 
+        // Persist to catalog (fire-and-forget)
+        saveToCatalogItems(supabase, store, formattedUrl, rainforest.price, rainforest.title, rainforest.imageUrl).catch(() => {});
+
         logData = { ...logData, cacheHit: false, method: 'amazon_rainforest_fallback', priceFound: true, duration: Date.now() - startTime };
         console.log(JSON.stringify(logData));
 
@@ -1372,6 +1425,9 @@ Deno.serve(async (req) => {
           lastFetchedAt: now,
         }).catch(() => {});
 
+        // Persist to catalog (fire-and-forget)
+        saveToCatalogItems(supabase, store, formattedUrl, mirror.price, mirror.title, mirror.imageUrl).catch(() => {});
+
         logData = { ...logData, cacheHit: false, method: 'amazon_mirror_fallback', priceFound: true, duration: Date.now() - startTime };
         console.log(JSON.stringify(logData));
 
@@ -1412,6 +1468,9 @@ Deno.serve(async (req) => {
           imageUrl: firecrawlResult.imageUrl,
           lastFetchedAt: now,
         }).catch(() => {});
+
+        // Persist to catalog (fire-and-forget)
+        saveToCatalogItems(supabase, store, formattedUrl, firecrawlResult.price, firecrawlResult.title, firecrawlResult.imageUrl).catch(() => {});
 
         logData = { ...logData, cacheHit: false, method: 'amazon_firecrawl_fallback', priceFound: true, duration: Date.now() - startTime };
         console.log(JSON.stringify(logData));
@@ -1611,6 +1670,9 @@ Deno.serve(async (req) => {
           lastFetchedAt: now,
         }).catch(() => {});
 
+        // Persist to catalog (fire-and-forget)
+        saveToCatalogItems(supabase, store, formattedUrl, firecrawlHttpResult.price, firecrawlHttpResult.title, firecrawlHttpResult.imageUrl).catch(() => {});
+
         logData = { ...logData, cacheHit: false, method: 'firecrawl_fallback_http_error', priceFound: true, duration: Date.now() - startTime };
         console.log(JSON.stringify(logData));
 
@@ -1767,6 +1829,9 @@ Deno.serve(async (req) => {
           lastFetchedAt: now,
         }).catch(() => {});
 
+        // Persist to catalog (fire-and-forget)
+        saveToCatalogItems(supabase, store, formattedUrl, firecrawlBotResult.price, firecrawlBotResult.title, firecrawlBotResult.imageUrl).catch(() => {});
+
         logData = { ...logData, cacheHit: false, method: 'firecrawl_fallback_bot_blocked', priceFound: true, duration: Date.now() - startTime };
         console.log(JSON.stringify(logData));
 
@@ -1908,6 +1973,9 @@ Deno.serve(async (req) => {
       ...cacheData,
       lastFetchedAt: new Date().toISOString(),
     }).catch(() => {});
+
+    // Persist to catalog_items permanently (fire-and-forget)
+    saveToCatalogItems(supabase, store, formattedUrl, price, productInfo.title, productInfo.imageUrl).catch(() => {});
 
     logData = {
       ...logData,

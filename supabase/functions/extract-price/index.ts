@@ -1356,7 +1356,51 @@ Deno.serve(async (req) => {
           .catch(() => {});
       }
 
-      // Try live Rainforest product lookup for uncached ASINs
+      // Try Firecrawl FIRST for fastest results (returns full HTML with images)
+      const firecrawlResult = await extractViaFirecrawlFull(formattedUrl, store, 10000);
+      if (firecrawlResult?.price) {
+        const now = new Date().toISOString();
+        const resolvedCurrencyCode = firecrawlResult.currencyCode || 'USD';
+        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: firecrawlResult.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: firecrawlResult.title,
+          imageUrl: firecrawlResult.imageUrl,
+        });
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: firecrawlResult.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          store,
+          title: firecrawlResult.title,
+          imageUrl: firecrawlResult.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        // Persist to catalog (fire-and-forget)
+        saveToCatalogItems(supabase, store, formattedUrl, firecrawlResult.price, firecrawlResult.title, firecrawlResult.imageUrl).catch(() => {});
+
+        logData = { ...logData, cacheHit: false, method: 'amazon_firecrawl_primary', priceFound: true, duration: Date.now() - startTime };
+        console.log(JSON.stringify(logData));
+
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: firecrawlResult.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: firecrawlResult.title,
+          imageUrl: firecrawlResult.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        } as PriceResolveResponse);
+      }
+
+      // Fallback to Rainforest API if Firecrawl failed
       const rainforest = await extractViaRainforestProduct(formattedUrl, 8000);
       if (rainforest?.price) {
         const now = new Date().toISOString();
@@ -1400,7 +1444,7 @@ Deno.serve(async (req) => {
         } as PriceResolveResponse);
       }
 
-      // For Amazon, still try mirror scraping as last resort before failing
+      // Last resort: mirror scraping
       const mirror = await extractViaMirror(formattedUrl, store, 4000);
       if (mirror?.price) {
         const now = new Date().toISOString();
@@ -1439,50 +1483,6 @@ Deno.serve(async (req) => {
           rawCurrencyCode: resolvedCurrencyCode,
           title: mirror.title,
           imageUrl: mirror.imageUrl,
-          cacheHit: false,
-          lastFetchedAt: now,
-        } as PriceResolveResponse);
-      }
-
-      // Try Firecrawl as final automated fallback for Amazon
-      const firecrawlResult = await extractViaFirecrawlFull(formattedUrl, store, 10000);
-      if (firecrawlResult?.price) {
-        const now = new Date().toISOString();
-        const resolvedCurrencyCode = firecrawlResult.currencyCode || 'USD';
-        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
-
-        await setCachedPrice(supabase, normalizedUrl, {
-          store,
-          basePrice: firecrawlResult.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: firecrawlResult.title,
-          imageUrl: firecrawlResult.imageUrl,
-        });
-        saveToHotCache(supabase, normalizedUrl, store, {
-          basePrice: firecrawlResult.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          store,
-          title: firecrawlResult.title,
-          imageUrl: firecrawlResult.imageUrl,
-          lastFetchedAt: now,
-        }).catch(() => {});
-
-        // Persist to catalog (fire-and-forget)
-        saveToCatalogItems(supabase, store, formattedUrl, firecrawlResult.price, firecrawlResult.title, firecrawlResult.imageUrl).catch(() => {});
-
-        logData = { ...logData, cacheHit: false, method: 'amazon_firecrawl_fallback', priceFound: true, duration: Date.now() - startTime };
-        console.log(JSON.stringify(logData));
-
-        return jsonSuccess({
-          url: normalizedUrl,
-          store,
-          basePrice: firecrawlResult.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: firecrawlResult.title,
-          imageUrl: firecrawlResult.imageUrl,
           cacheHit: false,
           lastFetchedAt: now,
         } as PriceResolveResponse);
@@ -1548,104 +1548,7 @@ Deno.serve(async (req) => {
     }
 
     if (!response.ok) {
-      const mirror = await extractViaMirror(formattedUrl, store, 3500);
-      if (mirror?.price) {
-        const now = new Date().toISOString();
-        const resolvedCurrencyCode = mirror.currencyCode || 'USD';
-        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
-
-        await setCachedPrice(supabase, normalizedUrl, {
-          store,
-          basePrice: mirror.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: mirror.title,
-          imageUrl: mirror.imageUrl,
-        });
-
-        saveToHotCache(supabase, normalizedUrl, store, {
-          basePrice: mirror.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          store,
-          title: mirror.title,
-          imageUrl: mirror.imageUrl,
-          lastFetchedAt: now,
-        }).catch(() => {});
-
-        logData = {
-          ...logData,
-          cacheHit: false,
-          method: 'mirror_fallback_http_error',
-          priceFound: true,
-          duration: Date.now() - startTime,
-          httpStatus: response.status,
-        };
-        console.log(JSON.stringify(logData));
-
-        return jsonSuccess({
-          url: normalizedUrl,
-          store,
-          basePrice: mirror.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: mirror.title,
-          imageUrl: mirror.imageUrl,
-          cacheHit: false,
-          lastFetchedAt: now,
-        } as PriceResolveResponse);
-      }
-
-      const fallback = await getCatalogFallbackPrice(supabase, formattedUrl, normalizedUrl, store);
-      if (fallback) {
-        const now = new Date().toISOString();
-        const fallbackCurrencyCode = 'USD';
-        const fallbackCurrencySymbol = getCurrencySymbol(fallbackCurrencyCode);
-
-        await setCachedPrice(supabase, normalizedUrl, {
-          store,
-          basePrice: fallback.basePrice,
-          currencySymbol: fallbackCurrencySymbol,
-          rawCurrencyCode: fallbackCurrencyCode,
-          title: fallback.title,
-          imageUrl: fallback.imageUrl,
-        });
-
-        saveToHotCache(supabase, normalizedUrl, store, {
-          basePrice: fallback.basePrice,
-          currencySymbol: fallbackCurrencySymbol,
-          rawCurrencyCode: fallbackCurrencyCode,
-          store,
-          title: fallback.title,
-          imageUrl: fallback.imageUrl,
-          lastFetchedAt: now,
-        }).catch(() => {});
-
-        logData = {
-          ...logData,
-          cacheHit: false,
-          method: 'catalog_fallback_http_error',
-          priceFound: true,
-          duration: Date.now() - startTime,
-          httpStatus: response.status,
-        };
-        console.log(JSON.stringify(logData));
-
-        const fallbackResponse: PriceResolveResponse = {
-          url: normalizedUrl,
-          store,
-          basePrice: fallback.basePrice,
-          currencySymbol: fallbackCurrencySymbol,
-          rawCurrencyCode: fallbackCurrencyCode,
-          title: fallback.title,
-          imageUrl: fallback.imageUrl,
-          cacheHit: false,
-          lastFetchedAt: now,
-        };
-        return jsonSuccess(fallbackResponse);
-      }
-
-      // Try Firecrawl as final fallback for HTTP error responses
+      // Try Firecrawl FIRST for HTTP error responses (most reliable)
       const firecrawlHttpResult = await extractViaFirecrawlFull(formattedUrl, store, 10000);
       if (firecrawlHttpResult?.price) {
         const now = new Date().toISOString();
@@ -1673,7 +1576,7 @@ Deno.serve(async (req) => {
         // Persist to catalog (fire-and-forget)
         saveToCatalogItems(supabase, store, formattedUrl, firecrawlHttpResult.price, firecrawlHttpResult.title, firecrawlHttpResult.imageUrl).catch(() => {});
 
-        logData = { ...logData, cacheHit: false, method: 'firecrawl_fallback_http_error', priceFound: true, duration: Date.now() - startTime };
+        logData = { ...logData, cacheHit: false, method: 'firecrawl_primary_http_error', priceFound: true, duration: Date.now() - startTime };
         console.log(JSON.stringify(logData));
 
         return jsonSuccess({
@@ -1684,6 +1587,104 @@ Deno.serve(async (req) => {
           rawCurrencyCode: resolvedCurrencyCode,
           title: firecrawlHttpResult.title,
           imageUrl: firecrawlHttpResult.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        } as PriceResolveResponse);
+      }
+
+      // Fallback: mirror scraping
+      const mirror = await extractViaMirror(formattedUrl, store, 3500);
+      if (mirror?.price) {
+        const now = new Date().toISOString();
+        const resolvedCurrencyCode = mirror.currencyCode || 'USD';
+        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+        });
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          store,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        saveToCatalogItems(supabase, store, formattedUrl, mirror.price, mirror.title, mirror.imageUrl).catch(() => {});
+
+        logData = {
+          ...logData,
+          cacheHit: false,
+          method: 'mirror_fallback_http_error',
+          priceFound: true,
+          duration: Date.now() - startTime,
+          httpStatus: response.status,
+        };
+        console.log(JSON.stringify(logData));
+
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        } as PriceResolveResponse);
+      }
+
+      // Last resort: catalog fallback
+      const fallback = await getCatalogFallbackPrice(supabase, formattedUrl, normalizedUrl, store);
+      if (fallback) {
+        const now = new Date().toISOString();
+        const fallbackCurrencyCode = 'USD';
+        const fallbackCurrencySymbol = getCurrencySymbol(fallbackCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: fallback.basePrice,
+          currencySymbol: fallbackCurrencySymbol,
+          rawCurrencyCode: fallbackCurrencyCode,
+          title: fallback.title,
+          imageUrl: fallback.imageUrl,
+        });
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: fallback.basePrice,
+          currencySymbol: fallbackCurrencySymbol,
+          rawCurrencyCode: fallbackCurrencyCode,
+          store,
+          title: fallback.title,
+          imageUrl: fallback.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        logData = {
+          ...logData,
+          cacheHit: false,
+          method: 'catalog_fallback_http_error',
+          priceFound: true,
+          duration: Date.now() - startTime,
+          httpStatus: response.status,
+        };
+        console.log(JSON.stringify(logData));
+
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: fallback.basePrice,
+          currencySymbol: fallbackCurrencySymbol,
+          rawCurrencyCode: fallbackCurrencyCode,
+          title: fallback.title,
+          imageUrl: fallback.imageUrl,
           cacheHit: false,
           lastFetchedAt: now,
         } as PriceResolveResponse);
@@ -1709,102 +1710,7 @@ Deno.serve(async (req) => {
 
     // Check for bot detection / captcha pages
     if (detectBotBlock(html)) {
-      const mirror = await extractViaMirror(formattedUrl, store, 3500);
-      if (mirror?.price) {
-        const now = new Date().toISOString();
-        const resolvedCurrencyCode = mirror.currencyCode || 'USD';
-        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
-
-        await setCachedPrice(supabase, normalizedUrl, {
-          store,
-          basePrice: mirror.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: mirror.title,
-          imageUrl: mirror.imageUrl,
-        });
-
-        saveToHotCache(supabase, normalizedUrl, store, {
-          basePrice: mirror.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          store,
-          title: mirror.title,
-          imageUrl: mirror.imageUrl,
-          lastFetchedAt: now,
-        }).catch(() => {});
-
-        logData = {
-          ...logData,
-          cacheHit: false,
-          method: 'mirror_fallback_bot_blocked',
-          priceFound: true,
-          duration: Date.now() - startTime,
-        };
-        console.log(JSON.stringify(logData));
-
-        return jsonSuccess({
-          url: normalizedUrl,
-          store,
-          basePrice: mirror.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: mirror.title,
-          imageUrl: mirror.imageUrl,
-          cacheHit: false,
-          lastFetchedAt: now,
-        } as PriceResolveResponse);
-      }
-
-      const fallback = await getCatalogFallbackPrice(supabase, formattedUrl, normalizedUrl, store);
-      if (fallback) {
-        const now = new Date().toISOString();
-        const fallbackCurrencyCode = 'USD';
-        const fallbackCurrencySymbol = getCurrencySymbol(fallbackCurrencyCode);
-
-        await setCachedPrice(supabase, normalizedUrl, {
-          store,
-          basePrice: fallback.basePrice,
-          currencySymbol: fallbackCurrencySymbol,
-          rawCurrencyCode: fallbackCurrencyCode,
-          title: fallback.title,
-          imageUrl: fallback.imageUrl,
-        });
-
-        saveToHotCache(supabase, normalizedUrl, store, {
-          basePrice: fallback.basePrice,
-          currencySymbol: fallbackCurrencySymbol,
-          rawCurrencyCode: fallbackCurrencyCode,
-          store,
-          title: fallback.title,
-          imageUrl: fallback.imageUrl,
-          lastFetchedAt: now,
-        }).catch(() => {});
-
-        logData = {
-          ...logData,
-          cacheHit: false,
-          method: 'catalog_fallback_bot_blocked',
-          priceFound: true,
-          duration: Date.now() - startTime,
-        };
-        console.log(JSON.stringify(logData));
-
-        const fallbackResponse: PriceResolveResponse = {
-          url: normalizedUrl,
-          store,
-          basePrice: fallback.basePrice,
-          currencySymbol: fallbackCurrencySymbol,
-          rawCurrencyCode: fallbackCurrencyCode,
-          title: fallback.title,
-          imageUrl: fallback.imageUrl,
-          cacheHit: false,
-          lastFetchedAt: now,
-        };
-        return jsonSuccess(fallbackResponse);
-      }
-
-      // Try Firecrawl as final fallback before giving up on bot-blocked stores
+      // Try Firecrawl FIRST for bot-blocked stores (most reliable bypass)
       const firecrawlBotResult = await extractViaFirecrawlFull(formattedUrl, store, 10000);
       if (firecrawlBotResult?.price) {
         const now = new Date().toISOString();
@@ -1829,10 +1735,9 @@ Deno.serve(async (req) => {
           lastFetchedAt: now,
         }).catch(() => {});
 
-        // Persist to catalog (fire-and-forget)
         saveToCatalogItems(supabase, store, formattedUrl, firecrawlBotResult.price, firecrawlBotResult.title, firecrawlBotResult.imageUrl).catch(() => {});
 
-        logData = { ...logData, cacheHit: false, method: 'firecrawl_fallback_bot_blocked', priceFound: true, duration: Date.now() - startTime };
+        logData = { ...logData, cacheHit: false, method: 'firecrawl_primary_bot_blocked', priceFound: true, duration: Date.now() - startTime };
         console.log(JSON.stringify(logData));
 
         return jsonSuccess({
@@ -1848,9 +1753,104 @@ Deno.serve(async (req) => {
         } as PriceResolveResponse);
       }
 
+      // Fallback: mirror scraping
+      const mirror = await extractViaMirror(formattedUrl, store, 3500);
+      if (mirror?.price) {
+        const now = new Date().toISOString();
+        const resolvedCurrencyCode = mirror.currencyCode || 'USD';
+        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+        });
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          store,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        saveToCatalogItems(supabase, store, formattedUrl, mirror.price, mirror.title, mirror.imageUrl).catch(() => {});
+
+        logData = {
+          ...logData,
+          cacheHit: false,
+          method: 'mirror_fallback_bot_blocked',
+          priceFound: true,
+          duration: Date.now() - startTime,
+        };
+        console.log(JSON.stringify(logData));
+
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: mirror.price,
+          currencySymbol: resolvedCurrencySymbol,
+          rawCurrencyCode: resolvedCurrencyCode,
+          title: mirror.title,
+          imageUrl: mirror.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        } as PriceResolveResponse);
+      }
+
+      // Last resort: catalog fallback
+      const fallback = await getCatalogFallbackPrice(supabase, formattedUrl, normalizedUrl, store);
+      if (fallback) {
+        const now = new Date().toISOString();
+        const fallbackCurrencyCode = 'USD';
+        const fallbackCurrencySymbol = getCurrencySymbol(fallbackCurrencyCode);
+
+        await setCachedPrice(supabase, normalizedUrl, {
+          store,
+          basePrice: fallback.basePrice,
+          currencySymbol: fallbackCurrencySymbol,
+          rawCurrencyCode: fallbackCurrencyCode,
+          title: fallback.title,
+          imageUrl: fallback.imageUrl,
+        });
+        saveToHotCache(supabase, normalizedUrl, store, {
+          basePrice: fallback.basePrice,
+          currencySymbol: fallbackCurrencySymbol,
+          rawCurrencyCode: fallbackCurrencyCode,
+          store,
+          title: fallback.title,
+          imageUrl: fallback.imageUrl,
+          lastFetchedAt: now,
+        }).catch(() => {});
+
+        logData = {
+          ...logData,
+          cacheHit: false,
+          method: 'catalog_fallback_bot_blocked',
+          priceFound: true,
+          duration: Date.now() - startTime,
+        };
+        console.log(JSON.stringify(logData));
+
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: fallback.basePrice,
+          currencySymbol: fallbackCurrencySymbol,
+          rawCurrencyCode: fallbackCurrencyCode,
+          title: fallback.title,
+          imageUrl: fallback.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: now,
+        } as PriceResolveResponse);
+      }
+
       logData = { ...logData, status: 403, error: 'SCRAPE_BLOCKED', store, duration: Date.now() - startTime };
       console.log(JSON.stringify(logData));
-      // Return SCRAPE_BLOCKED with explicit webviewFallback hint
       return new Response(
         JSON.stringify({
           ok: false,

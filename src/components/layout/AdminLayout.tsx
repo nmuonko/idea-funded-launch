@@ -12,7 +12,7 @@ import {
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, Home,
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
   Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe,
-  ChevronDown, Database, Store, Gift, Archive, Brain
+  ChevronDown, Database, Store, Gift, Archive, Brain, MapPin
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AdminNotificationsBell } from '@/components/admin/AdminNotificationsBell';
@@ -52,6 +52,7 @@ export function AdminLayout() {
         { to: '/admin/orders', icon: CreditCard, label: t.sidebar.orders, permission: 'can_view_orders' as const },
         { to: '/admin/customers', icon: UserCircle, label: t.sidebar.customers || 'Customers', permission: 'can_view_customers' as const },
         { to: '/admin/shipping', icon: Truck, label: t.sidebar.shipping, permission: 'can_view_shipping' as const },
+        { to: '/admin/delivery', icon: MapPin, label: language === 'fr' ? 'Livraisons' : 'Delivery', permission: 'can_view_shipping' as const },
         { to: '/admin/carts', icon: ShoppingCart, label: language === 'fr' ? 'Paniers' : 'Carts', permission: 'can_view_active_carts' as const },
         { to: '/admin/quote-requests', icon: Car, label: t.sidebar.quoteRequests || 'Vehicle Quotes', permission: 'can_view_orders' as const },
       ]

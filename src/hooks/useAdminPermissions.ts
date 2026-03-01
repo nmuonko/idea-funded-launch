@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
-export type AdminRole = 'super_admin' | 'finance' | 'operations' | 'support';
+export type AdminRole = 'super_admin' | 'finance' | 'operations' | 'support' | 'delivery';
 
 export interface SectionPermissions {
   can_view_dashboard: boolean;
@@ -98,6 +98,24 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<AdminRole, SectionPermissions> = {
     can_view_ticket_analytics: true,
     can_view_knowledge_base: true,
     can_view_customers: true,
+    can_manage_users: false,
+    can_view_settings: false,
+    can_view_theme_settings: false,
+  },
+  delivery: {
+    can_view_dashboard: false,
+    can_view_orders: true,
+    can_view_active_carts: false,
+    can_view_saved_carts: false,
+    can_view_ab_results: false,
+    can_view_analytics: false,
+    can_view_payments: false,
+    can_view_shipping: true,
+    can_manage_shipping_types: false,
+    can_view_tickets: false,
+    can_view_ticket_analytics: false,
+    can_view_knowledge_base: false,
+    can_view_customers: false,
     can_manage_users: false,
     can_view_settings: false,
     can_view_theme_settings: false,

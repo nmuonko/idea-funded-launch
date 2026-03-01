@@ -1,6 +1,6 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Shield, DollarSign, Package, Headphones } from 'lucide-react';
+import { Shield, DollarSign, Package, Headphones, MapPin } from 'lucide-react';
 
 interface StaffRoleSelectorProps {
   value: string;
@@ -13,6 +13,7 @@ const ADMIN_ROLES = [
   { value: 'finance', label: 'Finance', icon: DollarSign, color: 'text-green-600' },
   { value: 'operations', label: 'Operations', icon: Package, color: 'text-blue-600' },
   { value: 'support', label: 'Support', icon: Headphones, color: 'text-orange-600' },
+  { value: 'delivery', label: 'Delivery', icon: MapPin, color: 'text-red-600' },
 ];
 
 export function StaffRoleSelector({ value, onChange, disabled }: StaffRoleSelectorProps) {

@@ -74,6 +74,17 @@ export default function AdminOrderDetail() {
     }
   };
 
+  const sendPushNotification = async (title: string, body: string) => {
+    if (!order?.user_id) return;
+    try {
+      await supabase.functions.invoke('send-push-notification', {
+        body: { userId: order.user_id, title, body },
+      });
+    } catch (e) {
+      console.error('Push notification failed:', e);
+    }
+  };
+
   const handleStatusUpdate = async (newStatus: string, sendEmail: boolean = false) => {
     try {
       setUpdating(true);
@@ -98,15 +109,28 @@ export default function AdminOrderDetail() {
         };
 
         let emailFunction = '';
+        let pushTitle = '';
+        let pushBody = '';
         switch (newStatus) {
           case 'PROCESSING':
             emailFunction = 'send-order-processing-email';
+            pushTitle = '🔄 Commande en cours';
+            pushBody = 'Votre commande est en cours de traitement.';
             break;
           case 'SHIPPED':
             emailFunction = 'send-order-shipped-email';
+            pushTitle = '🚚 Commande expédiée';
+            pushBody = 'Votre commande a été expédiée!';
+            break;
+          case 'READY_FOR_PICKUP':
+            emailFunction = 'send-order-ready-email';
+            pushTitle = '📦 Commande prête!';
+            pushBody = 'Votre commande est prête pour le ramassage.';
             break;
           case 'COMPLETED':
             emailFunction = 'send-order-delivered-email';
+            pushTitle = '✅ Commande livrée';
+            pushBody = 'Votre commande a été livrée avec succès.';
             await supabase.functions.invoke(emailFunction, {
               body: {
                 orderId: id,
@@ -120,6 +144,11 @@ export default function AdminOrderDetail() {
 
         if (emailFunction && newStatus !== 'COMPLETED') {
           await supabase.functions.invoke(emailFunction, { body: emailPayload });
+        }
+
+        // Send push notification
+        if (pushTitle) {
+          await sendPushNotification(pushTitle, pushBody);
         }
 
         toast({
@@ -479,6 +508,23 @@ export default function AdminOrderDetail() {
                   </Button>
                 )}
                 
+                {/* Mark as Ready for Pickup - show for SHIPPED */}
+                {(order.status === 'SHIPPED') && (
+                  <Button
+                    onClick={() => handleStatusUpdate('READY_FOR_PICKUP', true)}
+                    disabled={updating || sendingStatusEmail === 'READY_FOR_PICKUP'}
+                    size="sm"
+                    className="bg-amber-600 hover:bg-amber-700"
+                  >
+                    {sendingStatusEmail === 'READY_FOR_PICKUP' ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Package className="h-4 w-4 mr-2" />
+                    )}
+                    Ready for Pickup + Notify
+                  </Button>
+                )}
+
                 {/* Mark as Delivered - show for SHIPPED or READY_FOR_PICKUP */}
                 {(order.status === 'SHIPPED' || order.status === 'READY_FOR_PICKUP' || order.status === 'PROCESSING' || order.status === 'PAID') && (
                   <Button

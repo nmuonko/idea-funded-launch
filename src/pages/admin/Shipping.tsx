@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Package, Truck, CheckCircle, Download, Search, Mail, Calendar, DollarSign } from 'lucide-react';
+import { Loader2, Package, Truck, CheckCircle, Download, Search, Mail, Calendar, DollarSign, MapPin } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
 
@@ -63,6 +63,9 @@ export default function AdminShipping() {
         case 'transit':
           statusFilter = ['SHIPPED'];
           break;
+        case 'pickup':
+          statusFilter = ['READY_FOR_PICKUP'];
+          break;
         case 'delivered':
           statusFilter = ['COMPLETED'];
           break;
@@ -105,6 +108,34 @@ export default function AdminShipping() {
     setActualShippingCost(order.actual_shipping_cost_usd?.toString() || '');
   };
 
+  const sendPushForOrder = async (order: any, status: string) => {
+    if (!order.user_id) return;
+    let title = '', body = '';
+    switch (status) {
+      case 'SHIPPED':
+        title = '🚚 Commande expédiée';
+        body = 'Votre commande a été expédiée!';
+        break;
+      case 'READY_FOR_PICKUP':
+        title = '📦 Commande prête!';
+        body = 'Votre commande est prête pour le ramassage.';
+        break;
+      case 'COMPLETED':
+        title = '✅ Commande livrée';
+        body = 'Votre commande a été livrée avec succès.';
+        break;
+    }
+    if (title) {
+      try {
+        await supabase.functions.invoke('send-push-notification', {
+          body: { userId: order.user_id, title, body },
+        });
+      } catch (e) {
+        console.error('Push notification failed:', e);
+      }
+    }
+  };
+
   const sendShippingEmail = async (order: any, status: string, tracking?: string, carrierName?: string, estDelivery?: string) => {
     try {
       const customerEmail = order.profiles?.email;
@@ -130,6 +161,15 @@ export default function AdminShipping() {
             trackingNumber: tracking || null,
             carrier: carrierName || null,
             estimatedDelivery: estDelivery || null,
+            items,
+          },
+        });
+      } else if (status === 'READY_FOR_PICKUP') {
+        await supabase.functions.invoke('send-order-ready-email', {
+          body: {
+            customerEmail,
+            customerName,
+            orderId: order.id,
             items,
           },
         });
@@ -178,8 +218,9 @@ export default function AdminShipping() {
       if (error) throw error;
 
       // Send email notification if enabled
-      if (sendEmail && (newStatus === 'SHIPPED' || newStatus === 'COMPLETED')) {
+      if (sendEmail && (newStatus === 'SHIPPED' || newStatus === 'READY_FOR_PICKUP' || newStatus === 'COMPLETED')) {
         await sendShippingEmail(selectedOrder, newStatus, trackingNumber, carrier, estimatedDelivery);
+        await sendPushForOrder(selectedOrder, newStatus);
       }
 
       toast({
@@ -251,8 +292,9 @@ export default function AdminShipping() {
           successCount++;
           
           // Send email notification if enabled
-          if (bulkSendEmail && (bulkStatus === 'SHIPPED' || bulkStatus === 'COMPLETED')) {
+          if (bulkSendEmail && (bulkStatus === 'SHIPPED' || bulkStatus === 'READY_FOR_PICKUP' || bulkStatus === 'COMPLETED')) {
             await sendShippingEmail(order, bulkStatus);
+            await sendPushForOrder(order, bulkStatus);
             emailCount++;
           }
         }
@@ -337,6 +379,7 @@ export default function AdminShipping() {
       PAID: 'bg-green-600',
       PROCESSING: 'bg-blue-600',
       SHIPPED: 'bg-purple-600',
+      READY_FOR_PICKUP: 'bg-amber-600',
       COMPLETED: 'bg-green-700',
     };
     return <Badge className={colors[status] || 'bg-gray-600'}>{status}</Badge>;
@@ -421,7 +464,7 @@ export default function AdminShipping() {
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="ready" className="flex items-center gap-2">
                 <Package className="h-4 w-4" />
                 {t.shipping.readyToShip}
@@ -429,6 +472,10 @@ export default function AdminShipping() {
               <TabsTrigger value="transit" className="flex items-center gap-2">
                 <Truck className="h-4 w-4" />
                 {t.shipping.inTransit}
+              </TabsTrigger>
+              <TabsTrigger value="pickup" className="flex items-center gap-2">
+                <MapPin className="h-4 w-4" />
+                {language === 'fr' ? 'Ramassage' : 'Pickup'}
               </TabsTrigger>
               <TabsTrigger value="delivered" className="flex items-center gap-2">
                 <CheckCircle className="h-4 w-4" />
@@ -567,6 +614,7 @@ export default function AdminShipping() {
                   <SelectItem value="PAID">Ready to Ship</SelectItem>
                   <SelectItem value="PROCESSING">Processing</SelectItem>
                   <SelectItem value="SHIPPED">In Transit</SelectItem>
+                  <SelectItem value="READY_FOR_PICKUP">Ready for Pickup</SelectItem>
                   <SelectItem value="COMPLETED">Delivered</SelectItem>
                 </SelectContent>
               </Select>
@@ -635,7 +683,7 @@ export default function AdminShipping() {
               </div>
             )}
 
-            {(newStatus === 'SHIPPED' || newStatus === 'COMPLETED') && (
+            {(newStatus === 'SHIPPED' || newStatus === 'READY_FOR_PICKUP' || newStatus === 'COMPLETED') && (
               <div className="flex items-center space-x-2 pt-2 border-t">
                 <Checkbox
                   id="sendEmail"
@@ -644,7 +692,7 @@ export default function AdminShipping() {
                 />
                 <label htmlFor="sendEmail" className="text-sm flex items-center gap-2 cursor-pointer">
                   <Mail className="h-4 w-4" />
-                  Notify customer via email
+                  Notify customer via email &amp; push
                 </label>
               </div>
             )}
@@ -682,12 +730,13 @@ export default function AdminShipping() {
                 <SelectContent>
                   <SelectItem value="PROCESSING">Processing</SelectItem>
                   <SelectItem value="SHIPPED">In Transit (Shipped)</SelectItem>
+                  <SelectItem value="READY_FOR_PICKUP">Ready for Pickup</SelectItem>
                   <SelectItem value="COMPLETED">Delivered</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {(bulkStatus === 'SHIPPED' || bulkStatus === 'COMPLETED') && (
+            {(bulkStatus === 'SHIPPED' || bulkStatus === 'READY_FOR_PICKUP' || bulkStatus === 'COMPLETED') && (
               <div className="flex items-center space-x-2 pt-2 border-t">
                 <Checkbox
                   id="bulkSendEmail"
@@ -696,7 +745,7 @@ export default function AdminShipping() {
                 />
                 <label htmlFor="bulkSendEmail" className="text-sm flex items-center gap-2 cursor-pointer">
                   <Mail className="h-4 w-4" />
-                  Send email notifications to all customers
+                  Send email &amp; push notifications to all customers
                 </label>
               </div>
             )}

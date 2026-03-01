@@ -833,8 +833,6 @@ async function extractViaRainforestProduct(
 // Saves successful paste-link extractions to catalog_items permanently
 // so future users get instant, zero-credit responses.
 
-const CAR_STORES: StoreType[] = ['carvana', 'cargurus', 'tesla_used', 'edmunds'];
-
 async function saveToCatalogItems(
   supabase: any,
   store: StoreType,
@@ -844,8 +842,6 @@ async function saveToCatalogItems(
   imageUrl: string | null
 ): Promise<void> {
   try {
-    // Skip car dealerships — prices change too fast
-    if (CAR_STORES.includes(store)) return;
     // Skip if no price
     if (!price || price <= 0) return;
     // Extract product ID; skip if we can't identify the product

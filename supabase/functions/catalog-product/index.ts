@@ -406,6 +406,95 @@ async function scrapeProviderGalleryFromPage(provider: string, productUrl: strin
   }
 }
 
+/**
+ * Firecrawl fallback for generic provider gallery scraping when direct fetch is bot-blocked.
+ * Works for eBay, SHEIN, CarGurus, Carvana, etc.
+ */
+async function scrapeProviderGalleryFirecrawl(productUrl: string | null, provider: string): Promise<string[]> {
+  if (!productUrl) return [];
+  
+  const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY");
+  if (!firecrawlKey) {
+    console.warn(`[GALLERY_FIRECRAWL] no FIRECRAWL_API_KEY configured`);
+    return [];
+  }
+  
+  try {
+    const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${firecrawlKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url: productUrl,
+        formats: ["html"],
+        waitFor: 2000,
+      }),
+    });
+    
+    if (!res.ok) {
+      console.warn(`[GALLERY_FIRECRAWL] HTTP ${res.status} for ${provider} ${productUrl}`);
+      return [];
+    }
+    
+    const data = await res.json();
+    const html = data?.data?.html || data?.html || "";
+    if (!html) return [];
+    
+    const seen = new Set<string>();
+    const images: string[] = [];
+    
+    const push = (u: string) => {
+      const cleaned = sanitizeScrapedImage(u, provider);
+      if (!isLikelyRealImage(cleaned)) return;
+      if (seen.has(cleaned)) return;
+      seen.add(cleaned);
+      images.push(cleaned);
+    };
+    
+    // OpenGraph / Twitter images
+    for (const m of html.matchAll(/<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)["'][^>]*>/gi)) {
+      push(m[1]);
+    }
+    
+    // JSON-LD image blocks
+    for (const m of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+      try {
+        const parsed = JSON.parse(m[1]);
+        const stack = Array.isArray(parsed) ? parsed : [parsed];
+        for (const node of stack) {
+          const imgs = node?.image;
+          if (Array.isArray(imgs)) imgs.forEach((i: any) => typeof i === "string" ? push(i) : push(i?.url || i?.contentUrl || ""));
+          else if (typeof imgs === "string") push(imgs);
+        }
+      } catch { /* ignore */ }
+    }
+    
+    // eBay-specific: extract ebayimg URLs
+    if (provider === "ebay") {
+      for (const m of html.matchAll(/https:\/\/i\.ebayimg\.com\/images\/g\/[A-Za-z0-9_~-]+\/s-l\d+\.(?:jpg|png|webp)/gi)) {
+        const normalized = m[0].replace(/\/s-l\d+\./, "/s-l1600.");
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          images.push(normalized);
+        }
+      }
+    }
+    
+    // Generic image URL extraction
+    for (const m of html.matchAll(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp|avif)(?:\?[^\s"'<>]*)?/gi)) {
+      push(m[0]);
+    }
+    
+    console.log(`[GALLERY_FIRECRAWL] ${provider}: found ${images.length} images`);
+    return images.slice(0, 20);
+  } catch (e) {
+    console.warn(`[GALLERY_FIRECRAWL] error for ${provider}: ${e}`);
+    return [];
+  }
+}
+
 function isLikelyEbayId(id: string): boolean {
   return id.startsWith("v1|") || id.includes("|") || /^\d{12,}$/.test(id);
 }
@@ -924,8 +1013,8 @@ Deno.serve(async (req: Request) => {
         }
       }
       
-      // ========== eBay Gallery Enrichment: fetch full gallery if only 0-1 images ==========
-      if (dbItem.provider === "ebay" && (item.images?.length || 0) <= 1) {
+      // ========== eBay Gallery Enrichment: fetch full gallery if only 0-2 images ==========
+      if (dbItem.provider === "ebay" && (item.images?.length || 0) <= 2) {
         let enrichedImages: string[] = [];
         
         try {
@@ -944,6 +1033,14 @@ Deno.serve(async (req: Request) => {
             if (scrapedImages.length > (item.images?.length || 0)) {
               enrichedImages = upgradeGalleryImages(scrapedImages, "ebay");
               console.log(`[GALLERY_ENRICH] scrape success for ${productId}: ${enrichedImages.length} images`);
+            } else {
+              // Firecrawl fallback for eBay
+              console.log(`[GALLERY_ENRICH] eBay scrape got ${scrapedImages.length} images, trying Firecrawl for ${productId}...`);
+              const firecrawlImages = await scrapeProviderGalleryFirecrawl(item.productUrl || dbItem.product_url || `https://www.ebay.com/itm/${productId!.replace(/\D/g, "")}`, "ebay");
+              if (firecrawlImages.length > (item.images?.length || 0)) {
+                enrichedImages = upgradeGalleryImages(firecrawlImages, "ebay");
+                console.log(`[GALLERY_ENRICH] eBay Firecrawl success for ${productId}: ${enrichedImages.length} images`);
+              }
             }
           }
         } catch (e) {
@@ -953,6 +1050,12 @@ Deno.serve(async (req: Request) => {
             if (scrapedImages.length > (item.images?.length || 0)) {
               enrichedImages = upgradeGalleryImages(scrapedImages, "ebay");
               console.log(`[GALLERY_ENRICH] scrape fallback success for ${productId}: ${enrichedImages.length} images`);
+            } else {
+              // Firecrawl fallback
+              const firecrawlImages = await scrapeProviderGalleryFirecrawl(item.productUrl || dbItem.product_url || `https://www.ebay.com/itm/${productId!.replace(/\D/g, "")}`, "ebay");
+              if (firecrawlImages.length > (item.images?.length || 0)) {
+                enrichedImages = upgradeGalleryImages(firecrawlImages, "ebay");
+              }
             }
           } catch (scrapeErr) {
             console.warn(`[GALLERY_ENRICH] scrape also failed for ${productId}: ${scrapeErr}`);
@@ -994,8 +1097,8 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // ========== Amazon Gallery Enrichment: fetch full gallery if only 0-1 images ==========
-      if ((dbItem.provider === "rainforest" || dbItem.provider === "amazon") && (item.images?.length || 0) <= 1) {
+      // ========== Amazon Gallery Enrichment: fetch full gallery if only 0-2 images ==========
+      if ((dbItem.provider === "rainforest" || dbItem.provider === "amazon") && (item.images?.length || 0) <= 2) {
         let enrichedImages: string[] = [];
         const amazonAsin = dbItem.provider_product_id || productId!;
         
@@ -1063,8 +1166,19 @@ Deno.serve(async (req: Request) => {
       }
 
       // ========== DB-only providers Gallery Enrichment (SHEIN/CarGurus/Carvana) ==========
-      if ((dbItem.provider === "shein" || dbItem.provider === "cargurus" || dbItem.provider === "carvana") && (item.images?.length || 0) <= 1) {
-        const scraped = await scrapeProviderGalleryFromPage(dbItem.provider, item.productUrl || dbItem.product_url);
+      if ((dbItem.provider === "shein" || dbItem.provider === "cargurus" || dbItem.provider === "carvana") && (item.images?.length || 0) <= 2) {
+        let scraped = await scrapeProviderGalleryFromPage(dbItem.provider, item.productUrl || dbItem.product_url);
+        
+        // Firecrawl fallback if direct scrape returned 0 or fewer images than we already have
+        if (scraped.length <= (item.images?.length || 0)) {
+          console.log(`[GALLERY_ENRICH] ${dbItem.provider} direct scrape got ${scraped.length} images, trying Firecrawl...`);
+          const firecrawlImages = await scrapeProviderGalleryFirecrawl(item.productUrl || dbItem.product_url, dbItem.provider);
+          if (firecrawlImages.length > (item.images?.length || 0)) {
+            scraped = firecrawlImages;
+            console.log(`[GALLERY_ENRICH] ${dbItem.provider} Firecrawl success: ${scraped.length} images`);
+          }
+        }
+        
         if (scraped.length > (item.images?.length || 0)) {
           item.images = scraped;
           item.imageUrls = scraped;

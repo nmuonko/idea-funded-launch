@@ -37,15 +37,13 @@ Deno.serve(async (req: Request) => {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     // Run all count queries in parallel
-    const [activeRes, inactiveRes, deadRes, added24hRes, valueSampleRes] = await Promise.all([
+    const [activeRes, inactiveRes, deadRes, added24hRes, priceStatsRes] = await Promise.all([
       supabase.from("catalog_items").select("id").eq("is_active", true).count("exact").limit(0).execute(),
       supabase.from("catalog_items").select("id").eq("is_active", false).count("exact").limit(0).execute(),
       supabase.from("catalog_items").select("id").gte("fail_count", 3).count("exact").limit(0).execute(),
       supabase.from("catalog_items").select("id").eq("is_active", true).gte("first_seen_at", twentyFourHoursAgo).count("exact").limit(0).execute(),
-      // Get total value via RPC or sampling — sum price_usd for active items
-      // PostgREST doesn't support SUM directly, so we use a simple approach:
-      // fetch a count and average from a sample, or just report the count
-      supabase.from("catalog_items").select("price_usd").eq("is_active", true).not("price_usd", "is", null).gt("price_usd", 0).limit(1000).execute(),
+      // Use the same RPC the dashboard uses for exact SUM/AVG across all active items
+      supabase.rpc("get_catalog_price_stats").execute(),
     ]);
 
     const activeCount = activeRes.count ?? 0;
@@ -53,14 +51,10 @@ Deno.serve(async (req: Request) => {
     const deadCount = deadRes.count ?? 0;
     const added24hCount = added24hRes.count ?? 0;
 
-    // Estimate total value from sample
-    let totalValueEstimate = 0;
-    let avgPrice = 0;
-    if (valueSampleRes.data && Array.isArray(valueSampleRes.data) && valueSampleRes.data.length > 0) {
-      const prices = valueSampleRes.data.map((r: any) => r.price_usd).filter((p: number) => p > 0);
-      avgPrice = prices.reduce((a: number, b: number) => a + b, 0) / prices.length;
-      totalValueEstimate = avgPrice * activeCount;
-    }
+    // Exact total value and avg price from the database function
+    const statsRow = priceStatsRes.data?.[0] ?? { total_value: 0, avg_price: 0 };
+    const totalValue = Number(statsRow.total_value) || 0;
+    const avgPrice = Number(statsRow.avg_price) || 0;
 
     const totalCount = activeCount + inactiveCount;
     const reportDate = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
@@ -97,8 +91,8 @@ Deno.serve(async (req: Request) => {
             <td style="padding: 12px; border: 1px solid #dee2e6; text-align: right; font-size: 18px; color: #17a2b8;">${formatNum(added24hCount)}</td>
           </tr>
           <tr>
-            <td style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold;">💰 Est. Total Value</td>
-            <td style="padding: 12px; border: 1px solid #dee2e6; text-align: right; font-size: 18px; color: #6f42c1;">${formatUsd(totalValueEstimate)}</td>
+            <td style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold;">💰 Total Catalog Value</td>
+            <td style="padding: 12px; border: 1px solid #dee2e6; text-align: right; font-size: 18px; color: #6f42c1;">${formatUsd(totalValue)}</td>
           </tr>
           <tr style="background: #f8f9fa;">
             <td style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold;">📈 Avg. Price</td>
@@ -114,7 +108,7 @@ Deno.serve(async (req: Request) => {
 
     const emailResult = await sendEmail({
       to: ADMIN_EMAIL,
-      subject: `📊 Catalog Report: ${formatNum(activeCount)} active | ${formatNum(added24hCount)} added today | ${formatUsd(totalValueEstimate)} value`,
+      subject: `📊 Catalog Report: ${formatNum(activeCount)} active | ${formatNum(added24hCount)} added today | ${formatUsd(totalValue)} value`,
       html,
       category: "admin_notification",
     });
@@ -122,7 +116,7 @@ Deno.serve(async (req: Request) => {
     const result = {
       success: emailResult.success,
       emailId: emailResult.id,
-      metrics: { totalCount, activeCount, inactiveCount, deadCount, added24hCount, totalValueEstimate: Math.round(totalValueEstimate), avgPrice: Math.round(avgPrice) },
+      metrics: { totalCount, activeCount, inactiveCount, deadCount, added24hCount, totalValue: Math.round(totalValue), avgPrice: Math.round(avgPrice) },
       durationMs: Date.now() - startMs,
     };
 

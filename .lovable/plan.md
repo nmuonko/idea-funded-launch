@@ -1,53 +1,43 @@
 
-# Fix Mobile Search: Make Backend Return Rich Results for Vehicle Queries
+
+# Fix: Ensure Full Product Gallery for All Products
 
 ## Problem
-The mobile app (frozen build) calls `catalog-search` once and displays whatever comes back. Unlike the web frontend, it has no client-side query broadening (`expandQuery`) that generates similar queries like "GMC Yukon", "Yukon" when "SUV GMC Yukon" returns few results. This means vehicle searches often return 0 results on mobile.
+Some products on both web and mobile show only 1 image because:
+1. Search ingestion stores only `image_url` (single thumbnail) -- the `images` jsonb column stays `[]`
+2. The on-demand gallery enrichment in `catalog-product` tries to scrape Amazon/eBay/SHEIN pages but often fails due to bot detection (captcha, 403s)
+3. No `catalog_item_media` cached gallery exists for these items
 
-## Root Cause
-The backend's broadening logic (line 1178 in `catalog-search/index.ts`) only runs when `directQuery === true`, which requires either a digit or a known model token in the query. "SUV GMC Yukon" has neither, so it skips broadening entirely. The backend already has `generateBroadenedQueries` but it's gated behind this condition.
+Products that DO have galleries work fine (backend returns 10+ images). The gap is items ingested without gallery data where live scraping fails.
 
-## Fix: Extend Backend Broadening to Vehicle Queries
+## Solution: Two-Part Fix
 
-### Change 1: Widen broadening trigger in `catalog-search/index.ts`
-Currently (line 1178):
-```
-if (directQuery && totalAfterPrimary < BROADEN_THRESHOLD && !providerTimedOut)
-```
+### Part 1: Improve Gallery Scraping Success in `catalog-product/index.ts`
 
-Change to also trigger for vehicle-intent queries:
-```
-if ((directQuery || hasBuyingIntent || effectiveIntent.vehicleListingIntent) && totalAfterPrimary < BROADEN_THRESHOLD && !providerTimedOut)
-```
+**A. Add Firecrawl fallback for eBay gallery** (currently only Amazon has Firecrawl fallback):
+- When eBay direct scrape fails or returns 0 images, try Firecrawl as a fallback (same pattern as Amazon)
 
-This ensures "SUV GMC Yukon" (detected as vehicle intent) gets broadened to "GMC Yukon", "Yukon", etc. server-side.
+**B. Add Firecrawl fallback for SHEIN/CarGurus/Carvana galleries**:
+- Currently `scrapeProviderGalleryFromPage` does direct fetch which gets bot-blocked
+- Add Firecrawl as a fallback when direct scrape returns 0 images
 
-### Change 2: Add vehicle-aware broadening queries
-Enhance `generateBroadenedQueries` to also strip vehicle-type words like "SUV", "sedan", "truck", "coupe" etc., since these are category descriptors rather than product-identifying terms. This turns "SUV GMC Yukon" into "GMC Yukon" as the first broadened query.
+**C. Widen the enrichment trigger from `<= 1` to `<= 2` images**:
+- Some items have 2 images (main + a duplicate/variant) but deserve a full gallery
+- Change threshold from `(item.images?.length || 0) <= 1` to `<= 2` for all providers
 
-Add a new set of vehicle type words to strip:
-```
-const VEHICLE_TYPE_WORDS = new Set([
-  "suv","sedan","truck","pickup","coupe","convertible","minivan",
-  "van","hatchback","wagon","crossover","motorcycle","car","vehicle",
-]);
-```
+### Part 2: Pre-populate galleries during ingestion (scraper improvement)
 
-Add a step in `generateBroadenedQueries` that strips these words (similar to how qualifier words are stripped).
-
-### Change 3: Add "GMC" and "Yukon" to MODEL_TOKENS set
-Add common vehicle make names to the `MODEL_TOKENS` set so queries like "GMC Yukon" are recognized as direct queries and get the fast path + broadening treatment:
-```
-"gmc","yukon","tahoe","silverado","sierra","suburban","ford","f150",
-"mustang","bronco","explorer","expedition","ram","wrangler","jeep",
-"grand cherokee","4runner","tundra","camry","corolla","civic","accord",
-"escalade","navigator","ranger","tacoma","highlander","rav4","crv"
-```
-
-### What stays the same
-- The web frontend broadening continues to work as before
-- All existing backend logic (DB-first, cache, provider mixing, intent scoring) unchanged
-- The `categoryPageSize: 100` change from earlier is preserved
+**D. Update the search ingestion in `catalog-search/index.ts`**:
+- When ingesting Amazon results from Rainforest API, extract ALL images from the `images` array in the API response (not just the first one)
+- Store them in the `images` jsonb column during upsert
+- This ensures new products enter the DB with full galleries from day one
 
 ### Files to edit
-- `supabase/functions/catalog-search/index.ts` -- Widen broadening trigger, add vehicle makes to MODEL_TOKENS, add vehicle-type stripping to `generateBroadenedQueries`
+- `supabase/functions/catalog-product/index.ts` -- Add Firecrawl fallbacks for eBay/SHEIN, widen enrichment threshold
+- `supabase/functions/catalog-search/index.ts` -- Extract and store full image arrays during ingestion
+
+### What stays the same
+- Web frontend gallery rendering (already works when images are available)
+- Mobile app behavior (reads `images` array from API response)
+- Existing gallery enrichment for Amazon (already has Firecrawl fallback)
+- Image upgrade/optimization logic

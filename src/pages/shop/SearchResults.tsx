@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Loader2, X, RefreshCw, AlertCircle } from 'lucide-react';
+import { useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { Loader2, X, RefreshCw, AlertCircle, Link2, ArrowRight } from 'lucide-react';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { CategoryTabs } from '@/components/shop/CategoryTabs';
@@ -750,15 +750,29 @@ export default function SearchResults() {
                 </>
               ) : (
                 <>
-                  <p className="text-white/60 mb-4">{shop.noProductsFound || 'No products found'} "{query}"</p>
-                  <Button
-                    onClick={() => navigate('/')}
-                    variant="outline"
-                    className="border-white/20 text-white hover:bg-white/10"
+                  <p className="text-white/60 mb-6">{shop.noProductsFound || 'No products found'} "{query}"</p>
+                  <Link
+                    to="/paste-link"
+                    className="group relative inline-flex items-center gap-3 overflow-hidden rounded-xl border border-primary/40 bg-gradient-to-r from-primary/25 via-primary/15 to-transparent px-6 py-4 transition-all hover:border-primary/60 hover:shadow-[0_0_25px_-5px_hsl(var(--primary)/0.4)]"
                   >
-                    <X className="h-4 w-4 mr-2" />
-                    {shop.clearSearch || 'Clear Search'}
-                  </Button>
+                    <Link2 className="h-5 w-5 text-primary" />
+                    <span className="text-white font-semibold">
+                      {language === 'fr'
+                        ? "Collez un lien pour le commander"
+                        : "Paste a link to order it"}
+                    </span>
+                    <ArrowRight className="h-4 w-4 text-primary group-hover:translate-x-1 transition-transform" />
+                  </Link>
+                  <div className="mt-4">
+                    <Button
+                      onClick={() => navigate('/')}
+                      variant="outline"
+                      className="border-white/20 text-white hover:bg-white/10"
+                    >
+                      <X className="h-4 w-4 mr-2" />
+                      {shop.clearSearch || 'Clear Search'}
+                    </Button>
+                  </div>
                 </>
               )}
             </div>

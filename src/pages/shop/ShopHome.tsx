@@ -1116,16 +1116,6 @@ export default function ShopHome() {
           ) : (
             <div className="space-y-6">
 
-              {/* 2) Trending Grid — 16 diverse luxury items */}
-              {filterByProvider(trendingFeed).length > 0 && (
-                <SectionBlock
-                  title={language === 'fr' ? 'Tendances' : 'Trending Now'}
-                  items={filterByProvider(trendingFeed)}
-                  mode="static-grid"
-                  seeAllLink="/category/all"
-                />
-              )}
-
               {/* Paste-Link CTA Banner */}
               <Link
                 to="/paste-link"
@@ -1151,6 +1141,16 @@ export default function ShopHome() {
                   <ArrowRight className="h-5 w-5 text-primary flex-shrink-0 group-hover:translate-x-1 transition-transform" />
                 </div>
               </Link>
+
+              {/* 2) Trending Grid — 16 diverse luxury items */}
+              {filterByProvider(trendingFeed).length > 0 && (
+                <SectionBlock
+                  title={language === 'fr' ? 'Tendances' : 'Trending Now'}
+                  items={filterByProvider(trendingFeed)}
+                  mode="static-grid"
+                  seeAllLink="/category/all"
+                />
+              )}
 
               {/* 3) Promo Tiles — top 4 categories */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

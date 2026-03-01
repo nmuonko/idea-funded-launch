@@ -10,15 +10,18 @@ interface ProductGridProps {
   loading?: boolean;
   skeletonCount?: number;
   className?: string;
+  dense?: boolean;
 }
 
-export function ProductGrid({ products, loading, skeletonCount = 8, className }: ProductGridProps) {
+const defaultCols = "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8";
+const denseCols = "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6";
+
+export function ProductGrid({ products, loading, skeletonCount = 8, className, dense }: ProductGridProps) {
+  const cols = dense ? denseCols : defaultCols;
+
   if (loading) {
     return (
-      <div className={cn(
-        "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2",
-        className
-      )}>
+      <div className={cn("grid gap-2", cols, className)}>
         {Array.from({ length: skeletonCount }).map((_, i) => (
           <ProductCardSkeleton key={i} compact />
         ))}
@@ -35,10 +38,7 @@ export function ProductGrid({ products, loading, skeletonCount = 8, className }:
   }
 
   return (
-    <div className={cn(
-      "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2",
-      className
-    )}>
+    <div className={cn("grid gap-2", cols, className)}>
       {products.map((product) => (
         <div
           key={`${product.provider}-${product.id}`}

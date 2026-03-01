@@ -307,7 +307,7 @@ async function getStripePromise(forceReload = false): Promise<Stripe | null> {
                   </Button>
                 )}
                 <Button
-                  onClick={() => navigate('/shop/cart')}
+                  onClick={() => navigate('/cart')}
                   className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full"
                 >
                   Back to Cart

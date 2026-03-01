@@ -129,11 +129,6 @@ Deno.serve(async (req) => {
           JSON.stringify({ success: false, error: `Unknown provider: ${provider}` }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
-        console.error('[payments-webhook] Unknown provider:', provider);
-        return new Response(
-          JSON.stringify({ success: false, error: `Unknown provider: ${provider}` }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
     }
   } catch (error: any) {
     console.error('[payments-webhook] Error:', error);
@@ -413,20 +408,32 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       console.log('[payments-webhook/stripe] Payment updated:', payment.id, internalStatus);
     }
 
-    // Update order status on success
+    // Update order status on success (with idempotency guard)
     if (internalStatus === 'succeeded' && payment.order_id) {
-      const { error: orderError } = await supabase
+      // Check current order status before updating
+      const { data: currentOrder } = await supabase
         .from('orders')
-        .update({ 
-          status: 'PAID',
-          payment_verified_at: new Date().toISOString(),
-        })
-        .eq('id', payment.order_id);
+        .select('status')
+        .eq('id', payment.order_id)
+        .single();
 
-      if (orderError) {
-        console.error('[payments-webhook/stripe] Failed to update order:', orderError);
+      const terminalStatuses = ['PAID', 'COMPLETED', 'SHIPPED'];
+      if (currentOrder && terminalStatuses.includes(currentOrder.status)) {
+        console.log('[payments-webhook/stripe] Order already in terminal state, idempotent skip:', payment.order_id, currentOrder.status);
       } else {
-        console.log('[payments-webhook/stripe] Order marked as PAID:', payment.order_id);
+        const { error: orderError } = await supabase
+          .from('orders')
+          .update({ 
+            status: 'PAID',
+            payment_verified_at: new Date().toISOString(),
+          })
+          .eq('id', payment.order_id);
+
+        if (orderError) {
+          console.error('[payments-webhook/stripe] Failed to update order:', orderError);
+        } else {
+          console.log('[payments-webhook/stripe] Order marked as PAID:', payment.order_id);
+        }
       }
       
       // Clear original cart items
@@ -525,16 +532,28 @@ async function handlePawaPay(req: Request, supabase: any): Promise<Response> {
   });
 
   if (updated && result.status === 'succeeded') {
-    // Update order status
-    await supabase
+    // Idempotency guard: check current order status before updating
+    const { data: currentOrder } = await supabase
       .from('orders')
-      .update({ 
-        status: 'PAID',
-        payment_verified_at: new Date().toISOString(),
-      })
-      .eq('id', payment.order_id);
+      .select('status')
+      .eq('id', payment.order_id)
+      .single();
 
-    console.log('[payments-webhook/pawapay] Order marked as PAID:', payment.order_id);
+    const terminalStatuses = ['PAID', 'COMPLETED', 'SHIPPED'];
+    if (currentOrder && terminalStatuses.includes(currentOrder.status)) {
+      console.log('[payments-webhook/pawapay] Order already in terminal state, idempotent skip:', payment.order_id, currentOrder.status);
+    } else {
+      // Update order status
+      await supabase
+        .from('orders')
+        .update({ 
+          status: 'PAID',
+          payment_verified_at: new Date().toISOString(),
+        })
+        .eq('id', payment.order_id);
+
+      console.log('[payments-webhook/pawapay] Order marked as PAID:', payment.order_id);
+    }
     
     // Clear original cart items
     const { data: checkoutSession } = await supabase

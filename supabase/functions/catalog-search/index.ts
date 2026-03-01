@@ -55,8 +55,8 @@ import {
 } from "../_shared/searchResponseBuilder.ts";
 import type { SearchTimings } from "../_shared/searchResponseBuilder.ts";
 
-const DEFAULT_LIMIT = 100;   // Default page size
-const MAX_LIMIT = 100;       // Max page size (eBay hard limit = 100)
+const DEFAULT_LIMIT = 200;   // Default page size
+const MAX_LIMIT = 200;       // Max page size
 const SESSION_LIMIT = 500;   // Max items per search session (5 pages × 100)
 const MAX_PAGES = 5;         // Maximum number of pages per search session
 
@@ -832,7 +832,7 @@ Deno.serve(async (req: Request) => {
             // Always apply intent scoring to filter irrelevant items
             // Use DB-anchored tokens (canonical query) to avoid over-strict drops from AI suffixes.
             const dbQueryTokens = dbQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
-            const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, limit);
+            const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, Math.max(limit, 400));
             dbItems = dbScoreResult.items as any[];
             console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_scored: before=${dbResult.items.length} after=${dbItems.length} dropped=${dbScoreResult.dropped}`);
             if (dbItems.length === 0) {
@@ -861,7 +861,7 @@ Deno.serve(async (req: Request) => {
     // ─── DB-SUFFICIENT FAST PATH ──────────────────────────────────────────────
     // If DB returned >= 50 items on page 0, skip live providers entirely for sub-second response.
     // Fire a background cache refresh to keep data fresh.
-    const DB_SUFFICIENT_THRESHOLD = 20;
+    const DB_SUFFICIENT_THRESHOLD = 50;
     if (dbFallbackItems && dbFallbackItems.length >= DB_SUFFICIENT_THRESHOLD) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH: ${dbFallbackItems.length} items >= ${DB_SUFFICIENT_THRESHOLD} threshold — skipping providers`);
 

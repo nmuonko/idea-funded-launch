@@ -249,7 +249,7 @@ async function tierBFuzzySearch(
       p_query: qNorm,
       p_min_price: 0,
       p_max_price: null,
-      p_limit: Math.min(limit, 200),
+      p_limit: Math.min(limit, 400),
     });
 
     if (error) {

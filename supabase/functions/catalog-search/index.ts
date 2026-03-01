@@ -1195,7 +1195,7 @@ Deno.serve(async (req: Request) => {
     const BROADEN_THRESHOLD = 30;
     const BROADEN_TARGET = 80;
     const totalAfterPrimary = amazonItems.length + ebayItems.length;
-    if ((directQuery || hasBuyingIntent || effectiveIntent.vehicleListingIntent) && totalAfterPrimary < BROADEN_THRESHOLD && !providerTimedOut) {
+    if (totalAfterPrimary < BROADEN_THRESHOLD && !providerTimedOut) {
       const broadenBudgetMs = isFirstPage ? 3000 : 4000;
       const broadenDeadline = startTime + (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS);
       const broadenedQueries = generateBroadenedQueries(providerQuery);

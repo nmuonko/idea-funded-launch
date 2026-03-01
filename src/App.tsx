@@ -57,6 +57,7 @@ const AutoLearning = lazy(() => import("./pages/admin/AutoLearning"));
 const AdminReferrals = lazy(() => import("./pages/admin/Referrals"));
 const PaymentsSettings = lazy(() => import("./pages/admin/PaymentsSettings"));
 const ServiceZones = lazy(() => import("./pages/admin/ServiceZones"));
+const AdminDelivery = lazy(() => import("./pages/admin/Delivery"));
 
 // Lazy-loaded secondary pages
 const Cars = lazy(() => import("./pages/Cars"));
@@ -307,6 +308,11 @@ const App = () => {
               <Route path="shipping" element={
                 <AdminRouteGuard requiredPermission="can_view_shipping">
                   <AdminShipping />
+                </AdminRouteGuard>
+              } />
+              <Route path="delivery" element={
+                <AdminRouteGuard requiredPermission="can_view_shipping">
+                  <AdminDelivery />
                 </AdminRouteGuard>
               } />
               <Route path="shipping-types" element={

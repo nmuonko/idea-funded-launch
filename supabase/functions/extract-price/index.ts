@@ -1396,49 +1396,8 @@ Deno.serve(async (req) => {
         } as PriceResolveResponse);
       }
 
-      // Fallback to Rainforest API if Firecrawl failed
-      const rainforest = await extractViaRainforestProduct(formattedUrl, 8000);
-      if (rainforest?.price) {
-        const now = new Date().toISOString();
-        const resolvedCurrencyCode = rainforest.currencyCode || 'USD';
-        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
-
-        await setCachedPrice(supabase, normalizedUrl, {
-          store,
-          basePrice: rainforest.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: rainforest.title,
-          imageUrl: rainforest.imageUrl,
-        });
-        saveToHotCache(supabase, normalizedUrl, store, {
-          basePrice: rainforest.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          store,
-          title: rainforest.title,
-          imageUrl: rainforest.imageUrl,
-          lastFetchedAt: now,
-        }).catch(() => {});
-
-        // Persist to catalog (fire-and-forget)
-        saveToCatalogItems(supabase, store, formattedUrl, rainforest.price, rainforest.title, rainforest.imageUrl).catch(() => {});
-
-        logData = { ...logData, cacheHit: false, method: 'amazon_rainforest_fallback', priceFound: true, duration: Date.now() - startTime };
-        console.log(JSON.stringify(logData));
-
-        return jsonSuccess({
-          url: normalizedUrl,
-          store,
-          basePrice: rainforest.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: rainforest.title,
-          imageUrl: rainforest.imageUrl,
-          cacheHit: false,
-          lastFetchedAt: now,
-        } as PriceResolveResponse);
-      }
+      // Rainforest fallback removed — credits reserved for catalog ingestion
+      // Firecrawl is the sole extraction method for paste-link
 
       // Last resort: mirror scraping
       const mirror = await extractViaMirror(formattedUrl, store, 4000);

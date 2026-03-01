@@ -14,11 +14,11 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { expandQuery, relevanceScore } from '@/lib/expandQuery';
 
-const PAGE_SIZE = 100;
-const HARD_MAX_ITEMS = 500;
+const PAGE_SIZE = 200;
+const HARD_MAX_ITEMS = 1000;
 const MAX_PAGES = Math.ceil(HARD_MAX_ITEMS / PAGE_SIZE); // 5
-const BROADEN_THRESHOLD = 30; // Only broaden if truly sparse results (DB now returns 200+ cached items)
-const BROADEN_TARGET = 300; // Stop broadening when we reach this (increased from 200)
+const BROADEN_THRESHOLD = 30;
+const BROADEN_TARGET = 500;
 
 /** Generate a unique key per product for deduplication — provider-aware */
 function productKey(p: Product): string {
@@ -563,7 +563,7 @@ export default function SearchResults() {
         if (!entry.isIntersecting) return;
         handleLoadMore();
       },
-      { rootMargin: '800px' }
+      { rootMargin: '1200px' }
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
@@ -706,7 +706,7 @@ export default function SearchResults() {
 
 
           {/* Products */}
-          <ProductGrid products={products} loading={loading} skeletonCount={16} />
+          <ProductGrid products={products} loading={loading} skeletonCount={24} dense />
 
           {/* Infinite scroll sentinel */}
           <div ref={sentinelRef} style={{ height: 1 }} />

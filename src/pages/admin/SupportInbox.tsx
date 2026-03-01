@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,7 @@ import {
   Search,
   ChevronLeft,
   Circle,
+  UserCog,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -33,6 +34,13 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface Message {
   id: string;
@@ -57,7 +65,72 @@ interface Conversation {
   has_unread?: boolean;
 }
 
+interface RoutingAgent {
+  id: string;
+  admin_user_id: string;
+  admin_name: string | null;
+  admin_email: string | null;
+  is_available: boolean;
+  chats_assigned_count: number;
+  priority_order: number;
+}
+
 type TabValue = 'active' | 'closed';
+
+// Helper: get the next available agent from routing config (round-robin by lowest count)
+async function getNextAvailableAgent(): Promise<RoutingAgent | null> {
+  const { data, error } = await supabase
+    .from('chat_routing_config')
+    .select('*')
+    .eq('is_available', true)
+    .order('chats_assigned_count', { ascending: true })
+    .order('priority_order', { ascending: true })
+    .limit(1);
+
+  if (error || !data || data.length === 0) return null;
+  return data[0] as RoutingAgent;
+}
+
+// Helper: auto-assign a conversation to an agent
+async function autoAssignConversation(conversationId: string): Promise<{ agentName: string } | null> {
+  const agent = await getNextAvailableAgent();
+  if (!agent) return null;
+
+  // Assign the conversation
+  const { error: updateError } = await supabase
+    .from('support_conversations')
+    .update({
+      status: 'assigned',
+      assigned_agent_id: agent.admin_user_id,
+    })
+    .eq('id', conversationId)
+    .eq('status', 'waiting_agent'); // Only assign if still waiting
+
+  if (updateError) {
+    console.error('Auto-assign failed:', updateError);
+    return null;
+  }
+
+  // Increment agent's chat count
+  await supabase
+    .from('chat_routing_config')
+    .update({
+      chats_assigned_count: agent.chats_assigned_count + 1,
+      last_assigned_at: new Date().toISOString(),
+    })
+    .eq('id', agent.id);
+
+  // Send system message
+  const agentLabel = agent.admin_name || agent.admin_email || 'an agent';
+  await supabase.from('support_messages').insert({
+    conversation_id: conversationId,
+    sender_type: 'system',
+    content: `Conversation automatically assigned to ${agentLabel}`,
+    meta: { agent_name: agentLabel },
+  });
+
+  return { agentName: agentLabel };
+}
 
 export default function SupportInbox() {
   const { user } = useAuth();
@@ -73,6 +146,9 @@ export default function SupportInbox() {
   const [activeTab, setActiveTab] = useState<TabValue>('active');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSidebar, setShowSidebar] = useState(true);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [routingAgents, setRoutingAgents] = useState<RoutingAgent[]>([]);
+  const [reassigning, setReassigning] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -83,22 +159,45 @@ export default function SupportInbox() {
     scrollToBottom();
   }, [messages]);
 
-  // Get current user's name
+  // Check if current user is super admin + get agent name
   useEffect(() => {
-    const fetchAgentName = async () => {
+    const fetchUserInfo = async () => {
       if (!user) return;
-      const { data } = await supabase
-        .from('profiles')
-        .select('full_name, email')
-        .eq('user_id', user.id)
-        .single();
-      setCurrentAgentName(data?.full_name || data?.email || 'Agent');
+      
+      const [profileRes, roleRes] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('full_name, email')
+          .eq('user_id', user.id)
+          .single(),
+        supabase
+          .from('user_roles')
+          .select('admin_role')
+          .eq('user_id', user.id)
+          .eq('role', 'admin')
+          .single(),
+      ]);
+
+      setCurrentAgentName(profileRes.data?.full_name || profileRes.data?.email || 'Agent');
+      setIsSuperAdmin(roleRes.data?.admin_role === 'super_admin');
     };
-    fetchAgentName();
+    fetchUserInfo();
   }, [user]);
 
-  // Load conversations with batch profile loading
-  const loadConversations = async (tab: TabValue = activeTab) => {
+  // Load routing agents for reassign dropdown
+  useEffect(() => {
+    const loadRoutingAgents = async () => {
+      const { data } = await supabase
+        .from('chat_routing_config')
+        .select('*')
+        .order('priority_order', { ascending: true });
+      setRoutingAgents((data || []) as RoutingAgent[]);
+    };
+    loadRoutingAgents();
+  }, []);
+
+  // Load conversations with batch profile loading + agent-based filtering
+  const loadConversations = useCallback(async (tab: TabValue = activeTab) => {
     try {
       setLoading(true);
       const statuses = tab === 'active' 
@@ -113,7 +212,15 @@ export default function SupportInbox() {
 
       if (error) throw error;
 
-      const convs = data || [];
+      let convs = data || [];
+
+      // Agent-based filtering: non-super-admins only see their own + unclaimed
+      if (!isSuperAdmin && user) {
+        convs = convs.filter(c => 
+          c.assigned_agent_id === user.id || c.status === 'waiting_agent'
+        );
+      }
+
       if (convs.length === 0) {
         setConversations([]);
         setLoading(false);
@@ -166,13 +273,26 @@ export default function SupportInbox() {
         } as Conversation;
       });
 
+      // Auto-assign any waiting_agent conversations
+      if (tab === 'active') {
+        for (const conv of enriched) {
+          if (conv.status === 'waiting_agent') {
+            const result = await autoAssignConversation(conv.id);
+            if (result) {
+              conv.status = 'assigned';
+              conv.agent_name = result.agentName;
+            }
+          }
+        }
+      }
+
       setConversations(enriched);
     } catch (error) {
       console.error('Error loading conversations:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, isSuperAdmin, user]);
 
   useEffect(() => {
     loadConversations(activeTab);
@@ -187,7 +307,7 @@ export default function SupportInbox() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [activeTab]);
+  }, [activeTab, loadConversations]);
 
   // Load messages for selected conversation
   useEffect(() => {
@@ -242,13 +362,45 @@ export default function SupportInbox() {
     }
   };
 
+  const reassignConversation = async (agentId: string) => {
+    if (!selectedConv) return;
+    setReassigning(true);
+    try {
+      const agent = routingAgents.find(a => a.admin_user_id === agentId);
+      const agentLabel = agent?.admin_name || agent?.admin_email || 'Agent';
+
+      const { error } = await supabase
+        .from('support_conversations')
+        .update({ status: 'assigned', assigned_agent_id: agentId })
+        .eq('id', selectedConv.id);
+      if (error) throw error;
+
+      // Send system message about reassignment
+      await supabase.from('support_messages').insert({
+        conversation_id: selectedConv.id,
+        sender_type: 'system',
+        content: `Conversation reassigned to ${agentLabel}`,
+        meta: { agent_name: currentAgentName },
+      });
+
+      setSelectedConv({ ...selectedConv, status: 'assigned', assigned_agent_id: agentId, agent_name: agentLabel });
+      toast({ title: `Reassigned to ${agentLabel}` });
+      loadConversations();
+    } catch (error) {
+      console.error('Error reassigning:', error);
+      toast({ title: 'Error', description: 'Failed to reassign', variant: 'destructive' });
+    } finally {
+      setReassigning(false);
+    }
+  };
+
   const sendMessage = async () => {
     if (!selectedConv || !inputValue.trim() || !user) return;
     if (selectedConv.status === 'waiting_agent') {
       toast({ title: 'Claim first', description: 'Please claim this conversation before replying', variant: 'destructive' });
       return;
     }
-    if (selectedConv.assigned_agent_id !== user.id) {
+    if (selectedConv.assigned_agent_id !== user.id && !isSuperAdmin) {
       toast({ title: 'Not assigned', description: 'This conversation is assigned to another agent', variant: 'destructive' });
       return;
     }
@@ -314,7 +466,6 @@ export default function SupportInbox() {
 
   const handleSelectConv = (conv: Conversation) => {
     setSelectedConv(conv);
-    // On mobile, hide sidebar when selecting
     if (window.innerWidth < 768) {
       setShowSidebar(false);
     }
@@ -331,7 +482,8 @@ export default function SupportInbox() {
   const isClosed = selectedConv?.status === 'closed';
   const isMyConversation = selectedConv?.assigned_agent_id === user?.id;
   const canClaim = selectedConv?.status === 'waiting_agent';
-  const canReply = selectedConv?.status === 'assigned' && isMyConversation;
+  const canReply = (selectedConv?.status === 'assigned' && isMyConversation) || (selectedConv?.status === 'assigned' && isSuperAdmin);
+  const canClose = isMyConversation || isSuperAdmin;
 
   const waitingCount = conversations.filter(c => c.status === 'waiting_agent').length;
 
@@ -474,13 +626,51 @@ export default function SupportInbox() {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {getStatusBadge(selectedConv.status, selectedConv.agent_name)}
+                
+                {/* Reassign dropdown - super admin only */}
+                {isSuperAdmin && selectedConv.status !== 'closed' && routingAgents.length > 0 && (
+                  <Select
+                    value=""
+                    onValueChange={(agentId) => reassignConversation(agentId)}
+                    disabled={reassigning}
+                  >
+                    <SelectTrigger className="w-auto h-8 text-xs gap-1">
+                      {reassigning ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <UserCog className="h-3 w-3" />
+                      )}
+                      <span className="hidden sm:inline">Reassign</span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {routingAgents.map(agent => (
+                        <SelectItem 
+                          key={agent.admin_user_id} 
+                          value={agent.admin_user_id}
+                          disabled={agent.admin_user_id === selectedConv.assigned_agent_id}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span>{agent.admin_name || agent.admin_email || 'Agent'}</span>
+                            {!agent.is_available && (
+                              <Badge variant="outline" className="text-[10px] px-1 py-0">Offline</Badge>
+                            )}
+                            <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                              {agent.chats_assigned_count} chats
+                            </Badge>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+
                 {canClaim && (
                   <Button variant="default" size="sm" onClick={claimConversation} disabled={claiming}>
                     {claiming ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Hand className="mr-1 h-4 w-4" />}
                     Claim
                   </Button>
                 )}
-                {isMyConversation && (
+                {canClose && !isClosed && (
                   <Button variant="outline" size="sm" onClick={closeConversation}>
                     <XCircle className="mr-1 h-4 w-4" />
                     Close

@@ -90,6 +90,25 @@ const SupportContactSettings = () => {
         return;
       }
 
+      // Also sync to bank_transfer_settings so mobile app stays in sync
+      const { data: bankSettings } = await supabase
+        .from("bank_transfer_settings")
+        .select("id")
+        .eq("is_active", true)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (bankSettings?.id) {
+        await supabase
+          .from("bank_transfer_settings")
+          .update({
+            support_whatsapp: values.support_whatsapp,
+            support_email: values.support_email,
+          })
+          .eq("id", bankSettings.id);
+      }
+
       toast.success(language === 'fr' ? "Contact support sauvegardé" : "Support contact saved successfully");
     } catch (err) {
       console.error("Error:", err);

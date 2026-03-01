@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
-import { Link2, Clipboard, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
+import { Link2, Clipboard, Loader2, AlertCircle, ArrowLeft, Sparkles, Globe, Truck } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -54,8 +55,6 @@ export default function PasteLink() {
   const handleSubmit = async () => {
     const trimmed = url.trim();
     if (!trimmed) return;
-
-    // Basic URL validation
     try {
       new URL(trimmed);
     } catch {
@@ -72,20 +71,17 @@ export default function PasteLink() {
       const { data, error: fnError } = await supabase.functions.invoke('extract-price', {
         body: { url: trimmed },
       });
-
       if (fnError) throw fnError;
 
       const priceUsd = data?.basePrice ?? data?.price ?? data?.priceUsd ?? null;
       const title = data?.title || extractDomain(trimmed);
       const imageUrl = data?.image || data?.imageUrl || null;
       const store = extractDomain(trimmed);
-
       const vehicleResult = detectVehicle(trimmed, title);
 
       if (priceUsd && priceUsd > 0) {
         setResult({ title, priceUsd, imageUrl, store, vehicleResult });
       } else {
-        // No price found — offer manual input
         setShowManualPrice(true);
         setResult({ title, priceUsd: 0, imageUrl, store, vehicleResult });
       }
@@ -93,11 +89,10 @@ export default function PasteLink() {
       console.error('[PasteLink] extraction failed:', err);
       setError(
         isFr
-          ? 'Impossible d\'extraire le prix. Essayez un autre lien ou entrez le prix manuellement.'
+          ? "Impossible d'extraire le prix. Essayez un autre lien ou entrez le prix manuellement."
           : 'Could not extract price. Try another link or enter the price manually.'
       );
       setShowManualPrice(true);
-      // Still detect vehicle from URL alone
       const store = extractDomain(trimmed);
       const vehicleResult = detectVehicle(trimmed);
       setResult({ title: store, priceUsd: 0, imageUrl: null, store, vehicleResult });
@@ -116,116 +111,207 @@ export default function PasteLink() {
     }
   };
 
+  const steps = isFr
+    ? [
+        { icon: Globe, text: 'Trouvez un produit sur n\'importe quel site' },
+        { icon: Clipboard, text: 'Copiez le lien du produit' },
+        { icon: Truck, text: 'On calcule le prix livré en RDC' },
+      ]
+    : [
+        { icon: Globe, text: 'Find a product on any website' },
+        { icon: Clipboard, text: 'Copy the product link' },
+        { icon: Truck, text: 'We calculate the price delivered to DRC' },
+      ];
+
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-[#0f1115] pb-24">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-lg border-b border-border/50">
-        <div className="flex items-center gap-3 px-4 py-3">
-          <Link to="/" className="text-muted-foreground hover:text-foreground">
+      <header className="sticky top-0 z-40 bg-[#0f1115]/95 backdrop-blur-xl border-b border-white/[0.06]">
+        <div className="flex items-center gap-3 px-4 py-3 max-w-2xl mx-auto">
+          <Link to="/" className="text-white/50 hover:text-white transition-colors">
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div className="flex items-center gap-2">
-            <Link2 className="h-5 w-5 text-primary" />
-            <h1 className="text-lg font-semibold text-foreground">
+            <div className="w-7 h-7 rounded-lg bg-primary/20 flex items-center justify-center">
+              <Link2 className="h-4 w-4 text-primary" />
+            </div>
+            <h1 className="text-base font-semibold text-white">
               {isFr ? 'Coller un lien' : 'Paste a Link'}
             </h1>
           </div>
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto px-4 py-6">
-        {/* Description */}
-        <p className="text-sm text-muted-foreground mb-6">
-          {isFr
-            ? 'Collez le lien d\'un produit de n\'importe quel magasin en ligne. On calcule le prix total avec livraison en RDC.'
-            : 'Paste a product link from any online store. We\'ll calculate the total price with delivery to DRC.'}
-        </p>
+      <main className="max-w-2xl mx-auto px-4">
+        {/* Hero Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="relative mt-6 mb-8"
+        >
+          {/* Glow */}
+          <div className="absolute -top-20 left-1/2 -translate-x-1/2 w-80 h-40 bg-primary/8 rounded-full blur-3xl pointer-events-none" />
 
-        {/* URL Input */}
-        <div className="flex gap-2 mb-4">
-          <div className="relative flex-1">
-            <Input
-              ref={inputRef}
-              value={url}
-              onChange={(e) => {
-                setUrl(e.target.value);
-                setError(null);
-                setResult(null);
-              }}
-              placeholder={isFr ? 'Collez le lien du produit ici...' : 'Paste product link here...'}
-              className="pr-10 bg-secondary/50 border-border/50 h-12 text-sm"
-            />
-            <button
-              onClick={handlePaste}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-muted-foreground hover:text-foreground transition-colors"
-              title={isFr ? 'Coller' : 'Paste'}
-            >
-              <Clipboard className="h-4 w-4" />
-            </button>
+          <div className="relative text-center">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-4">
+              <Sparkles className="h-3 w-3" />
+              {isFr ? 'Achetez depuis n\'importe quel site' : 'Shop from any website'}
+            </div>
+
+            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2 tracking-tight">
+              {isFr ? 'Un lien. Un prix.' : 'One link. One price.'}
+            </h2>
+            <p className="text-sm text-white/50 max-w-md mx-auto">
+              {isFr
+                ? 'Collez le lien d\'un produit de n\'importe quel magasin en ligne et recevez instantanément le prix total avec livraison en RDC.'
+                : 'Paste any product link from any online store and instantly get the total price with delivery to DRC.'}
+            </p>
           </div>
-          <Button
-            onClick={handleSubmit}
-            disabled={loading || !url.trim()}
-            className="h-12 px-6 bg-primary hover:bg-primary/90"
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              isFr ? 'Calculer' : 'Get Price'
-            )}
-          </Button>
-        </div>
+
+          {/* Steps */}
+          <div className="flex items-center justify-center gap-2 sm:gap-4 mt-6">
+            {steps.map((step, i) => (
+              <div key={i} className="flex items-center gap-2 sm:gap-3">
+                <div className="flex flex-col items-center gap-1.5">
+                  <div className="w-9 h-9 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
+                    <step.icon className="h-4 w-4 text-primary" />
+                  </div>
+                  <span className="text-[10px] sm:text-xs text-white/40 text-center leading-tight max-w-[80px] sm:max-w-[100px]">
+                    {step.text}
+                  </span>
+                </div>
+                {i < steps.length - 1 && (
+                  <div className="w-6 sm:w-10 h-px bg-white/10 mt-[-18px]" />
+                )}
+              </div>
+            ))}
+          </div>
+        </motion.div>
+
+        {/* Input Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.15 }}
+          className="relative rounded-2xl border border-white/[0.08] bg-[#1a1d23] p-4 sm:p-5 mb-6 shadow-xl shadow-black/20"
+        >
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Input
+                ref={inputRef}
+                value={url}
+                onChange={(e) => {
+                  setUrl(e.target.value);
+                  setError(null);
+                  setResult(null);
+                }}
+                placeholder={isFr ? 'https://www.amazon.com/dp/...' : 'https://www.amazon.com/dp/...'}
+                className="pr-10 bg-white/[0.04] border-white/[0.08] h-12 text-sm text-white placeholder:text-white/25 focus:border-primary/50 focus:ring-primary/20"
+              />
+              <button
+                onClick={handlePaste}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-white/30 hover:text-primary hover:bg-primary/10 transition-all"
+                title={isFr ? 'Coller' : 'Paste'}
+              >
+                <Clipboard className="h-4 w-4" />
+              </button>
+            </div>
+            <Button
+              onClick={handleSubmit}
+              disabled={loading || !url.trim()}
+              className="h-12 px-6 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-lg shadow-primary/20 disabled:opacity-40"
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                isFr ? 'Calculer' : 'Get Price'
+              )}
+            </Button>
+          </div>
+
+          {/* Loading state with animation */}
+          {loading && (
+            <div className="mt-4 flex items-center gap-3 p-3 rounded-xl bg-primary/5 border border-primary/10">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <p className="text-xs text-white/50">
+                {isFr ? 'Extraction du prix en cours...' : 'Extracting price...'}
+              </p>
+            </div>
+          )}
+        </motion.div>
 
         {/* Error */}
         {error && (
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-destructive/10 border border-destructive/20 mb-4">
-            <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
-            <p className="text-sm text-destructive">{error}</p>
-          </div>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20 mb-5"
+          >
+            <AlertCircle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-red-300">{error}</p>
+          </motion.div>
         )}
 
         {/* Manual price input */}
         {showManualPrice && (
-          <div className="p-4 rounded-xl border border-border/50 bg-card mb-4 animate-in fade-in">
-            <p className="text-sm text-muted-foreground mb-3">
-              {isFr
-                ? 'Entrez le prix du produit en USD :'
-                : 'Enter the product price in USD:'}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-4 rounded-xl border border-white/[0.08] bg-[#1a1d23] mb-5"
+          >
+            <p className="text-sm text-white/50 mb-3">
+              {isFr ? 'Entrez le prix du produit en USD :' : 'Enter the product price in USD:'}
             </p>
             <div className="flex gap-2">
               <div className="relative flex-1">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 font-medium">$</span>
                 <Input
                   type="number"
                   value={manualPrice}
                   onChange={(e) => setManualPrice(e.target.value)}
                   placeholder="0.00"
-                  className="pl-7 bg-secondary/50 border-border/50"
+                  className="pl-7 bg-white/[0.04] border-white/[0.08] text-white placeholder:text-white/20"
                   min="0"
                   step="0.01"
                 />
               </div>
-              <Button onClick={handleManualPriceSubmit} disabled={!manualPrice || parseFloat(manualPrice) <= 0}>
+              <Button
+                onClick={handleManualPriceSubmit}
+                disabled={!manualPrice || parseFloat(manualPrice) <= 0}
+                className="bg-primary hover:bg-primary/90"
+              >
                 {isFr ? 'Valider' : 'Apply'}
               </Button>
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* Result breakdown */}
         {result && result.priceUsd > 0 && (
-          <PasteBreakdownCard
-            productTitle={result.title}
-            productImageUrl={result.imageUrl}
-            basePriceUsd={result.priceUsd}
-            productUrl={url.trim()}
-            store={result.store}
-            vehicleResult={result.vehicleResult}
-          />
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <PasteBreakdownCard
+              productTitle={result.title}
+              productImageUrl={result.imageUrl}
+              basePriceUsd={result.priceUsd}
+              productUrl={url.trim()}
+              store={result.store}
+              vehicleResult={result.vehicleResult}
+            />
+          </motion.div>
         )}
 
         {/* Supported stores */}
-        <SupportedStoresGrid />
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3, duration: 0.5 }}
+        >
+          <SupportedStoresGrid />
+        </motion.div>
       </main>
 
       <BottomNavigation />

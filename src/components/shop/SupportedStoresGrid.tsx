@@ -31,9 +31,9 @@ function StorePill({ store }: { store: StoreInfo }) {
       href={store.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group flex flex-col items-center gap-2 py-2.5 px-1 rounded-xl hover:bg-white/[0.04] transition-colors"
+      className="group flex flex-col items-center gap-1.5 py-2 px-0.5 rounded-xl hover:bg-white/[0.04] transition-colors min-w-0"
     >
-      <div className={`w-full max-w-[96px] h-12 rounded-xl bg-white ring-2 ${store.color} flex items-center justify-center overflow-hidden shadow-md shadow-black/20 group-hover:scale-[1.03] transition-transform px-2`}>
+      <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-white ring-2 ${store.color} flex items-center justify-center overflow-hidden shadow-md shadow-black/20 group-hover:scale-[1.03] transition-transform p-2 flex-shrink-0`}>
         <img
           src={store.logo}
           alt={`${store.name} logo`}
@@ -43,16 +43,16 @@ function StorePill({ store }: { store: StoreInfo }) {
             (e.target as HTMLImageElement).style.display = 'none';
             const parent = (e.target as HTMLImageElement).parentElement;
             if (parent) {
-              parent.innerHTML = `<span class=\"text-sm font-bold text-gray-700\">${store.name}</span>`;
+              parent.innerHTML = `<span class="text-[10px] font-bold text-gray-700 leading-tight text-center">${store.name}</span>`;
             }
           }}
         />
       </div>
-      <div className="flex items-center gap-1">
-        <span className="text-xs text-white/70 group-hover:text-white transition-colors font-medium">
+      <div className="flex items-center gap-0.5 min-w-0 max-w-full">
+        <span className="text-[10px] sm:text-xs text-white/70 group-hover:text-white transition-colors font-medium truncate">
           {store.name}
         </span>
-        <ExternalLink className="h-2.5 w-2.5 text-white/25 group-hover:text-white/60 transition-colors" />
+        <ExternalLink className="h-2.5 w-2.5 text-white/25 group-hover:text-white/60 transition-colors flex-shrink-0" />
       </div>
     </a>
   );
@@ -76,7 +76,7 @@ export function SupportedStoresGrid() {
             ? 'Parcourez, trouvez un produit, puis collez le lien ci-dessus'
             : 'Browse, find a product, then paste the link above'}
         </p>
-        <div className="grid grid-cols-4 sm:grid-cols-4 gap-1">
+        <div className="grid grid-cols-4 gap-2">
           {stores.map((store) => (
             <StorePill key={store.name} store={store} />
           ))}
@@ -99,7 +99,7 @@ export function SupportedStoresGrid() {
             ? 'Collez un lien véhicule pour demander un devis personnalisé'
             : 'Paste a vehicle link to request a custom quote'}
         </p>
-        <div className="grid grid-cols-3 gap-1">
+        <div className="grid grid-cols-3 gap-2">
           {vehicleStores.map((store) => (
             <StorePill key={store.name} store={store} />
           ))}

@@ -519,7 +519,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
   const catalogDefaults: CatalogDefaults = {
     homeMinPerSection: 12, // If DB has fewer, top-up from eBay live
     homePageSize: 20,
-    categoryPageSize: 20,
+    categoryPageSize: 100,
   };
 
   // Build env info from environment

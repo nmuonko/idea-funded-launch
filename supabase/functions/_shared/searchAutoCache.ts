@@ -16,6 +16,8 @@ export interface AutoCacheItem {
   title: string;
   imageUrl?: string;
   image_url?: string;
+  images?: string[];
+  imageUrls?: string[];
   productUrl?: string;
   product_url?: string;
   priceUsd?: number;
@@ -74,13 +76,17 @@ export async function autoCacheLiveResults(
   const now = new Date().toISOString();
   const records = validItems.map(item => {
     const providerProductId = item.providerProductId || item.provider_product_id || item.id || "";
+    // Collect full images array if available
+    const imagesArray = item.images || item.imageUrls || [];
+    const mainImage = item.imageUrl || item.image_url;
     return {
       // Do NOT set `id` — let DB keep existing PK or auto-generate.
       // Upsert matches on (provider, provider_product_id) unique constraint.
       provider: item.provider,
       provider_product_id: providerProductId,
       title: item.title,
-      image_url: item.imageUrl || item.image_url,
+      image_url: mainImage,
+      images: imagesArray.length > 0 ? imagesArray : (mainImage ? [mainImage] : []),
       product_url: item.productUrl || item.product_url || "",
       price_usd: item.priceUsd || item.price_usd,
       currency: item.currency || "USD",

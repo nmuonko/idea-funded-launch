@@ -86,7 +86,7 @@ export function PasteBreakdownCard({
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-muted-foreground">
-            {isFr ? 'Frais de service' : 'Service Fee'} ({markupPercent}%)
+            {isFr ? 'Frais de service' : 'Service Fee'}
           </span>
           <span className="text-foreground">${markupFee.toFixed(2)}</span>
         </div>

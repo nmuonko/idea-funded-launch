@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.catalog-car-scraper]
 verify_jwt = false
+
+[functions.catalog-amazon-ingest-worker]
+verify_jwt = false

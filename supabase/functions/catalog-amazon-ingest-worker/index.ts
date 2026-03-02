@@ -344,6 +344,7 @@ async function incrementDualBudget(supabase: any, settings: any, requestId: stri
 
 async function processQueueItem(
   supabase: any,
+  liveClient: any,
   item: { id: number; query: string; category_key: string | null; attempts: number },
   settings: any,
   requestId: string
@@ -508,7 +509,7 @@ Deno.serve(async (req: Request) => {
     console.log(`[AMAZON_INGEST] Processing ${queueItems.length} queue items`);
 
     for (const item of queueItems) {
-      const result = await processQueueItem(supabase, item, settings, requestId);
+      const result = await processQueueItem(supabase, liveClient, item, settings, requestId);
       if (!result.success && result.itemsIngested === 0) {
         // Budget denied — stop processing
         const gate = await checkDualBudget(supabase, settings, requestId);

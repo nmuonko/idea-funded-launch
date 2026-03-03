@@ -6,6 +6,18 @@
  * Never blocks the response.
  */
 
+/**
+ * Sanitize Amazon product URLs — convert sspa/click redirects to clean /dp/ASIN format
+ */
+function sanitizeAmazonUrl(provider: string, productId: string, url: string): string {
+  if ((provider === 'rainforest' || provider === 'amazon') && productId) {
+    if (!url || url.includes('/sspa/click')) {
+      return `https://www.amazon.com/dp/${productId}`;
+    }
+  }
+  return url;
+}
+
 type SupabaseClientAny = any;
 
 export interface AutoCacheItem {
@@ -87,7 +99,7 @@ export async function autoCacheLiveResults(
       title: item.title,
       image_url: mainImage,
       images: imagesArray.length > 0 ? imagesArray : (mainImage ? [mainImage] : []),
-      product_url: item.productUrl || item.product_url || "",
+      product_url: sanitizeAmazonUrl(item.provider, providerProductId, item.productUrl || item.product_url || ""),
       price_usd: item.priceUsd || item.price_usd,
       currency: item.currency || "USD",
       unified_category: categoryKey || item.category || null,

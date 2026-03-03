@@ -914,6 +914,24 @@ function extractImages(product: RainforestProduct): string[] {
 }
 
 /**
+ * Build a clean, permanent Amazon product URL from ASIN.
+ * Amazon sspa/click URLs are sponsored tracking redirects that expire
+ * and redirect to the homepage. Always prefer /dp/ASIN format.
+ */
+function buildCleanAmazonUrl(asin: string, amazonDomain: string, rawLink?: string): string {
+  if (rawLink && !rawLink.includes('/sspa/click') && rawLink.includes('/dp/')) {
+    try {
+      const url = new URL(rawLink);
+      const dpMatch = url.pathname.match(/^(.*\/dp\/[A-Z0-9]+)/i);
+      if (dpMatch) {
+        return `https://www.${amazonDomain}${dpMatch[1]}`;
+      }
+    } catch { /* fall through */ }
+  }
+  return `https://www.${amazonDomain}/dp/${asin}`;
+}
+
+/**
  * Normalize Rainforest product to our catalog format
  * CRITICAL: priceUsd is null (not 0) when price is unavailable
  */
@@ -957,8 +975,9 @@ function normalizeProduct(
   const bestMainImage = selectBestMainImage(product as unknown as Record<string, unknown>, images);
   const imageUrl = bestMainImage || images[0] || undefined;
 
-  // Build product URL
-  const productUrl = product.link || `https://www.${amazonDomain}/dp/${product.asin}`;
+  // Build product URL - always use clean /dp/ASIN format
+  // Amazon sspa/click URLs are sponsored redirects that expire and redirect to homepage
+  const productUrl = buildCleanAmazonUrl(product.asin, amazonDomain, product.link);
 
   // Extract category path
   const categoryPath = product.categories?.map(c => c.name) || [];

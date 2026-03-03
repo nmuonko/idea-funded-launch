@@ -944,6 +944,7 @@ export default function AdminOrders() {
                 <TableHead>Order ID</TableHead>
                 <TableHead>Customer Name</TableHead>
                 <TableHead>Customer Email</TableHead>
+                <TableHead>Phone</TableHead>
                 <TableHead>City</TableHead>
                 <TableHead>Items</TableHead>
                 <TableHead>Total (USD)</TableHead>
@@ -962,16 +963,19 @@ export default function AdminOrders() {
                       onCheckedChange={() => toggleSelectOrder(order.id)}
                     />
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-xs whitespace-nowrap">
                     {formatOrderId(order.id, order.profiles?.name || order.profiles?.full_name)}
                   </TableCell>
                   <TableCell>
-                    <div className="font-medium">{order.profiles?.name || order.profiles?.full_name || 'N/A'}</div>
+                    <div className="font-medium whitespace-nowrap">{order.profiles?.name || order.profiles?.full_name || 'N/A'}</div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm text-muted-foreground">{order.profiles?.email || 'N/A'}</div>
+                    <div className="text-sm text-muted-foreground whitespace-nowrap">{order.profiles?.email || 'N/A'}</div>
                   </TableCell>
-                  <TableCell>{order.shipping_city || 'N/A'}</TableCell>
+                  <TableCell>
+                    <div className="text-sm whitespace-nowrap">{order.profiles?.phone || 'N/A'}</div>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">{order.shipping_city || 'N/A'}</TableCell>
                   <TableCell>
                     {(() => {
                       const items = order.order_items || [];
@@ -1025,10 +1029,10 @@ export default function AdminOrders() {
                       );
                     })()}
                   </TableCell>
-                  <TableCell className="font-semibold">${Number(order.total_usd || 0).toFixed(2)}</TableCell>
-                  <TableCell>{getPaymentBadge(order)}</TableCell>
-                  <TableCell>{getStatusBadge(order.status)}</TableCell>
-                  <TableCell>{new Date(order.created_at).toLocaleDateString()}</TableCell>
+                  <TableCell className="font-semibold whitespace-nowrap">${Number(order.total_usd || 0).toFixed(2)}</TableCell>
+                  <TableCell className="whitespace-nowrap">{getPaymentBadge(order)}</TableCell>
+                  <TableCell className="whitespace-nowrap">{getStatusBadge(order.status)}</TableCell>
+                  <TableCell className="whitespace-nowrap">{new Date(order.created_at).toLocaleDateString()}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <Button

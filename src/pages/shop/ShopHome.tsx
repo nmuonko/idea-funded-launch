@@ -1384,10 +1384,10 @@ export default function ShopHome() {
                       {language === 'fr'
                         ? "Achetez depuis nos magasins américains"
                         : "Shop from our American stores"}
-                      <span className="inline-flex items-center gap-1 text-xs font-semibold bg-white/10 border border-white/20 rounded-full px-2.5 py-0.5 text-white/80">
-                        <span>🇺🇸</span>
-                        <span>→</span>
-                        <span>🇨🇩</span>
+                      <span className="inline-flex items-center gap-1.5 text-sm font-semibold bg-white/10 border border-white/20 rounded-full px-3 py-1 text-white/90">
+                        <span className="text-base">🇺🇸</span>
+                        <span className="text-xs">✈️</span>
+                        <span className="text-base">🇨🇩</span>
                       </span>
                     </p>
                     <p className="text-sm text-white/60 mt-0.5">

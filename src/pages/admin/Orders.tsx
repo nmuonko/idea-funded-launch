@@ -1034,13 +1034,13 @@ export default function AdminOrders() {
                   <TableCell className="whitespace-nowrap">{getStatusBadge(order.status)}</TableCell>
                   <TableCell className="whitespace-nowrap">{new Date(order.created_at).toLocaleDateString()}</TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 whitespace-nowrap">
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => openOrderDetails(order.id)}
                       >
-                        <Eye className="h-4 w-4 mr-2" />
+                        <Eye className="h-4 w-4 mr-1" />
                         Details
                       </Button>
                       <Button
@@ -1049,8 +1049,8 @@ export default function AdminOrders() {
                         onClick={() => handlePrintLabel(order)}
                         className="bg-purple-600 hover:bg-purple-700"
                       >
-                        <Printer className="h-4 w-4 mr-2" />
-                        Print Label
+                        <Printer className="h-4 w-4 mr-1" />
+                        Print
                       </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>

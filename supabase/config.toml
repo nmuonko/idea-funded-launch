@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.catalog-amazon-ingest-worker]
 verify_jwt = false
+
+[functions.send-cart-reminder-emails]
+verify_jwt = false

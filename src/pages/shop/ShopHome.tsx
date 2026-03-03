@@ -1394,17 +1394,20 @@ export default function ShopHome() {
                   {/* Big Store Logos */}
                   <div className="hidden sm:flex items-center gap-6 flex-shrink-0 mr-2">
                     <img
-                      src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg"
+                      src="/images/logos/amazon.svg"
                       alt="Amazon"
-                      className="h-8 opacity-70 group-hover:opacity-100 transition-opacity brightness-0 invert"
+                      className="h-8 opacity-80 group-hover:opacity-100 transition-opacity"
                     />
-                    <span className="text-white/70 group-hover:text-white font-bold text-xl tracking-wide transition-colors" style={{ fontFamily: "'Arial Black', 'Helvetica Neue', sans-serif" }}>
-                      SHEIN
-                    </span>
                     <img
-                      src="https://upload.wikimedia.org/wikipedia/commons/e/e8/Tesla_logo.png"
+                      src="/images/logos/shein.svg"
+                      alt="SHEIN"
+                      className="h-6 opacity-80 group-hover:opacity-100 transition-opacity brightness-0 invert"
+                    />
+                    <img
+                      src="/images/logos/tesla.png"
                       alt="Tesla"
-                      className="h-7 opacity-70 group-hover:opacity-100 transition-opacity brightness-0 invert"
+                      className="h-7 opacity-80 group-hover:opacity-100 transition-opacity"
+                      style={{ filter: 'brightness(0) saturate(100%) invert(22%) sepia(94%) saturate(6143%) hue-rotate(356deg) brightness(97%) contrast(97%)' }}
                     />
                   </div>
                   <ArrowRight className="h-5 w-5 text-primary flex-shrink-0 group-hover:translate-x-1 transition-transform" />

@@ -1,65 +1,62 @@
 
 
-# Diagnosis: Amazon Links Redirect to Homepage
+# Fix Plan: Store Filter Speed, Image Quality, and Cart Duplicates
 
-## The Root Cause -- It Is NOT Your Data
+## Issue 1: Slow Store Filtering on Home Page
 
-I thoroughly audited the database and code:
+**Root cause:** When you select a store on the Home page, `ShopHome.tsx` triggers a full database query (lines 371-462) fetching up to 1000+ rows from `catalog_items` with pagination. This takes several seconds.
 
-- **All 13,820** Amazon/Rainforest items have valid 10-character ASINs
-- **All 13,820** product URLs are in the correct `https://www.amazon.com/dp/{ASIN}` format
-- **Zero** `sspa/click` URLs remain in the database
-- The `getAdminProductLink` helper in admin Catalog Cache is generating correct URLs
+**Fix:** Cache store-filtered results in `useState` keyed by provider. Once a store's products are fetched, switching back to it will be instant (no re-fetch). Also add `useMemo`-based client-side filtering of already-loaded category products for immediate results while the DB fetch completes in the background.
 
-**The problem is Amazon-side.** When you click `https://www.amazon.com/dp/B0BN95KZB6`, Amazon itself redirects you to the homepage because:
-1. The product has been **delisted or is out of stock** on Amazon (Renewed items frequently get pulled)
-2. Amazon **geo-blocks** certain products based on your location (you are likely accessing from DR Congo or Africa)
-3. Amazon's **bot detection** sometimes redirects non-US traffic to homepage
+**File:** `src/pages/shop/ShopHome.tsx`
+- Add a `storeProductsCache` ref (`useRef<Record<string, Product[]>>`) to cache results per provider
+- On filter change, check cache first. If cached, display instantly. Still fetch in background to update silently.
+- Show cached data immediately, no loading spinner for repeat selections
 
-When I fetched the same URL from a US-based server, it loaded the actual product page correctly. This confirms it is a regional/availability issue, not a URL format problem.
+## Issue 2: Blurry/Late Images on Product Details
 
----
+**Root cause:** `ProductDetails.tsx` (line 680) uses `resizeImageUrl(url, IMAGE_SIZE_HERO)` where `IMAGE_SIZE_HERO = 800`. For stores like SHEIN, Temu, Walmart etc., the `resizeImageUrl` function in `imageResize.ts` only handles Amazon and eBay URL patterns. For other stores, it returns the URL unchanged — but these URLs may already point to low-res thumbnails (e.g., 200px versions). The product card initially passes a thumbnail URL via navigation state (line 191: `images: nav.imageUrl ? [nav.imageUrl]`), and the full gallery only loads after the API fetch completes.
 
-## Proposed Fix: Dual-Link Strategy
+**Fix:** 
+- In `ProductDetails.tsx`, when the product data arrives from the API, prioritize full-res images immediately instead of keeping the nav thumbnail as fallback during the transition
+- Add `fetchPriority="high"` and remove the fade-in animation delay for the hero image so it appears faster
+- Preload the hero image URL as soon as API data arrives (already partially done but can be improved)
 
-Since we cannot control Amazon's redirect behavior, the plan is to give admin two link options and make the customer-facing experience more resilient:
+**File:** `src/pages/shop/ProductDetails.tsx`
+- When API data arrives with images, immediately replace the hero image (don't wait for animation)
+- Set `loading="eager"` (already set) and ensure no unnecessary re-renders delay image display
 
-### 1. Add Amazon Search Fallback Link in Admin UI
-In the Catalog Cache table, add a second link icon that opens an Amazon **search** URL instead of a direct product link. Search URLs always work regardless of region:
+## Issue 3: Duplicate Cart Items (BUG)
 
+**Root cause:** In `ShopCartContext.tsx`, `addItem` (line 472-516):
+1. Creates a local optimistic item with `id: local_xxx` and `productUrl` set to the canonical URL
+2. Calls `mobile-add-cart-item` on the server
+3. Calls `syncCart()` which fetches items from the server
+
+In `syncCart` (line 412-418), it merges server items with remaining local optimistic items. The dedup uses `canonicalItemKey` which compares URLs after stripping protocol. **But the server may return a different URL format** (e.g., with query params, different path structure) than what `buildServerProductUrl` generated locally. When the keys don't match, both the local item AND the server item appear — creating a duplicate.
+
+**Fix:** After `mobile-add-cart-item` succeeds, remove the local optimistic item before calling `syncCart`, so the server's version is the single source of truth. This eliminates the possibility of key mismatch duplication.
+
+**File:** `src/contexts/ShopCartContext.tsx`
+- In `addItem`, after the server call succeeds, remove the local optimistic item from state before calling `syncCart()`
+- Alternative approach: in `syncCart`, when server items arrive, unconditionally replace ALL local_ items (not just matching ones). If a local item doesn't match any server item, it's either still being processed or failed — either way, the next sync will reconcile.
+
+### Implementation detail:
+```typescript
+// In addItem, after successful server call:
+setItems(prev => prev.filter(i => i.id !== newItem.id));
+syncCart();
 ```
-https://www.amazon.com/s?k=Apple+iPhone+14+Pro+Max+1TB+Space+Black
-```
 
-This guarantees you always land on a results page showing the product (or similar ones), never a blank homepage.
-
-### 2. Detect and Flag Likely-Dead Amazon Products
-Add a visual indicator (small warning badge) on items where the ASIN might correspond to a discontinued product. This would use the existing `fail_count` and `last_checked_at` data -- items not verified recently or with high fail counts are likely delisted on Amazon.
-
-### 3. Customer-Facing Product Page
-On the customer-facing `ViewSourceLink` component, use the search URL fallback instead of direct `/dp/` links, so customers always see relevant results even if the exact ASIN is delisted.
+This ensures the local placeholder is always cleared before the server sync fills in the real item.
 
 ---
 
-## Changes
+## Summary of Changes
 
-### File: `src/pages/admin/CatalogCache.tsx`
-- Update `getAdminProductLink` to return an object with both `directUrl` and `searchUrl`
-- Add a second small search icon link next to the existing external link
-- The direct link stays as-is (`/dp/ASIN`), but a search fallback link is added
-
-### File: `src/components/shop/ViewSourceLink.tsx`
-- For Amazon/Rainforest products, use search-based URL as the primary link format
-- Format: `https://www.amazon.com/s?k={encoded product title}`
-
-### No database changes needed
-The data is correct. This is purely a frontend link-generation improvement.
-
----
-
-## Why This Works
-- Amazon **never** redirects search URLs to homepage -- they always show results
-- The product title is already stored, so generating search URLs is trivial
-- Admin still has the direct `/dp/` link for when it works (US VPN, etc.)
-- Customers always land on a useful Amazon page
+| File | Change |
+|------|--------|
+| `src/pages/shop/ShopHome.tsx` | Cache store-filtered products per provider for instant re-display |
+| `src/pages/shop/ProductDetails.tsx` | Improve image transition to reduce perceived blurriness |
+| `src/contexts/ShopCartContext.tsx` | Fix duplicate by clearing local optimistic item before sync |
 

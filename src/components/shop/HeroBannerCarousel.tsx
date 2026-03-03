@@ -73,7 +73,7 @@ const SLIDES: Slide[] = [
     ctaFr: 'Voir les casques',
     ctaEn: 'See headphones',
     ctaLink: '/category/audio',
-    gradient: 'from-amber-950/95 via-yellow-900/70 to-transparent',
+    gradient: 'from-black/80 via-black/50 to-transparent',
     image: boseHeadphones,
   },
   {
@@ -84,7 +84,7 @@ const SLIDES: Slide[] = [
     ctaFr: 'Voir la sélection',
     ctaEn: 'See selection',
     ctaLink: '/category/accessories',
-    gradient: 'from-slate-950/95 via-blue-950/70 to-transparent',
+    gradient: 'from-black/80 via-black/50 to-transparent',
     image: heroSmarthome,
   },
 ];

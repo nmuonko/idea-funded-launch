@@ -406,16 +406,10 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         persistDeletedIds();
         const serverFiltered = mappedItems.filter(item => !deletedItemIdsRef.current.has(item.id));
 
-        // CRITICAL: Preserve optimistic local_ items not yet confirmed by server
-        const serverKeys = new Set(serverFiltered.map(canonicalItemKey));
-
-        setItems(current => {
-          const localOptimistic = (current ?? [])
-            .filter(it => isLocalId(it.id))
-            .filter(it => !serverKeys.has(canonicalItemKey(it)));
-
-          console.log('[CART] sync merge: server=', serverFiltered.length, 'localOptimistic=', localOptimistic.length, 'pendingDeletes=', deletedItemIdsRef.current.size);
-          return [...serverFiltered, ...localOptimistic];
+        // CRITICAL: Server is sole source of truth — drop ALL local_ items unconditionally
+        setItems(() => {
+          console.log('[CART] sync: server=', serverFiltered.length, 'pendingDeletes=', deletedItemIdsRef.current.size, '(all local_ items dropped)');
+          return serverFiltered;
         });
         
         // Update vehicle flags from summary
@@ -508,8 +502,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
             productImageUrl: item.imageUrl,
           },
         });
-        // CRITICAL: Remove the local optimistic item BEFORE syncing so server version is sole source of truth
-        setItems(prev => prev.filter(i => i.id !== newItem.id));
+        // syncCart will drop all local_ items — no need to manually filter here
       } catch (error) {
         console.error('[CART] Failed to add item to server:', error);
       }

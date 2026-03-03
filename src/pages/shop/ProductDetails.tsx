@@ -315,20 +315,10 @@ export default function ProductDetailsPage() {
           };
         });
 
-        // Auto-select best quality image ONCE, never override user navigation
+        // Force image index to 0 (best API image) when gallery arrives, unless user interacted
         const finalImages: string[] = item.images || item.imageUrls || [];
-        if (finalImages.length > 1) {
-          const bestIdx = finalImages.reduce((best: number, url: string, i: number) =>
-            imageQualityScore(url) > imageQualityScore(finalImages[best]) ? i : best, 0);
-          setCurrentImageIndex(prev => {
-            if (userInteractedRef.current) return prev;
-            if (didAutoSelectRef.current) return prev;
-            const currentUrl = finalImages[prev] || finalImages[0] || '';
-            if (imageQualityScore(currentUrl) < 0 && bestIdx !== prev) {
-              return bestIdx;
-            }
-            return prev;
-          });
+        if (finalImages.length > 0 && !userInteractedRef.current) {
+          setCurrentImageIndex(0);
           didAutoSelectRef.current = true;
         }
 

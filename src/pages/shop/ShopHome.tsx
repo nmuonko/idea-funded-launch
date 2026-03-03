@@ -367,6 +367,9 @@ export default function ShopHome() {
   const [storeProductsLoading, setStoreProductsLoading] = useState(false);
   const [storeTotalCount, setStoreTotalCount] = useState(0);
 
+  // Cache store-filtered results per provider for instant re-display
+  const storeProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
+
   // Fetch all products for a specific store from the DB
   useEffect(() => {
     let cancelled = false;
@@ -377,12 +380,22 @@ export default function ShopHome() {
       return;
     }
 
+    // Instant display from cache if available
+    const cached = storeProductsCacheRef.current[providerFilter];
+    if (cached) {
+      setStoreProducts(cached.products);
+      setStoreTotalCount(cached.count);
+      // Don't show loading spinner for cached results
+    }
+
     const providerKeys =
       providerFilter === 'amazon'
         ? ['rainforest', 'amazon']
         : [providerFilter];
 
-    setStoreProductsLoading(true);
+    // Only show loading if no cache
+    if (!cached) setStoreProductsLoading(true);
+
     (async () => {
       try {
         const pageSize = 1000;
@@ -446,11 +459,16 @@ export default function ShopHome() {
         if (cancelled) return;
         setStoreProducts(mapped);
         setStoreTotalCount(totalCount || mapped.length);
+        // Cache the results for instant re-display
+        storeProductsCacheRef.current[providerFilter] = { products: mapped, count: totalCount || mapped.length };
       } catch (err) {
         console.warn(`[ShopHome] Store fetch for ${providerFilter} failed:`, err);
         if (cancelled) return;
-        setStoreProducts([]);
-        setStoreTotalCount(0);
+        // Only clear if no cache to fall back on
+        if (!cached) {
+          setStoreProducts([]);
+          setStoreTotalCount(0);
+        }
       } finally {
         if (!cancelled) setStoreProductsLoading(false);
       }

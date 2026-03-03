@@ -1,62 +1,56 @@
 
 
-# Fix Plan: Store Filter Speed, Image Quality, and Cart Duplicates
+# Fix Plan: Instant Store Filters, Missing Stores, Image Quality, Cart Duplicates
 
-## Issue 1: Slow Store Filtering on Home Page
+## Issue 1: Missing Stores in Filter Dropdown
 
-**Root cause:** When you select a store on the Home page, `ShopHome.tsx` triggers a full database query (lines 371-462) fetching up to 1000+ rows from `catalog_items` with pagination. This takes several seconds.
+**Root cause:** The store dropdown is hardcoded to only 5 stores (Amazon, eBay, SHEIN, Carvana, CarGurus). Any new providers added to the catalog won't appear.
 
-**Fix:** Cache store-filtered results in `useState` keyed by provider. Once a store's products are fetched, switching back to it will be instant (no re-fetch). Also add `useMemo`-based client-side filtering of already-loaded category products for immediate results while the DB fetch completes in the background.
+**Fix:** Make the dropdown dynamic — query `SELECT DISTINCT provider FROM catalog_items WHERE is_active = true` on mount and build the options list from that. Map display names (e.g., `rainforest` → `Amazon`). This ensures all stores with cached products always appear.
 
 **File:** `src/pages/shop/ShopHome.tsx`
-- Add a `storeProductsCache` ref (`useRef<Record<string, Product[]>>`) to cache results per provider
-- On filter change, check cache first. If cached, display instantly. Still fetch in background to update silently.
-- Show cached data immediately, no loading spinner for repeat selections
+- Add a `useEffect` that fetches distinct providers from `catalog_items` on mount
+- Store in state, render dynamically in the `<Select>` dropdown
+- Merge `rainforest` + `amazon` under one "Amazon" label
 
-## Issue 2: Blurry/Late Images on Product Details
+## Issue 2: Store Filter Still Slow on First Selection
 
-**Root cause:** `ProductDetails.tsx` (line 680) uses `resizeImageUrl(url, IMAGE_SIZE_HERO)` where `IMAGE_SIZE_HERO = 800`. For stores like SHEIN, Temu, Walmart etc., the `resizeImageUrl` function in `imageResize.ts` only handles Amazon and eBay URL patterns. For other stores, it returns the URL unchanged — but these URLs may already point to low-res thumbnails (e.g., 200px versions). The product card initially passes a thumbnail URL via navigation state (line 191: `images: nav.imageUrl ? [nav.imageUrl]`), and the full gallery only loads after the API fetch completes.
+**Root cause:** Each store filter triggers a paginated fetch of up to ALL rows (loop fetching 1000 at a time). For eBay with 378k items, this is extremely slow.
 
-**Fix:** 
-- In `ProductDetails.tsx`, when the product data arrives from the API, prioritize full-res images immediately instead of keeping the nav thumbnail as fallback during the transition
-- Add `fetchPriority="high"` and remove the fade-in animation delay for the hero image so it appears faster
-- Preload the hero image URL as soon as API data arrives (already partially done but can be improved)
+**Fix:** Cap the initial store fetch to a single page (e.g., 200 items) with no pagination loop. Users don't need 378k items rendered at once. Add a "Load More" button or infinite scroll for additional items. The cache ref already handles instant re-display on subsequent selections.
+
+**File:** `src/pages/shop/ShopHome.tsx`
+- Replace the `while(true)` pagination loop with a single fetch of ~200 items
+- Add a "Load More" button to fetch the next page on demand
+- Keep the existing `storeProductsCacheRef` for instant re-display
+
+## Issue 3: Amazon Products Show Wrong Image Initially
+
+**Root cause:** When navigating from a product card, `ProductDetails.tsx` line 191 sets `images: [nav.imageUrl]` — this is a thumbnail URL from the card. The hero shows this thumbnail at 800px (blurry/wrong) until the API fetch completes and replaces images. The auto-select logic (lines 318-332) sometimes keeps the old index.
+
+**Fix:** When API data arrives with a real gallery, immediately force `currentImageIndex = 0` to show the first (best) API image, overriding the nav thumbnail. Only preserve user's index if they manually interacted with the gallery.
 
 **File:** `src/pages/shop/ProductDetails.tsx`
-- When API data arrives with images, immediately replace the hero image (don't wait for animation)
-- Set `loading="eager"` (already set) and ensure no unnecessary re-renders delay image display
+- After `setProduct` with API data, always reset `setCurrentImageIndex(0)` when API provides new images (unless user has interacted)
+- This ensures the nav thumbnail is instantly replaced by the full-res API image
 
-## Issue 3: Duplicate Cart Items (BUG)
+## Issue 4: Cart Duplicate Bug — Permanent Fix
 
-**Root cause:** In `ShopCartContext.tsx`, `addItem` (line 472-516):
-1. Creates a local optimistic item with `id: local_xxx` and `productUrl` set to the canonical URL
-2. Calls `mobile-add-cart-item` on the server
-3. Calls `syncCart()` which fetches items from the server
+**Root cause:** The current fix (`setItems(prev => prev.filter(i => i.id !== newItem.id))`) runs before `syncCart()`, but React 18 batches these updates. When `syncCart` runs `setItems(current => ...)`, the `current` may still include the local item because React hasn't flushed the previous `setItems` yet. The merge logic at line 412-418 then preserves it as an "unmatched local optimistic item."
 
-In `syncCart` (line 412-418), it merges server items with remaining local optimistic items. The dedup uses `canonicalItemKey` which compares URLs after stripping protocol. **But the server may return a different URL format** (e.g., with query params, different path structure) than what `buildServerProductUrl` generated locally. When the keys don't match, both the local item AND the server item appear — creating a duplicate.
-
-**Fix:** After `mobile-add-cart-item` succeeds, remove the local optimistic item before calling `syncCart`, so the server's version is the single source of truth. This eliminates the possibility of key mismatch duplication.
+**Fix:** Instead of relying on two separate `setItems` calls coordinating, make `syncCart` itself unconditionally discard ALL `local_` items when server data arrives. The server is the sole source of truth — any `local_` item is just a temporary placeholder and should never survive a sync.
 
 **File:** `src/contexts/ShopCartContext.tsx`
-- In `addItem`, after the server call succeeds, remove the local optimistic item from state before calling `syncCart()`
-- Alternative approach: in `syncCart`, when server items arrive, unconditionally replace ALL local_ items (not just matching ones). If a local item doesn't match any server item, it's either still being processed or failed — either way, the next sync will reconcile.
-
-### Implementation detail:
-```typescript
-// In addItem, after successful server call:
-setItems(prev => prev.filter(i => i.id !== newItem.id));
-syncCart();
-```
-
-This ensures the local placeholder is always cleared before the server sync fills in the real item.
+- In `syncCart`, line 412-418: remove the logic that preserves unmatched local_ items. When server responds, use ONLY server items (filtered by deleted IDs). No local_ items should survive a sync.
+- Remove the separate `setItems(prev => prev.filter(...))` call in `addItem` since syncCart will handle it
 
 ---
 
-## Summary of Changes
+## Summary
 
 | File | Change |
 |------|--------|
-| `src/pages/shop/ShopHome.tsx` | Cache store-filtered products per provider for instant re-display |
-| `src/pages/shop/ProductDetails.tsx` | Improve image transition to reduce perceived blurriness |
-| `src/contexts/ShopCartContext.tsx` | Fix duplicate by clearing local optimistic item before sync |
+| `src/pages/shop/ShopHome.tsx` | Dynamic store dropdown from DB; cap fetch to 200 items; load-more button |
+| `src/pages/shop/ProductDetails.tsx` | Force image index reset when API gallery arrives |
+| `src/contexts/ShopCartContext.tsx` | syncCart drops ALL local_ items unconditionally |
 

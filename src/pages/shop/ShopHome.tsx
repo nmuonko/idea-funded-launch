@@ -371,6 +371,14 @@ export default function ShopHome() {
   const [storeProductsPage, setStoreProductsPage] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
 
+  // Category-only filtered products (flat grid from DB, no store filter)
+  const [categoryProducts, setCategoryProducts] = useState<Product[]>([]);
+  const [categoryProductsLoading, setCategoryProductsLoading] = useState(false);
+  const [categoryTotalCount, setCategoryTotalCount] = useState(0);
+  const [categoryProductsPage, setCategoryProductsPage] = useState(0);
+  const [categoryLoadingMore, setCategoryLoadingMore] = useState(false);
+  const categoryProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
+
   // Cache store-filtered results per provider for instant re-display
   const storeProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
 
@@ -522,6 +530,104 @@ export default function ShopHome() {
     setStoreProductsPage(nextPage);
     fetchStorePage(providerFilter, nextPage, true);
   }, [storeProductsPage, providerFilter, fetchStorePage]);
+
+  // Fetch category-only products from DB using title ilike
+  const fetchCategoryPage = useCallback(async (catKey: string, page: number, append: boolean) => {
+    const keywords = CATEGORY_KEYWORDS[catKey];
+    if (!keywords || keywords.length === 0) return;
+
+    const PAGE_SIZE = 200;
+    const from = page * PAGE_SIZE;
+
+    if (!append) setCategoryProductsLoading(true);
+    else setCategoryLoadingMore(true);
+
+    try {
+      const topKeywords = keywords.slice(0, 8);
+      let query = supabase
+        .from('catalog_items')
+        .select(
+          'id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock',
+          { count: 'exact' }
+        )
+        .eq('is_active', true)
+        .eq('is_disallowed', false)
+        .gt('price_usd', 0);
+
+      const orFilters = topKeywords.map(kw => `title.ilike.%${kw}%`).join(',');
+      query = query.or(orFilters);
+
+      const { data, error, count } = await query
+        .order('popularity_score', { ascending: false, nullsFirst: false })
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error) throw error;
+
+      const totalCount = count ?? 0;
+      const mapped = (data || [])
+        .map((item: any): Product | null => {
+          const fallbackImage = extractFirstImageFromJson(item.images);
+          const providerFallback = deriveProviderImageFallback(item.provider || '', item.provider_product_id || item.id);
+          const preferred = isRenderableImageUrl(item.image_url)
+            ? item.image_url
+            : (fallbackImage || providerFallback);
+          if (!preferred || !isRenderableImageUrl(preferred)) return null;
+          return {
+            id: item.provider_product_id || item.id,
+            provider: item.provider || 'unknown',
+            title: item.title || 'Product',
+            imageUrl: preferred,
+            priceUsd: item.price_usd || 0,
+            rating: item.rating,
+            inStock: item.in_stock !== false,
+            productUrl: item.product_url,
+          };
+        })
+        .filter((p): p is Product => p !== null)
+        .filter(p => isRelevantToCategory(p, catKey));
+
+      if (append) {
+        setCategoryProducts(prev => {
+          const combined = [...prev, ...mapped];
+          categoryProductsCacheRef.current[catKey] = { products: combined, count: totalCount };
+          return combined;
+        });
+      } else {
+        setCategoryProducts(mapped);
+        categoryProductsCacheRef.current[catKey] = { products: mapped, count: totalCount };
+      }
+      setCategoryTotalCount(totalCount);
+    } catch (err) {
+      console.warn(`[ShopHome] Category fetch for ${catKey} page ${page} failed:`, err);
+    } finally {
+      setCategoryProductsLoading(false);
+      setCategoryLoadingMore(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (providerFilter && providerFilter !== 'all') return;
+    if (!categoryFilter || categoryFilter === 'all') {
+      setCategoryProducts([]);
+      setCategoryTotalCount(0);
+      setCategoryProductsPage(0);
+      return;
+    }
+    const cached = categoryProductsCacheRef.current[categoryFilter];
+    if (cached) {
+      setCategoryProducts(cached.products);
+      setCategoryTotalCount(cached.count);
+      return;
+    }
+    setCategoryProductsPage(0);
+    fetchCategoryPage(categoryFilter, 0, false);
+  }, [categoryFilter, providerFilter, fetchCategoryPage]);
+
+  const handleCategoryLoadMore = useCallback(() => {
+    const nextPage = categoryProductsPage + 1;
+    setCategoryProductsPage(nextPage);
+    fetchCategoryPage(categoryFilter, nextPage, true);
+  }, [categoryProductsPage, categoryFilter, fetchCategoryPage]);
 
   /** Client-side provider filter helper */
   const filterByProvider = useCallback((items: Product[]) => {
@@ -1193,6 +1299,49 @@ export default function ShopHome() {
                       className="border-white/20 text-white/90 hover:bg-white/10 min-w-[200px]"
                     >
                       {loadingMore ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : null}
+                      {language === 'fr' ? 'Charger plus' : 'Load More'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )
+          ) : categoryFilter && categoryFilter !== 'all' && (!providerFilter || providerFilter === 'all') ? (
+            /* ====== CATEGORY-ONLY FLAT GRID ====== */
+            categoryProductsLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="h-8 w-8 animate-spin text-white/40" />
+              </div>
+            ) : categoryProducts.length === 0 ? (
+              <div className="text-center py-20">
+                <p className="text-white/50 text-lg">
+                  {language === 'fr'
+                    ? `Aucun produit trouvé pour ${getCategoryTitle(categoryFilter, language)}`
+                    : `No products found for ${getCategoryTitle(categoryFilter, language)}`}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-white/90">
+                    {getCategoryTitle(categoryFilter, language)} — {language === 'fr' ? 'Affichage' : 'Showing'} {categoryProducts.length.toLocaleString()} {language === 'fr' ? 'sur' : 'of'} {categoryTotalCount.toLocaleString()} {language === 'fr' ? 'produits' : 'products'}
+                  </h2>
+                </div>
+                <SectionBlock
+                  items={categoryProducts}
+                  mode="static-grid"
+                  maxItems={categoryProducts.length}
+                />
+                {categoryProducts.length < categoryTotalCount && (
+                  <div className="flex justify-center pt-4">
+                    <Button
+                      onClick={handleCategoryLoadMore}
+                      disabled={categoryLoadingMore}
+                      variant="outline"
+                      className="border-white/20 text-white/90 hover:bg-white/10 min-w-[200px]"
+                    >
+                      {categoryLoadingMore ? (
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
                       ) : null}
                       {language === 'fr' ? 'Charger plus' : 'Load More'}

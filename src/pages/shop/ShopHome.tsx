@@ -1380,15 +1380,20 @@ export default function ShopHome() {
                     <Link2 className="h-6 w-6 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-base sm:text-lg font-bold text-white">
+                    <p className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
                       {language === 'fr'
-                        ? "Trouvez un produit sur n'importe quel site"
-                        : "Find a product on any site?"}
+                        ? "Achetez depuis nos magasins américains"
+                        : "Shop from our American stores"}
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold bg-white/10 border border-white/20 rounded-full px-2.5 py-0.5 text-white/80">
+                        <span>🇺🇸</span>
+                        <span>→</span>
+                        <span>🇨🇩</span>
+                      </span>
                     </p>
                     <p className="text-sm text-white/60 mt-0.5">
                       {language === 'fr'
-                        ? "Collez le lien depuis un magasin populaire et commandez-le ici"
-                        : "Paste the link from a popular store and order it here"}
+                        ? "Collez le lien d'un produit Amazon, Walmart, SHEIN… et on vous le livre en RDC"
+                        : "Paste a link from Amazon, Walmart, SHEIN… and we deliver to DRC"}
                     </p>
                   </div>
                   {/* Big Store Logos */}

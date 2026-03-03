@@ -398,6 +398,7 @@ export default function ShopHome() {
     { value: 'phones', labelEn: 'Phones', labelFr: 'Téléphones' },
     { value: 'vehicles', labelEn: 'Vehicles', labelFr: 'Véhicules' },
     { value: 'clothing', labelEn: 'Clothes / Fashion', labelFr: 'Mode / Vêtements' },
+    { value: 'electronics', labelEn: 'Computers / Laptops', labelFr: 'Ordinateurs / Laptops' },
   ];
 
   // Fetch distinct providers via RPC for dynamic store dropdown
@@ -1245,7 +1246,7 @@ export default function ShopHome() {
                   value="all"
                   className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
                 >
-                  {language === 'fr' ? 'Toutes' : 'All Stores'}
+                  {language === 'fr' ? 'Tous les magasins' : 'All Stores'}
                 </SelectItem>
                 {dynamicStores.map((opt) => (
                   <SelectItem

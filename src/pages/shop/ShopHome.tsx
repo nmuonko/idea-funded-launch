@@ -1395,7 +1395,7 @@ export default function ShopHome() {
                   <div className="hidden sm:flex items-center gap-5 flex-shrink-0 mr-1">
                     <img src="/images/logos/amazon-colored.svg" alt="Amazon" className="h-6 w-auto object-contain opacity-90 group-hover:opacity-100 transition-opacity" />
                     <img src="/images/logos/shein-white.svg" alt="SHEIN" className="h-5 w-auto object-contain opacity-90 group-hover:opacity-100 transition-opacity" />
-                    <img src="/images/logos/tesla.svg" alt="Tesla" className="h-7 w-auto object-contain opacity-90 group-hover:opacity-100 transition-opacity" />
+                    <img src="/images/logos/tesla-official.png" alt="Tesla" className="h-8 w-auto object-contain opacity-90 group-hover:opacity-100 transition-opacity" />
                   </div>
                   <ArrowRight className="h-5 w-5 text-primary flex-shrink-0 group-hover:translate-x-1 transition-transform" />
                 </div>

@@ -1392,21 +1392,19 @@ export default function ShopHome() {
                     </p>
                   </div>
                   {/* Big Store Logos */}
-                  <div className="hidden sm:flex items-center gap-3 flex-shrink-0">
+                  <div className="hidden sm:flex items-center gap-6 flex-shrink-0 mr-2">
                     <img
                       src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg"
                       alt="Amazon"
-                      className="h-7 opacity-80 group-hover:opacity-100 transition-opacity brightness-0 invert"
+                      className="h-8 opacity-70 group-hover:opacity-100 transition-opacity brightness-0 invert"
                     />
-                    <img
-                      src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Shein_logo_2017.svg/1024px-Shein_logo_2017.svg.png"
-                      alt="SHEIN"
-                      className="h-5 opacity-80 group-hover:opacity-100 transition-opacity brightness-0 invert"
-                    />
+                    <span className="text-white/70 group-hover:text-white font-bold text-xl tracking-wide transition-colors" style={{ fontFamily: "'Arial Black', 'Helvetica Neue', sans-serif" }}>
+                      SHEIN
+                    </span>
                     <img
                       src="https://upload.wikimedia.org/wikipedia/commons/e/e8/Tesla_logo.png"
                       alt="Tesla"
-                      className="h-6 opacity-80 group-hover:opacity-100 transition-opacity brightness-0 invert"
+                      className="h-7 opacity-70 group-hover:opacity-100 transition-opacity brightness-0 invert"
                     />
                   </div>
                   <ArrowRight className="h-5 w-5 text-primary flex-shrink-0 group-hover:translate-x-1 transition-transform" />

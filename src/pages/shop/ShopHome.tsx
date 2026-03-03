@@ -361,53 +361,122 @@ export default function ShopHome() {
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
   const [providerFilter, setProviderFilter] = useState('all');
   const fetchedRef = useRef(false);
-  const [dynamicStores, setDynamicStores] = useState<{ value: string; label: string }[]>([]);
+  const [dynamicStores, setDynamicStores] = useState<{ value: string; label: string; count: number }[]>([]);
 
   // Store-filtered products (flat grid from DB)
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
   const [storeProductsLoading, setStoreProductsLoading] = useState(false);
   const [storeTotalCount, setStoreTotalCount] = useState(0);
+  const [storeProductsPage, setStoreProductsPage] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Cache store-filtered results per provider for instant re-display
   const storeProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
 
-  // Fetch distinct providers from catalog_items for dynamic store dropdown
+  const PROVIDER_DISPLAY: Record<string, string> = {
+    rainforest: 'Amazon', amazon: 'Amazon', ebay: 'eBay', shein: 'SHEIN',
+    carvana: 'Carvana', cargurus: 'CarGurus', walmart: 'Walmart',
+    bestbuy: 'Best Buy', macys: "Macy's", homedepot: 'Home Depot',
+    wayfair: 'Wayfair', temu: 'Temu',
+  };
+
+  // Fetch distinct providers via RPC for dynamic store dropdown
   useEffect(() => {
-    const PROVIDER_DISPLAY: Record<string, string> = {
-      rainforest: 'Amazon', amazon: 'Amazon', ebay: 'eBay', shein: 'SHEIN',
-      carvana: 'Carvana', cargurus: 'CarGurus', walmart: 'Walmart',
-      bestbuy: 'Best Buy', macys: "Macy's", homedepot: 'Home Depot',
-      wayfair: 'Wayfair', temu: 'Temu',
-    };
     (async () => {
       try {
-        const { data } = await supabase
-          .from('catalog_items')
-          .select('provider')
-          .eq('is_active', true)
-          .eq('is_disallowed', false)
-          .gt('price_usd', 0)
-          .limit(1000);
+        const { data, error } = await supabase.rpc('get_active_providers');
+        if (error) throw error;
         if (!data) return;
-        const providerSet = new Set(data.map((r: any) => (r.provider || '').toLowerCase()));
-        // Merge rainforest+amazon into one "amazon" entry
-        if (providerSet.has('rainforest')) { providerSet.delete('rainforest'); providerSet.add('amazon'); }
-        const stores = Array.from(providerSet)
-          .filter(p => p && p !== '')
-          .map(p => ({ value: p, label: PROVIDER_DISPLAY[p] || p.charAt(0).toUpperCase() + p.slice(1) }))
-          .sort((a, b) => a.label.localeCompare(b.label));
+        // Merge rainforest+amazon counts
+        const mergedMap = new Map<string, number>();
+        for (const row of data as { provider: string; item_count: number }[]) {
+          const key = row.provider === 'rainforest' ? 'amazon' : row.provider;
+          mergedMap.set(key, (mergedMap.get(key) || 0) + Number(row.item_count));
+        }
+        const stores = Array.from(mergedMap.entries())
+          .filter(([p]) => p && p !== '')
+          .map(([p, count]) => ({
+            value: p,
+            label: PROVIDER_DISPLAY[p] || p.charAt(0).toUpperCase() + p.slice(1),
+            count,
+          }))
+          .sort((a, b) => b.count - a.count);
         setDynamicStores(stores);
       } catch (e) { console.warn('[ShopHome] Failed to fetch providers:', e); }
     })();
   }, []);
 
-  // Fetch all products for a specific store from the DB
-  useEffect(() => {
-    let cancelled = false;
+  // Fetch products for a specific store from the DB (paginated)
+  const fetchStorePage = useCallback(async (provider: string, page: number, append: boolean) => {
+    const providerKeys = provider === 'amazon' ? ['rainforest', 'amazon'] : [provider];
+    const PAGE_SIZE = 200;
+    const from = page * PAGE_SIZE;
 
+    if (!append) setStoreProductsLoading(true);
+    else setLoadingMore(true);
+
+    try {
+      const { data, error, count } = await supabase
+        .from('catalog_items')
+        .select(
+          'id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock',
+          { count: 'exact' }
+        )
+        .in('provider', providerKeys)
+        .eq('is_active', true)
+        .eq('is_disallowed', false)
+        .gt('price_usd', 0)
+        .order('first_seen_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error) throw error;
+
+      const totalCount = count ?? 0;
+      const mapped = (data || [])
+        .map((item: any): Product | null => {
+          const fallbackImage = extractFirstImageFromJson(item.images);
+          const providerFallback = deriveProviderImageFallback(item.provider || provider, item.provider_product_id || item.id);
+          const preferred = isRenderableImageUrl(item.image_url)
+            ? item.image_url
+            : (fallbackImage || providerFallback);
+          if (!preferred || !isRenderableImageUrl(preferred)) return null;
+          return {
+            id: item.provider_product_id || item.id,
+            provider: item.provider || provider,
+            title: item.title || 'Product',
+            imageUrl: preferred,
+            priceUsd: item.price_usd || 0,
+            rating: item.rating,
+            inStock: item.in_stock !== false,
+            productUrl: item.product_url,
+          };
+        })
+        .filter((p): p is Product => p !== null);
+
+      if (append) {
+        setStoreProducts(prev => {
+          const combined = [...prev, ...mapped];
+          storeProductsCacheRef.current[provider] = { products: combined, count: totalCount };
+          return combined;
+        });
+      } else {
+        setStoreProducts(mapped);
+        storeProductsCacheRef.current[provider] = { products: mapped, count: totalCount };
+      }
+      setStoreTotalCount(totalCount);
+    } catch (err) {
+      console.warn(`[ShopHome] Store fetch for ${provider} page ${page} failed:`, err);
+    } finally {
+      setStoreProductsLoading(false);
+      setLoadingMore(false);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!providerFilter || providerFilter === 'all') {
       setStoreProducts([]);
       setStoreTotalCount(0);
+      setStoreProductsPage(0);
       return;
     }
 
@@ -416,86 +485,18 @@ export default function ShopHome() {
     if (cached) {
       setStoreProducts(cached.products);
       setStoreTotalCount(cached.count);
-      // Don't show loading spinner for cached results
+      return;
     }
 
-    const providerKeys =
-      providerFilter === 'amazon'
-        ? ['rainforest', 'amazon']
-        : [providerFilter];
+    setStoreProductsPage(0);
+    fetchStorePage(providerFilter, 0, false);
+  }, [providerFilter, fetchStorePage]);
 
-    // Only show loading if no cache
-    if (!cached) setStoreProductsLoading(true);
-
-    (async () => {
-      try {
-        // Cap to 200 items per page — no pagination loop for instant results
-        const PAGE_SIZE = 200;
-
-        const { data, error, count } = await supabase
-          .from('catalog_items')
-          .select(
-            'id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock',
-            { count: 'exact' }
-          )
-          .in('provider', providerKeys)
-          .eq('is_active', true)
-          .eq('is_disallowed', false)
-          .gt('price_usd', 0)
-          .order('first_seen_at', { ascending: false })
-          .range(0, PAGE_SIZE - 1);
-
-        if (error) throw error;
-
-        const totalCount = count ?? 0;
-        const allRows = data || [];
-
-        const mapped = allRows
-          .map((item: any): Product | null => {
-            const fallbackImage = extractFirstImageFromJson(item.images);
-            const providerFallback = deriveProviderImageFallback(item.provider || providerFilter, item.provider_product_id || item.id);
-            const preferred = isRenderableImageUrl(item.image_url)
-              ? item.image_url
-              : (fallbackImage || providerFallback);
-
-            // Skip items without a renderable image
-            if (!preferred || !isRenderableImageUrl(preferred)) return null;
-
-            return {
-              id: item.provider_product_id || item.id,
-              provider: item.provider || providerFilter,
-              title: item.title || 'Product',
-              imageUrl: preferred,
-              priceUsd: item.price_usd || 0,
-              rating: item.rating,
-              inStock: item.in_stock !== false,
-              productUrl: item.product_url,
-            };
-          })
-          .filter((p): p is Product => p !== null);
-
-        if (cancelled) return;
-        setStoreProducts(mapped);
-        setStoreTotalCount(totalCount || mapped.length);
-        // Cache the results for instant re-display
-        storeProductsCacheRef.current[providerFilter] = { products: mapped, count: totalCount || mapped.length };
-      } catch (err) {
-        console.warn(`[ShopHome] Store fetch for ${providerFilter} failed:`, err);
-        if (cancelled) return;
-        // Only clear if no cache to fall back on
-        if (!cached) {
-          setStoreProducts([]);
-          setStoreTotalCount(0);
-        }
-      } finally {
-        if (!cancelled) setStoreProductsLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [providerFilter]);
+  const handleLoadMore = useCallback(() => {
+    const nextPage = storeProductsPage + 1;
+    setStoreProductsPage(nextPage);
+    fetchStorePage(providerFilter, nextPage, true);
+  }, [storeProductsPage, providerFilter, fetchStorePage]);
 
   /** Client-side provider filter helper */
   const filterByProvider = useCallback((items: Product[]) => {
@@ -1094,7 +1095,7 @@ export default function ShopHome() {
                     value={opt.value}
                     className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
                   >
-                    {opt.label}
+                    {opt.label} ({opt.count.toLocaleString()})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1122,7 +1123,7 @@ export default function ShopHome() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-white/90">
-                    {providerFilter.charAt(0).toUpperCase() + providerFilter.slice(1)} — {storeTotalCount.toLocaleString()} {language === 'fr' ? 'produits' : 'products'}
+                    {PROVIDER_DISPLAY[providerFilter] || providerFilter.charAt(0).toUpperCase() + providerFilter.slice(1)} — {language === 'fr' ? 'Affichage' : 'Showing'} {storeProducts.length.toLocaleString()} {language === 'fr' ? 'sur' : 'of'} {storeTotalCount.toLocaleString()} {language === 'fr' ? 'produits' : 'products'}
                   </h2>
                 </div>
                 <SectionBlock
@@ -1130,6 +1131,21 @@ export default function ShopHome() {
                   mode="static-grid"
                   maxItems={storeProducts.length}
                 />
+                {storeProducts.length < storeTotalCount && (
+                  <div className="flex justify-center pt-4">
+                    <Button
+                      onClick={handleLoadMore}
+                      disabled={loadingMore}
+                      variant="outline"
+                      className="border-white/20 text-white/90 hover:bg-white/10 min-w-[200px]"
+                    >
+                      {loadingMore ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : null}
+                      {language === 'fr' ? 'Charger plus' : 'Load More'}
+                    </Button>
+                  </div>
+                )}
               </div>
             )
           ) : isInitialLoading ? (

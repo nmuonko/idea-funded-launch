@@ -5804,6 +5804,13 @@ export type Database = {
         Returns: string
       }
       generate_project_code: { Args: never; Returns: string }
+      get_active_providers: {
+        Args: never
+        Returns: {
+          item_count: number
+          provider: string
+        }[]
+      }
       get_active_session: {
         Args: never
         Returns: {

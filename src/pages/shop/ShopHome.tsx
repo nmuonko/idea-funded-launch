@@ -1393,23 +1393,9 @@ export default function ShopHome() {
                   </div>
                   {/* Big Store Logos */}
                   <div className="hidden sm:flex items-center gap-8 flex-shrink-0 mr-3">
-                    {/* Amazon: white text + orange smile arrow */}
-                    <svg className="h-10" viewBox="0 0 603 182" xmlns="http://www.w3.org/2000/svg">
-                      <path fill="#FF9900" d="M374.1 142.3c-35.2 26-86.2 39.9-130.2 39.9c-61.6 0-117.1-22.8-159-60.7c-3.3-3-0.3-7.1 3.6-4.7c45.3 26.3 101.3 42.2 159.2 42.2c39 0 81.9-8.1 121.4-24.8c6-2.5 11 3.9 5 8.1"/>
-                      <path fill="#FF9900" d="M387.4 127.1c-4.5-5.7-29.6-2.7-40.9-1.4c-3.4 0.4-3.9-2.6-0.9-4.7c20-14.1 52.9-10 56.7-5.3c3.8 4.8-1 37.8-19.8 53.6c-2.9 2.4-5.6 1.1-4.3-2.1c4.2-10.5 13.7-34.2 9.2-40.1"/>
-                      <path fill="#FFFFFF" d="M348 22.5V8.1c0-2.2 1.6-3.6 3.6-3.6h64.1c2 0 3.7 1.5 3.7 3.6v12.3c0 2-1.7 4.7-4.8 9l-33.2 47.4c12.3-0.3 25.3 1.5 36.5 7.8c2.5 1.4 3.2 3.5 3.4 5.5v15.4c0 2-2.2 4.4-4.6 3.2c-19.1-10-44.5-11.1-65.6 0.1c-2.1 1.1-4.3-1.2-4.3-3.2V91.3c0-2.3 0-6.2 2.4-9.7l38.5-55.2h-33.5c-2 0-3.7-1.5-3.7-3.6zm-225.7 85.8h-19.5c-1.9-0.1-3.4-1.5-3.5-3.4V8.3c0-2.1 1.7-3.7 3.8-3.7h18.2c1.9 0.1 3.4 1.6 3.5 3.4v12.6h0.4c4.7-12.3 13.6-18 25.5-18c12.1 0 19.7 5.7 25.1 18c4.7-12.3 15.3-18 26.7-18c8.1 0 17 3.3 22.4 10.8c6.1 8.3 4.9 20.4 4.9 31l0 59.7c0 2.1-1.7 3.7-3.8 3.7h-19.4c-2-0.1-3.5-1.7-3.5-3.7V53.8c0-4.2 0.4-14.6-0.5-18.5c-1.4-6.6-5.7-8.5-11.2-8.5c-4.6 0-9.4 3.1-11.4 8c-2 5-1.8 13.2-1.8 19v50.3c0 2.1-1.7 3.7-3.8 3.7h-19.4c-2-0.1-3.5-1.7-3.5-3.7l0-50.3c0-11 1.8-27.2-11.7-27.2c-13.7 0-13.2 15.8-13.2 27.2v50.3c0 2.1-1.7 3.7-3.8 3.7zm334.2-91.5c-28.9 0-44.5 24.8-44.5 56.4c0 30.4 17.3 54.7 44.5 54.7c27.8 0 42.9-25.6 42.9-55.8c0-30.5-16.7-55.3-42.9-55.3zm0 20.4c14 0 14.8 19 14.8 30.9c0 11.9-0.2 37.3-14.6 37.3c-14.7 0-15.4-20.5-15.4-33c0-8.2 0.3-18.1 3.2-25.8c2.4-6.7 7.2-9.4 12-9.4zM554 108.3h-19.4c-2-0.1-3.5-1.7-3.5-3.7l0-96.5c0.2-1.9 1.8-3.4 3.8-3.4h18c1.7 0.1 3.2 1.4 3.5 3.1v14.8h0.4c5.5-13.5 13.2-19.8 26.7-19.8c8.7 0 17.2 3.1 22.7 11.6c5.1 7.9 5.1 21.2 5.1 30.7v59.9c-0.3 1.8-1.8 3.2-3.8 3.2h-19.5c-1.8-0.1-3.3-1.5-3.5-3.2V52.6c0-10.8 1.3-26.5-11.9-26.5c-4.6 0-8.9 3.1-11 7.8c-2.6 5.9-3 11.8-3 18.7v51.3c-0.1 2.1-1.8 3.7-3.9 3.7zM265.3 61.2c0 7.5 0.2 13.8-3.6 20.5c-3.1 5.4-8 8.8-13.5 8.8c-7.5 0-11.9-5.7-11.9-14.1c0-16.6 14.8-19.6 29-19.6v4.4zm19.7 47.6c-1.3 1.1-3.1 1.2-4.6 0.5c-6.4-5.3-7.5-7.8-11-12.9c-10.5 10.7-17.9 13.9-31.5 13.9c-16.1 0-28.6-9.9-28.6-29.8c0-15.5 8.4-26.1 20.4-31.2c10.4-4.5 24.9-5.3 36-6.5v-2.4c0-4.5 0.3-9.7-2.3-13.6c-2.2-3.4-6.5-4.8-10.3-4.8c-7 0-13.2 3.6-14.8 11c-0.3 1.7-1.5 3.3-3.2 3.4l-19-2c-1.5-0.3-3.2-1.5-2.8-3.8C217.7 8.7 237.4 1.6 255 1.6c9 0 20.8 2.4 27.9 9.2c9 8.4 8.2 19.7 8.2 32v29c0 8.7 3.6 12.5 7 17.2c1.2 1.7 1.4 3.7-0.1 4.9c-3.7 3.1-10.3 8.9-14 12.2l-0.1-0.1z"/>
-                    </svg>
-                    {/* SHEIN */}
-                    <img
-                      src="/images/logos/shein.svg"
-                      alt="SHEIN"
-                      className="h-10 opacity-90 group-hover:opacity-100 transition-opacity brightness-0 invert"
-                    />
-                    {/* Tesla: big red T + white ESLA */}
-                    <div className="flex items-baseline gap-0">
-                      <span className="text-[#E82127] font-black text-3xl leading-none" style={{ fontFamily: "'Helvetica Neue', Arial, sans-serif" }}>T</span>
-                      <span className="text-white font-black text-3xl leading-none tracking-wider" style={{ fontFamily: "'Helvetica Neue', Arial, sans-serif" }}>ESLA</span>
-                    </div>
+                    <img src="/images/logos/amazon-colored.svg" alt="Amazon" className="h-8 opacity-90 group-hover:opacity-100 transition-opacity" />
+                    <img src="/images/logos/shein-white.svg" alt="SHEIN" className="h-5 opacity-90 group-hover:opacity-100 transition-opacity" />
+                    <img src="/images/logos/tesla-colored.svg" alt="Tesla" className="h-8 opacity-90 group-hover:opacity-100 transition-opacity" />
                   </div>
                   <ArrowRight className="h-5 w-5 text-primary flex-shrink-0 group-hover:translate-x-1 transition-transform" />
                 </div>

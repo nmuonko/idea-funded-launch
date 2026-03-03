@@ -1384,10 +1384,10 @@ export default function ShopHome() {
                       {language === 'fr'
                         ? "Achetez depuis nos magasins américains"
                         : "Shop from our American stores"}
-                      <span className="inline-flex items-center gap-1.5 text-sm font-semibold bg-white/10 border border-white/20 rounded-full px-3 py-1 text-white/90">
-                        <span className="text-base">🇺🇸</span>
-                        <span className="text-xs">✈️</span>
-                        <span className="text-base">🇨🇩</span>
+                      <span className="inline-flex items-center gap-1.5 bg-white/10 border border-white/20 rounded-full px-3 py-1">
+                        <img src="/images/flags/us.png" alt="USA" className="h-4 w-6 object-cover rounded-sm" />
+                        <span className="text-white/70 text-xs">→</span>
+                        <img src="/images/flags/cd.png" alt="RDC" className="h-4 w-6 object-cover rounded-sm" />
                       </span>
                     </p>
                     <p className="text-sm text-white/60 mt-0.5">

@@ -1,54 +1,40 @@
 
 
-# Fix: Instant Store Filtering, All Stores Visible, Load More
+# Plan: Add Category Filters + Fix Missing Stores
 
-## Problems Identified
+## Key Finding
 
-1. **Dynamic store dropdown broken**: The query `SELECT provider FROM catalog_items ... LIMIT 1000` does NOT return distinct providers — it returns 1000 random rows and extracts providers client-side. If a store has few items and none land in those 1000 rows, it's invisible. This is why Walmart, Best Buy, etc. are missing.
-
-2. **Store filter still slow**: Even with 200-item cap, each filter change triggers a full DB round-trip. The cache only helps on *re-selection*, not first selection.
-
-3. **Only 200 products shown with no way to see more**: No "Load More" button was added despite the plan calling for one.
+The database currently only contains products from **6 providers**: eBay (385k), Rainforest/Amazon (13.6k), Carvana (79), CarGurus (55), Amazon (1), SHEIN (1). **Walmart, Best Buy, Macy's, Home Depot, Wayfair, Temu, Ford, Toyota, Tesla do NOT exist in the catalog yet.** The dynamic dropdown is working correctly — it only shows stores that have cached products.
 
 ## Plan
 
-### 1. Fix Dynamic Store Dropdown — Use SQL RPC for Distinct Providers
-**Database migration**: Create a tiny RPC function:
-```sql
-CREATE OR REPLACE FUNCTION get_active_providers()
-RETURNS TABLE(provider text, item_count bigint)
-LANGUAGE sql STABLE SECURITY DEFINER
-AS $$
-  SELECT provider, COUNT(*) as item_count
-  FROM catalog_items
-  WHERE is_active = true AND is_disallowed = false AND price_usd > 0
-  GROUP BY provider
-  ORDER BY item_count DESC;
-$$;
-```
+### 1. Add Category Filter Dropdown (Phones, Vehicles, Clothes)
 
-**File: `src/pages/shop/ShopHome.tsx`** — Replace the broken `useEffect` (lines 375-402) to call this RPC:
-```typescript
-const { data } = await supabase.rpc('get_active_providers');
-```
-This guarantees every provider with at least 1 active item appears, with counts.
+**File: `src/pages/shop/ShopHome.tsx`**
 
-### 2. Make Store Filtering Instant — Add "Load More" Pagination
-**File: `src/pages/shop/ShopHome.tsx`**:
-- Add `storeProductsPage` state (starts at 0)
-- Keep the 200-item initial fetch (fast)
-- Add a "Load More" button at the bottom that fetches the next 200 items and appends them
-- Reset page to 0 when provider changes
-- Cache includes all loaded pages, so switching back is instant
-- Show count as "Showing X of Y products"
+Add a second dropdown next to the store filter for category filtering. Options:
+- All Categories (default)
+- Phones
+- Vehicles  
+- Clothes/Fashion
 
-### 3. Use Provider Display Names Properly
-The store title in the grid header (line 1125) currently shows raw provider key. Use the `PROVIDER_DISPLAY` map (already defined) to show proper names like "Amazon" instead of "amazon".
+When a category is selected, filter products using the existing `CATEGORY_KEYWORDS` map (already defined at lines 62-78). This works with both the home feed and store-filtered views by matching keywords against product titles client-side. This will be instant since it's purely client-side filtering on already-loaded data.
 
-## Files Changed
+When both a store and category filter are active, apply both filters together.
+
+### 2. Add Hardcoded Popular Store Options That Aren't in DB Yet
+
+Since Walmart, Temu, Best Buy, Macy's, Home Depot, Wayfair, Ford, Toyota, Tesla have **zero** cached products, the dynamic RPC correctly excludes them. Two options:
+
+**Option A (Recommended):** Add these as static entries in the dropdown with a count of 0, shown grayed out or with a "(coming soon)" label, so users know they exist but have no products yet.
+
+**Option B:** Only show stores with actual products (current behavior) — but inform the user that those stores need to be ingested into the catalog first before they can appear.
+
+### Summary of Changes
 
 | File | Change |
 |------|--------|
-| **Database migration** | Add `get_active_providers()` RPC |
-| `src/pages/shop/ShopHome.tsx` | Use RPC for dropdown; add Load More button; fix display names |
+| `src/pages/shop/ShopHome.tsx` | Add category filter dropdown (phones/vehicles/clothes); add static store entries for popular stores not yet in DB |
+
+No database changes needed — category filtering is client-side using existing keyword maps, and the missing stores simply don't have data yet.
 

@@ -52,6 +52,17 @@ const defaultFilters: Filters = {
   date_preset: '',
 };
 
+const getAdminProductLink = (item: { provider?: string | null; provider_product_id?: string | null; product_url?: string | null }) => {
+  const provider = (item.provider || '').toLowerCase();
+  const productId = item.provider_product_id || '';
+
+  if ((provider === 'amazon' || provider === 'rainforest') && productId) {
+    return `https://www.amazon.com/dp/${productId}`;
+  }
+
+  return item.product_url || '#';
+};
+
 async function invokeAdmin(params: Record<string, string>) {
   const qs = new URLSearchParams(params).toString();
   const { data, error } = await supabase.functions.invoke(`admin-catalog-items?${qs}`, {
@@ -1146,7 +1157,7 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
                         )}
                       </TableCell>
                       <TableCell className="max-w-[200px]">
-                        <a href={item.product_url} target="_blank" rel="noopener noreferrer" className="text-xs hover:underline line-clamp-2 flex items-start gap-1">
+                        <a href={getAdminProductLink(item)} target="_blank" rel="noopener noreferrer" className="text-xs hover:underline line-clamp-2 flex items-start gap-1">
                           <span className="line-clamp-2">{item.title || '—'}</span>
                           <ExternalLink className="h-3 w-3 shrink-0 mt-0.5 text-muted-foreground" />
                         </a>

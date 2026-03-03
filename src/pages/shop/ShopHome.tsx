@@ -41,6 +41,7 @@ const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
 
 // Fallback search queries for categories that lack dedicated backend recipes
 const CATEGORY_SEARCH_QUERIES: Record<string, string[]> = {
+  computers: ['MacBook Pro laptop', 'Dell XPS laptop', 'Lenovo ThinkPad laptop', 'ASUS ROG gaming laptop'],
   phones: ['iPhone 15 Pro Max', 'Samsung Galaxy S24 Ultra', 'Google Pixel 8 Pro', 'OnePlus 12 smartphone'],
   electronics: ['laptop notebook computer', 'tablet iPad Samsung', 'monitor 4K display', 'drone camera'],
   gaming: ['PS5 console bundle', 'Nintendo Switch OLED', 'Xbox Series X', 'Steam Deck gaming'],
@@ -60,6 +61,7 @@ const CATEGORY_SEARCH_QUERIES: Record<string, string[]> = {
 };
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
+  computers: ['laptop', 'notebook', 'computer', 'macbook', 'chromebook', 'dell laptop', 'lenovo laptop', 'asus laptop', 'acer laptop', 'hp laptop', 'gaming laptop', 'desktop computer', 'all-in-one pc', 'workstation', 'thinkpad', 'inspiron', 'pavilion', 'surface laptop', 'surface pro', 'ideapad', 'zenbook', 'vivobook', 'elitebook', 'probook', 'latitude', 'precision', 'envy', 'omen', 'predator', 'rog', 'razer blade', 'msi laptop', 'pc portable', 'ordinateur'],
   phones: ['iphone', 'samsung galaxy', 'pixel phone', 'google pixel', 'smartphone', 'android phone', 'unlocked phone', 'cellphone', 'téléphone', 'oneplus', 'xiaomi', 'motorola', 'galaxy s2', 'galaxy s3', 'galaxy z fold', 'galaxy z flip', 'galaxy a5', 'galaxy a7', 'galaxy s24', 'galaxy s23', 'galaxy s22', 'galaxy note', 'iphone 1', 'iphone pro', 'iphone plus'],
   electronics: ['laptop', 'notebook', 'computer', 'tablet', 'monitor', 'headphone', 'speaker', 'camera', 'drone', 'television', 'earbuds', 'printer', 'router', 'hard drive', 'ssd', 'gpu', 'cpu', 'macbook', 'ipad', 'dell laptop', 'lenovo laptop', 'asus laptop', 'acer laptop', 'oled tv', 'qled tv', '4k tv', 'smart tv', 'mechanical keyboard', 'webcam', 'projector', 'soundbar', 'electronic', 'tech', 'gadget', 'smart home', 'alexa', 'echo', 'google home', 'fire stick', 'chromecast', 'apple tv', 'roku', 'modem', 'switch', 'network', 'server', 'nas', 'external drive', 'flash drive', 'usb hub', 'power strip', 'ups', 'surge protector'],
   gaming: ['ps5', 'playstation 5', 'playstation 4', 'xbox series', 'xbox one', 'nintendo switch', 'switch oled', 'video game', 'steam deck', 'gaming laptop', 'gaming monitor', 'gaming headset', 'dualsense', 'game disc', 'ps4', 'xbox console', 'controller', 'gamepad', 'joystick', 'gaming pc', 'rtx 40', 'rtx 30', 'geforce rtx'],
@@ -250,6 +252,12 @@ const isRenderableImageUrl = (url?: string | null): boolean => {
   if (lower.includes('no-image-placeholder')) return false;
   if (lower.includes('/v4/p/ccc/')) return false;
   if (lower.includes('images3_pi/2024/01/01/00/')) return false;
+  // Block promotional overlays / badges / branded banners
+  if (lower.includes('vital_health') || lower.includes('vitalhealthy') || lower.includes('vital healthy')) return false;
+  if (lower.includes('promotion') && lower.includes('badge')) return false;
+  // Block tiny icons / logos used as product images
+  const sizeMatch = lower.match(/[\/_](\d+)x(\d+)/);
+  if (sizeMatch && Number(sizeMatch[1]) < 100 && Number(sizeMatch[2]) < 100) return false;
   return true;
 };
 
@@ -398,7 +406,7 @@ export default function ShopHome() {
     { value: 'phones', labelEn: 'Phones', labelFr: 'Téléphones' },
     { value: 'vehicles', labelEn: 'Vehicles', labelFr: 'Véhicules' },
     { value: 'clothing', labelEn: 'Clothes / Fashion', labelFr: 'Mode / Vêtements' },
-    { value: 'electronics', labelEn: 'Computers / Laptops', labelFr: 'Ordinateurs / Laptops' },
+    { value: 'computers', labelEn: 'Computers / Laptops', labelFr: 'Ordinateurs / Laptops' },
   ];
 
   // Fetch distinct providers via RPC for dynamic store dropdown

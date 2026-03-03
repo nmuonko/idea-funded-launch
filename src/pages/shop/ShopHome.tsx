@@ -1369,7 +1369,7 @@ export default function ShopHome() {
           ) : (
             <div className="space-y-6">
 
-              {/* Paste-Link CTA Banner */}
+              {/* Paste-Link CTA Banner with Store Logos */}
               <Link
                 to="/paste-link"
                 className="group relative block overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent p-5 sm:p-6 transition-all hover:border-primary/50 hover:shadow-[0_0_30px_-5px_hsl(var(--primary)/0.3)]"
@@ -1390,6 +1390,24 @@ export default function ShopHome() {
                         ? "Collez le lien depuis un magasin populaire et commandez-le ici"
                         : "Paste the link from a popular store and order it here"}
                     </p>
+                  </div>
+                  {/* Big Store Logos */}
+                  <div className="hidden sm:flex items-center gap-3 flex-shrink-0">
+                    <img
+                      src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg"
+                      alt="Amazon"
+                      className="h-7 opacity-80 group-hover:opacity-100 transition-opacity brightness-0 invert"
+                    />
+                    <img
+                      src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Shein_logo_2017.svg/1024px-Shein_logo_2017.svg.png"
+                      alt="SHEIN"
+                      className="h-5 opacity-80 group-hover:opacity-100 transition-opacity brightness-0 invert"
+                    />
+                    <img
+                      src="https://upload.wikimedia.org/wikipedia/commons/e/e8/Tesla_logo.png"
+                      alt="Tesla"
+                      className="h-6 opacity-80 group-hover:opacity-100 transition-opacity brightness-0 invert"
+                    />
                   </div>
                   <ArrowRight className="h-5 w-5 text-primary flex-shrink-0 group-hover:translate-x-1 transition-transform" />
                 </div>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { ShoppingCart, Check, Loader2, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -31,7 +31,21 @@ export function ProductCard({ product, className, compact = false, coverImage = 
   const { addItem, addToSaved, removeFromSaved, isItemSaved, exchangeRate } = useShopCart();
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
+  const [imgHidden, setImgHidden] = useState(false);
   const { language } = useLanguage();
+
+  // Hide banner-like images (extremely wide/short = seller promo, not product)
+  const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    const { naturalWidth: w, naturalHeight: h } = img;
+    if (w > 0 && h > 0) {
+      const ratio = w / h;
+      // Banner-like: wider than 3:1 or taller than 1:3
+      if (ratio > 3 || ratio < 0.33) setImgHidden(true);
+      // Tiny placeholder icons
+      if (w < 50 && h < 50) setImgHidden(true);
+    }
+  }, []);
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
 
@@ -117,15 +131,24 @@ export function ProductCard({ product, className, compact = false, coverImage = 
         "relative overflow-hidden bg-white rounded-t-xl",
         compact ? "aspect-square" : "aspect-square"
       )}>
-        <img
-          src={resizeImageUrl(product.imageUrl || '/placeholder.svg', IMAGE_SIZE_THUMB)}
-          alt={product.title}
-          className={cn(
-            "w-full h-full object-contain transition-transform duration-200 group-hover:scale-105",
-            compact ? "p-1.5" : "p-2 sm:p-3"
-          )}
-          loading="lazy"
-        />
+        {!imgHidden && (
+          <img
+            src={resizeImageUrl(product.imageUrl || '/placeholder.svg', IMAGE_SIZE_THUMB)}
+            alt={product.title}
+            className={cn(
+              "w-full h-full object-contain transition-transform duration-200 group-hover:scale-105",
+              compact ? "p-1.5" : "p-2 sm:p-3"
+            )}
+            loading="lazy"
+            onLoad={handleImgLoad}
+            onError={() => setImgHidden(true)}
+          />
+        )}
+        {imgHidden && (
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
+            No image
+          </div>
+        )}
         
         {/* Provider Badge — smaller, subtler */}
         <Badge 

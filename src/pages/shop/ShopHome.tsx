@@ -252,9 +252,17 @@ const isRenderableImageUrl = (url?: string | null): boolean => {
   if (lower.includes('no-image-placeholder')) return false;
   if (lower.includes('/v4/p/ccc/')) return false;
   if (lower.includes('images3_pi/2024/01/01/00/')) return false;
-  // Block promotional overlays / badges / branded banners
+  // Block promotional overlays / badges / branded banners / seller branding
   if (lower.includes('vital_health') || lower.includes('vitalhealthy') || lower.includes('vital healthy')) return false;
   if (lower.includes('promotion') && lower.includes('badge')) return false;
+  // Block eBay seller template/promo images (non-product photos)
+  if (lower.includes('i.ebayimg.com') && (
+    lower.includes('/d/') === false && lower.includes('/g/') === false && lower.includes('/s-l') === false
+  )) return false;
+  // Block common seller banner / watermark patterns
+  if (lower.includes('sellerbanner') || lower.includes('seller_banner') || lower.includes('shoplogo')) return false;
+  if (lower.includes('storelogo') || lower.includes('store_logo') || lower.includes('store-logo')) return false;
+  if (lower.includes('brandlogo') || lower.includes('brand_logo') || lower.includes('brand-logo')) return false;
   // Block tiny icons / logos used as product images
   const sizeMatch = lower.match(/[\/_](\d+)x(\d+)/);
   if (sizeMatch && Number(sizeMatch[1]) < 100 && Number(sizeMatch[2]) < 100) return false;

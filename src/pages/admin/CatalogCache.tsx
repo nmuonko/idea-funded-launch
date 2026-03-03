@@ -52,15 +52,20 @@ const defaultFilters: Filters = {
   date_preset: '',
 };
 
-const getAdminProductLink = (item: { provider?: string | null; provider_product_id?: string | null; product_url?: string | null }) => {
+const getAdminProductLinks = (item: { provider?: string | null; provider_product_id?: string | null; product_url?: string | null; title?: string | null }) => {
   const provider = (item.provider || '').toLowerCase();
   const productId = item.provider_product_id || '';
+  const isAmazon = provider === 'amazon' || provider === 'rainforest';
 
-  if ((provider === 'amazon' || provider === 'rainforest') && productId) {
-    return `https://www.amazon.com/dp/${productId}`;
-  }
+  const directUrl = isAmazon && productId
+    ? `https://www.amazon.com/dp/${productId}`
+    : item.product_url || '#';
 
-  return item.product_url || '#';
+  const searchUrl = isAmazon && item.title
+    ? `https://www.amazon.com/s?k=${encodeURIComponent(item.title)}`
+    : null;
+
+  return { directUrl, searchUrl, isAmazon };
 };
 
 async function invokeAdmin(params: Record<string, string>) {
@@ -1157,10 +1162,26 @@ function ItemsTable({ totalCount: parentTotalCount, externalFilter }: { totalCou
                         )}
                       </TableCell>
                       <TableCell className="max-w-[200px]">
-                        <a href={getAdminProductLink(item)} target="_blank" rel="noopener noreferrer" className="text-xs hover:underline line-clamp-2 flex items-start gap-1">
-                          <span className="line-clamp-2">{item.title || '—'}</span>
-                          <ExternalLink className="h-3 w-3 shrink-0 mt-0.5 text-muted-foreground" />
-                        </a>
+                        {(() => {
+                          const links = getAdminProductLinks(item);
+                          return (
+                            <div className="flex items-start gap-1">
+                              <a href={links.directUrl} target="_blank" rel="noopener noreferrer" className="text-xs hover:underline line-clamp-2 flex-1">
+                                {item.title || '—'}
+                              </a>
+                              <div className="flex gap-0.5 shrink-0 mt-0.5">
+                                <a href={links.directUrl} target="_blank" rel="noopener noreferrer" title="Direct link">
+                                  <ExternalLink className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                </a>
+                                {links.searchUrl && (
+                                  <a href={links.searchUrl} target="_blank" rel="noopener noreferrer" title="Search on Amazon (always works)">
+                                    <Search className="h-3 w-3 text-blue-400 hover:text-blue-300" />
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="text-xs">{item.category_key || item.unified_category || '—'}</TableCell>
                       <TableCell><Badge variant="outline" className="text-[10px]">{item.provider}</Badge></TableCell>

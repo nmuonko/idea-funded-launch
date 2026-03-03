@@ -360,6 +360,7 @@ export default function ShopHome() {
 
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
   const [providerFilter, setProviderFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const fetchedRef = useRef(false);
   const [dynamicStores, setDynamicStores] = useState<{ value: string; label: string; count: number }[]>([]);
 
@@ -377,8 +378,19 @@ export default function ShopHome() {
     rainforest: 'Amazon', amazon: 'Amazon', ebay: 'eBay', shein: 'SHEIN',
     carvana: 'Carvana', cargurus: 'CarGurus', walmart: 'Walmart',
     bestbuy: 'Best Buy', macys: "Macy's", homedepot: 'Home Depot',
-    wayfair: 'Wayfair', temu: 'Temu',
+    wayfair: 'Wayfair', temu: 'Temu', ford: 'Ford', toyota: 'Toyota', tesla: 'Tesla',
   };
+
+  // Popular stores to always show even if they have 0 products yet
+  const COMING_SOON_STORES = ['walmart', 'bestbuy', 'macys', 'homedepot', 'wayfair', 'temu', 'ford', 'toyota', 'tesla'];
+
+  // Category filter options
+  const CATEGORY_FILTER_OPTIONS = [
+    { value: 'all', labelEn: 'All Categories', labelFr: 'Toutes catégories' },
+    { value: 'phones', labelEn: 'Phones', labelFr: 'Téléphones' },
+    { value: 'vehicles', labelEn: 'Vehicles', labelFr: 'Véhicules' },
+    { value: 'clothing', labelEn: 'Clothes / Fashion', labelFr: 'Mode / Vêtements' },
+  ];
 
   // Fetch distinct providers via RPC for dynamic store dropdown
   useEffect(() => {
@@ -401,6 +413,19 @@ export default function ShopHome() {
             count,
           }))
           .sort((a, b) => b.count - a.count);
+
+        // Add coming-soon stores that aren't already in the list
+        const existingKeys = new Set(stores.map(s => s.value));
+        for (const storeKey of COMING_SOON_STORES) {
+          if (!existingKeys.has(storeKey)) {
+            stores.push({
+              value: storeKey,
+              label: PROVIDER_DISPLAY[storeKey] || storeKey.charAt(0).toUpperCase() + storeKey.slice(1),
+              count: 0,
+            });
+          }
+        }
+
         setDynamicStores(stores);
       } catch (e) { console.warn('[ShopHome] Failed to fetch providers:', e); }
     })();
@@ -507,6 +532,17 @@ export default function ShopHome() {
       return prov === filterKey || prov === providerFilter;
     });
   }, [providerFilter]);
+
+  /** Client-side category filter helper */
+  const filterByCategory = useCallback((items: Product[]) => {
+    if (!categoryFilter || categoryFilter === 'all') return items;
+    return items.filter(p => isRelevantToCategory(p, categoryFilter));
+  }, [categoryFilter]);
+
+  /** Combined filter: provider + category */
+  const applyFilters = useCallback((items: Product[]) => {
+    return filterByCategory(filterByProvider(items));
+  }, [filterByProvider, filterByCategory]);
 
   // ====== ACCUEIL (trending only) ======
   const fetchAccueilFeed = useCallback(async () => {
@@ -1076,10 +1112,26 @@ export default function ShopHome() {
 
       <main className="pb-8">
         <div className="container mx-auto px-3 sm:px-4">
-          {/* Store Filter - always visible */}
-          <div className="flex justify-end mb-4">
+          {/* Filters Row - Store + Category */}
+          <div className="flex justify-end gap-2 mb-4 flex-wrap">
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-[170px] bg-white/10 border border-white/20 text-white rounded-lg h-10">
+                <SelectValue placeholder={language === 'fr' ? 'Catégorie' : 'Category'} />
+              </SelectTrigger>
+              <SelectContent className="bg-black border border-white/20 z-[9999]">
+                {CATEGORY_FILTER_OPTIONS.map((opt) => (
+                  <SelectItem
+                    key={opt.value}
+                    value={opt.value}
+                    className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
+                  >
+                    {language === 'fr' ? opt.labelFr : opt.labelEn}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={providerFilter} onValueChange={setProviderFilter}>
-              <SelectTrigger className="w-[160px] bg-white/10 border border-white/20 text-white rounded-lg h-10">
+              <SelectTrigger className="w-[180px] bg-white/10 border border-white/20 text-white rounded-lg h-10">
                 <SelectValue placeholder={language === 'fr' ? 'Boutique' : 'Store'} />
               </SelectTrigger>
               <SelectContent className="bg-black border border-white/20 z-[9999]">
@@ -1093,9 +1145,10 @@ export default function ShopHome() {
                   <SelectItem
                     key={opt.value}
                     value={opt.value}
-                    className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
+                    disabled={opt.count === 0}
+                    className={`text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer ${opt.count === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
                   >
-                    {opt.label} ({opt.count.toLocaleString()})
+                    {opt.label} {opt.count > 0 ? `(${opt.count.toLocaleString()})` : (language === 'fr' ? '(bientôt)' : '(coming soon)')}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1123,13 +1176,13 @@ export default function ShopHome() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-white/90">
-                    {PROVIDER_DISPLAY[providerFilter] || providerFilter.charAt(0).toUpperCase() + providerFilter.slice(1)} — {language === 'fr' ? 'Affichage' : 'Showing'} {storeProducts.length.toLocaleString()} {language === 'fr' ? 'sur' : 'of'} {storeTotalCount.toLocaleString()} {language === 'fr' ? 'produits' : 'products'}
+                    {PROVIDER_DISPLAY[providerFilter] || providerFilter.charAt(0).toUpperCase() + providerFilter.slice(1)} — {language === 'fr' ? 'Affichage' : 'Showing'} {filterByCategory(storeProducts).length.toLocaleString()} {language === 'fr' ? 'sur' : 'of'} {storeTotalCount.toLocaleString()} {language === 'fr' ? 'produits' : 'products'}
                   </h2>
                 </div>
                 <SectionBlock
-                  items={storeProducts}
+                  items={filterByCategory(storeProducts)}
                   mode="static-grid"
-                  maxItems={storeProducts.length}
+                  maxItems={filterByCategory(storeProducts).length}
                 />
                 {storeProducts.length < storeTotalCount && (
                   <div className="flex justify-center pt-4">
@@ -1194,10 +1247,10 @@ export default function ShopHome() {
               </Link>
 
               {/* 2) Trending Grid — 16 diverse luxury items */}
-              {filterByProvider(trendingFeed).length > 0 && (
+              {applyFilters(trendingFeed).length > 0 && (
                 <SectionBlock
                   title={language === 'fr' ? 'Tendances' : 'Trending Now'}
-                  items={filterByProvider(trendingFeed)}
+                  items={applyFilters(trendingFeed)}
                   mode="static-grid"
                   seeAllLink="/category/all"
                 />
@@ -1209,7 +1262,7 @@ export default function ShopHome() {
                   <SectionBlock
                     key={catKey}
                     title={getCategoryTitle(catKey, language)}
-                    items={filterByProvider(categoryItems[catKey] ?? [])}
+                    items={applyFilters(categoryItems[catKey] ?? [])}
                     loading={categoryLoadingMap[catKey] === true}
                     mode="grid"
                     categoryKey={catKey}
@@ -1218,7 +1271,7 @@ export default function ShopHome() {
               </div>
 
               {/* 4) Recently Viewed */}
-              {filterByProvider(recentlyViewed).length > 0 && (
+              {applyFilters(recentlyViewed).length > 0 && (
                 <LazySection minHeight={180}>
                   <div className="bg-[#1a1d23] border border-white/[0.08] rounded-2xl p-3 sm:p-4 shadow-md">
                     <div className="flex items-center gap-2 mb-3 px-1">
@@ -1227,7 +1280,7 @@ export default function ShopHome() {
                         {language === 'fr' ? 'Vus récemment' : 'Recently Viewed'}
                       </h2>
                     </div>
-                    <HorizontalProductRow products={filterByProvider(recentlyViewed)} />
+                    <HorizontalProductRow products={applyFilters(recentlyViewed)} />
                   </div>
                 </LazySection>
               )}
@@ -1239,7 +1292,7 @@ export default function ShopHome() {
                     <SectionBlock
                       key={catKey}
                       title={getCategoryTitle(catKey, language)}
-                      items={filterByProvider(categoryItems[catKey] ?? [])}
+                      items={applyFilters(categoryItems[catKey] ?? [])}
                       loading={categoryLoadingMap[catKey] === true}
                       mode="grid"
                       categoryKey={catKey}

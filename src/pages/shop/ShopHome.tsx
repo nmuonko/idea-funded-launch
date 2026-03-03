@@ -1392,8 +1392,8 @@ export default function ShopHome() {
                     </p>
                     <p className="text-sm text-white/60 mt-0.5">
                       {language === 'fr'
-                        ? "Collez le lien d'un produit Amazon, Walmart, SHEIN… et on vous le livre en RDC"
-                        : "Paste a link from Amazon, Walmart, SHEIN… and we deliver to DRC"}
+                        ? "Vous ne trouvez pas ce que vous cherchez ? Cliquez ici"
+                        : "Don't find what you're looking for? Click here"}
                     </p>
                   </div>
                   {/* Big Store Logos */}

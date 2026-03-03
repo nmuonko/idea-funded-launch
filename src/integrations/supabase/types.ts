@@ -3181,6 +3181,7 @@ export type Database = {
           approved_at: string | null
           approved_by: string | null
           carrier: string | null
+          cart_reminder_sent_at: string | null
           cart_version: number
           contains_vehicle: boolean | null
           created_at: string
@@ -3227,6 +3228,7 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           carrier?: string | null
+          cart_reminder_sent_at?: string | null
           cart_version?: number
           contains_vehicle?: boolean | null
           created_at?: string
@@ -3273,6 +3275,7 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           carrier?: string | null
+          cart_reminder_sent_at?: string | null
           cart_version?: number
           contains_vehicle?: boolean | null
           created_at?: string

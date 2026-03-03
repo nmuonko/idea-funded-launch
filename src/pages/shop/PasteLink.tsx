@@ -159,13 +159,13 @@ export default function PasteLink() {
               {isFr ? 'Achetez depuis n\'importe quel site' : 'Shop from any website'}
             </div>
 
-            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2 tracking-tight">
-              {isFr ? 'Un lien. Un prix.' : 'One link. One price.'}
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-3 tracking-tight leading-tight">
+              {isFr ? 'Collez un lien. On livre.' : 'Paste a link. We deliver.'}
             </h2>
-            <p className="text-sm text-white/50 max-w-md mx-auto">
+            <p className="text-base sm:text-lg text-white/70 max-w-lg mx-auto font-medium leading-relaxed">
               {isFr
-                ? 'Collez le lien d\'un produit de n\'importe quel magasin en ligne et recevez instantanément le prix total avec livraison en RDC.'
-                : 'Paste any product link from any online store and instantly get the total price with delivery to DRC.'}
+                ? 'Copiez le lien du produit → Collez-le ici → Recevez le prix livré en RDC.'
+                : 'Copy the product link → Paste it here → Get the price delivered to DRC.'}
             </p>
           </div>
 
@@ -173,11 +173,11 @@ export default function PasteLink() {
           <div className="flex items-center justify-center gap-2 sm:gap-4 mt-6">
             {steps.map((step, i) => (
               <div key={i} className="flex items-center gap-2 sm:gap-3">
-                <div className="flex flex-col items-center gap-1.5">
-                  <div className="w-9 h-9 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
-                    <step.icon className="h-4 w-4 text-primary" />
+                <div className="flex flex-col items-center gap-2">
+                  <div className="w-11 h-11 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
+                    <step.icon className="h-5 w-5 text-primary" />
                   </div>
-                  <span className="text-[10px] sm:text-xs text-white/40 text-center leading-tight max-w-[80px] sm:max-w-[100px]">
+                  <span className="text-xs sm:text-sm text-white/60 font-medium text-center leading-tight max-w-[90px] sm:max-w-[120px]">
                     {step.text}
                   </span>
                 </div>

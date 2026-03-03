@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Link2, Clipboard, Loader2, AlertCircle, ArrowLeft, Sparkles, Globe, Truck } from 'lucide-react';
+import { Link2, Clipboard, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -111,18 +111,6 @@ export default function PasteLink() {
     }
   };
 
-  const steps = isFr
-    ? [
-        { icon: Globe, text: 'Trouvez un produit sur n\'importe quel site' },
-        { icon: Clipboard, text: 'Copiez le lien du produit' },
-        { icon: Truck, text: 'On calcule le prix livré en RDC' },
-      ]
-    : [
-        { icon: Globe, text: 'Find a product on any website' },
-        { icon: Clipboard, text: 'Copy the product link' },
-        { icon: Truck, text: 'We calculate the price delivered to DRC' },
-      ];
-
   return (
     <div className="min-h-screen bg-[#0f1115] pb-24">
       {/* Header */}
@@ -143,51 +131,17 @@ export default function PasteLink() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4">
-        {/* Hero Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="relative mt-6 mb-8"
-        >
-          {/* Glow */}
-          <div className="absolute -top-20 left-1/2 -translate-x-1/2 w-80 h-40 bg-primary/8 rounded-full blur-3xl pointer-events-none" />
-
-          <div className="relative text-center">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-4">
-              <Sparkles className="h-3 w-3" />
-              {isFr ? 'Achetez depuis n\'importe quel site' : 'Shop from any website'}
-            </div>
-
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-3 tracking-tight leading-tight">
-              {isFr ? 'Collez un lien. On livre.' : 'Paste a link. We deliver.'}
-            </h2>
-            <p className="text-base sm:text-lg text-white/70 max-w-lg mx-auto font-medium leading-relaxed">
-              {isFr
-                ? 'Copiez le lien du produit → Collez-le ici → Recevez le prix livré en RDC.'
-                : 'Copy the product link → Paste it here → Get the price delivered to DRC.'}
-            </p>
-          </div>
-
-          {/* Steps */}
-          <div className="flex items-center justify-center gap-2 sm:gap-4 mt-6">
-            {steps.map((step, i) => (
-              <div key={i} className="flex items-center gap-2 sm:gap-3">
-                <div className="flex flex-col items-center gap-2">
-                  <div className="w-11 h-11 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
-                    <step.icon className="h-5 w-5 text-primary" />
-                  </div>
-                  <span className="text-xs sm:text-sm text-white/60 font-medium text-center leading-tight max-w-[90px] sm:max-w-[120px]">
-                    {step.text}
-                  </span>
-                </div>
-                {i < steps.length - 1 && (
-                  <div className="w-6 sm:w-10 h-px bg-white/10 mt-[-18px]" />
-                )}
-              </div>
-            ))}
-          </div>
-        </motion.div>
+        {/* Simple headline — 2 lines max */}
+        <div className="mt-6 mb-5 text-center">
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            {isFr ? 'Collez le lien. On calcule le prix.' : 'Paste the link. We get the price.'}
+          </h2>
+          <p className="text-sm text-white/50 mt-2 max-w-md mx-auto">
+            {isFr
+              ? 'Copiez le lien du produit depuis un magasin ci-dessous, collez-le ici.'
+              : 'Copy the product link from a store below, paste it here.'}
+          </p>
+        </div>
 
         {/* Input Card */}
         <motion.div

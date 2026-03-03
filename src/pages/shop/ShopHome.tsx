@@ -361,6 +361,7 @@ export default function ShopHome() {
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
   const [providerFilter, setProviderFilter] = useState('all');
   const fetchedRef = useRef(false);
+  const [dynamicStores, setDynamicStores] = useState<{ value: string; label: string }[]>([]);
 
   // Store-filtered products (flat grid from DB)
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
@@ -369,6 +370,36 @@ export default function ShopHome() {
 
   // Cache store-filtered results per provider for instant re-display
   const storeProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
+
+  // Fetch distinct providers from catalog_items for dynamic store dropdown
+  useEffect(() => {
+    const PROVIDER_DISPLAY: Record<string, string> = {
+      rainforest: 'Amazon', amazon: 'Amazon', ebay: 'eBay', shein: 'SHEIN',
+      carvana: 'Carvana', cargurus: 'CarGurus', walmart: 'Walmart',
+      bestbuy: 'Best Buy', macys: "Macy's", homedepot: 'Home Depot',
+      wayfair: 'Wayfair', temu: 'Temu',
+    };
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('catalog_items')
+          .select('provider')
+          .eq('is_active', true)
+          .eq('is_disallowed', false)
+          .gt('price_usd', 0)
+          .limit(1000);
+        if (!data) return;
+        const providerSet = new Set(data.map((r: any) => (r.provider || '').toLowerCase()));
+        // Merge rainforest+amazon into one "amazon" entry
+        if (providerSet.has('rainforest')) { providerSet.delete('rainforest'); providerSet.add('amazon'); }
+        const stores = Array.from(providerSet)
+          .filter(p => p && p !== '')
+          .map(p => ({ value: p, label: PROVIDER_DISPLAY[p] || p.charAt(0).toUpperCase() + p.slice(1) }))
+          .sort((a, b) => a.label.localeCompare(b.label));
+        setDynamicStores(stores);
+      } catch (e) { console.warn('[ShopHome] Failed to fetch providers:', e); }
+    })();
+  }, []);
 
   // Fetch all products for a specific store from the DB
   useEffect(() => {
@@ -398,39 +429,26 @@ export default function ShopHome() {
 
     (async () => {
       try {
-        const pageSize = 1000;
-        let from = 0;
-        let totalCount = 0;
-        let allRows: any[] = [];
+        // Cap to 200 items per page — no pagination loop for instant results
+        const PAGE_SIZE = 200;
 
-        while (true) {
-          const isFirstPage = from === 0;
-          const baseQuery = supabase
-            .from('catalog_items')
-            .select(
-              'id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock',
-              isFirstPage ? { count: 'exact' } : undefined
-            )
-            .in('provider', providerKeys)
-            .eq('is_active', true)
-            .eq('is_disallowed', false)
-            .gt('price_usd', 0)
-            .order('first_seen_at', { ascending: false })
-            .range(from, from + pageSize - 1);
+        const { data, error, count } = await supabase
+          .from('catalog_items')
+          .select(
+            'id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock',
+            { count: 'exact' }
+          )
+          .in('provider', providerKeys)
+          .eq('is_active', true)
+          .eq('is_disallowed', false)
+          .gt('price_usd', 0)
+          .order('first_seen_at', { ascending: false })
+          .range(0, PAGE_SIZE - 1);
 
-          const { data, error, count } = await baseQuery;
-          if (error) throw error;
+        if (error) throw error;
 
-          if (isFirstPage) totalCount = count ?? 0;
-
-          const rows = data || [];
-          if (rows.length === 0) break;
-
-          allRows = allRows.concat(rows);
-          from += pageSize;
-
-          if (rows.length < pageSize) break;
-        }
+        const totalCount = count ?? 0;
+        const allRows = data || [];
 
         const mapped = allRows
           .map((item: any): Product | null => {
@@ -1064,14 +1082,13 @@ export default function ShopHome() {
                 <SelectValue placeholder={language === 'fr' ? 'Boutique' : 'Store'} />
               </SelectTrigger>
               <SelectContent className="bg-black border border-white/20 z-[9999]">
-                {[
-                  { value: 'all', label: language === 'fr' ? 'Toutes' : 'All Stores' },
-                  { value: 'amazon', label: 'Amazon' },
-                  { value: 'ebay', label: 'eBay' },
-                  { value: 'shein', label: 'SHEIN' },
-                  { value: 'carvana', label: 'Carvana' },
-                  { value: 'cargurus', label: 'CarGurus' },
-                ].map((opt) => (
+                <SelectItem
+                  value="all"
+                  className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
+                >
+                  {language === 'fr' ? 'Toutes' : 'All Stores'}
+                </SelectItem>
+                {dynamicStores.map((opt) => (
                   <SelectItem
                     key={opt.value}
                     value={opt.value}

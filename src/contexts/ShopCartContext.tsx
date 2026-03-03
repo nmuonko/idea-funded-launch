@@ -508,6 +508,8 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
             productImageUrl: item.imageUrl,
           },
         });
+        // CRITICAL: Remove the local optimistic item BEFORE syncing so server version is sole source of truth
+        setItems(prev => prev.filter(i => i.id !== newItem.id));
       } catch (error) {
         console.error('[CART] Failed to add item to server:', error);
       }

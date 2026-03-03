@@ -674,26 +674,16 @@ export default function ProductDetailsPage() {
                 className="relative w-full aspect-square sm:aspect-[4/3] max-h-[60vh] sm:max-h-[55vh] bg-white/5 rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center p-2 sm:p-4"
                 onClick={() => setLightboxOpen(true)}
               >
-                <AnimatePresence mode="wait">
-                  <motion.img
+                <img
                     key={safeImages[safeImageIndex]}
                     src={resizeImageUrl(safeImages[safeImageIndex] || '/placeholder.svg', IMAGE_SIZE_HERO)}
                     alt={product.title}
                     loading="eager"
                     fetchPriority="high"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
+                    decoding="async"
                     style={{ objectFit: 'contain' }}
                     className="absolute inset-0 w-full h-full !object-contain p-4 sm:p-8"
-                    onLoad={(e) => {
-                      if (import.meta.env.DEV) {
-                        const img = e.currentTarget;
-                        console.log('[HeroImg] objectFit:', getComputedStyle(img).objectFit, img.src.slice(0, 80));
-                      }
-                    }}
                   />
-                </AnimatePresence>
 
                 {safeImages.length > 1 && (
                   <>

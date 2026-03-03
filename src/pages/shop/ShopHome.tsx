@@ -252,20 +252,38 @@ const isRenderableImageUrl = (url?: string | null): boolean => {
   if (lower.includes('no-image-placeholder')) return false;
   if (lower.includes('/v4/p/ccc/')) return false;
   if (lower.includes('images3_pi/2024/01/01/00/')) return false;
-  // Block promotional overlays / badges / branded banners / seller branding
-  if (lower.includes('vital_health') || lower.includes('vitalhealthy') || lower.includes('vital healthy')) return false;
-  if (lower.includes('promotion') && lower.includes('badge')) return false;
+
+  // Aggressive promo/seller-branding cleanup
+  const blockedTokens = [
+    'vital_health', 'vitalhealthy', 'vital healthy',
+    'sellerbanner', 'seller_banner', 'seller-banner',
+    'shoplogo', 'shop_logo', 'shop-logo',
+    'storelogo', 'store_logo', 'store-logo',
+    'brandlogo', 'brand_logo', 'brand-logo',
+    'watermark', 'promo_badge', 'promo-badge', 'promotion-badge',
+    'promobanner', 'promo_banner', 'promo-banner',
+    'header_banner', 'footer_banner', 'hero_banner',
+    'template_banner', 'storefront_banner', 'ad_banner',
+    'sprite', 'icon_only'
+  ];
+  if (blockedTokens.some(token => lower.includes(token))) return false;
+  if (lower.includes('promotion') && (lower.includes('badge') || lower.includes('banner'))) return false;
+
   // Block eBay seller template/promo images (non-product photos)
   if (lower.includes('i.ebayimg.com') && (
     lower.includes('/d/') === false && lower.includes('/g/') === false && lower.includes('/s-l') === false
   )) return false;
-  // Block common seller banner / watermark patterns
-  if (lower.includes('sellerbanner') || lower.includes('seller_banner') || lower.includes('shoplogo')) return false;
-  if (lower.includes('storelogo') || lower.includes('store_logo') || lower.includes('store-logo')) return false;
-  if (lower.includes('brandlogo') || lower.includes('brand_logo') || lower.includes('brand-logo')) return false;
-  // Block tiny icons / logos used as product images
+
+  // Block suspicious aspect ratio hints from URL dimensions
   const sizeMatch = lower.match(/[\/_](\d+)x(\d+)/);
-  if (sizeMatch && Number(sizeMatch[1]) < 100 && Number(sizeMatch[2]) < 100) return false;
+  if (sizeMatch) {
+    const w = Number(sizeMatch[1]);
+    const h = Number(sizeMatch[2]);
+    if (w < 100 && h < 100) return false;
+    const ratio = w / Math.max(h, 1);
+    if (ratio > 2.2 || ratio < 0.45) return false;
+  }
+
   return true;
 };
 

@@ -27,6 +27,27 @@ interface ProductCardProps {
   coverImage?: boolean;
 }
 
+const PROMO_IMAGE_TOKENS = [
+  'vital_health', 'vitalhealthy', 'vital healthy',
+  'sellerbanner', 'seller_banner', 'seller-banner',
+  'shoplogo', 'shop_logo', 'shop-logo',
+  'storelogo', 'store_logo', 'store-logo',
+  'brandlogo', 'brand_logo', 'brand-logo',
+  'watermark', 'promo_badge', 'promo-banner', 'promotion-badge',
+  'header_banner', 'footer_banner', 'hero_banner', 'template_banner',
+  'ad_banner', 'sprite', 'icon_only'
+];
+
+function isLikelyPromotionalImageUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  if (PROMO_IMAGE_TOKENS.some(token => lower.includes(token))) return true;
+  if (lower.includes('promotion') && (lower.includes('badge') || lower.includes('banner'))) return true;
+  if (lower.includes('i.ebayimg.com') && (
+    lower.includes('/d/') === false && lower.includes('/g/') === false && lower.includes('/s-l') === false
+  )) return true;
+  return false;
+}
+
 export function ProductCard({ product, className, compact = false, coverImage = false }: ProductCardProps) {
   const { addItem, addToSaved, removeFromSaved, isItemSaved, exchangeRate } = useShopCart();
   const [adding, setAdding] = useState(false);
@@ -34,22 +55,34 @@ export function ProductCard({ product, className, compact = false, coverImage = 
   const [imgHidden, setImgHidden] = useState(false);
   const { language } = useLanguage();
 
-  // Hide banner-like images (extremely wide/short = seller promo, not product)
+  // Hide banner-like / promo-like images by shape and minimum quality
   const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     const { naturalWidth: w, naturalHeight: h } = img;
     if (w > 0 && h > 0) {
       const ratio = w / h;
-      // Banner-like: wider than 3:1 or taller than 1:3
-      if (ratio > 3 || ratio < 0.33) setImgHidden(true);
-      // Tiny placeholder icons
-      if (w < 50 && h < 50) setImgHidden(true);
+      // More aggressive anti-banner thresholds
+      if (ratio > 1.9 || ratio < 0.5) {
+        setImgHidden(true);
+        return;
+      }
+      // Tiny placeholders/icons
+      if ((w < 80 && h < 80) || Math.min(w, h) < 70) {
+        setImgHidden(true);
+        return;
+      }
+      // Very wide/short strips or very tall/narrow strips
+      if ((w >= 900 && h <= 320) || (h >= 900 && w <= 320)) {
+        setImgHidden(true);
+      }
     }
   }, []);
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
 
   const isSaved = isItemSaved(product.id, product.provider);
+  const imageSrc = resizeImageUrl(product.imageUrl || '/placeholder.svg', IMAGE_SIZE_THUMB);
+  const blockedByUrl = isLikelyPromotionalImageUrl(imageSrc);
 
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -131,9 +164,9 @@ export function ProductCard({ product, className, compact = false, coverImage = 
         "relative overflow-hidden bg-white rounded-t-xl",
         compact ? "aspect-square" : "aspect-square"
       )}>
-        {!imgHidden && (
+        {!imgHidden && !blockedByUrl && (
           <img
-            src={resizeImageUrl(product.imageUrl || '/placeholder.svg', IMAGE_SIZE_THUMB)}
+            src={imageSrc}
             alt={product.title}
             className={cn(
               "w-full h-full object-contain transition-transform duration-200 group-hover:scale-105",
@@ -144,7 +177,7 @@ export function ProductCard({ product, className, compact = false, coverImage = 
             onError={() => setImgHidden(true)}
           />
         )}
-        {imgHidden && (
+        {(imgHidden || blockedByUrl) && (
           <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
             No image
           </div>

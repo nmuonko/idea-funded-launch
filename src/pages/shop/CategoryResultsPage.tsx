@@ -10,8 +10,10 @@ import { Button } from '@/components/ui/button';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { isRenderableImageUrl } from '@/lib/imageValidation';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { supabase } from '@/integrations/supabase/client';
 
 const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
+  all: { fr: 'Toutes les catégories', en: 'All Categories' },
   phones: { fr: 'Téléphones', en: 'Phones' },
   electronics: { fr: 'Électronique', en: 'Electronics' },
   gaming: { fr: 'Jeux Vidéo', en: 'Gaming' },
@@ -106,6 +108,38 @@ export default function CategoryResultsPage() {
     return !PARTS_PHONE_JUNK.some(junk => t.includes(junk));
   };
 
+  // Direct DB fetch for "all" category
+  const fetchAllFromDb = useCallback(async (offset: number): Promise<Product[]> => {
+    console.log('[CategoryPage] fetching ALL from DB, offset', offset);
+    const PAGE = 200;
+    const { data, error } = await supabase
+      .from('catalog_items')
+      .select('id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock')
+      .eq('is_active', true)
+      .eq('is_disallowed', false)
+      .gt('price_usd', 0)
+      .order('popularity_score', { ascending: false, nullsFirst: false })
+      .range(offset, offset + PAGE - 1);
+
+    if (error) {
+      console.error('[CategoryPage] DB error:', error);
+      exhaustedRef.current = true;
+      return [];
+    }
+
+    if (!data || data.length < PAGE) {
+      exhaustedRef.current = true;
+    }
+
+    const items = (data || [])
+      .map((item: any) => mapItem(item))
+      .filter(p => p.id && p.imageUrl && p.priceUsd > 0 && !seenIdsRef.current.has(p.id));
+
+    items.forEach(p => seenIdsRef.current.add(p.id));
+    console.log('[CategoryPage] DB fetched:', items.length, 'new items');
+    return items;
+  }, []);
+
   const fetchPage = useCallback(async (cursor: string | null): Promise<Product[]> => {
     console.log('[CategoryPage] fetching cursor', cursor, 'for', categoryKey);
     const params: Record<string, unknown> = {
@@ -139,6 +173,9 @@ export default function CategoryResultsPage() {
     return items;
   }, [categoryKey, language]);
 
+  // Track DB offset for "all" pagination
+  const dbOffsetRef = useRef(0);
+
   // Initial load — two-phase: show first batch immediately, load rest in background
   useEffect(() => {
     let cancelled = false;
@@ -147,15 +184,22 @@ export default function CategoryResultsPage() {
     seenIdsRef.current.clear();
     cursorRef.current = null;
     exhaustedRef.current = false;
+    dbOffsetRef.current = 0;
     setVisibleCount(VISIBLE_STEP);
     setLoadProgress(0);
 
     (async () => {
       // Phase 1: Fetch first page and show immediately
-      const firstBatch = await fetchPage(null);
+      let firstBatch: Product[];
+      if (categoryKey === 'all') {
+        firstBatch = await fetchAllFromDb(0);
+        dbOffsetRef.current = 200;
+      } else {
+        firstBatch = await fetchPage(null);
+      }
       if (cancelled) return;
       setProducts(firstBatch);
-      setLoading(false); // Products visible NOW (~2 seconds)
+      setLoading(false);
       setLoadProgress(firstBatch.length);
 
       if (firstBatch.length === 0 || exhaustedRef.current) return;
@@ -166,7 +210,13 @@ export default function CategoryResultsPage() {
       let emptyStreak = 0;
 
       while (totalAccumulated < POOL_TARGET && !exhaustedRef.current && requestCount < 10) {
-        const items = await fetchPage(cursorRef.current);
+        let items: Product[];
+        if (categoryKey === 'all') {
+          items = await fetchAllFromDb(dbOffsetRef.current);
+          dbOffsetRef.current += 200;
+        } else {
+          items = await fetchPage(cursorRef.current);
+        }
         if (cancelled) return;
         if (items.length === 0) {
           emptyStreak++;
@@ -174,7 +224,7 @@ export default function CategoryResultsPage() {
         } else {
           emptyStreak = 0;
           totalAccumulated += items.length;
-          setProducts(prev => [...prev, ...items]); // Live append
+          setProducts(prev => [...prev, ...items]);
           setLoadProgress(totalAccumulated);
         }
         requestCount++;
@@ -182,7 +232,7 @@ export default function CategoryResultsPage() {
     })();
 
     return () => { cancelled = true; };
-  }, [categoryKey, fetchPage]);
+  }, [categoryKey, fetchPage, fetchAllFromDb]);
 
   const handleShowMore = () => {
     const nextVisible = visibleCount + VISIBLE_STEP;
@@ -191,7 +241,10 @@ export default function CategoryResultsPage() {
     // If we're nearing the end of the pool and not exhausted, fetch more
     if (nextVisible >= products.length - VISIBLE_STEP && !exhaustedRef.current && !loadingMore) {
       setLoadingMore(true);
-      fetchPage(cursorRef.current).then(items => {
+      const fetchMore = categoryKey === 'all'
+        ? fetchAllFromDb(dbOffsetRef.current).then(items => { dbOffsetRef.current += 200; return items; })
+        : fetchPage(cursorRef.current);
+      fetchMore.then(items => {
         setProducts(prev => [...prev, ...items]);
         setLoadingMore(false);
       }).catch(() => setLoadingMore(false));

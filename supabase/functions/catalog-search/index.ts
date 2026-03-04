@@ -1456,7 +1456,7 @@ Deno.serve(async (req: Request) => {
       (amazonDone && !!amazonError) || (ebayDone && !!ebayError);
     
     // ─── FIX: Safe maxPages computation (never undefined) ─────────────────────
-    const HARD_MAX_ITEMS = 500;
+    const HARD_MAX_ITEMS = 1000;
     const maxPages = Math.max(1, Math.ceil(HARD_MAX_ITEMS / limit));
 
     // Per-provider hasMore

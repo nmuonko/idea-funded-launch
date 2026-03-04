@@ -1,44 +1,29 @@
 
 
-## Suggested Improvements for Image/Content Filtering
+## Plan: Increase Mobile Search & Category Result Limits
 
-The current implementation covers the major layers (ingestion, serving, frontend) well. Here are remaining gaps and improvements:
+### Problem
+Three backend endpoints cap results too low for the mobile app:
 
-### Backend Improvements
+1. **`catalog-category`** — `DEFAULT_LIMIT = 36`, `MAX_LIMIT = 100`. Mobile browsing a category (vehicles, electronics) gets at most 100 items per page.
+2. **`catalog-collection`** — `pageSize` default 20, max 40 (`Math.min(40, ...)`). Category collection grids return only 20-40 items.
+3. **`catalog-search`** — Already at `DEFAULT_LIMIT = 200`, `MAX_LIMIT = 200`. This is fine.
 
-1. **Sync blocked patterns between frontend and backend validators**
-   - `src/lib/imageValidation.ts` has tokens the backend `supabase/functions/_shared/imageValidator.ts` lacks (e.g., `promo_badge`, `promo-badge`, `promotion-badge`, `shop_logo`, `shop-logo`, `store_logo`, `store-logo`, `brand_logo`, `brand-logo`, `no-image-placeholder`, `/v4/p/ccc/`, `images3_pi/2024/01/01/00/`, `site-cars/merchandising`, `_thumbnail_126x`, `.html` check, `http` prefix check)
-   - Backend is missing the `promotion + badge/banner` combo check
-   - Backend is missing the `.html` extension block
-   - **Action**: Add all missing patterns from frontend to `imageValidator.ts`
+The mobile app config (`mobile-public-config`) already sets `categoryPageSize: 200`, but the actual endpoints enforce lower caps, so the client never gets more than 36-100 items.
 
-2. **Run a broader DB purge**
-   - The original SQL purge only targeted obvious keywords. Run a more comprehensive pass using the full blocked-token list, including eBay non-standard paths
-   - Also null out URLs ending in `.html`
-   - **Action**: Execute an expanded UPDATE statement
+### Changes
 
-3. **Add `catalog-product` single-item endpoint filtering**
-   - `supabase/functions/catalog-product/index.ts` has its own `isLikelyRealImage` function that's now outdated relative to the shared `imageValidator.ts`
-   - **Action**: Replace `isLikelyRealImage` with `isValidProductImageUrl` from the shared module
+#### 1. `supabase/functions/catalog-category/index.ts`
+- Change `DEFAULT_LIMIT` from `36` → `200`
+- Change `MAX_LIMIT` from `100` → `200`
 
-### Frontend Improvements
+#### 2. `supabase/functions/catalog-collection/index.ts`  
+- Change the pageSize cap from `Math.min(40, ...)` → `Math.min(200, ...)`
+- Change default from `"20"` → `"200"`
 
-4. **Remove duplicate validation in `ProductCard.tsx`**
-   - `ProductCard` has its own `isLikelyPromotionalImageUrl` with `PROMO_IMAGE_TOKENS` (lines 30-49) that duplicates `isRenderableImageUrl` from `src/lib/imageValidation.ts`
-   - **Action**: Replace `isLikelyPromotionalImageUrl` in `ProductCard` with `isRenderableImageUrl` from the shared module to keep one source of truth
-
-5. **Tighten `isValidProduct` to also check `isRenderableImageUrl`**
-   - Currently `isValidProduct` (line 247) only checks `p.imageUrl` is truthy — an invalid URL that somehow got through mapping would still pass
-   - **Action**: Change to `const isValidProduct = (p: Product) => p.id && p.priceUsd > 0 && p.imageUrl && isRenderableImageUrl(p.imageUrl);`
-
-6. **Show placeholder instead of hiding in category grids**
-   - Per the user's preference, products with no valid image should show a placeholder rather than being hidden. Currently `isValidProduct` filters them out entirely (including in category grids)
-   - **Action**: In category grid paths, remove the `imageUrl` requirement from the filter and let `ProductCard`'s existing "No image" placeholder render
+These two changes align all browsing endpoints with `catalog-search`'s 200-item limit and the mobile config's `categoryPageSize: 200`.
 
 ### Files to Modify
-- `supabase/functions/_shared/imageValidator.ts` — sync all missing patterns from frontend
-- `supabase/functions/catalog-product/index.ts` — replace `isLikelyRealImage` with shared validator
-- `src/components/shop/ProductCard.tsx` — replace `isLikelyPromotionalImageUrl` with shared `isRenderableImageUrl`
-- `src/pages/shop/ShopHome.tsx` — strengthen `isValidProduct`, adjust placeholder behavior
-- Database: run expanded purge SQL
+- `supabase/functions/catalog-category/index.ts` (lines 63-64)
+- `supabase/functions/catalog-collection/index.ts` (line 624)
 

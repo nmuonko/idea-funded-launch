@@ -1,29 +1,44 @@
 
 
-## Problem Analysis
+## Suggested Improvements for Image/Content Filtering
 
-Two related issues:
+The current implementation covers the major layers (ingestion, serving, frontend) well. Here are remaining gaps and improvements:
 
-1. **Stale localStorage cache**: ALL categories are marked as "slow" (line 178), so cached results from localStorage are shown directly (line 794-796) **without re-validating** through `filterForCategory` or `isRenderableImageUrl`. Old cached data from before the filtering improvements still contains misclassified items (e.g., Kindle Paperwhite in Audio & Music) and items with bad images.
+### Backend Improvements
 
-2. **Amazon small/icon images passing through**: The frontend `isRenderableImageUrl` checks `(\d+)x(\d+)` in URLs but doesn't check Amazon's `_SLnn_` dimension pattern (e.g., `_SL75_`). Tiny Amazon thumbnails slip through. The server-side `imageValidator.ts` already handles `_SL(\d+)_` but the client-side copy doesn't.
+1. **Sync blocked patterns between frontend and backend validators**
+   - `src/lib/imageValidation.ts` has tokens the backend `supabase/functions/_shared/imageValidator.ts` lacks (e.g., `promo_badge`, `promo-badge`, `promotion-badge`, `shop_logo`, `shop-logo`, `store_logo`, `store-logo`, `brand_logo`, `brand-logo`, `no-image-placeholder`, `/v4/p/ccc/`, `images3_pi/2024/01/01/00/`, `site-cars/merchandising`, `_thumbnail_126x`, `.html` check, `http` prefix check)
+   - Backend is missing the `promotion + badge/banner` combo check
+   - Backend is missing the `.html` extension block
+   - **Action**: Add all missing patterns from frontend to `imageValidator.ts`
 
-3. **Exclude list gaps**: The `audio_music` exclude list doesn't include common non-audio terms like `'kindle'`, `'e-reader'`, `'ebook'`, `'paperwhite'`, `'tablet'` (wait, `'tablet'` is already there). Need to add `'kindle'` and `'e-reader'`.
+2. **Run a broader DB purge**
+   - The original SQL purge only targeted obvious keywords. Run a more comprehensive pass using the full blocked-token list, including eBay non-standard paths
+   - Also null out URLs ending in `.html`
+   - **Action**: Execute an expanded UPDATE statement
 
-## Implementation Plan
+3. **Add `catalog-product` single-item endpoint filtering**
+   - `supabase/functions/catalog-product/index.ts` has its own `isLikelyRealImage` function that's now outdated relative to the shared `imageValidator.ts`
+   - **Action**: Replace `isLikelyRealImage` with `isValidProductImageUrl` from the shared module
 
-### Step 1: Re-validate cached results before displaying
-In `ShopHome.tsx` around line 794-796, when loading from localStorage cache, run the cached items through `isRenderableImageUrl` and `filterForCategory` before displaying. This ensures stale items with bad images or wrong categories are purged on next load.
+### Frontend Improvements
 
-### Step 2: Add Amazon `_SL` dimension check to frontend `isRenderableImageUrl`
-Add a check for Amazon's `_SLnn_` URL pattern (matching the server-side `imageValidator.ts` logic). Block images where `_SL` dimension is < 80px.
+4. **Remove duplicate validation in `ProductCard.tsx`**
+   - `ProductCard` has its own `isLikelyPromotionalImageUrl` with `PROMO_IMAGE_TOKENS` (lines 30-49) that duplicates `isRenderableImageUrl` from `src/lib/imageValidation.ts`
+   - **Action**: Replace `isLikelyPromotionalImageUrl` in `ProductCard` with `isRenderableImageUrl` from the shared module to keep one source of truth
 
-### Step 3: Expand `audio_music` exclude keywords
-Add `'kindle'`, `'e-reader'`, `'ebook'`, `'paperwhite'`, `'reader'` to the `CATEGORY_EXCLUDE_KEYWORDS.audio_music` list.
+5. **Tighten `isValidProduct` to also check `isRenderableImageUrl`**
+   - Currently `isValidProduct` (line 247) only checks `p.imageUrl` is truthy — an invalid URL that somehow got through mapping would still pass
+   - **Action**: Change to `const isValidProduct = (p: Product) => p.id && p.priceUsd > 0 && p.imageUrl && isRenderableImageUrl(p.imageUrl);`
 
-### Step 4: Bust stale localStorage cache
-Increment the cache key prefix or add a version suffix (e.g., `afrishop_curated_v2:`) so all old cached data is ignored and re-fetched with the new filters applied.
+6. **Show placeholder instead of hiding in category grids**
+   - Per the user's preference, products with no valid image should show a placeholder rather than being hidden. Currently `isValidProduct` filters them out entirely (including in category grids)
+   - **Action**: In category grid paths, remove the `imageUrl` requirement from the filter and let `ProductCard`'s existing "No image" placeholder render
 
-### File to modify
-- `src/pages/shop/ShopHome.tsx`
+### Files to Modify
+- `supabase/functions/_shared/imageValidator.ts` — sync all missing patterns from frontend
+- `supabase/functions/catalog-product/index.ts` — replace `isLikelyRealImage` with shared validator
+- `src/components/shop/ProductCard.tsx` — replace `isLikelyPromotionalImageUrl` with shared `isRenderableImageUrl`
+- `src/pages/shop/ShopHome.tsx` — strengthen `isValidProduct`, adjust placeholder behavior
+- Database: run expanded purge SQL
 

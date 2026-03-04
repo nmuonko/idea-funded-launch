@@ -234,6 +234,29 @@ function extractSheinImage(html: string): string | null {
     return goodsMatch[1];
   }
   
+  // SHEIN CDN product images (ltwebstatic.com with items/ or product/ paths)
+  // This catches images from Firecrawl-rendered HTML where class names may differ
+  const cdnPatterns = [
+    // img tag with ltwebstatic product image src
+    /<img[^>]*src=["'](https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^"'\s]+)["']/i,
+    // Any ltwebstatic product image URL in attributes (data-src, srcset, etc.)
+    /(?:src|data-src|srcset)=["'](https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^"'\s]+)["']/i,
+  ];
+  for (const pat of cdnPatterns) {
+    const m = html.match(pat);
+    if (m && m[1] && !/thumbnail/i.test(m[1]) && !/banner/i.test(m[1]) && !/logo/i.test(m[1])) {
+      console.log('[SHEIN_IMAGE] Found SHEIN CDN product image');
+      return m[1];
+    }
+  }
+  
+  // Try any img with ltwebstatic src (broader fallback)
+  const anyLtwebMatch = html.match(/<img[^>]*src=["'](https?:\/\/img\.ltwebstatic\.com\/[^"'\s]+)["']/i);
+  if (anyLtwebMatch && anyLtwebMatch[1] && !/logo/i.test(anyLtwebMatch[1]) && !/banner/i.test(anyLtwebMatch[1])) {
+    console.log('[SHEIN_IMAGE] Found ltwebstatic image (broad)');
+    return anyLtwebMatch[1];
+  }
+  
   return null;
 }
 
@@ -251,9 +274,10 @@ async function scrapeViaFirecrawl(url: string, domain: string): Promise<{ imageU
     console.log('[FIRECRAWL] Attempting scrape for:', domain, url.substring(0, 60));
     
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), domain.includes('shein') ? 25000 : 8000);
     
     try {
+      const isShein = domain.includes('shein');
       const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
         method: 'POST',
         headers: {
@@ -263,8 +287,8 @@ async function scrapeViaFirecrawl(url: string, domain: string): Promise<{ imageU
         body: JSON.stringify({
           url,
           formats: ['markdown', 'html'],
-          onlyMainContent: true,
-          waitFor: 2000,
+          onlyMainContent: !isShein, // SHEIN needs full page to find product images
+          waitFor: isShein ? 8000 : 2000,
         }),
         signal: controller.signal,
       });
@@ -1572,10 +1596,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-    );
+    const supabaseClient = createAdminClient();
 
     const body = await req.json();
 

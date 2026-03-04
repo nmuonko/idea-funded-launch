@@ -1,0 +1,1 @@
+UPDATE public.amazon_ingest_queue SET status = 'queued', updated_at = now() WHERE status = 'pending' AND updated_at < now() - interval '1 day';

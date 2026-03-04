@@ -1,44 +1,32 @@
 
 
-## Plan: Fix Recently Viewed Duplicates, Clean Images, and Wire All Stores to Firecrawl
+## Issues Identified
 
-### Issues Identified
+### 1. Audio & Music showing ad/banner images instead of product photos
+The `audio_music` category follows the **standard path** (line 1094) which fetches from `catalog-home` and `catalog-search`. The `isRenderableImageUrl` filter on the client side catches many bad images, but the real problem is upstream: the `search_catalog_items_ranked` RPC and the recipe builder fetch items from `catalog_items` without filtering out promotional/banner images at the DB level. Items with banner-like `image_url` values pass through because the builder only checks `!imageUrl` (null), not image quality. The client-side `mapItemToProduct` (line 201) copies `image_url` directly without running it through `isRenderableImageUrl`.
 
-1. **Recently Viewed Duplicates**: The `updateLocalStorage` in `src/lib/recentlyViewed.ts` correctly deduplicates by `product_id + provider`. However, the DB query in `getRecentlyViewed` (line 87-106) does NOT deduplicate — if the same product appears with slightly different `store_id` formats or if localStorage and DB results overlap, duplicates can show. Also, the `useRecentlyViewed.ts` hook (a separate, older implementation) writes to the same localStorage key but with a different data shape, potentially causing conflicts.
+**Fix**: Apply `isRenderableImageUrl` filtering in the `mapItemToProduct` and `mapSearchItemToProduct` helpers so that products with banner/ad images are excluded before they reach the grid. Also add the same filtering in the `filterForCategory` pipeline for the standard category path.
 
-2. **Image Quality**: ProductCard already has promotional image filtering but needs tighter aspect-ratio thresholds and better fallback handling for broken/missing images.
+### 2. Homepage products all from eBay — no Amazon mix
+The `accueilProducts` feed comes from `catalog-home` (line 693), which uses `buildWebHomepage`. This builder queries `search_catalog_items_ranked` RPC, which searches across ALL providers in `catalog_items`. However, the RPC uses `pg_trgm` similarity ranking, and if eBay items dominate the database for certain seed queries, they'll rank higher. The real issue is that `search_catalog_items_ranked` doesn't enforce provider diversity. With 13k+ Amazon products now in the DB, they should appear but may be stored under provider `'rainforest'` rather than `'amazon'`, which could affect relevance scoring.
 
-3. **Firecrawl for All Stores**: Currently `get-product-info` only uses Firecrawl as a fallback for **Amazon** (line 1362). All other stores (Walmart, SHEIN, Target, Best Buy, etc.) fall through to a basic proxy OG-image extractor when blocked. Need to generalize the Firecrawl fallback to all non-eBay stores.
+**Fix**: In the `trendingFeed` memo (line 1166) and the standard category path, add provider-diversity logic that interleaves Amazon/rainforest products with eBay products. Also, for the standard category search fallback path, ensure the DB queries don't filter out Amazon items by adding `'rainforest'` and `'amazon'` explicitly.
+
+### 3. Vehicles showing only 2 instead of 4
+The vehicles path (line 825) runs 4 exact queries sequentially. If 2 of the 4 queries return no valid matches from `catalog-search`, only 2 items appear. The queries are very specific (e.g., "2026 Tesla Model Y Long Range", "2025 GMC Yukon XL AT4 Ultimate 4WD Lifted Vossens") and may not match any items in the catalog. There's no fallback to broader vehicle queries when exact matches fail.
+
+**Fix**: Add a fallback after the exact queries: if `items.length < 4`, run broader vehicle queries (e.g., "Tesla SUV", "GMC Yukon", "Ford Explorer", "Hyundai Santa Fe") using `searchVehicles()` to fill remaining slots.
 
 ---
 
-### Changes
+## Implementation Plan
 
-#### 1. Fix Recently Viewed Deduplication (`src/lib/recentlyViewed.ts`)
-- In `getRecentlyViewed()`, add a deduplication step after fetching from DB — filter by unique `store_id` to prevent duplicates.
-- In `trackRecentlyViewed()`, normalize the product ID before building the `storeId` key (trim whitespace, lowercase provider) to prevent near-duplicate entries like `amazon:B09XYZ` vs `Amazon:B09XYZ`.
+### Step 1: Fix image filtering in product mappers
+In `ShopHome.tsx`, update `mapItemToProduct` and `mapSearchItemToProduct` to run image URLs through `isRenderableImageUrl`, returning empty `imageUrl` for bad images. Then ensure `isValidProduct` catches these (it already checks `p.imageUrl`).
 
-#### 2. Clean Product Images (`src/components/shop/ProductCard.tsx`)
-- Tighten the `handleImgLoad` aspect ratio check — hide images wider than 2:1 or taller than 1:2 (banners/sidebars).
-- Add a visible "No image" placeholder when image is hidden or fails to load, so cards don't appear broken.
-- Expand `PROMO_IMAGE_TOKENS` with additional known bad patterns.
+### Step 2: Add provider diversity to trending feed and standard categories
+In the `trendingFeed` memo, after collecting items, interleave so that consecutive items aren't all from the same provider. In the standard category path, ensure Amazon (`rainforest`) products are included by not accidentally filtering them.
 
-#### 3. Wire All Stores to Firecrawl (`supabase/functions/get-product-info/index.ts`)
-- Generalize the existing `scrapeAmazonViaFirecrawl` function into a `scrapeViaFirecrawl(url, domain)` function that works for any store.
-- After the retry-with-enhanced-headers block (line 1360), instead of checking `isAmazon`, check `!isEbay` — so all stores except eBay get the Firecrawl fallback when direct scraping fails.
-- Extract images/titles from the Firecrawl response using existing store-specific extractors (Walmart, SHEIN, Target, etc.) plus generic OG/meta fallbacks.
-
-### Technical Details
-
-```text
-scrapeProduct(url)
-  ├─ Amazon mobile fetch → retry → Firecrawl fallback (existing)
-  ├─ Other stores fetch → retry → NEW: Firecrawl fallback (all except eBay)
-  └─ eBay fetch → retry → proxy OG fallback (unchanged)
-```
-
-**Files to modify:**
-- `src/lib/recentlyViewed.ts` — dedup on read + normalize keys
-- `src/components/shop/ProductCard.tsx` — tighter image filtering
-- `supabase/functions/get-product-info/index.ts` — generalize Firecrawl fallback to all non-eBay stores
+### Step 3: Add vehicle query fallback
+After the exact vehicle queries loop (line 867), if `items.length < 4`, run broader queries using the existing `searchVehicles` helper with fallback queries like `"Tesla Model Y"`, `"GMC Yukon SUV"`, `"Ford Explorer SUV"`, `"Hyundai Santa Fe"` to fill remaining slots.
 

@@ -1404,42 +1404,41 @@ export default function ShopHome() {
           ) : (
             <div className="space-y-6">
 
-              {/* Paste-Link CTA Banner with Store Logos */}
-               <Link
+              {/* Paste-Link CTA Banner */}
+              <Link
                 to="/paste-link"
-                className="group relative block overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent p-3 sm:p-5 transition-all hover:border-primary/50 hover:shadow-[0_0_30px_-5px_hsl(var(--primary)/0.3)]"
+                className="group relative block overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent p-4 sm:p-5 transition-all hover:border-primary/50 hover:shadow-[0_0_30px_-5px_hsl(var(--primary)/0.3)]"
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="relative space-y-2.5 sm:space-y-3">
-                  <div className="flex items-center gap-3 sm:gap-4">
-                    <div className="flex-shrink-0 flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary/20 border border-primary/30 group-hover:bg-primary/30 transition-colors">
-                      <Link2 className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm sm:text-lg font-bold text-white leading-tight">
-                        {language === 'fr'
-                          ? "Achetez depuis nos magasins américains"
-                          : "Shop from our American stores"}
-                      </p>
-                      <p className="text-xs sm:text-sm text-white/60 mt-0.5 truncate">
-                        {language === 'fr'
-                          ? "Vous ne trouvez pas ce que vous cherchez ? Cliquez ici"
-                          : "Don't find what you're looking for? Click here"}
-                      </p>
-                    </div>
-                    <span className="inline-flex items-center gap-1 sm:gap-1.5 bg-white/10 border border-white/20 rounded-full px-2 sm:px-3 py-1 flex-shrink-0">
-                      <img src="/images/flags/us.png" alt="USA" className="h-3.5 w-5 sm:h-4 sm:w-6 object-cover rounded-sm" />
-                      <span className="text-white/70 text-xs">→</span>
-                      <img src="/images/flags/cd.png" alt="RDC" className="h-3.5 w-5 sm:h-4 sm:w-6 object-cover rounded-sm" />
-                    </span>
-                    <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 text-primary flex-shrink-0 group-hover:translate-x-1 transition-transform" />
+                <div className="relative flex items-center gap-3 sm:gap-4">
+                  {/* Icon */}
+                  <div className="flex-shrink-0 flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary/20 border border-primary/30 group-hover:bg-primary/30 transition-colors">
+                    <Link2 className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
                   </div>
-                  {/* Store Logos — visible on all sizes */}
-                  <div className="flex items-center justify-center gap-4 sm:gap-6 pt-1 border-t border-white/10">
-                    <img src="/images/logos/amazon.svg" alt="Amazon" className="h-4 sm:h-6 w-auto max-w-[90px] sm:max-w-[150px] object-contain opacity-70 group-hover:opacity-100 transition-opacity" />
-                    <img src="/images/logos/shein-white.svg" alt="SHEIN" className="h-3.5 sm:h-5 w-auto object-contain opacity-70 group-hover:opacity-100 transition-opacity" />
-                    <img src="/images/logos/tesla-official.png" alt="Tesla" className="h-5 sm:h-8 w-auto object-contain opacity-70 group-hover:opacity-100 transition-opacity" />
+
+                  {/* Text + logos inline */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm sm:text-lg font-bold text-white leading-tight truncate">
+                        {language === 'fr'
+                          ? "Achetez depuis les USA"
+                          : "Shop from the USA"}
+                      </p>
+                      <span className="inline-flex items-center gap-1 bg-white/10 border border-white/20 rounded-full px-1.5 sm:px-2.5 py-0.5 flex-shrink-0">
+                        <img src="/images/flags/us.png" alt="USA" className="h-3 w-4 sm:h-3.5 sm:w-5 object-cover rounded-sm" />
+                        <span className="text-white/50 text-[10px]">→</span>
+                        <img src="/images/flags/cd.png" alt="RDC" className="h-3 w-4 sm:h-3.5 sm:w-5 object-cover rounded-sm" />
+                      </span>
+                    </div>
+                    {/* Store logos as inline chips */}
+                    <div className="flex items-center gap-3 sm:gap-4 mt-1.5">
+                      <img src="/images/logos/amazon.svg" alt="Amazon" className="h-3.5 sm:h-5 w-auto max-w-[70px] sm:max-w-[120px] object-contain opacity-60 group-hover:opacity-90 transition-opacity" />
+                      <img src="/images/logos/shein-white.svg" alt="SHEIN" className="h-3 sm:h-4 w-auto object-contain opacity-60 group-hover:opacity-90 transition-opacity" />
+                      <img src="/images/logos/tesla-official.png" alt="Tesla" className="h-4 sm:h-6 w-auto object-contain opacity-60 group-hover:opacity-90 transition-opacity" />
+                    </div>
                   </div>
+
+                  <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 text-primary flex-shrink-0 group-hover:translate-x-1 transition-transform" />
                 </div>
               </Link>
 

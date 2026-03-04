@@ -1,29 +1,26 @@
 
 
-## Plan: Increase Mobile Search & Category Result Limits
+## Diagnosis: Stripe Webhook Returning 401 (Invalid Signature)
 
-### Problem
-Three backend endpoints cap results too low for the mobile app:
+### What I Found
 
-1. **`catalog-category`** — `DEFAULT_LIMIT = 36`, `MAX_LIMIT = 100`. Mobile browsing a category (vehicles, electronics) gets at most 100 items per page.
-2. **`catalog-collection`** — `pageSize` default 20, max 40 (`Math.min(40, ...)`). Category collection grids return only 20-40 items.
-3. **`catalog-search`** — Already at `DEFAULT_LIMIT = 200`, `MAX_LIMIT = 200`. This is fine.
+The `payments-webhook` edge function **is deployed and responding** -- I tested it and got back `HTTP 401: {"success":false,"error":"Invalid signature"}`. This is exactly the error Stripe is seeing with all 15 failed attempts.
 
-The mobile app config (`mobile-public-config`) already sets `categoryPageSize: 200`, but the actual endpoints enforce lower caps, so the client never gets more than 36-100 items.
+The signature verification code in `stripeAdapter.ts` is technically correct (standard HMAC-SHA256 with timestamp tolerance). The function, CORS headers, and routing all work fine. The problem is that the **`STRIPE_WEBHOOK_SECRET` stored in your secrets does not match the signing secret for this webhook endpoint in Stripe**.
 
-### Changes
+This typically happens when:
+- The webhook endpoint was created (or re-created) in the Stripe Dashboard, generating a new signing secret (`whsec_...`), but the old value is still stored in your project secrets
+- Or the secret was set for test mode but the webhook is firing in live mode (or vice versa)
 
-#### 1. `supabase/functions/catalog-category/index.ts`
-- Change `DEFAULT_LIMIT` from `36` → `200`
-- Change `MAX_LIMIT` from `100` → `200`
+### Plan
 
-#### 2. `supabase/functions/catalog-collection/index.ts`  
-- Change the pageSize cap from `Math.min(40, ...)` → `Math.min(200, ...)`
-- Change default from `"20"` → `"200"`
+1. **Update `STRIPE_WEBHOOK_SECRET`** -- You need to go to your Stripe Dashboard → Developers → Webhooks → click the endpoint `https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/payments-webhook/stripe` → reveal the Signing Secret (`whsec_...`) → then I'll update it in the project secrets using the `add_secret` tool.
 
-These two changes align all browsing endpoints with `catalog-search`'s 200-item limit and the mobile config's `categoryPageSize: 200`.
+2. **Redeploy the function** after updating the secret to ensure it picks up the new value.
 
-### Files to Modify
-- `supabase/functions/catalog-category/index.ts` (lines 63-64)
-- `supabase/functions/catalog-collection/index.ts` (line 624)
+3. **Test the webhook** using the curl tool to confirm it returns 200.
+
+### What You Need To Do
+
+Please go to your **Stripe Dashboard → Developers → Webhooks**, click on the failing endpoint, and copy the **Signing secret** (starts with `whsec_`). Share it with me and I will update it in your project secrets.
 

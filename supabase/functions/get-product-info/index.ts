@@ -238,9 +238,9 @@ function extractSheinImage(html: string): string | null {
 }
 
 /**
- * Scrape Amazon product via Firecrawl as a premium fallback
+ * Scrape any product page via Firecrawl as a premium fallback (all stores except eBay)
  */
-async function scrapeAmazonViaFirecrawl(url: string): Promise<{ imageUrl: string | null; title: string | null }> {
+async function scrapeViaFirecrawl(url: string, domain: string): Promise<{ imageUrl: string | null; title: string | null }> {
   const firecrawlApiKey = Deno.env.get('FIRECRAWL_API_KEY');
   if (!firecrawlApiKey) {
     console.log('[FIRECRAWL] No API key configured, skipping');
@@ -248,7 +248,7 @@ async function scrapeAmazonViaFirecrawl(url: string): Promise<{ imageUrl: string
   }
   
   try {
-    console.log('[FIRECRAWL] Attempting Amazon scrape for:', url.substring(0, 60));
+    console.log('[FIRECRAWL] Attempting scrape for:', domain, url.substring(0, 60));
     
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
@@ -264,7 +264,7 @@ async function scrapeAmazonViaFirecrawl(url: string): Promise<{ imageUrl: string
           url,
           formats: ['markdown', 'html'],
           onlyMainContent: true,
-          waitFor: 2000, // Wait for dynamic content
+          waitFor: 2000,
         }),
         signal: controller.signal,
       });
@@ -284,20 +284,50 @@ async function scrapeAmazonViaFirecrawl(url: string): Promise<{ imageUrl: string
       const html = data.data?.html || '';
       const metadata = data.data?.metadata || {};
       
-      // Try to extract image from the scraped HTML
-      let imageUrl = extractAmazonImageFromJson(html);
+      // Try store-specific extractors first based on domain
+      let imageUrl: string | null = null;
+      
+      if (domain.includes('amazon.com')) {
+        imageUrl = extractAmazonImageFromJson(html);
+      } else if (domain.includes('walmart.com')) {
+        imageUrl = extractWalmartImage(html);
+      } else if (domain.includes('target.com')) {
+        imageUrl = extractTargetImage(html);
+      } else if (domain.includes('shein.com')) {
+        imageUrl = extractSheinImage(html);
+      }
+      
+      // Generic fallback: og:image from metadata
       if (!imageUrl) {
-        // Try og:image from metadata
         imageUrl = metadata.ogImage || null;
         if (imageUrl && isBlockedImageUrl(imageUrl)) {
           imageUrl = null;
         }
       }
       
-      // Try to extract title
-      let title = extractAmazonTitle(html) || metadata.title || null;
-      if (title && (title.toLowerCase() === 'product' || title.toLowerCase().includes('amazon.com'))) {
-        title = null;
+      // Try generic og:image from HTML
+      if (!imageUrl) {
+        const ogMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ||
+                         html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
+        if (ogMatch && ogMatch[1] && !isBlockedImageUrl(ogMatch[1])) {
+          imageUrl = ogMatch[1];
+        }
+      }
+      
+      // Extract title: store-specific then generic
+      let title: string | null = null;
+      if (domain.includes('amazon.com')) {
+        title = extractAmazonTitle(html);
+      }
+      if (!title) {
+        title = metadata.title || null;
+      }
+      // Clean generic/useless titles
+      if (title) {
+        const lower = title.toLowerCase();
+        if (lower === 'product' || lower.includes('access denied') || lower.includes('robot')) {
+          title = null;
+        }
       }
       
       console.log('[FIRECRAWL] Result:', { hasImage: !!imageUrl, hasTitle: !!title });
@@ -315,6 +345,9 @@ async function scrapeAmazonViaFirecrawl(url: string): Promise<{ imageUrl: string
     return { imageUrl: null, title: null };
   }
 }
+
+/** @deprecated Use scrapeViaFirecrawl instead */
+const scrapeAmazonViaFirecrawl = (url: string) => scrapeViaFirecrawl(url, 'amazon.com');
 
 // Allowed domains for SSRF prevention
 const ALLOWED_DOMAINS = [
@@ -1359,19 +1392,20 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
       }
     }
 
-    // AMAZON-SPECIFIC: Try Firecrawl as premium fallback
-    if (isAmazon && (!fetchSucceeded || wasBotBlocked)) {
-      console.log('[AMAZON_SCRAPE] Trying Firecrawl fallback...');
-      const firecrawlResult = await scrapeAmazonViaFirecrawl(url);
+    // ALL STORES EXCEPT EBAY: Try Firecrawl as premium fallback
+    const isEbay = domain.includes('ebay.com');
+    if (!isEbay && (!fetchSucceeded || wasBotBlocked)) {
+      console.log('[FIRECRAWL_FALLBACK] Trying Firecrawl for:', domain);
+      const firecrawlResult = await scrapeViaFirecrawl(url, domain);
       
       if (firecrawlResult.imageUrl || firecrawlResult.title) {
-        console.log('[AMAZON_SCRAPE] Firecrawl succeeded:', { hasImage: !!firecrawlResult.imageUrl, hasTitle: !!firecrawlResult.title });
+        console.log('[FIRECRAWL_FALLBACK] Succeeded:', { hasImage: !!firecrawlResult.imageUrl, hasTitle: !!firecrawlResult.title });
         return {
           title: firecrawlResult.title,
           imageUrl: firecrawlResult.imageUrl,
-          price: null, // Price still requires WebView for Amazon
+          price: null,
           currency: 'USD',
-          source: 'bot_blocked', // Mark for WebView price extraction
+          source: 'bot_blocked',
         };
       }
     }

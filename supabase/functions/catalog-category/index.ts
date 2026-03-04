@@ -60,8 +60,8 @@ import {
 } from "../_shared/sortFilterNormalizer.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
-const DEFAULT_LIMIT = 36;
-const MAX_LIMIT = 100;
+const DEFAULT_LIMIT = 200;
+const MAX_LIMIT = 200;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

@@ -621,7 +621,7 @@ Deno.serve(async (req: Request) => {
     || "electronics_trending";
   const provider = url.searchParams.get("provider") || "ebay";
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-  const pageSize = Math.min(40, Math.max(1, parseInt(url.searchParams.get("pageSize") || "20", 10)));
+  const pageSize = Math.min(200, Math.max(1, parseInt(url.searchParams.get("pageSize") || "200", 10)));
   const envHeader = req.headers.get("x-afrishop-environment") || url.searchParams.get("env") || "production";
   const mode = url.searchParams.get("mode") || "db";
 

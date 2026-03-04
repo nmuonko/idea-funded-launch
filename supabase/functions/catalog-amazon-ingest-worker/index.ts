@@ -530,16 +530,21 @@ Deno.serve(async (req: Request) => {
 
   // ─── PHASE 2: Seed queries (up to 30, if budget allows) ─────────
   if (!budgetDenied) {
-    // Smart rotation: read last seed index from admin_settings
+    // Smart rotation: read last seed index + page from admin_settings
     let seedOffset = 0;
-    const { data: seedIndexRow } = await supabase
+    let seedPage = 1;
+    const MAX_SEED_PAGE = 5;
+
+    const { data: seedSettings } = await supabase
       .from("admin_settings")
-      .select("value")
-      .eq("key", "amazon_seed_last_index")
-      .maybeSingle();
-    
-    if (seedIndexRow?.value) {
-      seedOffset = parseInt(seedIndexRow.value, 10) || 0;
+      .select("key, value")
+      .in("key", ["amazon_seed_last_index", "amazon_seed_page"]);
+
+    if (seedSettings) {
+      for (const row of seedSettings) {
+        if (row.key === "amazon_seed_last_index") seedOffset = parseInt(row.value, 10) || 0;
+        if (row.key === "amazon_seed_page") seedPage = parseInt(row.value, 10) || 1;
+      }
     }
 
     const SEEDS_PER_RUN = 30;
@@ -550,11 +555,22 @@ Deno.serve(async (req: Request) => {
       seedsToProcess.push(AMAZON_CONGO_SEEDS[idx]);
     }
 
-    // Persist next offset for the next run
+    // Calculate next offset and page rotation
     const nextOffset = (seedOffset + SEEDS_PER_RUN) % AMAZON_CONGO_SEEDS.length;
+    // When we wrap around to the beginning, advance to next page
+    const wrappedAround = nextOffset < seedOffset;
+    let nextPage = wrappedAround ? seedPage + 1 : seedPage;
+    if (nextPage > MAX_SEED_PAGE) nextPage = 1; // Reset to page 1 after page 5
+
+    const now = new Date().toISOString();
     await supabase
       .from("admin_settings")
-      .upsert({ key: "amazon_seed_last_index", value: String(nextOffset), updated_at: new Date().toISOString() }, { onConflict: "key" });
+      .upsert([
+        { key: "amazon_seed_last_index", value: String(nextOffset), updated_at: now },
+        { key: "amazon_seed_page", value: String(nextPage), updated_at: now },
+      ], { onConflict: "key" });
+
+    console.log(`[AMAZON_INGEST] Seeding ${seedsToProcess.length} queries, page=${seedPage}, offset=${seedOffset}→${nextOffset}, nextPage=${nextPage}`);
 
     for (const seed of seedsToProcess) {
       const gate = await checkDualBudget(supabase, settings, requestId);
@@ -565,7 +581,7 @@ Deno.serve(async (req: Request) => {
       }
 
       try {
-        const result = await searchRainforest(seed.query, 1, 20, "amazon.com");
+        const result = await searchRainforest(seed.query, seedPage, 20, "amazon.com");
         await incrementDualBudget(supabase, settings, requestId);
 
         if (!result.error && result.products.length > 0) {

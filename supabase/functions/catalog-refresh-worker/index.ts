@@ -1171,65 +1171,73 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
 
 // ─── Link Check Mode ─────────────────────────────────────────────────────────
 
+// Providers that can be validated via direct HTTP GET on product_url
+const HTTP_CHECK_PROVIDERS = ["shein", "carvana", "cargurus", "macys", "bestbuy", "walmart", "homedepot", "mercari"];
+
+// Patterns in page title/h1 indicating sold/unavailable items
+const SOLD_OUT_PATTERNS = [
+  "sold out", "out of stock", "no longer available", "item not found",
+  "this listing has ended", "page not found", "currently unavailable",
+  "discontinued", "removed", "does not exist", "we couldn't find",
+];
+
 async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number, categoryKey?: string) {
   console.log(`[WORKER] === LINK CHECK MODE === batch=${batchSize} category=${categoryKey || "all"}`);
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+  const baseFilter = (q: any) => {
+    q = q.eq("is_active", true)
+      .or(`last_checked_at.is.null,last_checked_at.lt.${sevenDaysAgo}`)
+      .order("last_checked_at", { ascending: true, nullsFirst: true });
+    if (categoryKey) q = q.eq("category_key", categoryKey);
+    return q;
+  };
 
-  // --- Phase 1: eBay link check ---
-  let ebayQuery = supabase
-    .from("catalog_items")
-    .select("id, provider, provider_product_id, fail_count, category_key, price_usd")
-    .eq("is_active", true)
-    .eq("provider", "ebay")
-    .or(`last_checked_at.is.null,last_checked_at.lt.${sevenDaysAgo}`)
-    .order("last_checked_at", { ascending: true, nullsFirst: true })
-    .limit(batchSize);
+  // --- Phase 1: eBay ---
+  const { data: ebayItems } = await baseFilter(
+    supabase.from("catalog_items")
+      .select("id, provider, provider_product_id, fail_count, category_key, price_usd, product_url")
+      .eq("provider", "ebay")
+  ).limit(batchSize);
 
-  if (categoryKey) {
-    ebayQuery = ebayQuery.eq("category_key", categoryKey);
-  }
+  // --- Phase 2: Amazon/Rainforest ---
+  const amazonBatch = Math.min(batchSize, 30);
+  const { data: amazonItems } = await baseFilter(
+    supabase.from("catalog_items")
+      .select("id, provider, provider_product_id, fail_count, category_key, price_usd, title, product_url")
+      .in("provider", ["amazon", "rainforest"])
+  ).limit(amazonBatch);
 
-  const { data: ebayItems } = await ebayQuery;
-  
-  // --- Phase 2: Amazon link check (oldest-checked first) ---
-  const amazonBatch = Math.min(batchSize, 30); // conserve Rainforest API budget
-  let amazonQuery = supabase
-    .from("catalog_items")
-    .select("id, provider, provider_product_id, fail_count, category_key, price_usd, title")
-    .eq("is_active", true)
-    .in("provider", ["amazon", "rainforest"])
-    .or(`last_checked_at.is.null,last_checked_at.lt.${sevenDaysAgo}`)
-    .order("last_checked_at", { ascending: true, nullsFirst: true })
-    .limit(amazonBatch);
+  // --- Phase 3: Scraped providers (SHEIN, Carvana, CarGurus, etc.) ---
+  const scrapedBatch = Math.min(batchSize, 50);
+  const { data: scrapedItems } = await baseFilter(
+    supabase.from("catalog_items")
+      .select("id, provider, provider_product_id, fail_count, category_key, price_usd, product_url, title")
+      .in("provider", HTTP_CHECK_PROVIDERS)
+      .not("product_url", "is", null)
+  ).limit(scrapedBatch);
 
-  if (categoryKey) {
-    amazonQuery = amazonQuery.eq("category_key", categoryKey);
-  }
-
-  const { data: amazonItems } = await amazonQuery;
-
-  const allItems = [...(ebayItems || []), ...(amazonItems || [])];
+  const allItems = [...(ebayItems || []), ...(amazonItems || []), ...(scrapedItems || [])];
   if (!allItems.length) {
     console.log("[WORKER] Link check: no items to check");
-    return { checked: 0, active: 0, deactivated: 0, errors: 0, priceUpdates: 0, ebay: 0, amazon: 0 };
+    return { checked: 0, active: 0, deactivated: 0, errors: 0, priceUpdates: 0, ebay: 0, amazon: 0, scraped: 0 };
   }
 
-  console.log(`[WORKER] Link check: ${ebayItems?.length || 0} eBay + ${amazonItems?.length || 0} Amazon items`);
+  console.log(`[WORKER] Link check: ${ebayItems?.length || 0} eBay + ${amazonItems?.length || 0} Amazon + ${scrapedItems?.length || 0} scraped`);
   const env = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
   const now = new Date().toISOString();
   let checked = 0, active = 0, deactivated = 0, errors = 0, priceUpdates = 0;
-  let ebayChecked = 0, amazonChecked = 0;
+  let ebayChecked = 0, amazonChecked = 0, scrapedChecked = 0;
 
   for (const item of allItems) {
     const isAmazon = item.provider === "amazon" || item.provider === "rainforest";
+    const isScraped = HTTP_CHECK_PROVIDERS.includes(item.provider);
 
     try {
       if (isAmazon) {
         // --- Amazon: use Rainforest product lookup ---
         const asin = extractAsin(item.provider_product_id);
         if (!asin) {
-          // No valid ASIN — soft-deactivate after fail threshold
           const failCount = (item.fail_count || 0) + 1;
           await supabase.from("catalog_items").update({
             fail_count: failCount,
@@ -1260,14 +1268,13 @@ async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number,
           deactivated++;
         } else if (res.status === 429 || res.status === 402) {
           console.warn(`[WORKER] Link check: Rainforest ${res.status}, stopping Amazon checks`);
-          break;
+          continue;
         } else if (res.ok) {
           const body = await res.json().catch(() => null);
           const product = body?.product;
 
-          // Check if item is actually unavailable / sold out
           const availability = (product?.buybox_winner?.availability?.raw || "").toLowerCase();
-          const isSold = !product || 
+          const isSold = !product ||
             availability.includes("currently unavailable") ||
             availability.includes("out of stock") ||
             (!product.buybox_winner && !product.price);
@@ -1276,7 +1283,6 @@ async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number,
             await handleFailedItem(supabase, item, now, "sold_out");
             if ((item.fail_count || 0) + 1 >= DEACTIVATE_FAIL_THRESHOLD) deactivated++;
           } else {
-            // Product is alive — sync price
             const updateFields: Record<string, unknown> = {
               fail_count: 0,
               last_checked_at: now,
@@ -1303,8 +1309,39 @@ async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number,
           errors++;
         }
 
-        // Rainforest API rate limit — 1.5s delay between calls
         await new Promise(r => setTimeout(r, 1500));
+
+      } else if (isScraped) {
+        // --- Scraped providers: HTTP GET check on product_url ---
+        if (!item.product_url) {
+          await handleFailedItem(supabase, item, now, "missing_url");
+          if ((item.fail_count || 0) + 1 >= DEACTIVATE_FAIL_THRESHOLD) deactivated++;
+          checked++;
+          scrapedChecked++;
+          continue;
+        }
+
+        const checkResult = await checkProductUrlAlive(item.product_url);
+        checked++;
+        scrapedChecked++;
+
+        if (checkResult.dead) {
+          await handleFailedItem(supabase, item, now, checkResult.reason || "dead_link");
+          if ((item.fail_count || 0) + 1 >= DEACTIVATE_FAIL_THRESHOLD) {
+            deactivated++;
+            console.log(`[WORKER] Deactivated ${item.provider} item ${item.id}: ${checkResult.reason}`);
+          }
+        } else {
+          await supabase.from("catalog_items").update({
+            fail_count: 0,
+            last_checked_at: now,
+            status_reason: "active",
+            updated_at: now,
+          }).eq("id", item.id);
+          active++;
+        }
+
+        await new Promise(r => setTimeout(r, 800));
 
       } else {
         // --- eBay: existing logic ---
@@ -1365,21 +1402,88 @@ async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number,
     }
   }
 
-  const result = { checked, active, deactivated, errors, priceUpdates, ebay: ebayChecked, amazon: amazonChecked };
+  const result = { checked, active, deactivated, errors, priceUpdates, ebay: ebayChecked, amazon: amazonChecked, scraped: scrapedChecked };
   console.log("[WORKER] Link check complete:", JSON.stringify(result));
   return result;
 }
 
-/** Extract ASIN from provider_product_id (could be raw ASIN or a URL like /dp/B0...) */
+/**
+ * Check if a product URL is alive by fetching it and inspecting the response.
+ * Uses GET to detect sold-out pages that return 200 with "sold out" in title/h1.
+ */
+async function checkProductUrlAlive(url: string): Promise<{ dead: boolean; reason?: string }> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; AfriShopBot/1.0; +https://afrishop.co)",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    // Hard 404/410
+    if (res.status === 404 || res.status === 410) {
+      return { dead: true, reason: `http_${res.status}` };
+    }
+
+    // Server error — transient, don't count as dead
+    if (res.status >= 500) {
+      return { dead: false };
+    }
+
+    // Check for redirect to homepage (common for removed products)
+    const finalUrl = res.url || url;
+    try {
+      const originalHost = new URL(url).hostname;
+      const finalParsed = new URL(finalUrl);
+      if (finalParsed.hostname === originalHost && (finalParsed.pathname === "/" || finalParsed.pathname === "")) {
+        return { dead: true, reason: "redirected_to_homepage" };
+      }
+    } catch { /* ignore URL parse errors */ }
+
+    // For 200 responses, check body for sold-out indicators in title/h1
+    if (res.ok) {
+      const reader = res.body?.getReader();
+      if (reader) {
+        const { value } = await reader.read();
+        reader.cancel();
+        if (value) {
+          const text = new TextDecoder().decode(value).toLowerCase().slice(0, 10000);
+          const titleMatch = text.match(/<title[^>]*>(.*?)<\/title>/);
+          const h1Match = text.match(/<h1[^>]*>(.*?)<\/h1>/);
+          const mainText = ((titleMatch?.[1] || "") + " " + (h1Match?.[1] || "")).toLowerCase();
+          for (const pattern of SOLD_OUT_PATTERNS) {
+            if (mainText.includes(pattern)) {
+              return { dead: true, reason: `body_${pattern.replace(/\s+/g, "_")}` };
+            }
+          }
+        }
+      }
+    }
+
+    return { dead: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("dns") || msg.includes("ENOTFOUND") || msg.includes("ECONNREFUSED")) {
+      return { dead: true, reason: "dns_failure" };
+    }
+    return { dead: false };
+  }
+}
+
+/** Extract ASIN from provider_product_id */
 function extractAsin(providerProductId: string): string | null {
   if (!providerProductId) return null;
-  // If it looks like a plain ASIN (10 alphanumeric chars)
   const cleaned = providerProductId.trim();
   if (/^[A-Z0-9]{10}$/i.test(cleaned)) return cleaned.toUpperCase();
-  // Try to extract from URL pattern /dp/ASIN
   const match = cleaned.match(/\/dp\/([A-Z0-9]{10})/i);
   if (match) return match[1].toUpperCase();
-  // Try ASIN= pattern  
   const match2 = cleaned.match(/asin[=:]([A-Z0-9]{10})/i);
   if (match2) return match2[1].toUpperCase();
   return cleaned.length >= 5 ? cleaned.toUpperCase() : null;

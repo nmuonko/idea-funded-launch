@@ -103,7 +103,7 @@ const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
   parts_accessories: ['iphone', 'samsung galaxy', 'macbook', 'laptop', 'ps5', 'playstation', 'xbox', 'nintendo', 'sofa', 'bed', 'dress', 'shirt', 'perfume', 'makeup', 'tablet', 'airpods', 'headphones', 'speaker', 'cologne', 'screen protector', 'tempered glass', 'phone', 'samsung'],
   beauty_health: ['sofa', 'bed', 'mattress', 'iphone', 'ps5', 'laptop', 'console', 'brake pad', 'car part', 'cable', 'charger', 'camera', 'lens', 'xbox', 'nintendo', 'playstation', 'phone', 'samsung', 'case', 'protector', 'computer', 'tablet', 'gaming'],
   collectibles: ['sofa', 'bed', 'mattress', 'iphone', 'laptop', 'ps5', 'brake pad', 'oil filter', 'charger', 'cable', 'perfume', 'cologne'],
-  audio_music: ['ps5', 'playstation', 'xbox', 'nintendo', 'console', 'controller', 'game disc', 'gaming chair', 'cooling fan', 'video game', 'case', 'cover', 'protector', 'screen protector', 'tempered glass', 'mount', 'holder', 'stand', 'adapter', 'replacement', 'spare', 'repair', 'car gps', 'carplay', 'android auto', 'dash cam', 'phone case', 'sofa', 'bed', 'mattress', 'furniture', 'dress', 'shirt', 'brake pad', 'oil filter', 'perfume', 'cologne', 'makeup', 'phone', 'iphone', 'samsung', 'laptop', 'tablet', 'camera', 'lens'],
+  audio_music: ['ps5', 'playstation', 'xbox', 'nintendo', 'console', 'controller', 'game disc', 'gaming chair', 'cooling fan', 'video game', 'case', 'cover', 'protector', 'screen protector', 'tempered glass', 'mount', 'holder', 'stand', 'adapter', 'replacement', 'spare', 'repair', 'car gps', 'carplay', 'android auto', 'dash cam', 'phone case', 'sofa', 'bed', 'mattress', 'furniture', 'dress', 'shirt', 'brake pad', 'oil filter', 'perfume', 'cologne', 'makeup', 'phone', 'iphone', 'samsung', 'laptop', 'tablet', 'camera', 'lens', 'kindle', 'e-reader', 'ebook', 'paperwhite', 'reader'],
   shoes_sneakers: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'bed', 'mattress', 'phone case', 'charger', 'cable', 'lego', 'toy', 'car part', 'brake pad', 'console', 'gaming', 'perfume', 'cologne'],
   cameras_photo: ['sofa', 'bed', 'mattress', 'phone case', 'dress', 'shirt', 'lego', 'car part', 'charger cable', 'ps5', 'playstation', 'xbox', 'console', 'brake pad', 'oil filter', 'perfume', 'cologne', 'carplay', 'stereo', 'makeup', 'iphone', 'samsung galaxy', 'laptop', 'macbook', 'gaming', 'alienware', 'msi', 'dell', 'lenovo', 'asus', 'acer', 'hp pavilion', 'tablet', 'ipad', 'android', 'smartphone', 'phone', 'cellphone'],
   refurbished: [],
@@ -179,7 +179,7 @@ const SLOW_CATEGORIES = new Set(ALL_HOMEPAGE_CATEGORIES);
 
 function getCachedCategoryResult(catKey: string): Product[] | null {
   try {
-    const raw = localStorage.getItem(`afrishop_curated:${catKey}`);
+    const raw = localStorage.getItem(`afrishop_curated_v2:${catKey}`);
     if (!raw) return null;
     const { items, ts } = JSON.parse(raw);
     if (Date.now() - ts > CURATED_CACHE_TTL_MS) return null;
@@ -191,7 +191,7 @@ function getCachedCategoryResult(catKey: string): Product[] | null {
 function setCachedCategoryResult(catKey: string, items: Product[]) {
   try {
     if (items.length > 0) {
-      localStorage.setItem(`afrishop_curated:${catKey}`, JSON.stringify({ items, ts: Date.now() }));
+      localStorage.setItem(`afrishop_curated_v2:${catKey}`, JSON.stringify({ items, ts: Date.now() }));
     }
   } catch { /* quota exceeded, ignore */ }
 }
@@ -289,6 +289,10 @@ const isRenderableImageUrl = (url?: string | null): boolean => {
     const ratio = w / Math.max(h, 1);
     if (ratio > 2.2 || ratio < 0.45) return false;
   }
+
+  // Block Amazon tiny thumbnails (e.g. _SL75_, _SL50_)
+  const amazonSlMatch = lower.match(/_sl(\d+)[_.\-]/i);
+  if (amazonSlMatch && parseInt(amazonSlMatch[1], 10) < 80) return false;
 
   return true;
 };
@@ -793,9 +797,16 @@ export default function ShopHome() {
       if (SLOW_CATEGORIES.has(catKey)) {
         const cached = getCachedCategoryResult(catKey);
         if (cached) {
-          setCategoryItems(prev => ({ ...prev, [catKey]: cached }));
-          setCategoryLoadingMap(prev => ({ ...prev, [catKey]: false }));
-          backgroundRefresh = true; // still run pipeline to refresh cache silently
+          // Re-validate cached items: filter out stale misclassified or bad-image products
+          const validated = filterForCategory(
+            cached.filter(p => p.imageUrl && isRenderableImageUrl(p.imageUrl)),
+            catKey
+          );
+          if (validated.length > 0) {
+            setCategoryItems(prev => ({ ...prev, [catKey]: validated }));
+            setCategoryLoadingMap(prev => ({ ...prev, [catKey]: false }));
+            backgroundRefresh = true;
+          }
         }
       }
 

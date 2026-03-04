@@ -7,7 +7,7 @@ export function bustStaleCache(): void {
     const stored = localStorage.getItem(BUILD_KEY);
     if (stored === __BUILD_VERSION__) return;
 
-    const prefixes = ['afrishop_cache:', 'afrishop_curated:'];
+    const prefixes = ['afrishop_cache:', 'afrishop_curated:', 'afrishop_curated_v2:'];
     const exactKeys = ['afrishop_recent_searches', 'afrishop_recently_viewed'];
 
     const toRemove: string[] = [];

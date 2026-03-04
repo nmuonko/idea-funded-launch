@@ -8,6 +8,7 @@ import { ShopFooter } from '@/components/shop/ShopFooter';
 import { ProductCard, Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
+import { isRenderableImageUrl } from '@/lib/imageValidation';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
@@ -78,16 +79,19 @@ export default function CategoryResultsPage() {
   const cursorRef = useRef<string | null>(null);
   const exhaustedRef = useRef(false);
 
-  const mapItem = (item: CategoryItem): Product => ({
-    id: item.providerProductId || item.provider_product_id || item.id || '',
-    provider: item.provider || 'amazon',
-    title: item.title || 'Product',
-    imageUrl: item.mainImageUrl || item.image_url || item.imageUrl || '',
-    priceUsd: item.price_usd || item.priceUsd || 0,
-    rating: item.rating,
-    inStock: (item.in_stock ?? item.inStock) !== false,
-    productUrl: item.productUrl || item.product_url,
-  });
+  const mapItem = (item: CategoryItem): Product => {
+    const rawImage = item.mainImageUrl || item.image_url || item.imageUrl || '';
+    return {
+      id: item.providerProductId || item.provider_product_id || item.id || '',
+      provider: item.provider || 'amazon',
+      title: item.title || 'Product',
+      imageUrl: isRenderableImageUrl(rawImage) ? rawImage : '',
+      priceUsd: item.price_usd || item.priceUsd || 0,
+      rating: item.rating,
+      inStock: (item.in_stock ?? item.inStock) !== false,
+      productUrl: item.productUrl || item.product_url,
+    };
+  };
 
   // Filter out phone accessories from Pièces Auto results
   const PARTS_PHONE_JUNK = [

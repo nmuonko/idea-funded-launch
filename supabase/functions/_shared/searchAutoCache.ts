@@ -6,6 +6,8 @@
  * Never blocks the response.
  */
 
+import { sanitizeImageUrl } from "./imageValidator.ts";
+
 /**
  * Sanitize Amazon product URLs — convert sspa/click redirects to clean /dp/ASIN format
  */
@@ -97,7 +99,7 @@ export async function autoCacheLiveResults(
       provider: item.provider,
       provider_product_id: providerProductId,
       title: item.title,
-      image_url: mainImage,
+      image_url: sanitizeImageUrl(mainImage),
       images: imagesArray.length > 0 ? imagesArray : (mainImage ? [mainImage] : []),
       product_url: sanitizeAmazonUrl(item.provider, providerProductId, item.productUrl || item.product_url || ""),
       price_usd: item.priceUsd || item.price_usd,

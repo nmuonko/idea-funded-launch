@@ -14,6 +14,7 @@ type SupabaseClientAny = any;
 
 import { filterDisallowedItems } from "./contentBlocker.ts";
 import { getTtlPolicy, TtlPolicy } from "./ttlPolicy.ts";
+import { isValidProductImageUrl } from "./imageValidator.ts";
 
 export interface DbFirstParams {
   supabase: SupabaseClientAny;
@@ -63,15 +64,18 @@ const EXPANSION_SYNONYMS: Record<string, string[]> = {
   "pants": ["pantalon", "trousers"],
 };
 
-function mapDbItem(item: Record<string, unknown>, categoryKey: string | null): Record<string, unknown> {
+function mapDbItem(item: Record<string, unknown>, categoryKey: string | null): Record<string, unknown> | null {
+  const rawImage = item.image_url as string | null;
+  const imageUrl = rawImage && isValidProductImageUrl(rawImage) ? rawImage : null;
+  if (!imageUrl) return null; // Skip items with banner/ad images
   return {
     id: item.external_id || item.id,
     title: item.title,
     priceUsd: item.price_usd,
     price_usd: item.price_usd,
     currency: item.currency || "USD",
-    imageUrl: item.image_url,
-    image_url: item.image_url,
+    imageUrl,
+    image_url: imageUrl,
     productUrl: item.product_url,
     product_url: item.product_url,
     provider: item.provider,
@@ -112,7 +116,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
   console.log(`[CATALOG_SEARCH] requestId=${requestId} db_tier_A q="${qNorm}" tokens=${JSON.stringify(topTokens)} count=${tierACount} minRequired=${DB_MIN_RESULTS}`);
 
   if (tierACount >= DB_MIN_RESULTS) {
-    const mapped = tierAItems.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey));
+    const mapped = tierAItems.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey)).filter(Boolean);
     const { allowed } = filterDisallowedItems(
       mapped.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
       `[DB_TIER_A] requestId=${requestId}`
@@ -132,7 +136,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
     console.log(`[CATALOG_SEARCH] requestId=${requestId} db_tier_B fuzzy q="${qNorm}" new=${newBItems.length} merged=${mergedCount}`);
 
     if (mergedCount >= DB_MIN_RESULTS) {
-      const mapped = mergedAB.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey));
+      const mapped = mergedAB.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey)).filter(Boolean);
       const { allowed } = filterDisallowedItems(
         mapped.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
         `[DB_TIER_B] requestId=${requestId}`
@@ -165,7 +169,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
       console.log(`[CATALOG_SEARCH] requestId=${requestId} db_tier_C expansion queries=${expansionQueries.length} new=${expansionCount} total=${pool.length}`);
 
       if (pool.length >= DB_MIN_RESULTS) {
-        const mapped = pool.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey));
+        const mapped = pool.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey)).filter(Boolean);
         const { allowed } = filterDisallowedItems(
           mapped.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
           `[DB_TIER_C] requestId=${requestId}`
@@ -175,21 +179,21 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
 
       // Return whatever we have as fallback
       if (pool.length > 0) {
-        const mapped = pool.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey));
+        const mapped = pool.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey)).filter(Boolean);
         return { items: null, fallbackItems: mapped, dbCount: pool.length, durationMs: Date.now() - dbStartMs, tier: "C", fuzzyUsed: true, expansionUsed: true };
       }
     }
 
     // Partial from Tier A+B
     if (mergedAB.length > 0) {
-      const mapped = mergedAB.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey));
+      const mapped = mergedAB.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey)).filter(Boolean);
       return { items: null, fallbackItems: mapped, dbCount: mergedCount, durationMs: Date.now() - dbStartMs, tier: "B", fuzzyUsed: true, expansionUsed: false };
     }
   }
 
   // Partial from Tier A only
   if (tierACount > 0) {
-    const mapped = tierAItems.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey));
+    const mapped = tierAItems.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey)).filter(Boolean);
     return { items: null, fallbackItems: mapped, dbCount: tierACount, durationMs: Date.now() - dbStartMs, tier: "A", fuzzyUsed: false, expansionUsed: false };
   }
 

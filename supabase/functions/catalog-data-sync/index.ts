@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveIngestionTarget, buildCronHeaders } from "../_shared/ingestionTarget.ts";
+import { sanitizeImageUrl } from "../_shared/imageValidator.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,6 +98,10 @@ Deno.serve(async (req) => {
         const chunk = items.slice(i, i + chunkSize);
         const cleanedChunk = chunk.map((item: Record<string, unknown>) => {
           const { id, created_at, updated_at, ...rest } = item;
+          // Sanitize image URLs on import to block banners/ads
+          if (rest.image_url) {
+            rest.image_url = sanitizeImageUrl(rest.image_url as string);
+          }
           return rest;
         });
         const { data, error: upsertErr } = await liveClient

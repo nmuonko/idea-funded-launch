@@ -9,6 +9,7 @@
  */
 
 import { SECTION_PROFILES, filterItemsForProfile, type SectionProfile, type SectionItem } from "./sectionProfiles.ts";
+import { isValidProductImageUrl } from "./imageValidator.ts";
 import { normalizeSectionTitles, calculateTotalItems } from "./titleNormalizer.ts";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -170,21 +171,23 @@ async function backfillForProfile(
     const rows = await res.json() as Array<Record<string, unknown>>;
     if (!Array.isArray(rows) || rows.length === 0) return [];
 
-    const mapped: SectionItem[] = rows.map(row => ({
-      id: `${row.provider}_${row.provider_product_id}`,
-      provider: row.provider as string,
-      provider_product_id: row.provider_product_id as string,
-      title: (row.title as string) || "Product",
-      price_usd: row.price_usd as number | null,
-      priceUsd: row.price_usd as number | null,
-      currency: "USD",
-      image_url: row.image_url as string | null,
-      imageUrl: row.image_url as string | null,
-      product_url: row.product_url as string | null,
-      productUrl: row.product_url as string | null,
-      in_stock: true,
-      segment: row.segment as string | undefined,
-    }));
+    const mapped: SectionItem[] = rows
+      .filter(row => isValidProductImageUrl(row.image_url as string | null))
+      .map(row => ({
+        id: `${row.provider}_${row.provider_product_id}`,
+        provider: row.provider as string,
+        provider_product_id: row.provider_product_id as string,
+        title: (row.title as string) || "Product",
+        price_usd: row.price_usd as number | null,
+        priceUsd: row.price_usd as number | null,
+        currency: "USD",
+        image_url: row.image_url as string | null,
+        imageUrl: row.image_url as string | null,
+        product_url: row.product_url as string | null,
+        productUrl: row.product_url as string | null,
+        in_stock: true,
+        segment: row.segment as string | undefined,
+      }));
 
     return filterItemsForProfile(mapped, profile)
       .filter(item => !usedIds.has(item.id))

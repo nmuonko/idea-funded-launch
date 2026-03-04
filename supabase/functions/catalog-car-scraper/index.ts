@@ -12,6 +12,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { cronAuthErrorResponse } from "../_shared/cronAuth.ts";
+import { sanitizeImageUrl } from "../_shared/imageValidator.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -355,7 +356,7 @@ async function upsertListings(supabase: any, provider: string, listings: CarList
     provider_product_id: l.provider_product_id,
     title: l.title,
     price_usd: l.price_usd,
-    image_url: l.image_url,
+    image_url: sanitizeImageUrl(l.image_url),
     product_url: l.product_url,
     category_key: "vehicles",
     unified_category: "vehicles",

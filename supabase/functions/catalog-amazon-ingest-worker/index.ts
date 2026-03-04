@@ -13,6 +13,7 @@ import { searchRainforest, fetchProductDetails } from "../_shared/rainforestAdap
 import { checkBudget, incrementBudget } from "../_shared/providerBudget.ts";
 import { getCatalogSettings } from "../_shared/catalogSettings.ts";
 import { mapCategoryAndSubcategory } from "../_shared/categoryMapper.ts";
+import { sanitizeImageUrl } from "../_shared/imageValidator.ts";
 
 
 const corsHeaders = {
@@ -384,7 +385,7 @@ async function processQueueItem(
         provider_product_id: product.providerProductId,
         title: product.title,
         price_usd: product.priceUsd,
-        image_url: product.imageUrl,
+        image_url: sanitizeImageUrl(product.imageUrl),
         images: product.images || [],
         product_url: product.productUrl,
         in_stock: product.inStock ?? true,
@@ -420,8 +421,8 @@ async function processQueueItem(
             provider_product_id: p.providerProductId,
             title: p.title,
             price_usd: p.priceUsd,
-            image_url: p.imageUrl,
-            images: (p.images?.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
+              image_url: sanitizeImageUrl(p.imageUrl),
+              images: (p.images?.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
             product_url: p.productUrl,
             in_stock: p.inStock ?? true,
             rating: p.rating,
@@ -579,7 +580,7 @@ Deno.serve(async (req: Request) => {
               provider_product_id: p.providerProductId,
               title: p.title,
               price_usd: p.priceUsd,
-              image_url: p.imageUrl,
+              image_url: sanitizeImageUrl(p.imageUrl),
               images: (p.images?.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
               product_url: p.productUrl,
               in_stock: p.inStock ?? true,

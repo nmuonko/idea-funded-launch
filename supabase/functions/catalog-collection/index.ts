@@ -15,6 +15,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { sanitizeImageUrl } from "../_shared/imageValidator.ts";
 
 // ─── CORS Headers ────────────────────────────────────────────────────────────
 
@@ -589,7 +590,7 @@ async function upsertCatalogItems(
     provider_product_id: item.providerProductId,
     title: item.title,
     price_usd: item.priceUsd,
-    image_url: item.imageUrl,
+    image_url: sanitizeImageUrl(item.imageUrl),
     images: item.images,
     product_url: item.productUrl,
     in_stock: item.inStock,

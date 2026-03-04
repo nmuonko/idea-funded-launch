@@ -3,6 +3,8 @@
  * Used by catalog-search and catalog-category
  */
 
+import { sanitizeImageUrl } from "./imageValidator.ts";
+
 // Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
 type SupabaseClientAny = any;
 
@@ -213,7 +215,7 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
           id: item.id, provider: "ebay",
           provider_product_id: item.provider_product_id,
           title: item.title, price_usd: item.price_usd,
-          image_url: item.image_url, images: item.images,
+          image_url: sanitizeImageUrl(item.image_url), images: item.images,
           product_url: item.product_url, in_stock: item.in_stock,
           rating: item.rating,
           unified_category: category !== "blocked" ? category : "electronics",

@@ -10,6 +10,8 @@
  * Web gets {ok, sections:[{key:"featured", items}], page, pageSize, totalPages, hasMore, meta}
  */
 
+import { isValidProductImageUrl } from "./imageValidator.ts";
+
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
 export interface RecipeRow {
@@ -297,7 +299,8 @@ async function fetchItemsFromDB(
 
       const title = (row.title as string) || "";
       const brand = (row.brand as string) || "";
-      const imageUrl = row.image_url as string | null;
+      const rawImageUrl = row.image_url as string | null;
+      const imageUrl = rawImageUrl && isValidProductImageUrl(rawImageUrl) ? rawImageUrl : null;
       const priceUsd = row.price_usd as number | null;
       if (!title || !imageUrl || !priceUsd || priceUsd <= 0) continue;
 

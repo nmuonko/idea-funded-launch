@@ -55,9 +55,9 @@ import {
 } from "../_shared/searchResponseBuilder.ts";
 import type { SearchTimings } from "../_shared/searchResponseBuilder.ts";
 
-const DEFAULT_LIMIT = 200;   // Default page size
-const MAX_LIMIT = 200;       // Max page size
-const SESSION_LIMIT = 500;   // Max items per search session (5 pages × 100)
+const DEFAULT_LIMIT = 500;   // Default page size
+const MAX_LIMIT = 500;       // Max page size
+const SESSION_LIMIT = 1000;  // Max items per search session
 const MAX_PAGES = 5;         // Maximum number of pages per search session
 
 // ─── TIME BUDGET CONSTANTS ─────────────────────────────────────────────────

@@ -339,14 +339,13 @@ function sanitizeScrapedImage(url: string, provider: string): string {
   return out;
 }
 
+// Use shared image validator — replaces the old isLikelyRealImage
+import { isValidProductImageUrl } from "../_shared/imageValidator.ts";
+
 function isLikelyRealImage(url: string): boolean {
+  if (!isValidProductImageUrl(url)) return false;
+  // Also allow URLs that look like image paths even without known extension
   const lower = url.toLowerCase();
-  if (!lower.startsWith("http")) return false;
-  if (lower.includes(".svg") || lower.includes(".gif")) return false;
-  if (lower.includes("site-cars/merchandising") || lower.includes("heliosconditionaltiles")) return false;
-  if (lower.includes("assets.fastly.carvana.io/merchui/images")) return false;
-  if (lower.includes("pt.ispot.tv")) return false;
-  if (lower.includes("placeholder") || lower.includes("avatar")) return false;
   return /(\.(jpe?g|png|webp|avif))(\?|$)/i.test(lower) || lower.includes("image") || lower.includes("photo");
 }
 

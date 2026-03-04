@@ -244,7 +244,7 @@ const mapSearchItemToProduct = (item: any): Product => {
   };
 };
 
-const isValidProduct = (p: Product) => p.id && p.priceUsd > 0 && p.imageUrl;
+const isValidProduct = (p: Product) => p.id && p.priceUsd > 0 && (p.imageUrl ? isRenderableImageUrl(p.imageUrl) : true);
 
 
 const extractFirstImageFromJson = (images: any): string | null => {

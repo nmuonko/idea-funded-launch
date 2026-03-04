@@ -1254,9 +1254,9 @@ export default function ShopHome() {
       <main className="pb-8">
         <div className="container mx-auto px-3 sm:px-4">
           {/* Filters Row - Store + Category */}
-          <div className="flex justify-end gap-2 mb-4 flex-wrap">
+          <div className="grid grid-cols-2 sm:flex sm:justify-end gap-2 mb-4">
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-[170px] bg-white/10 border border-white/20 text-white rounded-lg h-10">
+              <SelectTrigger className="w-full sm:w-[180px] bg-white/10 border border-white/20 text-white rounded-full h-11 px-4 text-sm">
                 <SelectValue placeholder={language === 'fr' ? 'Catégorie' : 'Category'} />
               </SelectTrigger>
               <SelectContent className="bg-black border border-white/20 z-[9999]">
@@ -1272,7 +1272,7 @@ export default function ShopHome() {
               </SelectContent>
             </Select>
             <Select value={providerFilter} onValueChange={setProviderFilter}>
-              <SelectTrigger className="w-[180px] bg-white/10 border border-white/20 text-white rounded-lg h-10">
+              <SelectTrigger className="w-full sm:w-[190px] bg-white/10 border border-white/20 text-white rounded-full h-11 px-4 text-sm">
                 <SelectValue placeholder={language === 'fr' ? 'Boutique' : 'Store'} />
               </SelectTrigger>
               <SelectContent className="bg-black border border-white/20 z-[9999]">

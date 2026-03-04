@@ -198,16 +198,19 @@ function setCachedCategoryResult(catKey: string, items: Product[]) {
 
 // ====== HELPERS ======
 
-const mapItemToProduct = (item: HomeFeedResponse['sections'][0]['items'][0]): Product => ({
-  id: item.provider_product_id || item.id || '',
-  provider: item.provider || 'amazon',
-  title: item.title || 'Product',
-  imageUrl: item.image_url || item.imageUrl || '',
-  priceUsd: item.price_usd || item.priceUsd || 0,
-  rating: item.rating,
-  inStock: item.in_stock !== false,
-  productUrl: item.product_url,
-});
+const mapItemToProduct = (item: HomeFeedResponse['sections'][0]['items'][0]): Product => {
+  const rawImage = item.image_url || item.imageUrl || '';
+  return {
+    id: item.provider_product_id || item.id || '',
+    provider: item.provider || 'amazon',
+    title: item.title || 'Product',
+    imageUrl: isRenderableImageUrl(rawImage) ? rawImage : '',
+    priceUsd: item.price_usd || item.priceUsd || 0,
+    rating: item.rating,
+    inStock: item.in_stock !== false,
+    productUrl: item.product_url,
+  };
+};
 
 const parsePrice = (item: any): number => {
   const candidates = [
@@ -226,16 +229,19 @@ const parsePrice = (item: any): number => {
   return 0;
 };
 
-const mapSearchItemToProduct = (item: any): Product => ({
-  id: item.id || item.providerProductId || item.provider_product_id || item.itemId || item.asin || item.productUrl || item.product_url || item.url || '',
-  provider: item.provider === 'rainforest' ? 'amazon' : (item.provider || 'amazon'),
-  title: item.title || 'Product',
-  imageUrl: item.imageUrl || item.mainImageUrl || item.image_url || item.image || '',
-  priceUsd: parsePrice(item),
-  rating: item.rating,
-  inStock: item.inStock !== false,
-  productUrl: item.productUrl || item.product_url || item.url,
-});
+const mapSearchItemToProduct = (item: any): Product => {
+  const rawImage = item.imageUrl || item.mainImageUrl || item.image_url || item.image || '';
+  return {
+    id: item.id || item.providerProductId || item.provider_product_id || item.itemId || item.asin || item.productUrl || item.product_url || item.url || '',
+    provider: item.provider === 'rainforest' ? 'amazon' : (item.provider || 'amazon'),
+    title: item.title || 'Product',
+    imageUrl: isRenderableImageUrl(rawImage) ? rawImage : '',
+    priceUsd: parsePrice(item),
+    rating: item.rating,
+    inStock: item.inStock !== false,
+    productUrl: item.productUrl || item.product_url || item.url,
+  };
+};
 
 const isValidProduct = (p: Product) => p.id && p.priceUsd > 0 && p.imageUrl;
 
@@ -866,6 +872,36 @@ export default function ShopHome() {
             }
           }
 
+          // Fallback: if fewer than 4 vehicles, run broader queries
+          if (items.length < 4) {
+            const BROAD_VEHICLE_QUERIES = [
+              'Tesla Model Y SUV',
+              'GMC Yukon SUV',
+              'Ford Explorer SUV',
+              'Hyundai Santa Fe SUV',
+              'Range Rover Sport',
+              'BMW X5 SUV',
+            ];
+            for (const q of BROAD_VEHICLE_QUERIES) {
+              if (items.length >= 4) break;
+              try {
+                const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 10 });
+                const searchItems = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct).filter(isVehicleItem);
+                for (const p of searchItems) {
+                  if (items.length >= 4) break;
+                  const key = p.id + '|' + (p.title || '').slice(0, 30);
+                  if (seenIds.has(key)) continue;
+                  seenIds.add(key);
+                  items.push(p);
+                  break;
+                }
+              } catch (e) {
+                console.warn(`[Vehicles] broad fallback "${q}" failed:`, e);
+              }
+            }
+            console.log(`[Vehicles] after broad fallback: ${items.length} items`);
+          }
+
           items = items.slice(0, 4);
           console.log('[Vehicles] selected:', items.map(p => `${p.title} ($${p.priceUsd})`));
 
@@ -1194,7 +1230,30 @@ export default function ShopHome() {
       }
     }
 
-    return trending.slice(0, 16);
+    // Provider diversity: interleave so eBay and Amazon alternate
+    const interleaved: Product[] = [];
+    const byProvider: Record<string, Product[]> = {};
+    for (const p of trending) {
+      const prov = (p.provider || 'ebay').toLowerCase();
+      const key = prov === 'rainforest' ? 'amazon' : prov;
+      if (!byProvider[key]) byProvider[key] = [];
+      byProvider[key].push(p);
+    }
+    const providerQueues = Object.values(byProvider).sort((a, b) => b.length - a.length);
+    let qi = 0;
+    while (interleaved.length < trending.length) {
+      let added = false;
+      for (const queue of providerQueues) {
+        if (qi < queue.length) {
+          interleaved.push(queue[qi]);
+          added = true;
+        }
+      }
+      if (!added) break;
+      qi++;
+    }
+
+    return interleaved.slice(0, 16);
   }, [accueilProducts]);
 
   // ====== EFFECTS ======

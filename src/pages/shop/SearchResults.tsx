@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { normalizeQuery, stableStringify, cachedCatalogFetchWithSwr, cachedCatalogFetch, generateCacheKey, getCached } from '@/lib/catalogCache';
+import { isRenderableImageUrl } from '@/lib/imageValidation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { expandQuery, relevanceScore } from '@/lib/expandQuery';
@@ -44,18 +45,21 @@ function dedupeWithSet(list: Product[], seenIds: Set<string>): Product[] {
   });
 }
 
-/** Map raw API items to Product interface */
+/** Map raw API items to Product interface, filtering out bad images */
 function mapItems(items: any[]): Product[] {
-  return items.map((item: any) => ({
-    id: item.provider_product_id || item.id,
-    provider: item.provider || 'amazon',
-    title: item.title || 'Product',
-    imageUrl: item.image_url || item.imageUrl || '',
-    priceUsd: item.price_usd || item.priceUsd || 0,
-    rating: item.rating,
-    inStock: item.in_stock !== false,
-    productUrl: item.product_url,
-  }));
+  return items.map((item: any) => {
+    const rawImage = item.image_url || item.imageUrl || '';
+    return {
+      id: item.provider_product_id || item.id,
+      provider: item.provider || 'amazon',
+      title: item.title || 'Product',
+      imageUrl: isRenderableImageUrl(rawImage) ? rawImage : '',
+      priceUsd: item.price_usd || item.priceUsd || 0,
+      rating: item.rating,
+      inStock: item.in_stock !== false,
+      productUrl: item.product_url,
+    };
+  });
 }
 
 export default function SearchResults() {

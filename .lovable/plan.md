@@ -1,40 +1,44 @@
 
 
-# Plan: Add Category Filters + Fix Missing Stores
+## Plan: Fix Recently Viewed Duplicates, Clean Images, and Wire All Stores to Firecrawl
 
-## Key Finding
+### Issues Identified
 
-The database currently only contains products from **6 providers**: eBay (385k), Rainforest/Amazon (13.6k), Carvana (79), CarGurus (55), Amazon (1), SHEIN (1). **Walmart, Best Buy, Macy's, Home Depot, Wayfair, Temu, Ford, Toyota, Tesla do NOT exist in the catalog yet.** The dynamic dropdown is working correctly — it only shows stores that have cached products.
+1. **Recently Viewed Duplicates**: The `updateLocalStorage` in `src/lib/recentlyViewed.ts` correctly deduplicates by `product_id + provider`. However, the DB query in `getRecentlyViewed` (line 87-106) does NOT deduplicate — if the same product appears with slightly different `store_id` formats or if localStorage and DB results overlap, duplicates can show. Also, the `useRecentlyViewed.ts` hook (a separate, older implementation) writes to the same localStorage key but with a different data shape, potentially causing conflicts.
 
-## Plan
+2. **Image Quality**: ProductCard already has promotional image filtering but needs tighter aspect-ratio thresholds and better fallback handling for broken/missing images.
 
-### 1. Add Category Filter Dropdown (Phones, Vehicles, Clothes)
+3. **Firecrawl for All Stores**: Currently `get-product-info` only uses Firecrawl as a fallback for **Amazon** (line 1362). All other stores (Walmart, SHEIN, Target, Best Buy, etc.) fall through to a basic proxy OG-image extractor when blocked. Need to generalize the Firecrawl fallback to all non-eBay stores.
 
-**File: `src/pages/shop/ShopHome.tsx`**
+---
 
-Add a second dropdown next to the store filter for category filtering. Options:
-- All Categories (default)
-- Phones
-- Vehicles  
-- Clothes/Fashion
+### Changes
 
-When a category is selected, filter products using the existing `CATEGORY_KEYWORDS` map (already defined at lines 62-78). This works with both the home feed and store-filtered views by matching keywords against product titles client-side. This will be instant since it's purely client-side filtering on already-loaded data.
+#### 1. Fix Recently Viewed Deduplication (`src/lib/recentlyViewed.ts`)
+- In `getRecentlyViewed()`, add a deduplication step after fetching from DB — filter by unique `store_id` to prevent duplicates.
+- In `trackRecentlyViewed()`, normalize the product ID before building the `storeId` key (trim whitespace, lowercase provider) to prevent near-duplicate entries like `amazon:B09XYZ` vs `Amazon:B09XYZ`.
 
-When both a store and category filter are active, apply both filters together.
+#### 2. Clean Product Images (`src/components/shop/ProductCard.tsx`)
+- Tighten the `handleImgLoad` aspect ratio check — hide images wider than 2:1 or taller than 1:2 (banners/sidebars).
+- Add a visible "No image" placeholder when image is hidden or fails to load, so cards don't appear broken.
+- Expand `PROMO_IMAGE_TOKENS` with additional known bad patterns.
 
-### 2. Add Hardcoded Popular Store Options That Aren't in DB Yet
+#### 3. Wire All Stores to Firecrawl (`supabase/functions/get-product-info/index.ts`)
+- Generalize the existing `scrapeAmazonViaFirecrawl` function into a `scrapeViaFirecrawl(url, domain)` function that works for any store.
+- After the retry-with-enhanced-headers block (line 1360), instead of checking `isAmazon`, check `!isEbay` — so all stores except eBay get the Firecrawl fallback when direct scraping fails.
+- Extract images/titles from the Firecrawl response using existing store-specific extractors (Walmart, SHEIN, Target, etc.) plus generic OG/meta fallbacks.
 
-Since Walmart, Temu, Best Buy, Macy's, Home Depot, Wayfair, Ford, Toyota, Tesla have **zero** cached products, the dynamic RPC correctly excludes them. Two options:
+### Technical Details
 
-**Option A (Recommended):** Add these as static entries in the dropdown with a count of 0, shown grayed out or with a "(coming soon)" label, so users know they exist but have no products yet.
+```text
+scrapeProduct(url)
+  ├─ Amazon mobile fetch → retry → Firecrawl fallback (existing)
+  ├─ Other stores fetch → retry → NEW: Firecrawl fallback (all except eBay)
+  └─ eBay fetch → retry → proxy OG fallback (unchanged)
+```
 
-**Option B:** Only show stores with actual products (current behavior) — but inform the user that those stores need to be ingested into the catalog first before they can appear.
-
-### Summary of Changes
-
-| File | Change |
-|------|--------|
-| `src/pages/shop/ShopHome.tsx` | Add category filter dropdown (phones/vehicles/clothes); add static store entries for popular stores not yet in DB |
-
-No database changes needed — category filtering is client-side using existing keyword maps, and the missing stores simply don't have data yet.
+**Files to modify:**
+- `src/lib/recentlyViewed.ts` — dedup on read + normalize keys
+- `src/components/shop/ProductCard.tsx` — tighter image filtering
+- `supabase/functions/get-product-info/index.ts` — generalize Firecrawl fallback to all non-eBay stores
 

@@ -11,6 +11,7 @@ const BLOCKED_SUBSTRINGS = [
   "merchui/images",
   "promobanner",
   "promo_banner",
+  "promo-banner",
   "heliosconditionaltiles",
   "pt.ispot.tv",
 
@@ -20,18 +21,46 @@ const BLOCKED_SUBSTRINGS = [
   // Generic banner/promo patterns
   "/banner",
   "seller_banner",
+  "seller-banner",
   "sellerbanner",
   "hero_banner",
+  "header_banner",
+  "footer_banner",
+  "template_banner",
+  "storefront_banner",
   "ad_banner",
   "watermark",
+
+  // Logo patterns
   "shoplogo",
+  "shop_logo",
+  "shop-logo",
   "storelogo",
+  "store_logo",
+  "store-logo",
   "brandlogo",
+  "brand_logo",
+  "brand-logo",
+
+  // Badge/promo patterns
+  "promo_badge",
+  "promo-badge",
+  "promotion-badge",
+
+  // Misc non-product patterns
   "icon_only",
+  "sprite",
+  "no-image-placeholder",
 
   // Health spam images
   "vitalhealthy",
   "vital_health",
+  "vital healthy",
+
+  // Specific blocked paths
+  "/v4/p/ccc/",
+  "images3_pi/2024/01/01/00/",
+  "site-cars/merchandising",
 
   // File types that are never product photos
   ".svg",
@@ -46,7 +75,7 @@ const EBAY_VALID_PATHS = ["/d/", "/g/", "/s-l"];
  */
 function extractDimensionHints(url: string): { w: number; h: number } | null {
   // Amazon _SLnnn_ pattern
-  const slMatch = url.match(/_SL(\d+)_/);
+  const slMatch = url.match(/_SL(\d+)[_.\-]/i);
   if (slMatch) {
     const size = parseInt(slMatch[1]);
     return { w: size, h: size };
@@ -78,10 +107,19 @@ export function isValidProductImageUrl(url: string | null | undefined): boolean 
 
   const lower = url.toLowerCase();
 
+  // Must start with http
+  if (!lower.startsWith("http")) return false;
+
+  // Block .html pages
+  if (lower.includes(".html")) return false;
+
   // Block known bad substrings
   for (const pattern of BLOCKED_SUBSTRINGS) {
     if (lower.includes(pattern)) return false;
   }
+
+  // Block promotion + badge/banner combo
+  if (lower.includes("promotion") && (lower.includes("badge") || lower.includes("banner"))) return false;
 
   // eBay-specific: only allow standard product photo paths
   if (lower.includes("ebayimg.com")) {

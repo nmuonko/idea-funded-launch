@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
+import { isRenderableImageUrl } from '@/lib/imageValidation';
 
 export interface Product {
   id: string;
@@ -27,25 +28,9 @@ interface ProductCardProps {
   coverImage?: boolean;
 }
 
-const PROMO_IMAGE_TOKENS = [
-  'vital_health', 'vitalhealthy', 'vital healthy',
-  'sellerbanner', 'seller_banner', 'seller-banner',
-  'shoplogo', 'shop_logo', 'shop-logo',
-  'storelogo', 'store_logo', 'store-logo',
-  'brandlogo', 'brand_logo', 'brand-logo',
-  'watermark', 'promo_badge', 'promo-banner', 'promotion-badge',
-  'header_banner', 'footer_banner', 'hero_banner', 'template_banner',
-  'ad_banner', 'sprite', 'icon_only'
-];
-
+// Use shared image validator — single source of truth
 function isLikelyPromotionalImageUrl(url: string): boolean {
-  const lower = url.toLowerCase();
-  if (PROMO_IMAGE_TOKENS.some(token => lower.includes(token))) return true;
-  if (lower.includes('promotion') && (lower.includes('badge') || lower.includes('banner'))) return true;
-  if (lower.includes('i.ebayimg.com') && (
-    lower.includes('/d/') === false && lower.includes('/g/') === false && lower.includes('/s-l') === false
-  )) return true;
-  return false;
+  return !isRenderableImageUrl(url);
 }
 
 export function ProductCard({ product, className, compact = false, coverImage = false }: ProductCardProps) {

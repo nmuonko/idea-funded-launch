@@ -1417,7 +1417,7 @@ export default function ShopHome() {
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-1">
                         <p className="text-sm sm:text-lg font-bold text-white leading-tight">
                           {language === 'fr' ? "Collez le lien. On calcule le prix." : "Paste the link. We get the price."}
                         </p>

@@ -455,9 +455,29 @@ function extractProductInfo(html: string, store: StoreType): ProductInfo {
     if (ogImage && ogImage[1]) imageUrl = ogImage[1];
   }
 
+  // SHEIN CDN fallback: look for ltwebstatic product images
+  if (!imageUrl && (store === 'shein' || html.includes('ltwebstatic.com'))) {
+    const cdnMatch = html.match(/(?:src|content|data-src)=["']((?:https?:)?\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^"'\s]+)["']/i);
+    if (cdnMatch && cdnMatch[1] && !/logo/i.test(cdnMatch[1]) && !/banner/i.test(cdnMatch[1])) {
+      imageUrl = cdnMatch[1];
+    }
+    // Broader ltwebstatic fallback
+    if (!imageUrl) {
+      const anyMatch = html.match(/(?:src|content)=["']((?:https?:)?\/\/img\.ltwebstatic\.com\/[^"'\s]+\.(?:jpg|webp|png))["']/i);
+      if (anyMatch && anyMatch[1] && !/logo/i.test(anyMatch[1]) && !/banner/i.test(anyMatch[1])) {
+        imageUrl = anyMatch[1];
+      }
+    }
+  }
+
   // Normalize image URL
   if (imageUrl && !imageUrl.startsWith('http')) {
     imageUrl = imageUrl.startsWith('//') ? `https:${imageUrl}` : null;
+  }
+
+  // Upgrade SHEIN thumbnails to full-size
+  if (imageUrl) {
+    imageUrl = imageUrl.replace(/_thumbnail_\d+x\d+/g, '');
   }
 
   return { title, imageUrl };
@@ -631,13 +651,19 @@ async function extractViaFirecrawlFull(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
+    const isShein = store === 'shein' || url.includes('shein.com');
     const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${firecrawlApiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ url, formats: ['html'], onlyMainContent: false }),
+      body: JSON.stringify({ 
+        url, 
+        formats: ['html'], 
+        onlyMainContent: false,
+        ...(isShein ? { waitFor: 5000 } : {}),
+      }),
       signal: controller.signal,
     });
 
@@ -681,13 +707,30 @@ async function extractViaFirecrawlFull(
     }
 
     if (!price) {
+      // For SHEIN, still extract title/image even without price (user can enter manually)
+      if (isShein) {
+        const productInfo = extractProductInfo(html, store);
+        let imgUrl = productInfo.imageUrl;
+        // Normalize protocol-relative URLs
+        if (imgUrl && imgUrl.startsWith('//')) imgUrl = `https:${imgUrl}`;
+        // Upgrade SHEIN thumbnails to full-size
+        if (imgUrl) imgUrl = imgUrl.replace(/_thumbnail_\d+x\d+/g, '');
+        if (productInfo.title || imgUrl) {
+          console.log(`[extract-price] Firecrawl: SHEIN price not found but got title/image`);
+          return { price: 0, currencyCode: 'USD', title: productInfo.title, imageUrl: imgUrl };
+        }
+      }
       console.warn('[extract-price] Firecrawl HTML returned but no price found');
       return null;
     }
 
     // Extract product info (title, image)
     const productInfo = extractProductInfo(html, store);
-
+    // Normalize image URL for SHEIN
+    if (productInfo.imageUrl) {
+      if (productInfo.imageUrl.startsWith('//')) productInfo.imageUrl = `https:${productInfo.imageUrl}`;
+      productInfo.imageUrl = productInfo.imageUrl.replace(/_thumbnail_\d+x\d+/g, '');
+    }
     // Detect currency if not already found
     if (!currencyCode) {
       const detected = detectCurrency(html, url);
@@ -1666,8 +1709,9 @@ Deno.serve(async (req) => {
     // Check for bot detection / captcha pages
     if (detectBotBlock(html)) {
       // Try Firecrawl FIRST for bot-blocked stores (most reliable bypass)
-      const firecrawlBotResult = await extractViaFirecrawlFull(formattedUrl, store, 10000);
-      if (firecrawlBotResult?.price) {
+      const firecrawlTimeout = store === 'shein' ? 20000 : 10000;
+      const firecrawlBotResult = await extractViaFirecrawlFull(formattedUrl, store, firecrawlTimeout);
+      if (firecrawlBotResult && firecrawlBotResult.price > 0) {
         const now = new Date().toISOString();
         const resolvedCurrencyCode = firecrawlBotResult.currencyCode || 'USD';
         const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
@@ -1706,6 +1750,23 @@ Deno.serve(async (req) => {
           cacheHit: false,
           lastFetchedAt: now,
         } as PriceResolveResponse);
+      }
+
+      // SHEIN: Firecrawl got title/image but no price — return with price=0 for manual entry
+      if (firecrawlBotResult && firecrawlBotResult.price === 0 && (firecrawlBotResult.title || firecrawlBotResult.imageUrl)) {
+        console.log(`[extract-price] SHEIN: Firecrawl got title/image but no price, returning for manual entry`);
+        return jsonSuccess({
+          url: normalizedUrl,
+          store,
+          basePrice: 0,
+          currencySymbol: '$',
+          rawCurrencyCode: 'USD',
+          title: firecrawlBotResult.title,
+          imageUrl: firecrawlBotResult.imageUrl,
+          image: firecrawlBotResult.imageUrl,
+          cacheHit: false,
+          lastFetchedAt: new Date().toISOString(),
+        } as any);
       }
 
       // Fallback: mirror scraping

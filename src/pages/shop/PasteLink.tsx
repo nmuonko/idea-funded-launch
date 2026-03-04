@@ -207,6 +207,32 @@ export default function PasteLink() {
           </motion.div>
         )}
 
+        {/* Product preview when we have title/image but awaiting price */}
+        {result && result.priceUsd === 0 && (result.imageUrl || result.title) && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-4 rounded-xl border border-white/[0.08] bg-[#1a1d23] mb-5"
+          >
+            <div className="flex items-center gap-4">
+              {result.imageUrl && (
+                <div className="w-20 h-20 rounded-xl overflow-hidden bg-white/5 flex-shrink-0">
+                  <img
+                    src={result.imageUrl}
+                    alt={result.title}
+                    className="w-full h-full object-contain"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white truncate">{result.title}</p>
+                <p className="text-xs text-white/40 mt-1">{result.store}</p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {/* Manual price input */}
         {showManualPrice && (
           <motion.div

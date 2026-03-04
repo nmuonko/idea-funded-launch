@@ -55,9 +55,9 @@ import {
 } from "../_shared/searchResponseBuilder.ts";
 import type { SearchTimings } from "../_shared/searchResponseBuilder.ts";
 
-const DEFAULT_LIMIT = 200;   // Default page size
-const MAX_LIMIT = 200;       // Max page size
-const SESSION_LIMIT = 500;   // Max items per search session (5 pages × 100)
+const DEFAULT_LIMIT = 500;   // Default page size
+const MAX_LIMIT = 500;       // Max page size
+const SESSION_LIMIT = 1000;  // Max items per search session
 const MAX_PAGES = 5;         // Maximum number of pages per search session
 
 // ─── TIME BUDGET CONSTANTS ─────────────────────────────────────────────────
@@ -1456,7 +1456,7 @@ Deno.serve(async (req: Request) => {
       (amazonDone && !!amazonError) || (ebayDone && !!ebayError);
     
     // ─── FIX: Safe maxPages computation (never undefined) ─────────────────────
-    const HARD_MAX_ITEMS = 500;
+    const HARD_MAX_ITEMS = 1000;
     const maxPages = Math.max(1, Math.ceil(HARD_MAX_ITEMS / limit));
 
     // Per-provider hasMore

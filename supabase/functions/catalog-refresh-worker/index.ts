@@ -1176,7 +1176,8 @@ async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number,
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
 
-  let query = supabase
+  // --- Phase 1: eBay link check ---
+  let ebayQuery = supabase
     .from("catalog_items")
     .select("id, provider, provider_product_id, fail_count, category_key, price_usd")
     .eq("is_active", true)
@@ -1186,97 +1187,223 @@ async function runLinkCheck(supabase: any, ebayToken: string, batchSize: number,
     .limit(batchSize);
 
   if (categoryKey) {
-    query = query.eq("category_key", categoryKey);
+    ebayQuery = ebayQuery.eq("category_key", categoryKey);
   }
 
-  const { data: items, error } = await query;
-  if (error || !items?.length) {
-    console.log(`[WORKER] Link check: no items to check (${error?.message || "empty"})`);
-    return { checked: 0, active: 0, deactivated: 0, errors: 0, priceUpdates: 0 };
+  const { data: ebayItems } = await ebayQuery;
+  
+  // --- Phase 2: Amazon link check (oldest-checked first) ---
+  const amazonBatch = Math.min(batchSize, 30); // conserve Rainforest API budget
+  let amazonQuery = supabase
+    .from("catalog_items")
+    .select("id, provider, provider_product_id, fail_count, category_key, price_usd, title")
+    .eq("is_active", true)
+    .in("provider", ["amazon", "rainforest"])
+    .or(`last_checked_at.is.null,last_checked_at.lt.${sevenDaysAgo}`)
+    .order("last_checked_at", { ascending: true, nullsFirst: true })
+    .limit(amazonBatch);
+
+  if (categoryKey) {
+    amazonQuery = amazonQuery.eq("category_key", categoryKey);
   }
 
-  console.log(`[WORKER] Link check: checking ${items.length} items`);
+  const { data: amazonItems } = await amazonQuery;
+
+  const allItems = [...(ebayItems || []), ...(amazonItems || [])];
+  if (!allItems.length) {
+    console.log("[WORKER] Link check: no items to check");
+    return { checked: 0, active: 0, deactivated: 0, errors: 0, priceUpdates: 0, ebay: 0, amazon: 0 };
+  }
+
+  console.log(`[WORKER] Link check: ${ebayItems?.length || 0} eBay + ${amazonItems?.length || 0} Amazon items`);
   const env = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
   const now = new Date().toISOString();
   let checked = 0, active = 0, deactivated = 0, errors = 0, priceUpdates = 0;
+  let ebayChecked = 0, amazonChecked = 0;
 
-  for (const item of items) {
+  for (const item of allItems) {
+    const isAmazon = item.provider === "amazon" || item.provider === "rainforest";
+
     try {
-      const itemUrl = `${EBAY_ENDPOINTS[env].browse}/item/${item.provider_product_id}`;
-      const res = await fetch(itemUrl, {
-        headers: {
-          "Authorization": `Bearer ${ebayToken}`,
-          "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
-        },
-      });
-
-      checked++;
-
-      if (res.status === 404 || res.status === 410) {
-        const failCount = (item.fail_count || 0) + 1;
-        if (failCount >= DEACTIVATE_FAIL_THRESHOLD) {
+      if (isAmazon) {
+        // --- Amazon: use Rainforest product lookup ---
+        const asin = extractAsin(item.provider_product_id);
+        if (!asin) {
+          // No valid ASIN — soft-deactivate after fail threshold
+          const failCount = (item.fail_count || 0) + 1;
           await supabase.from("catalog_items").update({
-            is_active: false,
-            status_reason: "provider_unavailable",
             fail_count: failCount,
             last_checked_at: now,
+            status_reason: failCount >= DEACTIVATE_FAIL_THRESHOLD ? "invalid_asin" : "check_failed",
+            is_active: failCount >= DEACTIVATE_FAIL_THRESHOLD ? false : true,
             updated_at: now,
           }).eq("id", item.id);
+          if (failCount >= DEACTIVATE_FAIL_THRESHOLD) deactivated++;
+          checked++;
+          amazonChecked++;
+          continue;
+        }
+
+        const rainforestKey = Deno.env.get("RAINFOREST_API_KEY");
+        if (!rainforestKey) {
+          console.warn("[WORKER] Link check: RAINFOREST_API_KEY missing, skipping Amazon");
+          break;
+        }
+
+        const rfUrl = `https://api.rainforestapi.com/request?api_key=${rainforestKey}&type=product&amazon_domain=amazon.com&asin=${asin}`;
+        const res = await fetch(rfUrl, { headers: { Accept: "application/json" } });
+        checked++;
+        amazonChecked++;
+
+        if (res.status === 404 || res.status === 410) {
+          await handleFailedItem(supabase, item, now, "provider_unavailable");
           deactivated++;
-        } else {
-          await supabase.from("catalog_items").update({
-            fail_count: failCount,
-            status_reason: "check_failed",
-            last_checked_at: now,
-            updated_at: now,
-          }).eq("id", item.id);
-        }
-      } else if (res.status === 429) {
-        console.warn("[WORKER] Link check: eBay 429, stopping");
-        await updateProviderHealth(supabase, "ebay", false, "429_rate_limited");
-        break;
-      } else if (res.ok) {
-        // Parse response to detect price changes
-        const updateFields: Record<string, unknown> = {
-          fail_count: 0,
-          last_checked_at: now,
-          status_reason: "active",
-          updated_at: now,
-        };
+        } else if (res.status === 429 || res.status === 402) {
+          console.warn(`[WORKER] Link check: Rainforest ${res.status}, stopping Amazon checks`);
+          break;
+        } else if (res.ok) {
+          const body = await res.json().catch(() => null);
+          const product = body?.product;
 
-        try {
-          const body = await res.json();
-          const currentPrice = body?.price?.value ? parseFloat(body.price.value) : null;
-          if (currentPrice && !isNaN(currentPrice) && item.price_usd) {
-            const storedPrice = parseFloat(String(item.price_usd));
-            if (Math.abs(currentPrice - storedPrice) >= 0.01) {
-              updateFields.price_usd = currentPrice;
-              updateFields.price_updated_at = now;
-              updateFields.data_updated_at = now;
-              priceUpdates++;
-              console.log(`[WORKER] Price updated ${item.id}: $${storedPrice} -> $${currentPrice}`);
+          // Check if item is actually unavailable / sold out
+          const availability = (product?.buybox_winner?.availability?.raw || "").toLowerCase();
+          const isSold = !product || 
+            availability.includes("currently unavailable") ||
+            availability.includes("out of stock") ||
+            (!product.buybox_winner && !product.price);
+
+          if (isSold) {
+            await handleFailedItem(supabase, item, now, "sold_out");
+            if ((item.fail_count || 0) + 1 >= DEACTIVATE_FAIL_THRESHOLD) deactivated++;
+          } else {
+            // Product is alive — sync price
+            const updateFields: Record<string, unknown> = {
+              fail_count: 0,
+              last_checked_at: now,
+              status_reason: "active",
+              updated_at: now,
+            };
+
+            const currentPrice = product?.buybox_winner?.price?.value ?? product?.price?.value;
+            if (currentPrice && !isNaN(currentPrice) && item.price_usd) {
+              const storedPrice = parseFloat(String(item.price_usd));
+              if (Math.abs(currentPrice - storedPrice) >= 0.01) {
+                updateFields.price_usd = currentPrice;
+                updateFields.price_updated_at = now;
+                updateFields.data_updated_at = now;
+                priceUpdates++;
+                console.log(`[WORKER] Amazon price updated ${item.id}: $${storedPrice} -> $${currentPrice}`);
+              }
             }
+
+            await supabase.from("catalog_items").update(updateFields).eq("id", item.id);
+            active++;
           }
-        } catch {
-          // Price parse failed — still mark active
+        } else {
+          errors++;
         }
 
-        await supabase.from("catalog_items").update(updateFields).eq("id", item.id);
-        active++;
+        // Rainforest API rate limit — 1.5s delay between calls
+        await new Promise(r => setTimeout(r, 1500));
+
       } else {
-        errors++;
+        // --- eBay: existing logic ---
+        const itemUrl = `${EBAY_ENDPOINTS[env].browse}/item/${item.provider_product_id}`;
+        const res = await fetch(itemUrl, {
+          headers: {
+            "Authorization": `Bearer ${ebayToken}`,
+            "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+          },
+        });
+
+        checked++;
+        ebayChecked++;
+
+        if (res.status === 404 || res.status === 410) {
+          await handleFailedItem(supabase, item, now, "provider_unavailable");
+          if ((item.fail_count || 0) + 1 >= DEACTIVATE_FAIL_THRESHOLD) deactivated++;
+        } else if (res.status === 429) {
+          console.warn("[WORKER] Link check: eBay 429, stopping");
+          await updateProviderHealth(supabase, "ebay", false, "429_rate_limited");
+          break;
+        } else if (res.ok) {
+          const updateFields: Record<string, unknown> = {
+            fail_count: 0,
+            last_checked_at: now,
+            status_reason: "active",
+            updated_at: now,
+          };
+
+          try {
+            const body = await res.json();
+            const currentPrice = body?.price?.value ? parseFloat(body.price.value) : null;
+            if (currentPrice && !isNaN(currentPrice) && item.price_usd) {
+              const storedPrice = parseFloat(String(item.price_usd));
+              if (Math.abs(currentPrice - storedPrice) >= 0.01) {
+                updateFields.price_usd = currentPrice;
+                updateFields.price_updated_at = now;
+                updateFields.data_updated_at = now;
+                priceUpdates++;
+                console.log(`[WORKER] Price updated ${item.id}: $${storedPrice} -> $${currentPrice}`);
+              }
+            }
+          } catch {
+            // Price parse failed — still mark active
+          }
+
+          await supabase.from("catalog_items").update(updateFields).eq("id", item.id);
+          active++;
+        } else {
+          errors++;
+        }
+
+        await new Promise(r => setTimeout(r, RATE_LIMIT_DELAY_MS));
       }
     } catch (err) {
       console.error(`[WORKER] Link check error for ${item.id}:`, err instanceof Error ? err.message : err);
       errors++;
     }
-
-    await new Promise(r => setTimeout(r, RATE_LIMIT_DELAY_MS));
   }
 
-  const result = { checked, active, deactivated, errors, priceUpdates };
+  const result = { checked, active, deactivated, errors, priceUpdates, ebay: ebayChecked, amazon: amazonChecked };
   console.log("[WORKER] Link check complete:", JSON.stringify(result));
   return result;
+}
+
+/** Extract ASIN from provider_product_id (could be raw ASIN or a URL like /dp/B0...) */
+function extractAsin(providerProductId: string): string | null {
+  if (!providerProductId) return null;
+  // If it looks like a plain ASIN (10 alphanumeric chars)
+  const cleaned = providerProductId.trim();
+  if (/^[A-Z0-9]{10}$/i.test(cleaned)) return cleaned.toUpperCase();
+  // Try to extract from URL pattern /dp/ASIN
+  const match = cleaned.match(/\/dp\/([A-Z0-9]{10})/i);
+  if (match) return match[1].toUpperCase();
+  // Try ASIN= pattern  
+  const match2 = cleaned.match(/asin[=:]([A-Z0-9]{10})/i);
+  if (match2) return match2[1].toUpperCase();
+  return cleaned.length >= 5 ? cleaned.toUpperCase() : null;
+}
+
+/** Increment fail_count and deactivate if threshold reached */
+async function handleFailedItem(supabase: any, item: any, now: string, reason: string) {
+  const failCount = (item.fail_count || 0) + 1;
+  if (failCount >= DEACTIVATE_FAIL_THRESHOLD) {
+    await supabase.from("catalog_items").update({
+      is_active: false,
+      status_reason: reason,
+      fail_count: failCount,
+      last_checked_at: now,
+      updated_at: now,
+    }).eq("id", item.id);
+  } else {
+    await supabase.from("catalog_items").update({
+      fail_count: failCount,
+      status_reason: "check_failed",
+      last_checked_at: now,
+      updated_at: now,
+    }).eq("id", item.id);
+  }
 }
 
 // ─── Main Handler ────────────────────────────────────────────────────────────

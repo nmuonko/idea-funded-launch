@@ -21,9 +21,12 @@ export async function trackRecentlyViewed(
   product: { id: string; provider: string; title: string; imageUrl: string; priceUsd: number; productUrl?: string },
   userId?: string
 ): Promise<void> {
+  const normalizedProvider = (product.provider || 'amazon').toLowerCase().trim();
+  const normalizedId = product.id.trim();
+  
   const item: RecentlyViewedItem = {
-    product_id: product.id,
-    provider: product.provider || 'amazon',
+    product_id: normalizedId,
+    provider: normalizedProvider,
     title: product.title,
     image_url: product.imageUrl,
     price_usd: product.priceUsd,
@@ -37,7 +40,7 @@ export async function trackRecentlyViewed(
   // If logged in, also persist to DB
   if (userId) {
     try {
-      const storeId = `${product.provider}:${product.id}`;
+      const storeId = `${normalizedProvider}:${normalizedId}`;
       await supabase.from('recently_viewed_items').upsert(
         [{
           user_id: userId,
@@ -92,17 +95,26 @@ export async function getRecentlyViewed(userId?: string, limit = 12): Promise<Pr
         .limit(limit);
 
       if (data && data.length > 0) {
-        return data.map(item => {
-          const [provider, ...idParts] = (item.store_id || '').split(':');
-          return {
-            id: idParts.join(':') || item.store_id || '',
-            provider: provider || 'amazon',
-            title: item.title || 'Product',
-            imageUrl: item.image_url || '',
-            priceUsd: 0,
-            productUrl: item.product_url,
-          };
-        }).filter(p => p.id);
+        const seen = new Set<string>();
+        return data
+          .map(item => {
+            const [provider, ...idParts] = (item.store_id || '').split(':');
+            return {
+              id: idParts.join(':') || item.store_id || '',
+              provider: provider || 'amazon',
+              title: item.title || 'Product',
+              imageUrl: item.image_url || '',
+              priceUsd: 0,
+              productUrl: item.product_url,
+            };
+          })
+          .filter(p => {
+            if (!p.id) return false;
+            const key = `${p.provider}:${p.id}`.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
       }
     } catch (err) {
       console.warn('[RecentlyViewed] DB fetch failed, falling back to localStorage', err);
@@ -114,14 +126,22 @@ export async function getRecentlyViewed(userId?: string, limit = 12): Promise<Pr
     const stored = localStorage.getItem(RECENTLY_VIEWED_LS_KEY);
     if (!stored) return [];
     const items: RecentlyViewedItem[] = JSON.parse(stored);
-    return items.slice(0, limit).map(item => ({
-      id: item.product_id,
-      provider: item.provider,
-      title: item.title,
-      imageUrl: item.image_url,
-      priceUsd: item.price_usd,
-      productUrl: item.product_url,
-    }));
+    const seen = new Set<string>();
+    return items.slice(0, limit)
+      .map(item => ({
+        id: item.product_id,
+        provider: item.provider,
+        title: item.title,
+        imageUrl: item.image_url,
+        priceUsd: item.price_usd,
+        productUrl: item.product_url,
+      }))
+      .filter(p => {
+        const key = `${p.provider}:${p.id}`.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
   } catch {
     return [];
   }

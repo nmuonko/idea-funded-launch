@@ -8,17 +8,15 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
 };
 
-const BATCH_LIMIT = 100; // Max orders to process per run
+const BATCH_LIMIT = 100;
 
 /**
  * reconcile-payment-status Edge Function
- * Scheduled job to reconcile payment statuses
+ * Scheduled job to reconcile payment statuses using payment_attempts table.
  * 
  * CONSERVATIVE APPROACH:
  * - Only finalize to PAID when provider confirms paid
  * - Never auto-mark as failed unless provider confirms
- * 
- * REQUIRES: x-cron-secret header matching CRON_SECRET env var
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -31,7 +29,6 @@ serve(async (req) => {
 
   log.log('reconcile-payment-status started');
 
-  // Verify cron authentication
   const cronAuth = verifyCronAuth(req);
   if (!cronAuth.authorized) {
     log.error('Cron auth failed', { error: cronAuth.error });
@@ -39,29 +36,19 @@ serve(async (req) => {
   }
 
   try {
-    // Use service role for database operations
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Log start
     await logAuditEvent(supabase, traceId, 'RECONCILE_STARTED', {
       payload: { batch_limit: BATCH_LIMIT },
     });
 
-    // Find pending payments where order might be PAID
+    // Find pending payment_attempts where order might already be PAID
     const { data: pendingPayments, error: fetchError } = await supabase
-      .from('maisha_payments')
-      .select(`
-        id,
-        order_id,
-        status,
-        maisha_reference,
-        maishapay_transaction_ref_id,
-        maishapay_operator_ref_id,
-        created_at
-      `)
+      .from('payment_attempts')
+      .select('id, order_id, status, provider_ref, provider_key, created_at')
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
       .limit(BATCH_LIMIT);
@@ -90,10 +77,7 @@ serve(async (req) => {
           trace_id: traceId,
           duration,
         }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -110,116 +94,56 @@ serve(async (req) => {
     for (const payment of pendingPayments) {
       checkedCount++;
       
-      // Check the order status
       const { data: order, error: orderError } = await supabase
         .from('orders')
-        .select('id, status, maisha_payment_status, payment_verified_at')
+        .select('id, status, payment_verified_at')
         .eq('id', payment.order_id)
         .maybeSingle();
 
       if (orderError) {
         log.warn(`Error fetching order ${payment.order_id}`, { error: orderError.message });
-        results.push({
-          paymentId: payment.id,
-          orderId: payment.order_id,
-          success: false,
-          error: orderError.message,
-        });
+        results.push({ paymentId: payment.id, orderId: payment.order_id, success: false, error: orderError.message });
         continue;
       }
 
       if (!order) {
         log.warn(`Order ${payment.order_id} not found for payment ${payment.id}`);
-        results.push({
-          paymentId: payment.id,
-          orderId: payment.order_id,
-          success: false,
-          error: 'Order not found',
-        });
+        results.push({ paymentId: payment.id, orderId: payment.order_id, success: false, error: 'Order not found' });
         continue;
       }
 
-      // CONSERVATIVE: Only finalize if order is already PAID (confirmed by callback)
+      // CONSERVATIVE: Only sync if order is already PAID (confirmed by webhook/callback)
       if (order.status === 'PAID' && payment.status === 'pending') {
         log.log(`Syncing payment ${payment.id} for PAID order ${order.id}`);
 
-        // Use the atomic finalize_paid_order RPC
         const { data: finalizeResult, error: finalizeError } = await supabase.rpc(
           'finalize_paid_order',
           {
             p_order_id: order.id,
-            p_payment_ref: payment.maishapay_transaction_ref_id || payment.maisha_reference,
-            p_operator_ref: payment.maishapay_operator_ref_id,
+            p_payment_ref: payment.provider_ref,
             p_trace_id: traceId,
           }
         );
 
         if (finalizeError) {
           log.error(`Error finalizing order ${order.id}`, { error: finalizeError.message });
-          results.push({
-            paymentId: payment.id,
-            orderId: order.id,
-            success: false,
-            error: finalizeError.message,
-          });
+          results.push({ paymentId: payment.id, orderId: order.id, success: false, error: finalizeError.message });
         } else {
           reconciledCount++;
-          results.push({
-            paymentId: payment.id,
-            orderId: order.id,
-            success: true,
-            action: 'finalized_paid',
-          });
+          results.push({ paymentId: payment.id, orderId: order.id, success: true, action: 'finalized_paid' });
 
           await logAuditEvent(supabase, traceId, 'RECONCILE_ORDER_FIXED', {
             orderId: order.id,
-            payload: {
-              payment_id: payment.id,
-              previous_payment_status: 'pending',
-              new_status: 'paid',
-            },
-          });
-        }
-      } else if (order.maisha_payment_status === 'SUCCESS' && payment.status === 'pending') {
-        // Order marked SUCCESS but payment record still pending - sync it
-        log.log(`Syncing payment ${payment.id} - order has SUCCESS status`);
-
-        const { error: updateError } = await supabase
-          .from('maisha_payments')
-          .update({
-            status: 'paid',
-            paid_at: order.payment_verified_at || new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', payment.id);
-
-        if (!updateError) {
-          reconciledCount++;
-          results.push({
-            paymentId: payment.id,
-            orderId: order.id,
-            success: true,
-            action: 'synced_success_status',
-          });
-        } else {
-          results.push({
-            paymentId: payment.id,
-            orderId: order.id,
-            success: false,
-            error: updateError.message,
+            payload: { payment_id: payment.id, previous_payment_status: 'pending', new_status: 'paid' },
           });
         }
       }
-      // NOTE: We do NOT auto-mark as failed - that could incorrectly cancel valid payments
     }
 
     const duration = Date.now() - startTime;
 
     await logAuditEvent(supabase, traceId, 'RECONCILE_COMPLETED', {
-      payload: {
-        orders_checked: checkedCount,
-        orders_fixed: reconciledCount,
-      },
+      payload: { orders_checked: checkedCount, orders_fixed: reconciledCount },
       durationMs: duration,
     });
 
@@ -237,10 +161,7 @@ serve(async (req) => {
         trace_id: traceId,
         duration,
       }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error: unknown) {
@@ -256,10 +177,7 @@ serve(async (req) => {
         trace_id: traceId,
         duration: Date.now() - startTime,
       }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

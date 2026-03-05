@@ -214,19 +214,13 @@ async function setRotationOffset(supabase: any, provider: string, offset: number
 }
 
 function getQueryBatch(provider: string, offset: number, count: number): string[] {
+  const domain = PROVIDER_DOMAINS[provider];
   const allQueries = [...MAKES_MODELS, ...CATEGORY_QUERIES];
   const total = allQueries.length;
   const queries: string[] = [];
   for (let i = 0; i < count; i++) {
     const idx = (offset + i) % total;
-    if (provider === "cargurus") {
-      // Target individual listing pages, not search result pages
-      queries.push(`${allQueries[idx]} site:cargurus.com/listing/`);
-    } else if (provider === "carvana") {
-      queries.push(`${allQueries[idx]} site:carvana.com/vehicle/`);
-    } else {
-      queries.push(`${allQueries[idx]} for sale site:${PROVIDER_DOMAINS[provider]}`);
-    }
+    queries.push(`${allQueries[idx]} for sale site:${domain}`);
   }
   return queries;
 }

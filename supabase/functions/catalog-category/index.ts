@@ -787,11 +787,28 @@ Deno.serve(async (req) => {
       },
     ];
 
+    // Get real DB count for this category for accurate total
+    let dbCount = 0;
+    try {
+      const { count } = await supabase
+        .from("catalog_items")
+        .select("id", { count: "exact", head: true })
+        .eq("unified_category", canonicalKey)
+        .eq("is_active", true)
+        .eq("is_disallowed", false)
+        .gt("price_usd", 0);
+      dbCount = count || 0;
+    } catch (e) {
+      console.warn(`[CATALOG] DB count query failed:`, e);
+    }
+
+    const realTotal = Math.max(ebayTotal, amazonItems.length, finalItems.length, dbCount);
+
     return new Response(
       JSON.stringify(buildResponse(
         finalItems, 
-        Math.max(ebayTotal, amazonItems.length, finalItems.length),
-        mixResult.hasMore, 
+        realTotal,
+        mixResult.hasMore || finalItems.length < realTotal, 
         nextCursor,
         { requested: categoryRaw, resolved: canonicalKey, resolution: resolved.method },
         providerStats,

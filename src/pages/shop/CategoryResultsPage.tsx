@@ -61,7 +61,6 @@ interface CategoryResponse {
 }
 
 const PAGE_SIZE = 200;
-const VISIBLE_STEP = 200;
 
 export default function CategoryResultsPage() {
   const { key } = useParams<{ key: string }>();
@@ -74,8 +73,6 @@ export default function CategoryResultsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [loadProgress, setLoadProgress] = useState(0);
-  const [visibleCount, setVisibleCount] = useState(VISIBLE_STEP);
   const seenIdsRef = useRef(new Set<string>());
   const cursorRef = useRef<string | null>(null);
   const exhaustedRef = useRef(false);
@@ -174,8 +171,40 @@ export default function CategoryResultsPage() {
 
   // Track DB offset for "all" pagination
   const dbOffsetRef = useRef(0);
+  // Store total count from backend
+  const [totalCount, setTotalCount] = useState(0);
 
-  // Initial load — two-phase: show first batch immediately, load rest in background
+  // Direct DB fetch for category pagination (fast, <100ms)
+  const fetchCategoryFromDb = useCallback(async (catKey: string, offset: number): Promise<Product[]> => {
+    console.log('[CategoryPage] direct DB fetch for', catKey, 'offset', offset);
+    const PAGE = 200;
+    const { data, error } = await supabase
+      .from('catalog_items')
+      .select('id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock')
+      .eq('is_active', true)
+      .eq('is_disallowed', false)
+      .eq('unified_category', catKey)
+      .gt('price_usd', 0)
+      .order('popularity_score', { ascending: false, nullsFirst: false })
+      .range(offset, offset + PAGE - 1);
+
+    if (error) {
+      console.error('[CategoryPage] DB error:', error);
+      exhaustedRef.current = true;
+      return [];
+    }
+    if (!data || data.length < PAGE) {
+      exhaustedRef.current = true;
+    }
+    const items = (data || [])
+      .map((item: any) => mapItem(item))
+      .filter(p => p.id && p.imageUrl && p.priceUsd > 0 && !seenIdsRef.current.has(p.id))
+      .filter(isRelevantPartsItem);
+    items.forEach(p => seenIdsRef.current.add(p.id));
+    return items;
+  }, []);
+
+  // Initial load — fetch first page only, show immediately
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -184,74 +213,57 @@ export default function CategoryResultsPage() {
     cursorRef.current = null;
     exhaustedRef.current = false;
     dbOffsetRef.current = 0;
-    setVisibleCount(VISIBLE_STEP);
-    setLoadProgress(0);
+    setTotalCount(0);
 
     (async () => {
-      // Phase 1: Fetch first page and show immediately
       let firstBatch: Product[];
       if (categoryKey === 'all') {
         firstBatch = await fetchAllFromDb(0);
         dbOffsetRef.current = 200;
       } else {
+        // Use edge function for first page (gets total count + mixed results)
         firstBatch = await fetchPage(null);
+        // Also get real DB count for total display
+        try {
+          const { count } = await supabase
+            .from('catalog_items')
+            .select('id', { count: 'exact', head: true })
+            .eq('unified_category', categoryKey)
+            .eq('is_active', true)
+            .eq('is_disallowed', false)
+            .gt('price_usd', 0);
+          setTotalCount(count || firstBatch.length);
+        } catch {
+          setTotalCount(firstBatch.length);
+        }
+        dbOffsetRef.current = firstBatch.length;
       }
       if (cancelled) return;
       setProducts(firstBatch);
       setLoading(false);
-      setLoadProgress(firstBatch.length);
-
-      if (firstBatch.length === 0 || exhaustedRef.current) return;
-
-      // Phase 2: Continue fetching in background, appending live
-      let totalAccumulated = firstBatch.length;
-      let requestCount = 1;
-      let emptyStreak = 0;
-
-      while (!exhaustedRef.current && requestCount < 50) {
-        let items: Product[];
-        if (categoryKey === 'all') {
-          items = await fetchAllFromDb(dbOffsetRef.current);
-          dbOffsetRef.current += 200;
-        } else {
-          items = await fetchPage(cursorRef.current);
-        }
-        if (cancelled) return;
-        if (items.length === 0) {
-          emptyStreak++;
-          if (emptyStreak >= 3) { exhaustedRef.current = true; break; }
-        } else {
-          emptyStreak = 0;
-          totalAccumulated += items.length;
-          setProducts(prev => [...prev, ...items]);
-          setLoadProgress(totalAccumulated);
-        }
-        requestCount++;
-      }
     })();
 
     return () => { cancelled = true; };
   }, [categoryKey, fetchPage, fetchAllFromDb]);
 
+  // Manual Load More — fetches next page directly from DB for speed
   const handleShowMore = () => {
-    const nextVisible = visibleCount + VISIBLE_STEP;
-    setVisibleCount(nextVisible);
+    if (exhaustedRef.current || loadingMore) return;
+    setLoadingMore(true);
 
-    // If we're nearing the end of the pool and not exhausted, fetch more
-    if (nextVisible >= products.length - VISIBLE_STEP && !exhaustedRef.current && !loadingMore) {
-      setLoadingMore(true);
-      const fetchMore = categoryKey === 'all'
-        ? fetchAllFromDb(dbOffsetRef.current).then(items => { dbOffsetRef.current += 200; return items; })
-        : fetchPage(cursorRef.current);
-      fetchMore.then(items => {
+    const fetchMore = categoryKey === 'all'
+      ? fetchAllFromDb(dbOffsetRef.current).then(items => { dbOffsetRef.current += 200; return items; })
+      : fetchCategoryFromDb(categoryKey, dbOffsetRef.current).then(items => { dbOffsetRef.current += 200; return items; });
+
+    fetchMore.then(items => {
+      if (items.length > 0) {
         setProducts(prev => [...prev, ...items]);
-        setLoadingMore(false);
-      }).catch(() => setLoadingMore(false));
-    }
+      }
+      setLoadingMore(false);
+    }).catch(() => setLoadingMore(false));
   };
 
-  const visibleProducts = products.slice(0, visibleCount);
-  const hasMore = visibleCount < products.length || !exhaustedRef.current;
+  const hasMore = !exhaustedRef.current;
 
   return (
     <div className="min-h-screen bg-[#0f1115] pb-20 md:pb-0">
@@ -279,21 +291,13 @@ export default function CategoryResultsPage() {
             <h1 className="text-xl font-bold text-white/95">{title}</h1>
             {!loading && (
               <span className="text-sm text-white/40 ml-auto">
-                {products.length} {language === 'fr' ? 'produits' : 'products'}
+                {products.length}{totalCount > products.length ? ` / ${totalCount.toLocaleString()}` : ''} {language === 'fr' ? 'produits' : 'products'}
               </span>
             )}
           </div>
 
-          {loading ? (
-            <div>
-              {loadProgress > 0 && (
-                <div className="text-center mb-4">
-                  <p className="text-white/60 text-sm">
-                    {language === 'fr' ? 'Chargement...' : 'Loading...'} {loadProgress} {language === 'fr' ? 'produits trouvés' : 'products found'}
-                  </p>
-                </div>
-              )}
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+           {loading ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="bg-[#1a1d23] border border-white/[0.08] rounded-xl p-3 animate-pulse">
                     <div className="aspect-square bg-white/[0.06] rounded-lg mb-2" />
@@ -301,7 +305,6 @@ export default function CategoryResultsPage() {
                     <div className="h-3 w-1/2 bg-white/[0.06] rounded" />
                   </div>
                 ))}
-              </div>
             </div>
           ) : products.length === 0 ? (
             <div className="text-center py-20">
@@ -310,7 +313,7 @@ export default function CategoryResultsPage() {
           ) : (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                {visibleProducts.map((product) => (
+                {products.map((product) => (
                   <ProductCard key={`${product.provider}-${product.id}`} product={product} />
                 ))}
               </div>
@@ -329,7 +332,7 @@ export default function CategoryResultsPage() {
                     ) : null}
                     {language === 'fr' ? 'Afficher plus' : 'Show More'}
                     <span className="ml-2 text-xs text-white/50">
-                      ({visibleCount} / {products.length}{!exhaustedRef.current ? '+' : ''})
+                      ({products.length}{totalCount > 0 ? ` / ${totalCount.toLocaleString()}` : ''})
                     </span>
                   </Button>
                 </div>

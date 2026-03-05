@@ -285,9 +285,11 @@ async function firecrawlSearch(
 
       if (!url || !title) { dropReasons["missing_url_or_title"] = (dropReasons["missing_url_or_title"] || 0) + 1; continue; }
       if (!isValidSheinUrl(url)) { dropReasons["not_shein_url"] = (dropReasons["not_shein_url"] || 0) + 1; continue; }
-      // Reject category pages
-      if (/-cat-\d+\.html/i.test(url)) { dropReasons["category_page_url"] = (dropReasons["category_page_url"] || 0) + 1; continue; }
-      if (/^(Women|Men|Plus Size|Kids)\s+\w+\s*[\|–\-]\s*SHEIN/i.test(title)) { dropReasons["category_page_title"] = (dropReasons["category_page_title"] || 0) + 1; continue; }
+      // Reject category/collection pages
+      if (/-cat-\d+\.html/i.test(url) || /-sc-\d+\.html/i.test(url) || 
+          /\/(trends|style|picks|flash-sale|new-in|best-sellers|collections)\//i.test(url)) { 
+        dropReasons["category_page_url"] = (dropReasons["category_page_url"] || 0) + 1; continue; 
+      }
 
       const pid = extractSheinProductId(url);
       if (!pid) { dropReasons["no_product_id"] = (dropReasons["no_product_id"] || 0) + 1; continue; }

@@ -16,32 +16,13 @@ serve(async (req) => {
   }
 
   try {
-    // Determine gateway mode (NO secret values exposed)
-    const gatewayMode = Deno.env.get("MAISHAPAY_GATEWAY_MODE") || "1";
-    const isLiveMode = gatewayMode === "1";
-
     // Check if essential configs exist (boolean only, no values)
     const hasSupabaseUrl = !!Deno.env.get("SUPABASE_URL");
     const hasSupabaseAnonKey = !!Deno.env.get("SUPABASE_ANON_KEY");
-    const hasMaishapayPublicKey = !!(
-      Deno.env.get("MAISHAPAY_LIVE_PUBLIC_KEY") ||
-      Deno.env.get("MAISHAPAY_PUBLIC_KEY")
-    );
-    const hasMaishapaySecretKey = !!(
-      Deno.env.get("MAISHAPAY_LIVE_SECRET_KEY") ||
-      Deno.env.get("MAISHAPAY_SECRET_KEY")
-    );
-    const hasCallbackUrl = !!(
-      Deno.env.get("MAISHAPAY_CALLBACK_URL") ||
-      Deno.env.get("MAISHA_CALLBACK_URL")
-    );
+    const hasPawapayConfig = !!Deno.env.get("PAWAPAY_API_TOKEN");
+    const hasStripeConfig = !!Deno.env.get("STRIPE_SECRET_KEY");
 
-    const configReady =
-      hasSupabaseUrl &&
-      hasSupabaseAnonKey &&
-      hasMaishapayPublicKey &&
-      hasMaishapaySecretKey &&
-      hasCallbackUrl;
+    const configReady = hasSupabaseUrl && hasSupabaseAnonKey;
 
     console.log("[mobile-health] Health check requested");
 
@@ -49,15 +30,13 @@ serve(async (req) => {
       JSON.stringify({
         ok: true,
         timestamp: new Date().toISOString(),
-        gatewayMode,
-        isLiveMode,
         configReady,
         checks: {
           supabase: hasSupabaseUrl && hasSupabaseAnonKey,
-          maishapay: hasMaishapayPublicKey && hasMaishapaySecretKey,
-          callback: hasCallbackUrl,
+          pawapay: hasPawapayConfig,
+          stripe: hasStripeConfig,
         },
-        version: "1.0.0",
+        version: "2.0.0",
         service: "afrishop-mobile-api",
       }),
       {

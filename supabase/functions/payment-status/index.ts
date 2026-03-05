@@ -170,11 +170,7 @@ serve(async (req) => {
         order.status === 'SHIPPED' || order.status === 'READY_FOR_PICKUP' || 
         order.status === 'COMPLETED') {
       paymentStatus = 'paid';
-    } else if (order.maisha_payment_status === 'SUCCESS') {
-      paymentStatus = 'paid';
-    } else if (order.maisha_payment_status === 'FAILED') {
-      paymentStatus = 'failed';
-    } else if (order.maisha_payment_status === 'CANCELLED' || order.status === 'CANCELLED') {
+    } else if (order.status === 'CANCELLED') {
       paymentStatus = 'cancelled';
     }
 

@@ -95,14 +95,24 @@ serve(async (req) => {
           console.error('[Reset Section] Error deleting order_actions:', actionsError);
         }
 
-        // Delete maisha_payments
+        // Delete payments
         const { error: paymentsError } = await supabaseAdmin
-          .from('maisha_payments')
+          .from('payments')
           .delete()
           .neq('id', '00000000-0000-0000-0000-000000000000');
 
         if (paymentsError) {
-          console.error('[Reset Section] Error deleting maisha_payments:', paymentsError);
+          console.error('[Reset Section] Error deleting payments:', paymentsError);
+        }
+
+        // Delete payment_attempts
+        const { error: attemptsError } = await supabaseAdmin
+          .from('payment_attempts')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000');
+
+        if (attemptsError) {
+          console.error('[Reset Section] Error deleting payment_attempts:', attemptsError);
         }
 
         // Delete orders
@@ -119,7 +129,7 @@ serve(async (req) => {
 
       case 'payments': {
         const { data: paymentsData, error: paymentsError } = await supabaseAdmin
-          .from('maisha_payments')
+          .from('payment_attempts')
           .delete()
           .neq('id', '00000000-0000-0000-0000-000000000000')
           .select('id');

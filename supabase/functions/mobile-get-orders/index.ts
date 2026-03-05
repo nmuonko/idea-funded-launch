@@ -66,9 +66,9 @@ serve(async (req) => {
       .from('orders')
       .select(`
         id, created_at, total_usd, total_cdf, item_total_usd, service_fee_usd, shipping_fee_usd,
-        status, maisha_payment_status, tracking_number, carrier, shipped_at, estimated_delivery,
+        status, tracking_number, carrier, shipped_at, estimated_delivery,
         order_items(id, title, store, product_url, product_image_url, base_price_usd, unit_price_usd, subtotal_usd, quantity, total_price_usd, shipping_status),
-        maisha_payments(confirmation_code)
+        payment_attempts(confirmation_code)
       `)
       .eq('user_id', user.id)
       .neq('status', 'DRAFT')

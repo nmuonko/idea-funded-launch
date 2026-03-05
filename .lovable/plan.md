@@ -1,50 +1,57 @@
 
 
-## Fix: Category Products Show Only 200 + Load More Auto-Fires
+## Fix: Product Details Showing Only 1 Image for SHEIN, Carvana, CarGurus
 
 ### Root Cause
 
-1. **Backend `total` is unreliable**: `catalog-category` returns `total = Math.max(ebayTotal, amazonItems.length, finalItems.length)` — when eBay returns 200 items and Amazon has 200 cached, `total` = 200. The frontend's background auto-fetcher sees `products.length >= total` and stops. Your DB actually has 41K phones, 92K clothing, 4.6K vehicles.
+**Two-layer problem:**
 
-2. **Background auto-fetch runs unwanted**: The current code auto-fetches all pages silently, which causes the "Load More auto-clicks itself" behavior — `setCategoryLoadingMore(true)` triggers spinner on the button while background fetches run.
+1. **Scrapers only store `image_url` (single image)** — neither `catalog-shein-scraper` nor `catalog-car-scraper` populate the `images` JSONB array column. They only set `image_url` (one image). The upsert rows don't include an `images` field at all.
 
-3. **`CategoryResultsPage.tsx`** has the same issue — its background loop fetches continuously and appends products, making the "Load More" button appear to auto-fire.
+2. **Gallery enrichment fails silently** — when `catalog-product` detects <= 2 images, it tries `scrapeProviderGalleryFromPage()` which does a direct HTTP fetch to SHEIN/Carvana/CarGurus. These sites block direct scraping (bot protection), returning 403 or empty HTML. The Firecrawl fallback is deliberately disabled to conserve credits. Result: enrichment always fails, user sees 1 image.
 
 ### Plan
 
-#### 1. Fix backend `total` — return actual DB count for the category
-In `catalog-category/index.ts`, add a separate count query against `catalog_items` for the resolved category to return a realistic total, so the frontend knows there are thousands more.
+#### 1. Extract ALL images during scraping (not just one)
+
+**`catalog-shein-scraper/index.ts`**: Extract all product images from the Firecrawl markdown using `matchAll` instead of `match`. Store them in the `images` JSONB array column during upsert.
 
 ```
-// Add near line 793:
-// Get real DB count for this category
-const { count: dbCount } = await supabase
-  .from("catalog_items")
-  .select("id", { count: "exact", head: true })
-  .eq("unified_category", parentTab)
-  .eq("is_active", true)
-  .gt("price_usd", 0);
-
-total = Math.max(ebayTotal, amazonItems.length, finalItems.length, dbCount || 0);
+// Extract ALL product images from markdown (not just first)
+const allImgMatches = [...markdown.matchAll(
+  /(https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^\s)"]+)/gi
+)];
+const allImages = allImgMatches
+  .map(m => m[1])
+  .filter(url => !/_thumbnail_/i.test(url) && !/banner/i.test(url));
+// Deduplicate
+const uniqueImages = [...new Set(allImages)].slice(0, 10);
 ```
 
-#### 2. `ShopHome.tsx` — Remove background auto-fetcher, make Load More manual only
-- **Remove** the `categoryBgFetchRef` auto-fetch loop entirely (lines 602-651)
-- Keep the cached-data restore (instant display from `categoryProductsCacheRef`)
-- `handleCategoryLoadMore` fetches the next page on click only
-- Same for store filter: already manual, no changes needed
+Add `images: uniqueImages.length > 0 ? uniqueImages : [imageUrl]` to the upsert row.
 
-#### 3. `CategoryResultsPage.tsx` — Remove background fetch loop, manual Load More only
-- **Remove** the Phase 2 background loop (lines 206-230) that auto-fetches up to 50 pages
-- Keep Phase 1 (first 200 shown instantly)
-- `handleShowMore` fetches next page on click
-- Remove `visibleCount` slicing — show all fetched products directly (no separate "reveal" step)
+**`catalog-car-scraper/index.ts`**: Same pattern — extract all image URLs from markdown, store in `images` array. For Carvana, also generate multiple angle URLs from the vehicle ID (Carvana has predictable image URL patterns for different angles).
 
-#### 4. Make Load More fetch directly from DB for speed
-Both pages should use direct Supabase queries (like `fetchAllFromDb` pattern) instead of going through the `catalog-category` edge function for subsequent pages. This gives <100ms response times vs 1-2s through the edge function.
+#### 2. Re-enable Firecrawl gallery enrichment for DB-only providers (budget-controlled)
+
+In `catalog-product/index.ts`, re-enable `scrapeProviderGalleryFirecrawl()` as fallback when direct scrape fails, but only if:
+- The item has <= 1 image (not <= 2, to reduce calls)
+- Provider budget check passes (use existing `check_provider_budget` with a small daily cap like 100 credits for gallery enrichment)
+
+This ensures first-time product views get full galleries while staying within credit budget.
+
+#### 3. Persist enriched galleries back to `images` column
+
+Already implemented in current code (lines 1155-1171) — no changes needed here. Once enrichment succeeds, it writes back to `catalog_items.images` and `catalog_item_media`.
 
 ### Files to modify
-1. `supabase/functions/catalog-category/index.ts` — Fix `total` to use real DB count
-2. `src/pages/shop/ShopHome.tsx` — Remove background auto-fetcher, manual Load More only
-3. `src/pages/shop/CategoryResultsPage.tsx` — Remove background loop, manual Load More, direct DB pagination
+
+1. **`supabase/functions/catalog-shein-scraper/index.ts`** — Extract all images from markdown, add `images` array to upsert
+2. **`supabase/functions/catalog-car-scraper/index.ts`** — Extract all images from markdown, add `images` array to upsert; add Carvana multi-angle URL generation
+3. **`supabase/functions/catalog-product/index.ts`** — Re-enable Firecrawl gallery fallback for shein/cargurus/carvana with budget cap (100/day)
+
+### Expected Result
+- New scraped items will have 3-10 images stored at ingestion time
+- Existing 1-image items will get enriched on first detail view (up to 100/day via Firecrawl)
+- Product detail pages will show full image galleries
 

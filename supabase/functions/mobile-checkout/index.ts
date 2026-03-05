@@ -1573,7 +1573,7 @@ serve(async (req) => {
           pay_method: paymentMethodPreference,
           grand_total: totalsBreakdown.grand_total,
           integrity_hash: integrityHash,
-          maisha_reference: largeOrderReference,
+          // maisha_reference removed
           status: 'processing',
           metadata: {
             is_large_order: true,

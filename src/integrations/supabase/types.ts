@@ -5881,8 +5881,6 @@ export type Database = {
         Args: never
         Returns: {
           exchange_rate: number
-          maishapay_max_cdf: number
-          maishapay_max_usd: number
           markup_percent: number
           shipping_base_fee: number
           shipping_percent: number

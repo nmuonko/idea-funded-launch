@@ -1504,9 +1504,9 @@ serve(async (req) => {
       }
 
       const largeOrderReference = `AFRISHOP-${largeOrderCheckout.id.slice(0, 8)}-${timestamp}`;
-      
+      // Store reference in operator_ref_id (maisha_transaction_id removed)
       await supabase.from('orders').update({
-        maisha_transaction_id: largeOrderReference,
+        operator_ref_id: largeOrderReference,
       }).eq('id', largeOrderCheckout.id);
 
       // Copy items to the checkout order

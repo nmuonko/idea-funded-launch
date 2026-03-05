@@ -84,7 +84,7 @@ serve(async (req) => {
     // Mobile-optimized response - extract confirmation_code from joined data
     const formattedOrders = (orders || []).map(o => {
       const displayRef = getDisplayRef(o.id);
-      const confirmationCode = o.maisha_payments?.[0]?.confirmation_code || null;
+      const confirmationCode = o.payment_attempts?.[0]?.confirmation_code || null;
       
       return {
         id: o.id,

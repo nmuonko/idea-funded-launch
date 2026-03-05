@@ -44,7 +44,7 @@ serve(async (req) => {
       });
     }
 
-    // Get payment with confirmation code from payment_attempts first, then fallback to maisha_payments
+    // Get payment with confirmation code from payment_attempts
     let confirmationCode: string | null = null;
     
     const { data: attempt } = await supabase

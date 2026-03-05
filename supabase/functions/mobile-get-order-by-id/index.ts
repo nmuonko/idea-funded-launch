@@ -50,10 +50,10 @@ serve(async (req) => {
       .from('orders')
       .select(`
         id, created_at, total_usd, total_cdf, item_total_usd, service_fee_usd, shipping_fee_usd,
-        exchange_rate_used, status, maisha_payment_status, tracking_number, carrier,
+        exchange_rate_used, status, tracking_number, carrier,
         shipped_at, delivered_at, estimated_delivery,
         order_items(id, title, store, product_url, product_image_url, base_price_usd, unit_price_usd, subtotal_usd, markup_fee_usd, quantity, total_price_usd, total_price_cdf, shipping_status),
-        maisha_payments(confirmation_code, paid_at, status)
+        payment_attempts(confirmation_code, paid_at, status)
       `)
       .eq('id', orderId)
       .eq('user_id', user.id)

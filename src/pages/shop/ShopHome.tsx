@@ -526,79 +526,78 @@ export default function ShopHome() {
     fetchStorePage(providerFilter, nextPage, true);
   }, [storeProductsPage, providerFilter, fetchStorePage]);
 
-  // Fetch category-only products from DB using title ilike
+  // Fetch category-only products using fast backend category endpoint (avoids DB timeout on large OR scans)
   const fetchCategoryPage = useCallback(async (catKey: string, page: number, append: boolean) => {
-    const keywords = CATEGORY_KEYWORDS[catKey];
-    if (!keywords || keywords.length === 0) return;
-
     const PAGE_SIZE = 200;
-    const from = page * PAGE_SIZE;
 
     if (!append) setCategoryProductsLoading(true);
     else setCategoryLoadingMore(true);
 
     try {
-      const topKeywords = keywords.slice(0, 8);
-      let query = supabase
-        .from('catalog_items')
-        .select(
-          'id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock',
-          { count: 'exact' }
-        )
-        .eq('is_active', true)
-        .eq('is_disallowed', false)
-        .gt('price_usd', 0);
+      const endpointCategory = catKey === 'computers' ? 'electronics' : catKey;
+      let mapped: Product[] = [];
+      let totalCount = 0;
 
-      const orFilters = topKeywords.map(kw => `title.ilike.%${kw}%`).join(',');
-      query = query.or(orFilters);
+      try {
+        const data = await cachedCatalogFetch<any>('catalog-category', {
+          category: endpointCategory,
+          page: page + 1,
+          pageSize: PAGE_SIZE,
+          client: 'web',
+          language,
+        });
 
-      const { data, error, count } = await query
-        .order('popularity_score', { ascending: false, nullsFirst: false })
-        .range(from, from + PAGE_SIZE - 1);
+        const rawItems = data?.items || data?.sections?.[0]?.items || [];
+        totalCount = Number(data?.total || 0);
 
-      if (error) throw error;
+        mapped = rawItems
+          .map((item: any) => mapItemToProduct(item))
+          .filter(isValidProduct)
+          .filter(p => isRelevantToCategory(p, catKey));
+      } catch (endpointErr) {
+        console.warn(`[ShopHome] catalog-category fetch for ${catKey} page ${page} failed:`, endpointErr);
+      }
 
-      const totalCount = count ?? 0;
-      const mapped = (data || [])
-        .map((item: any): Product | null => {
-          const fallbackImage = extractFirstImageFromJson(item.images);
-          const providerFallback = deriveProviderImageFallback(item.provider || '', item.provider_product_id || item.id);
-          const preferred = isRenderableImageUrl(item.image_url)
-            ? item.image_url
-            : (fallbackImage || providerFallback);
-          if (!preferred || !isRenderableImageUrl(preferred)) return null;
-          return {
-            id: item.provider_product_id || item.id,
-            provider: item.provider || 'unknown',
-            title: item.title || 'Product',
-            imageUrl: preferred,
-            priceUsd: item.price_usd || 0,
-            rating: item.rating,
-            inStock: item.in_stock !== false,
-            productUrl: item.product_url,
-          };
-        })
-        .filter((p): p is Product => p !== null)
-        .filter(p => isRelevantToCategory(p, catKey));
+      // Fallback for custom categories like "computers" (and any temporary endpoint misses)
+      if (mapped.length === 0 && page === 0) {
+        const queries = CATEGORY_SEARCH_QUERIES[catKey] || [catKey.replace('_', ' ')];
+        const fallbackPool: Product[] = [];
+
+        for (const q of queries.slice(0, 4)) {
+          try {
+            const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 50, client: 'web' });
+            const searchItems = (data?.items || [])
+              .map(mapSearchItemToProduct)
+              .filter(isValidProduct)
+              .filter(p => isRelevantToCategory(p, catKey));
+            fallbackPool.push(...searchItems);
+          } catch {
+            // Continue with next query
+          }
+        }
+
+        mapped = deduplicateProducts(sortByLuxury(fallbackPool)).slice(0, PAGE_SIZE);
+        if (totalCount === 0) totalCount = mapped.length;
+      }
 
       if (append) {
         setCategoryProducts(prev => {
-          const combined = [...prev, ...mapped];
-          categoryProductsCacheRef.current[catKey] = { products: combined, count: totalCount };
+          const combined = deduplicateProducts([...prev, ...mapped]);
+          categoryProductsCacheRef.current[catKey] = { products: combined, count: Math.max(totalCount, combined.length) };
           return combined;
         });
       } else {
         setCategoryProducts(mapped);
-        categoryProductsCacheRef.current[catKey] = { products: mapped, count: totalCount };
+        categoryProductsCacheRef.current[catKey] = { products: mapped, count: Math.max(totalCount, mapped.length) };
       }
-      setCategoryTotalCount(totalCount);
+      setCategoryTotalCount(Math.max(totalCount, mapped.length));
     } catch (err) {
       console.warn(`[ShopHome] Category fetch for ${catKey} page ${page} failed:`, err);
     } finally {
       setCategoryProductsLoading(false);
       setCategoryLoadingMore(false);
     }
-  }, []);
+  }, [language]);
 
   useEffect(() => {
     if (providerFilter && providerFilter !== 'all') return;

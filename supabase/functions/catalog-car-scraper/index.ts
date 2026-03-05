@@ -435,10 +435,18 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const auth = await authenticateRequest(req);
-  if (!auth.authorized) {
-    return cronAuthErrorResponse(auth.error || "Unauthorized");
-  }
+  // DISABLED: This scraper was draining ~1000+ Firecrawl credits per run.
+  // Return success immediately to prevent cron retries.
+  console.log(`[CAR_SCRAPER] DISABLED — returning early to conserve Firecrawl credits`);
+  return new Response(JSON.stringify({ 
+    ok: true, 
+    disabled: true, 
+    reason: "Firecrawl credit conservation — scraper paused",
+    listings_found: 0, 
+    upserted_count: 0 
+  }), {
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 
   const startTime = Date.now();
 

@@ -963,8 +963,9 @@ async function saveToCatalogItems(
   imageUrl: string | null
 ): Promise<void> {
   try {
-    // Skip if no price
-    if (!price || price <= 0) return;
+    // Allow saving items with price=0 (user will enter price manually)
+    // Only skip if price is explicitly negative
+    if (price < 0) return;
     // Extract product ID; skip if we can't identify the product
     const productId = extractProductIdFromUrl(url, store);
     if (!productId) return;
@@ -1334,7 +1335,23 @@ Deno.serve(async (req) => {
 
     // Parse request
     const body = await req.json();
-    const { url, forceRefresh = false, allowOcr = false, mode = 'standard' } = body;
+    const { url, forceRefresh = false, allowOcr = false, mode = 'standard', manualPrice } = body;
+
+    // If manualPrice is provided, just update the catalog item and return
+    if (manualPrice && typeof manualPrice === 'number' && manualPrice > 0 && url) {
+      const supabase = createClient(
+        Deno.env.get('SUPABASE_URL')!,
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      );
+      let formattedUrlForManual = url.trim();
+      if (!formattedUrlForManual.startsWith('http://') && !formattedUrlForManual.startsWith('https://')) {
+        formattedUrlForManual = `https://${formattedUrlForManual}`;
+      }
+      const manualStore = detectStore(formattedUrlForManual);
+      await saveToCatalogItems(supabase, manualStore, formattedUrlForManual, manualPrice, null, null);
+      console.log(`[extract-price] Manual price update: store=${manualStore} price=${manualPrice}`);
+      return jsonSuccess({ url: formattedUrlForManual, store: manualStore, basePrice: manualPrice, manualPriceApplied: true });
+    }
 
     if (!url || typeof url !== 'string') {
       return jsonError(400, ErrorCodes.INVALID_URL);
@@ -1993,15 +2010,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Strategy 4: OCR (only for standard mode, skip for problematic stores)
-    const skipOcrStores: StoreType[] = ['shein', 'aliexpress'];
-    if (!price && allowOcr && !skipOcrStores.includes(store)) {
-      price = await extractWithOcr(formattedUrl, TIMEOUTS.ocr);
-      if (price) {
-        extractionMethod = 'ocr';
-        console.log(`[extract-price] OCR extraction succeeded: ${price}`);
-      }
-    }
+    // Strategy 4: OCR DISABLED — was consuming Firecrawl credits (1 call per request)
+    // The OCR path called Firecrawl API which drained credits. Regex extraction above is sufficient.
+    // if (!price && allowOcr && !skipOcrStores.includes(store)) { ... }
 
     // Fail fast if no price found
     if (!price) {
@@ -2044,19 +2055,9 @@ Deno.serve(async (req) => {
     // Extract product info
     const productInfo = extractProductInfo(html, store);
 
-    // If we got price but no image from direct scraping, try Firecrawl for image
-    if (!productInfo.imageUrl && price) {
-      console.log(`[extract-price] No image from direct scrape for ${store}, trying Firecrawl for image`);
-      const firecrawlResult = await extractViaFirecrawlFull(formattedUrl, store, 8000);
-      if (firecrawlResult?.imageUrl) {
-        productInfo.imageUrl = firecrawlResult.imageUrl;
-        console.log(`[extract-price] Firecrawl image fallback succeeded: ${productInfo.imageUrl?.substring(0, 80)}`);
-      }
-      // Also use Firecrawl title if we didn't get one
-      if (!productInfo.title && firecrawlResult?.title) {
-        productInfo.title = firecrawlResult.title;
-      }
-    }
+    // Image-only Firecrawl fallback DISABLED — was consuming extra Firecrawl credits per request.
+    // If direct scrape got price but no image, we accept it without image rather than burning credits.
+    // The image will be shown as a placeholder on the frontend.
 
     // Determine currency
     const detectedCurrency = currencyCode

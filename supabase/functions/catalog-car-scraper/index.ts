@@ -47,10 +47,11 @@ interface CarListing {
 
 const DEFAULT_MAX_PRICE = 50000;
 const DEFAULT_TARGET_ITEMS = 300;
-const DEFAULT_QUERIES_PER_RUN = 20;
+const DEFAULT_QUERIES_PER_RUN = 3;
 const SEARCH_TIMEOUT_MS = 12000;
 const HARD_FUNCTION_CAP_MS = 50000;
-const FIRECRAWL_SEARCH_LIMIT = 50;
+const FIRECRAWL_SEARCH_LIMIT = 20;
+const DAILY_CREDIT_CAP = 1000;
 const BLOCKED_STATUSES = new Set([403, 418, 429, 503]);
 
 const PROVIDER_DOMAINS: Record<string, string> = {
@@ -435,19 +436,6 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // DISABLED: This scraper was draining ~1000+ Firecrawl credits per run.
-  // Return success immediately to prevent cron retries.
-  console.log(`[CAR_SCRAPER] DISABLED — returning early to conserve Firecrawl credits`);
-  return new Response(JSON.stringify({ 
-    ok: true, 
-    disabled: true, 
-    reason: "Firecrawl credit conservation — scraper paused",
-    listings_found: 0, 
-    upserted_count: 0 
-  }), {
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-
   const startTime = Date.now();
 
   try {
@@ -479,13 +467,27 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Budget check — enforce daily credit cap per provider
+    const { data: budgetData } = await supabase.rpc("check_provider_budget", {
+      p_provider: `firecrawl:${provider}`,
+      p_window_type: "day",
+      p_limit: DAILY_CREDIT_CAP,
+    });
+    if (budgetData && !budgetData.allowed) {
+      console.log(`[CAR_SCRAPER] BUDGET EXCEEDED for ${provider} — ${budgetData.count}/${DAILY_CREDIT_CAP} credits used today`);
+      return new Response(JSON.stringify({
+        ok: true, budget_exceeded: true, provider, credits_used: budgetData.count, daily_cap: DAILY_CREDIT_CAP,
+        listings_found: 0, upserted_count: 0,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // Get rotation offset
     const offset = customQuery ? 0 : await getRotationOffset(supabase, provider);
     const queries = customQuery
       ? [`${customQuery} for sale site:${PROVIDER_DOMAINS[provider]}`]
       : getQueryBatch(provider, offset, queriesPerRun);
 
-    console.log(`[CAR_SCRAPER] START provider=${provider} target=${targetItems} queries=${queries.length} offset=${offset} dryRun=${dryRun}`);
+    console.log(`[CAR_SCRAPER] START provider=${provider} target=${targetItems} queries=${queries.length} offset=${offset} dryRun=${dryRun} budget=${budgetData?.count || 0}/${DAILY_CREDIT_CAP}`);
 
     const dropReasons: Record<string, number> = {};
     const allListings: CarListing[] = [];
@@ -498,6 +500,13 @@ Deno.serve(async (req: Request) => {
 
       queriesUsed++;
       const results = await firecrawlSearch(query, maxPrice, firecrawlKey, provider, dropReasons);
+
+      // Track credits used
+      await supabase.rpc("increment_provider_budget", {
+        p_provider: `firecrawl:${provider}`,
+        p_window_type: "day",
+        p_limit: DAILY_CREDIT_CAP,
+      });
 
       for (const l of results) {
         if (allListings.length >= targetItems) break;

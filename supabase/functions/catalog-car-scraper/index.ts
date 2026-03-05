@@ -276,7 +276,11 @@ async function firecrawlSearch(
 
       if (!url || !title) { dropReasons["missing_url_or_title"] = (dropReasons["missing_url_or_title"] || 0) + 1; continue; }
       if (isSoldOrExpired(title) || isSoldOrExpired(description)) { dropReasons["sold_or_expired"] = (dropReasons["sold_or_expired"] || 0) + 1; continue; }
-      if (!isValidVdpUrl(url, provider)) { dropReasons["not_vdp_url"] = (dropReasons["not_vdp_url"] || 0) + 1; continue; }
+      if (!isValidVdpUrl(url, provider)) { 
+        console.log(`[CAR_SCRAPER] rejected URL: ${url.substring(0, 120)}`);
+        dropReasons["not_vdp_url"] = (dropReasons["not_vdp_url"] || 0) + 1; 
+        continue; 
+      }
 
       const lowerTitle = title.toLowerCase();
       if (lowerTitle.includes("about us") || lowerTitle.includes("faq") || lowerTitle.includes("privacy")) {

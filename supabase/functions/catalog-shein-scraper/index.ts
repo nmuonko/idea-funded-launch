@@ -319,25 +319,30 @@ async function firecrawlSearch(
 
       seenIds.add(pid);
 
-      // Extract image — prioritize actual product images from SHEIN CDN
-      let imageUrl = "";
-      // Look for SHEIN product images (items/ or product/ paths on ltwebstatic)
-      const sheinProductImgMatch = markdown.match(/(https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^\s)"]+)/i);
-      if (sheinProductImgMatch && !/_thumbnail_/i.test(sheinProductImgMatch[1]) && !/banner/i.test(sheinProductImgMatch[1])) {
-        imageUrl = sheinProductImgMatch[1];
-      }
-      // Fallback: any ltwebstatic image that isn't a thumbnail/banner
-      if (!imageUrl) {
-        const staticImgMatch = markdown.match(/(https?:\/\/img\.ltwebstatic\.com\/[^\s)"]+\.(?:jpg|jpeg|png|webp))/i);
-        if (staticImgMatch && !/_thumbnail_(?:12[0-6]|60)x/i.test(staticImgMatch[1]) && !/banner/i.test(staticImgMatch[1])) {
-          imageUrl = staticImgMatch[1];
-        }
-      }
+      // Extract ALL product images from SHEIN CDN (not just first)
+      const allImgMatches = [...markdown.matchAll(
+        /(https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^\s)"]+)/gi
+      )];
+      const allSheinImages = allImgMatches
+        .map(m => m[1])
+        .filter(u => !/_thumbnail_/i.test(u) && !/banner/i.test(u));
+      
+      // Also grab any other ltwebstatic images
+      const otherImgMatches = [...markdown.matchAll(
+        /(https?:\/\/img\.ltwebstatic\.com\/[^\s)"]+\.(?:jpg|jpeg|png|webp))/gi
+      )];
+      const otherImages = otherImgMatches
+        .map(m => m[1])
+        .filter(u => !/_thumbnail_(?:12[0-6]|60)x/i.test(u) && !/banner/i.test(u));
+      
       // Fallback: any markdown image
-      if (!imageUrl) {
-        const imgMatch = markdown.match(/!\[.*?\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp)[^\s)]*)\)/i);
-        if (imgMatch) imageUrl = imgMatch[1];
-      }
+      const mdImgMatches = [...markdown.matchAll(/!\[.*?\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp)[^\s)]*)\)/gi)];
+      const mdImages = mdImgMatches.map(m => m[1]);
+      
+      // Deduplicate all images, prioritizing SHEIN CDN product images
+      const uniqueImages = [...new Set([...allSheinImages, ...otherImages, ...mdImages])].slice(0, 10);
+      const imageUrl = uniqueImages[0] || "";
+      
       // Skip items with no image — don't use fabricated CDN URLs
       if (!imageUrl) { dropReasons["no_image"] = (dropReasons["no_image"] || 0) + 1; continue; }
 
@@ -352,7 +357,8 @@ async function firecrawlSearch(
         product_url: url,
         provider_product_id: pid,
         brand,
-      });
+        images: uniqueImages.length > 1 ? uniqueImages : [imageUrl],
+      } as any);
     }
 
     return products;
@@ -389,6 +395,7 @@ async function upsertProducts(supabase: any, products: SheinProduct[], dryRun: b
     is_disallowed: false,
     last_seen_at: now,
     last_checked_at: now,
+    images: (p as any).images || [p.image_url],
     metadata: { source: "firecrawl_search_v2" },
   }));
 

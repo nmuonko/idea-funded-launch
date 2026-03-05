@@ -1875,9 +1875,8 @@ serve(async (req) => {
     // Update reference with actual order ID
     const finalReference = `AFRISHOP-${checkoutOrder.id.slice(0, 8)}-${timestamp}`;
     if (finalReference !== reference) {
-      // Only update if reference changed (it will since we used a temp UUID)
       await supabase.from('orders').update({
-        maisha_transaction_id: finalReference,
+        operator_ref_id: finalReference,
       }).eq('id', checkoutOrder.id);
     }
 

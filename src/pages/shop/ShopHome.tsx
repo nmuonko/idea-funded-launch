@@ -599,10 +599,8 @@ export default function ShopHome() {
     }
   }, [language]);
 
-  // Auto-fetch all category pages in background after first load
-  const categoryBgFetchRef = useRef(false);
+  // Load category products: instant from cache, first page from API, manual Load More only
   useEffect(() => {
-    categoryBgFetchRef.current = false;
     if (providerFilter && providerFilter !== 'all') return;
     if (!categoryFilter || categoryFilter === 'all') {
       setCategoryProducts([]);
@@ -614,40 +612,11 @@ export default function ShopHome() {
     if (cached) {
       setCategoryProducts(cached.products);
       setCategoryTotalCount(cached.count);
-      // Still auto-fetch more pages if total > cached
-      if (cached.count > cached.products.length) {
-        const nextPage = Math.ceil(cached.products.length / 200);
-        setCategoryProductsPage(nextPage);
-        // trigger background fetch
-        categoryBgFetchRef.current = true;
-        (async () => {
-          let page = nextPage;
-          while (categoryBgFetchRef.current && page < 50) {
-            await fetchCategoryPage(categoryFilter, page, true);
-            page++;
-            // Check if we got all
-            const latest = categoryProductsCacheRef.current[categoryFilter];
-            if (latest && latest.products.length >= latest.count) break;
-          }
-        })();
-      }
+      setCategoryProductsPage(Math.ceil(cached.products.length / 200));
       return;
     }
     setCategoryProductsPage(0);
-    fetchCategoryPage(categoryFilter, 0, false).then(() => {
-      // After first page loads, auto-fetch remaining pages in background
-      categoryBgFetchRef.current = true;
-      (async () => {
-        let page = 1;
-        while (categoryBgFetchRef.current && page < 50) {
-          const current = categoryProductsCacheRef.current[categoryFilter];
-          if (current && current.products.length >= current.count && current.count > 0) break;
-          await fetchCategoryPage(categoryFilter, page, true);
-          page++;
-        }
-      })();
-    });
-    return () => { categoryBgFetchRef.current = false; };
+    fetchCategoryPage(categoryFilter, 0, false);
   }, [categoryFilter, providerFilter, fetchCategoryPage]);
 
   const handleCategoryLoadMore = useCallback(() => {

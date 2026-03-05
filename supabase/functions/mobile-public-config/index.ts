@@ -221,8 +221,8 @@ interface PublicConfigResponse {
     minUsd: number;
   };
   limits: {
-    maishapayMaxUsd: number;
-    maishapayMaxCdf: number;
+    mobileMoneyMaxUsd: number;
+    mobileMoneyMaxCdf: number;
   };
   currency: string;
   updated_at: string;

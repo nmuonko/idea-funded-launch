@@ -1,37 +1,70 @@
 
 
-## Fix: Load All Category Products in Batches + Block Ad Banner Images
+## Re-enable Scrapers with Controlled Firecrawl Budget
 
-### Problems
+### Credit Economics
 
-1. **Only 200 products shown**: `CategoryResultsPage` has `POOL_TARGET = 300` and `VISIBLE_STEP = 48`, capping the initial pool at ~300 items and showing only 48 at a time. The "Load More" button only reveals pre-fetched items; it doesn't fetch all available products from the database. Same issue on `ShopHome` category browsing — capped at 200 per page with no aggressive prefetch.
+Firecrawl Search API costs **1 credit per search result returned**. With `limit: 50`, each search query costs up to **50 credits**.
 
-2. **Ad banners showing as product images**: Many catalog items have eBay seller banners, Amazon "Renewed" badges, promotional template images stored as `image_url`. The current `isRenderableImageUrl` filter catches some but misses common patterns like eBay description images (`/i.ebayimg.com/images/g/` with banner content), Amazon "certified renewed" badges, and generic promotional overlays with text like "free shipping", "best seller", etc.
+Current scraper settings:
+- **SHEIN**: 25 queries/run × 50 results = **1,250 credits/run**
+- **CarGurus**: 20 queries/run × 50 results = **1,000 credits/run** (runs for both cargurus + carvana = 2,000)
+- **Total per cron cycle**: ~3,250 credits
+
+If running every 15 minutes (96 times/day): **312,000 credits/day** — clearly unsustainable.
+
+### Smart Budget Plan
+
+Reduce queries per run and increase cron interval to stay within a daily budget:
+
+| Scraper | Queries/Run | Limit/Query | Credits/Run | Interval | Runs/Day | Credits/Day | Expected Products/Day |
+|---------|------------|-------------|-------------|----------|----------|-------------|----------------------|
+| SHEIN | 5 | 20 | ~100 | 2 hours | 12 | ~1,200 | 200-400 |
+| CarGurus | 3 | 20 | ~60 | 3 hours | 8 | ~480 | 80-150 |
+| Carvana | 3 | 20 | ~60 | 3 hours | 8 | ~480 | 80-150 |
+| **Total** | | | | | | **~2,160** | **360-700** |
+
+Reserve **~800 credits/day** for paste-link usage (max 1 Firecrawl call per paste = ~50 credits each = 16 paste-link requests/day).
+
+**Total daily budget: ~3,000 credits/day** — sustainable on a standard Firecrawl plan.
+
+### Is This Smart?
+
+Yes, this is the right approach:
+1. **Background scrapers** build the catalog passively — users see products instantly from cache
+2. **Paste-link** is the fallback for items not in the catalog — reserved credits ensure it always works
+3. **Diminishing returns**: After the first week, most queries will hit existing products (deduplication via `provider,provider_product_id` unique constraint), so net new items slow down naturally
+4. **Images**: The scrapers already extract images from markdown. Items without images are dropped (`no_image` drop reason). No extra Firecrawl calls needed for image enrichment.
 
 ### Plan
 
-#### 1. `CategoryResultsPage.tsx` — Unlimited batch loading
-- Remove `POOL_TARGET` cap (or set to `Infinity`)
-- Increase `VISIBLE_STEP` from 48 to 200 (show 200 products at a time)
-- On initial load: fetch first 200, show immediately
-- Background: continue fetching 200-item batches until exhausted (no cap on requests)
-- "Load More" button: reveals next 200 from pre-fetched pool AND triggers more fetches if nearing the end
-- Show count like "Showing 200 of 1,432 products"
+#### 1. Re-enable SHEIN scraper with throttled settings
+- Remove the early-return disabled block
+- Reduce `DEFAULT_QUERIES_PER_RUN` from 25 to **5**
+- Reduce `FIRECRAWL_SEARCH_LIMIT` from 50 to **20**
+- Add provider budget check (`check_provider_budget`) with daily cap of **1,500 credits**
 
-#### 2. `ShopHome.tsx` category browsing — Same pattern
-- When category filter is active, auto-fetch subsequent pages in background after first page loads
-- "Load More" continues to work for revealing + fetching more
+#### 2. Re-enable car scraper with throttled settings
+- Remove the early-return disabled block
+- Reduce `DEFAULT_QUERIES_PER_RUN` from 20 to **3**
+- Reduce `FIRECRAWL_SEARCH_LIMIT` from 50 to **20**
+- Add provider budget check with daily cap of **1,000 credits** per provider
 
-#### 3. `imageValidation.ts` — Block more ad/banner patterns
-Add blocked patterns for:
-- eBay description-area banners: URLs containing `descriptionimage`, `seller_pic`, `/00/s/` with very wide ratios
-- Amazon "Certified Renewed" / "Amazon Renewed" badge images
-- Generic promo text images: URLs with `free-shipping`, `best-seller`, `satisfaction`, `warranty-badge`
-- SHEIN promotional banners: `sheinsz.ltwebstatic.com` promo paths
-- Images with `logo`, `badge`, `stamp` in the filename (not in the domain)
+#### 3. Update cron schedules
+- Change SHEIN scraper cron from every 15 minutes to **every 2 hours**
+- Change car scraper cron from every 15 minutes to **every 3 hours** (alternating cargurus/carvana)
+
+#### 4. Keep paste-link Firecrawl budget separate
+- Already capped at 1 Firecrawl call per request (from previous fix)
+- No changes needed
 
 ### Files to modify
-1. **`src/pages/shop/CategoryResultsPage.tsx`** — Remove pool cap, increase visible step to 200, keep fetching until DB exhausted
-2. **`src/pages/shop/ShopHome.tsx`** — Auto-fetch more category pages in background after initial load
-3. **`src/lib/imageValidation.ts`** — Add ~15 more blocked tokens for ad banners and promotional images
+1. `supabase/functions/catalog-shein-scraper/index.ts` — Re-enable with throttled constants + budget check
+2. `supabase/functions/catalog-car-scraper/index.ts` — Re-enable with throttled constants + budget check
+3. Update pg_cron schedules via SQL (change intervals)
+
+### Expected Output
+- **Week 1**: ~350-700 new unique products/day across all 3 providers
+- **After Week 1**: Slows to ~100-300/day as duplicates increase
+- **Paste-link**: ~16 requests/day guaranteed from reserved credits
 

@@ -457,12 +457,18 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const auth = await authenticateRequest(req);
-  if (!auth.authorized) {
-    return new Response(JSON.stringify({ ok: false, error: auth.error || "Unauthorized" }), {
-      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+  // DISABLED: This scraper was draining ~1000+ Firecrawl credits per run.
+  // Return success immediately to prevent cron retries.
+  console.log(`[SHEIN_SCRAPER] DISABLED — returning early to conserve Firecrawl credits`);
+  return new Response(JSON.stringify({ 
+    ok: true, 
+    disabled: true, 
+    reason: "Firecrawl credit conservation — scraper paused",
+    products_found: 0, 
+    upserted_count: 0 
+  }), {
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 
   const startTime = Date.now();
 

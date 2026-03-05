@@ -1026,21 +1026,14 @@ Deno.serve(async (req: Request) => {
             enrichedImages = upgradeGalleryImages(liveItem.images, "ebay");
             console.log(`[GALLERY_ENRICH] API success for ${productId}: ${enrichedImages.length} images`);
           } else if (wasRateLimited || !liveItem) {
-            // Fallback: scrape gallery from eBay listing page
+            // Fallback: scrape gallery from eBay listing page (NO Firecrawl — credit conservation)
             console.log(`[GALLERY_ENRICH] API ${wasRateLimited ? '429 rate-limited' : 'no result'}, trying page scrape for ${productId}...`);
             const scrapedImages = await scrapeEbayGallery(item.productUrl || dbItem.product_url, productId!);
             if (scrapedImages.length > (item.images?.length || 0)) {
               enrichedImages = upgradeGalleryImages(scrapedImages, "ebay");
               console.log(`[GALLERY_ENRICH] scrape success for ${productId}: ${enrichedImages.length} images`);
-            } else {
-              // Firecrawl fallback for eBay
-              console.log(`[GALLERY_ENRICH] eBay scrape got ${scrapedImages.length} images, trying Firecrawl for ${productId}...`);
-              const firecrawlImages = await scrapeProviderGalleryFirecrawl(item.productUrl || dbItem.product_url || `https://www.ebay.com/itm/${productId!.replace(/\D/g, "")}`, "ebay");
-              if (firecrawlImages.length > (item.images?.length || 0)) {
-                enrichedImages = upgradeGalleryImages(firecrawlImages, "ebay");
-                console.log(`[GALLERY_ENRICH] eBay Firecrawl success for ${productId}: ${enrichedImages.length} images`);
-              }
             }
+            // Firecrawl fallback DISABLED to conserve credits
           }
         } catch (e) {
           console.warn(`[GALLERY_ENRICH] API failed for ${productId}, trying scrape fallback: ${e}`);
@@ -1049,13 +1042,8 @@ Deno.serve(async (req: Request) => {
             if (scrapedImages.length > (item.images?.length || 0)) {
               enrichedImages = upgradeGalleryImages(scrapedImages, "ebay");
               console.log(`[GALLERY_ENRICH] scrape fallback success for ${productId}: ${enrichedImages.length} images`);
-            } else {
-              // Firecrawl fallback
-              const firecrawlImages = await scrapeProviderGalleryFirecrawl(item.productUrl || dbItem.product_url || `https://www.ebay.com/itm/${productId!.replace(/\D/g, "")}`, "ebay");
-              if (firecrawlImages.length > (item.images?.length || 0)) {
-                enrichedImages = upgradeGalleryImages(firecrawlImages, "ebay");
-              }
             }
+            // Firecrawl fallback DISABLED to conserve credits
           } catch (scrapeErr) {
             console.warn(`[GALLERY_ENRICH] scrape also failed for ${productId}: ${scrapeErr}`);
           }
@@ -1108,25 +1096,12 @@ Deno.serve(async (req: Request) => {
           if (scrapedImages.length > (item.images?.length || 0)) {
             enrichedImages = scrapedImages;
             console.log(`[GALLERY_ENRICH] Amazon scrape success for ${amazonAsin}: ${enrichedImages.length} images`);
-          } else {
-            // Fallback to Firecrawl if direct scrape returned nothing useful
-            console.log(`[GALLERY_ENRICH] Amazon direct scrape got ${scrapedImages.length} images, trying Firecrawl for ${amazonAsin}...`);
-            const firecrawlImages = await scrapeAmazonGalleryFirecrawl(amazonAsin);
-            if (firecrawlImages.length > (item.images?.length || 0)) {
-              enrichedImages = firecrawlImages;
-              console.log(`[GALLERY_ENRICH] Amazon Firecrawl success for ${amazonAsin}: ${enrichedImages.length} images`);
-            }
           }
+          // Firecrawl fallback DISABLED to conserve credits
         } catch (e) {
           console.warn(`[GALLERY_ENRICH] Amazon scrape failed for ${amazonAsin}: ${e}`);
-          try {
-            const firecrawlImages = await scrapeAmazonGalleryFirecrawl(amazonAsin);
-            if (firecrawlImages.length > (item.images?.length || 0)) {
-              enrichedImages = firecrawlImages;
-            }
-          } catch (fcErr) {
-            console.warn(`[GALLERY_ENRICH] Amazon Firecrawl also failed for ${amazonAsin}: ${fcErr}`);
-          }
+          // Firecrawl fallback DISABLED to conserve credits
+          console.warn(`[GALLERY_ENRICH] Amazon direct scrape failed for ${amazonAsin}, skipping Firecrawl`);
         }
         
         // Apply enriched images
@@ -1166,17 +1141,9 @@ Deno.serve(async (req: Request) => {
 
       // ========== DB-only providers Gallery Enrichment (SHEIN/CarGurus/Carvana) ==========
       if ((dbItem.provider === "shein" || dbItem.provider === "cargurus" || dbItem.provider === "carvana") && (item.images?.length || 0) <= 2) {
-        let scraped = await scrapeProviderGalleryFromPage(dbItem.provider, item.productUrl || dbItem.product_url);
-        
-        // Firecrawl fallback if direct scrape returned 0 or fewer images than we already have
-        if (scraped.length <= (item.images?.length || 0)) {
-          console.log(`[GALLERY_ENRICH] ${dbItem.provider} direct scrape got ${scraped.length} images, trying Firecrawl...`);
-          const firecrawlImages = await scrapeProviderGalleryFirecrawl(item.productUrl || dbItem.product_url, dbItem.provider);
-          if (firecrawlImages.length > (item.images?.length || 0)) {
-            scraped = firecrawlImages;
-            console.log(`[GALLERY_ENRICH] ${dbItem.provider} Firecrawl success: ${scraped.length} images`);
-          }
-        }
+        const scraped = await scrapeProviderGalleryFromPage(dbItem.provider, item.productUrl || dbItem.product_url);
+        // Firecrawl fallback DISABLED to conserve credits
+        // Direct scrape only — if it fails, we accept the existing images
         
         if (scraped.length > (item.images?.length || 0)) {
           item.images = scraped;

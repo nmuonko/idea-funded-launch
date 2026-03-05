@@ -101,13 +101,22 @@ export default function PasteLink() {
     }
   };
 
-  const handleManualPriceSubmit = () => {
+  const handleManualPriceSubmit = async () => {
     const price = parseFloat(manualPrice);
     if (!price || price <= 0) return;
     if (result) {
       setResult({ ...result, priceUsd: price });
       setShowManualPrice(false);
       setError(null);
+
+      // Persist manual price to catalog_items so the item is saved
+      try {
+        await supabase.functions.invoke('extract-price', {
+          body: { url: url.trim(), manualPrice: price },
+        });
+      } catch (e) {
+        console.warn('[PasteLink] catalog update with manual price failed (non-blocking):', e);
+      }
     }
   };
 

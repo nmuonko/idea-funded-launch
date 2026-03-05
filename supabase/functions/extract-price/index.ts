@@ -447,26 +447,104 @@ function extractProductInfo(html: string, store: StoreType): ProductInfo {
   // Log final title after validation
   console.log(`[extract-price] EXTRACT_PRICE_TITLE_FINAL title="${title?.substring(0, 80) || 'null'}" accepted=${title !== null}`);
 
-  // ===== IMAGE EXTRACTION =====
-  // Get image from og:image if not already found via JSON-LD
+  // ===== IMAGE EXTRACTION (multi-source, priority order) =====
+  // Priority 1: JSON-LD image (already extracted above)
+  
+  // Priority 2: og:image meta tag
   if (!imageUrl) {
     const ogImage = html.match(/<meta[^>]*property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"']+)["']/i) ||
                     html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image(?::secure_url)?["']/i);
     if (ogImage && ogImage[1]) imageUrl = ogImage[1];
   }
 
-  // SHEIN CDN fallback: look for ltwebstatic product images
+  // Priority 3: twitter:image meta tag
+  if (!imageUrl) {
+    const twitterImage = html.match(/<meta[^>]*(?:name|property)=["']twitter:image(?::src)?["'][^>]*content=["']([^"']+)["']/i) ||
+                         html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*(?:name|property)=["']twitter:image(?::src)?["']/i);
+    if (twitterImage && twitterImage[1]) imageUrl = twitterImage[1];
+  }
+
+  // Priority 4: SHEIN CDN fallback
   if (!imageUrl && (store === 'shein' || html.includes('ltwebstatic.com'))) {
     const cdnMatch = html.match(/(?:src|content|data-src)=["']((?:https?:)?\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^"'\s]+)["']/i);
     if (cdnMatch && cdnMatch[1] && !/logo/i.test(cdnMatch[1]) && !/banner/i.test(cdnMatch[1])) {
       imageUrl = cdnMatch[1];
     }
-    // Broader ltwebstatic fallback
     if (!imageUrl) {
       const anyMatch = html.match(/(?:src|content)=["']((?:https?:)?\/\/img\.ltwebstatic\.com\/[^"'\s]+\.(?:jpg|webp|png))["']/i);
       if (anyMatch && anyMatch[1] && !/logo/i.test(anyMatch[1]) && !/banner/i.test(anyMatch[1])) {
         imageUrl = anyMatch[1];
       }
+    }
+  }
+
+  // Priority 5: Store-specific product image patterns
+  if (!imageUrl) {
+    const storeImagePatterns: Record<string, RegExp[]> = {
+      amazon: [
+        /data-old-hires=["']([^"']+)["']/i,
+        /id=["']landingImage["'][^>]*src=["']([^"']+)["']/i,
+        /id=["']imgBlkFront["'][^>]*src=["']([^"']+)["']/i,
+        /data-a-dynamic-image=["']\{["']([^"']+)["']/i,
+      ],
+      walmart: [
+        /<img[^>]*class=["'][^"']*(?:hero-image|primary-image)[^"']*["'][^>]*src=["']([^"']+)["']/i,
+        /data-testid=["']hero-image["'][^>]*src=["']([^"']+)["']/i,
+      ],
+      target: [
+        /<img[^>]*data-test=["']product-image["'][^>]*src=["']([^"']+)["']/i,
+      ],
+      bestbuy: [
+        /<img[^>]*class=["'][^"']*primary-image[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      ],
+      ebay: [
+        /<img[^>]*id=["']icImg["'][^>]*src=["']([^"']+)["']/i,
+        /data-zoom-src=["']([^"']+)["']/i,
+      ],
+      carvana: [
+        /<img[^>]*(?:class|alt)=["'][^"']*(?:hero|vehicle|car)[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      ],
+    };
+    const patterns = storeImagePatterns[store] || [];
+    for (const pattern of patterns) {
+      const match = html.match(pattern);
+      if (match?.[1] && !match[1].includes('pixel') && !match[1].includes('beacon')) {
+        imageUrl = match[1];
+        break;
+      }
+    }
+  }
+
+  // Priority 6: Generic large product image (last resort)
+  if (!imageUrl) {
+    // Look for <img> with product-like attributes or large dimensions
+    const imgMatches = html.matchAll(/<img[^>]*(?:data-zoom-image|data-large|data-src|data-original)=["']([^"']+)["'][^>]*>/gi);
+    for (const match of imgMatches) {
+      const src = match[1];
+      if (src && src.startsWith('http') && !src.includes('logo') && !src.includes('icon') && !src.includes('sprite') && !src.includes('pixel') && !src.includes('tracking')) {
+        imageUrl = src;
+        break;
+      }
+    }
+  }
+
+  // Priority 7: First substantial <img> tag with product image heuristics
+  if (!imageUrl) {
+    const imgTags = html.matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp))["'][^>]*>/gi);
+    for (const match of imgTags) {
+      const src = match[1];
+      // Skip tiny images, tracking pixels, icons, logos
+      if (src.includes('1x1') || src.includes('pixel') || src.includes('logo') || 
+          src.includes('icon') || src.includes('sprite') || src.includes('beacon') ||
+          src.includes('analytics') || src.includes('tracking') || src.includes('spacer') ||
+          src.includes('blank.gif') || src.includes('loading') || src.length < 30) continue;
+      // Check for reasonable image dimensions if specified
+      const widthMatch = match[0].match(/width=["']?(\d+)/i);
+      const heightMatch = match[0].match(/height=["']?(\d+)/i);
+      if (widthMatch && parseInt(widthMatch[1]) < 50) continue;
+      if (heightMatch && parseInt(heightMatch[1]) < 50) continue;
+      imageUrl = src;
+      break;
     }
   }
 
@@ -1965,6 +2043,20 @@ Deno.serve(async (req) => {
 
     // Extract product info
     const productInfo = extractProductInfo(html, store);
+
+    // If we got price but no image from direct scraping, try Firecrawl for image
+    if (!productInfo.imageUrl && price) {
+      console.log(`[extract-price] No image from direct scrape for ${store}, trying Firecrawl for image`);
+      const firecrawlResult = await extractViaFirecrawlFull(formattedUrl, store, 8000);
+      if (firecrawlResult?.imageUrl) {
+        productInfo.imageUrl = firecrawlResult.imageUrl;
+        console.log(`[extract-price] Firecrawl image fallback succeeded: ${productInfo.imageUrl?.substring(0, 80)}`);
+      }
+      // Also use Firecrawl title if we didn't get one
+      if (!productInfo.title && firecrawlResult?.title) {
+        productInfo.title = firecrawlResult.title;
+      }
+    }
 
     // Determine currency
     const detectedCurrency = currencyCode

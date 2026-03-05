@@ -249,6 +249,7 @@ async function firecrawlSearch(
         limit: FIRECRAWL_SEARCH_LIMIT,
         lang: "en",
         country: "us",
+        scrapeOptions: { formats: ["markdown"] },
       }),
     });
 

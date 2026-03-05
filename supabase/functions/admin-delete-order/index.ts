@@ -103,9 +103,9 @@ serve(async (req) => {
       .delete()
       .eq('order_id', orderId);
 
-    // 4. Delete maisha_payments
+    // 4. Delete payment_attempts
     await supabaseAdmin
-      .from('maisha_payments')
+      .from('payment_attempts')
       .delete()
       .eq('order_id', orderId);
 

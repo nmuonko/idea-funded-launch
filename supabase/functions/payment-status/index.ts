@@ -62,29 +62,15 @@ serve(async (req) => {
     if (confirmationCode) {
       console.log('[payment-status] Looking up by confirmation code');
       
-      // Try payment_attempts first
+      // Look up via payment_attempts
       const { data: attempt } = await supabaseAdmin
         .from('payment_attempts')
         .select('order_id, status')
         .eq('confirmation_code', confirmationCode.toUpperCase())
         .maybeSingle();
       
-      // Fallback to maisha_payments for historical orders
       let orderId: string | null = attempt?.order_id || null;
       let paymentLookupStatus: string | null = attempt?.status || null;
-      
-      if (!orderId) {
-        const { data: legacyPayment } = await supabaseAdmin
-          .from('maisha_payments')
-          .select('order_id, status')
-          .eq('confirmation_code', confirmationCode.toUpperCase())
-          .maybeSingle();
-        
-        if (legacyPayment) {
-          orderId = legacyPayment.order_id;
-          paymentLookupStatus = legacyPayment.status;
-        }
-      }
       
       if (!orderId) {
         return new Response(JSON.stringify({

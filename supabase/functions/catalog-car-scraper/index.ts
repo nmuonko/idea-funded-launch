@@ -47,9 +47,9 @@ interface CarListing {
 
 const DEFAULT_MAX_PRICE = 50000;
 const DEFAULT_TARGET_ITEMS = 300;
-const DEFAULT_QUERIES_PER_RUN = 3;
-const SEARCH_TIMEOUT_MS = 12000;
-const HARD_FUNCTION_CAP_MS = 50000;
+const DEFAULT_QUERIES_PER_RUN = 2;
+const SEARCH_TIMEOUT_MS = 45000;
+const HARD_FUNCTION_CAP_MS = 240000;
 const FIRECRAWL_SEARCH_LIMIT = 20;
 const DAILY_CREDIT_CAP = 1000;
 const BLOCKED_STATUSES = new Set([403, 418, 429, 503]);
@@ -149,7 +149,8 @@ function isValidVdpUrl(url: string, provider: string): boolean {
     }
     if (provider === "carvana") return path.includes("/vehicle/");
     if (provider === "cargurus") {
-      return path.includes("/listing/") || !!u.searchParams.get("listingId") || !!u.searchParams.get("id") || !!path.match(/\/(\d{5,})/);
+      return path.includes("/listing/") || path.includes("/cars/") ||
+             !!u.searchParams.get("listingId") || !!u.searchParams.get("id") || !!path.match(/\/(\d{5,})/);
     }
     return true;
   } catch { return false; }
@@ -274,7 +275,11 @@ async function firecrawlSearch(
 
       if (!url || !title) { dropReasons["missing_url_or_title"] = (dropReasons["missing_url_or_title"] || 0) + 1; continue; }
       if (isSoldOrExpired(title) || isSoldOrExpired(description)) { dropReasons["sold_or_expired"] = (dropReasons["sold_or_expired"] || 0) + 1; continue; }
-      if (!isValidVdpUrl(url, provider)) { dropReasons["not_vdp_url"] = (dropReasons["not_vdp_url"] || 0) + 1; continue; }
+      if (!isValidVdpUrl(url, provider)) { 
+        console.log(`[CAR_SCRAPER] rejected URL: ${url.substring(0, 120)}`);
+        dropReasons["not_vdp_url"] = (dropReasons["not_vdp_url"] || 0) + 1; 
+        continue; 
+      }
 
       const lowerTitle = title.toLowerCase();
       if (lowerTitle.includes("about us") || lowerTitle.includes("faq") || lowerTitle.includes("privacy")) {
@@ -282,10 +287,10 @@ async function firecrawlSearch(
         continue;
       }
 
-      // Extract price
+      // Extract price from all available content
       let price: number | null = null;
       const priceRegex = /\$[\d,]+(?:\.\d{2})?/g;
-      for (const text of [description, title, markdown.substring(0, 2000)]) {
+      for (const text of [description, title, (markdown || "").substring(0, 3000)]) {
         const matches = text.match(priceRegex);
         if (matches) {
           for (const m of matches) {
@@ -308,8 +313,9 @@ async function firecrawlSearch(
       if (seenIds.has(pid)) continue;
       seenIds.add(pid);
 
-      // Extract ALL images from markdown
-      const allMdImgs = [...markdown.matchAll(/!\[.*?\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp)[^\s)]*)\)/gi)].map(m => m[1]);
+      // Extract images from description and any available content
+      const allContent = description + " " + (markdown || "");
+      const allMdImgs = [...allContent.matchAll(/(https?:\/\/[^\s)"'<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s)"'<>]*)?)/gi)].map(m => m[0]);
       
       let imageUrl = allMdImgs[0] || "";
       let allImages: string[] = [...allMdImgs];
@@ -330,16 +336,14 @@ async function firecrawlSearch(
         allImages = [...new Set([...allImages, ...carvanaAngles])];
       }
       
-      // CarGurus: extract all static.cargurus.com images
+      // CarGurus: extract cargurus CDN images from content
       if (provider === "cargurus") {
-        const cgurusImgs = [...markdown.matchAll(/(https?:\/\/static\.cargurus\.com\/[^\s)"]+\.(?:jpg|jpeg|png|webp))/gi)].map(m => m[1]);
+        const cgurusImgs = [...allContent.matchAll(/(https?:\/\/static\.cargurus\.com\/[^\s)"]+\.(?:jpg|jpeg|png|webp))/gi)].map(m => m[1]);
         if (!imageUrl && cgurusImgs.length > 0) imageUrl = cgurusImgs[0];
         allImages = [...new Set([...allImages, ...cgurusImgs])];
       }
       
-      // Also grab any generic image URLs from the markdown
-      const genericImgs = [...markdown.matchAll(/https?:\/\/[^\s"'<>()]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"'<>()]*)?/gi)].map(m => m[0]);
-      allImages = [...new Set([...allImages, ...genericImgs])].slice(0, 10);
+      allImages = [...new Set(allImages)].slice(0, 10);
 
       const yearMatch = title.match(/\b(19|20)\d{2}\b/);
 

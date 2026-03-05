@@ -39,10 +39,10 @@ interface SheinProduct {
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 
-const SEARCH_TIMEOUT_MS = 12000;
-const HARD_FUNCTION_CAP_MS = 50000;
+const SEARCH_TIMEOUT_MS = 45000;
+const HARD_FUNCTION_CAP_MS = 240000;
 const DEFAULT_TARGET_ITEMS = 300;
-const DEFAULT_QUERIES_PER_RUN = 5;
+const DEFAULT_QUERIES_PER_RUN = 2;
 const FIRECRAWL_SEARCH_LIMIT = 20;
 const DAILY_CREDIT_CAP = 1500;
 
@@ -259,7 +259,7 @@ async function firecrawlSearch(
         limit: Math.min(limit, FIRECRAWL_SEARCH_LIMIT),
         lang: "en",
         country: "us",
-        scrapeOptions: { formats: ["markdown"] },
+        scrapeOptions: { formats: ["markdown"], waitFor: 5000 },
       }),
     });
 
@@ -285,9 +285,11 @@ async function firecrawlSearch(
 
       if (!url || !title) { dropReasons["missing_url_or_title"] = (dropReasons["missing_url_or_title"] || 0) + 1; continue; }
       if (!isValidSheinUrl(url)) { dropReasons["not_shein_url"] = (dropReasons["not_shein_url"] || 0) + 1; continue; }
-      // Reject category pages
-      if (/-cat-\d+\.html/i.test(url)) { dropReasons["category_page_url"] = (dropReasons["category_page_url"] || 0) + 1; continue; }
-      if (/^(Women|Men|Plus Size|Kids)\s+\w+\s*[\|–\-]\s*SHEIN/i.test(title)) { dropReasons["category_page_title"] = (dropReasons["category_page_title"] || 0) + 1; continue; }
+      // Reject category/collection pages
+      if (/-cat-\d+\.html/i.test(url) || /-sc-\d+\.html/i.test(url) || 
+          /\/(trends|style|picks|flash-sale|new-in|best-sellers|collections)\//i.test(url)) { 
+        dropReasons["category_page_url"] = (dropReasons["category_page_url"] || 0) + 1; continue; 
+      }
 
       const pid = extractSheinProductId(url);
       if (!pid) { dropReasons["no_product_id"] = (dropReasons["no_product_id"] || 0) + 1; continue; }
@@ -295,10 +297,10 @@ async function firecrawlSearch(
       if (SOLD_KEYWORDS.test(title) || SOLD_KEYWORDS.test(description)) { dropReasons["sold_out"] = (dropReasons["sold_out"] || 0) + 1; continue; }
       if (DISALLOWED_KEYWORDS.test(title)) { dropReasons["disallowed_category"] = (dropReasons["disallowed_category"] || 0) + 1; continue; }
 
-      // Extract price
+      // Extract price from all available content
       let price: number | null = null;
       const priceRegex = /\$[\d,]+(?:\.\d{2})?/g;
-      for (const text of [description, title, markdown.substring(0, 2000)]) {
+      for (const text of [description, title, (markdown || "").substring(0, 3000)]) {
         const matches = text.match(priceRegex);
         if (matches) {
           for (const m of matches) {
@@ -319,31 +321,28 @@ async function firecrawlSearch(
 
       seenIds.add(pid);
 
-      // Extract ALL product images from SHEIN CDN (not just first)
-      const allImgMatches = [...markdown.matchAll(
+      // Extract images from all available content
+      const allContent = (markdown || "") + " " + description;
+      const allImgMatches = [...allContent.matchAll(
         /(https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^\s)"]+)/gi
       )];
       const allSheinImages = allImgMatches
         .map(m => m[1])
         .filter(u => !/_thumbnail_/i.test(u) && !/banner/i.test(u));
       
-      // Also grab any other ltwebstatic images
-      const otherImgMatches = [...markdown.matchAll(
+      const otherImgMatches = [...allContent.matchAll(
         /(https?:\/\/img\.ltwebstatic\.com\/[^\s)"]+\.(?:jpg|jpeg|png|webp))/gi
       )];
       const otherImages = otherImgMatches
         .map(m => m[1])
         .filter(u => !/_thumbnail_(?:12[0-6]|60)x/i.test(u) && !/banner/i.test(u));
       
-      // Fallback: any markdown image
-      const mdImgMatches = [...markdown.matchAll(/!\[.*?\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp)[^\s)]*)\)/gi)];
+      const mdImgMatches = [...allContent.matchAll(/!\[.*?\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp)[^\s)]*)\)/gi)];
       const mdImages = mdImgMatches.map(m => m[1]);
       
-      // Deduplicate all images, prioritizing SHEIN CDN product images
       const uniqueImages = [...new Set([...allSheinImages, ...otherImages, ...mdImages])].slice(0, 10);
       const imageUrl = uniqueImages[0] || "";
       
-      // Skip items with no image — don't use fabricated CDN URLs
       if (!imageUrl) { dropReasons["no_image"] = (dropReasons["no_image"] || 0) + 1; continue; }
 
       let brand = "SHEIN";

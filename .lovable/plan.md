@@ -1,70 +1,50 @@
 
 
-## Re-enable Scrapers with Controlled Firecrawl Budget
+## Fix: Category Products Show Only 200 + Load More Auto-Fires
 
-### Credit Economics
+### Root Cause
 
-Firecrawl Search API costs **1 credit per search result returned**. With `limit: 50`, each search query costs up to **50 credits**.
+1. **Backend `total` is unreliable**: `catalog-category` returns `total = Math.max(ebayTotal, amazonItems.length, finalItems.length)` — when eBay returns 200 items and Amazon has 200 cached, `total` = 200. The frontend's background auto-fetcher sees `products.length >= total` and stops. Your DB actually has 41K phones, 92K clothing, 4.6K vehicles.
 
-Current scraper settings:
-- **SHEIN**: 25 queries/run × 50 results = **1,250 credits/run**
-- **CarGurus**: 20 queries/run × 50 results = **1,000 credits/run** (runs for both cargurus + carvana = 2,000)
-- **Total per cron cycle**: ~3,250 credits
+2. **Background auto-fetch runs unwanted**: The current code auto-fetches all pages silently, which causes the "Load More auto-clicks itself" behavior — `setCategoryLoadingMore(true)` triggers spinner on the button while background fetches run.
 
-If running every 15 minutes (96 times/day): **312,000 credits/day** — clearly unsustainable.
-
-### Smart Budget Plan
-
-Reduce queries per run and increase cron interval to stay within a daily budget:
-
-| Scraper | Queries/Run | Limit/Query | Credits/Run | Interval | Runs/Day | Credits/Day | Expected Products/Day |
-|---------|------------|-------------|-------------|----------|----------|-------------|----------------------|
-| SHEIN | 5 | 20 | ~100 | 2 hours | 12 | ~1,200 | 200-400 |
-| CarGurus | 3 | 20 | ~60 | 3 hours | 8 | ~480 | 80-150 |
-| Carvana | 3 | 20 | ~60 | 3 hours | 8 | ~480 | 80-150 |
-| **Total** | | | | | | **~2,160** | **360-700** |
-
-Reserve **~800 credits/day** for paste-link usage (max 1 Firecrawl call per paste = ~50 credits each = 16 paste-link requests/day).
-
-**Total daily budget: ~3,000 credits/day** — sustainable on a standard Firecrawl plan.
-
-### Is This Smart?
-
-Yes, this is the right approach:
-1. **Background scrapers** build the catalog passively — users see products instantly from cache
-2. **Paste-link** is the fallback for items not in the catalog — reserved credits ensure it always works
-3. **Diminishing returns**: After the first week, most queries will hit existing products (deduplication via `provider,provider_product_id` unique constraint), so net new items slow down naturally
-4. **Images**: The scrapers already extract images from markdown. Items without images are dropped (`no_image` drop reason). No extra Firecrawl calls needed for image enrichment.
+3. **`CategoryResultsPage.tsx`** has the same issue — its background loop fetches continuously and appends products, making the "Load More" button appear to auto-fire.
 
 ### Plan
 
-#### 1. Re-enable SHEIN scraper with throttled settings
-- Remove the early-return disabled block
-- Reduce `DEFAULT_QUERIES_PER_RUN` from 25 to **5**
-- Reduce `FIRECRAWL_SEARCH_LIMIT` from 50 to **20**
-- Add provider budget check (`check_provider_budget`) with daily cap of **1,500 credits**
+#### 1. Fix backend `total` — return actual DB count for the category
+In `catalog-category/index.ts`, add a separate count query against `catalog_items` for the resolved category to return a realistic total, so the frontend knows there are thousands more.
 
-#### 2. Re-enable car scraper with throttled settings
-- Remove the early-return disabled block
-- Reduce `DEFAULT_QUERIES_PER_RUN` from 20 to **3**
-- Reduce `FIRECRAWL_SEARCH_LIMIT` from 50 to **20**
-- Add provider budget check with daily cap of **1,000 credits** per provider
+```
+// Add near line 793:
+// Get real DB count for this category
+const { count: dbCount } = await supabase
+  .from("catalog_items")
+  .select("id", { count: "exact", head: true })
+  .eq("unified_category", parentTab)
+  .eq("is_active", true)
+  .gt("price_usd", 0);
 
-#### 3. Update cron schedules
-- Change SHEIN scraper cron from every 15 minutes to **every 2 hours**
-- Change car scraper cron from every 15 minutes to **every 3 hours** (alternating cargurus/carvana)
+total = Math.max(ebayTotal, amazonItems.length, finalItems.length, dbCount || 0);
+```
 
-#### 4. Keep paste-link Firecrawl budget separate
-- Already capped at 1 Firecrawl call per request (from previous fix)
-- No changes needed
+#### 2. `ShopHome.tsx` — Remove background auto-fetcher, make Load More manual only
+- **Remove** the `categoryBgFetchRef` auto-fetch loop entirely (lines 602-651)
+- Keep the cached-data restore (instant display from `categoryProductsCacheRef`)
+- `handleCategoryLoadMore` fetches the next page on click only
+- Same for store filter: already manual, no changes needed
+
+#### 3. `CategoryResultsPage.tsx` — Remove background fetch loop, manual Load More only
+- **Remove** the Phase 2 background loop (lines 206-230) that auto-fetches up to 50 pages
+- Keep Phase 1 (first 200 shown instantly)
+- `handleShowMore` fetches next page on click
+- Remove `visibleCount` slicing — show all fetched products directly (no separate "reveal" step)
+
+#### 4. Make Load More fetch directly from DB for speed
+Both pages should use direct Supabase queries (like `fetchAllFromDb` pattern) instead of going through the `catalog-category` edge function for subsequent pages. This gives <100ms response times vs 1-2s through the edge function.
 
 ### Files to modify
-1. `supabase/functions/catalog-shein-scraper/index.ts` — Re-enable with throttled constants + budget check
-2. `supabase/functions/catalog-car-scraper/index.ts` — Re-enable with throttled constants + budget check
-3. Update pg_cron schedules via SQL (change intervals)
-
-### Expected Output
-- **Week 1**: ~350-700 new unique products/day across all 3 providers
-- **After Week 1**: Slows to ~100-300/day as duplicates increase
-- **Paste-link**: ~16 requests/day guaranteed from reserved credits
+1. `supabase/functions/catalog-category/index.ts` — Fix `total` to use real DB count
+2. `src/pages/shop/ShopHome.tsx` — Remove background auto-fetcher, manual Load More only
+3. `src/pages/shop/CategoryResultsPage.tsx` — Remove background loop, manual Load More, direct DB pagination
 

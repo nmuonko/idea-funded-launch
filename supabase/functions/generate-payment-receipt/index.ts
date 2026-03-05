@@ -332,7 +332,7 @@ serve(async (req) => {
                    order.status === 'SHIPPED' || 
                    order.status === 'READY_FOR_PICKUP' || 
                    order.status === 'COMPLETED' ||
-                   order.maisha_payment_status === 'SUCCESS';
+                   false;
 
     if (!isPaid) {
       return jsonResponse({ 

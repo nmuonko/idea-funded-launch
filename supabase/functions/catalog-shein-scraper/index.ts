@@ -42,8 +42,9 @@ interface SheinProduct {
 const SEARCH_TIMEOUT_MS = 12000;
 const HARD_FUNCTION_CAP_MS = 50000;
 const DEFAULT_TARGET_ITEMS = 300;
-const DEFAULT_QUERIES_PER_RUN = 25;
-const FIRECRAWL_SEARCH_LIMIT = 50; // Firecrawl supports up to 50
+const DEFAULT_QUERIES_PER_RUN = 5;
+const FIRECRAWL_SEARCH_LIMIT = 20;
+const DAILY_CREDIT_CAP = 1500;
 
 // Words that indicate non-clothing items
 const DISALLOWED_KEYWORDS = /\b(appliance|refrigerator|washer|dryer|dishwasher|microwave|oven|stove|vacuum|blender|toaster|laptop|computer|monitor|tablet|phone|television|tv|gaming console|playstation|xbox|nintendo|toy|action figure|lego|doll|drone|robot)\b/i;
@@ -457,19 +458,6 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // DISABLED: This scraper was draining ~1000+ Firecrawl credits per run.
-  // Return success immediately to prevent cron retries.
-  console.log(`[SHEIN_SCRAPER] DISABLED — returning early to conserve Firecrawl credits`);
-  return new Response(JSON.stringify({ 
-    ok: true, 
-    disabled: true, 
-    reason: "Firecrawl credit conservation — scraper paused",
-    products_found: 0, 
-    upserted_count: 0 
-  }), {
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-
   const startTime = Date.now();
 
   try {
@@ -492,12 +480,26 @@ Deno.serve(async (req: Request) => {
     }
 
     // Get rotation offset
+    // Budget check — enforce daily credit cap
+    const { data: budgetData } = await supabase.rpc("check_provider_budget", {
+      p_provider: "firecrawl:shein",
+      p_window_type: "day",
+      p_limit: DAILY_CREDIT_CAP,
+    });
+    if (budgetData && !budgetData.allowed) {
+      console.log(`[SHEIN_SCRAPER] BUDGET EXCEEDED — ${budgetData.count}/${DAILY_CREDIT_CAP} credits used today`);
+      return new Response(JSON.stringify({
+        ok: true, budget_exceeded: true, credits_used: budgetData.count, daily_cap: DAILY_CREDIT_CAP,
+        products_found: 0, upserted_count: 0,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     const offset = customQuery ? 0 : await getRotationOffset(supabase);
     const queries = customQuery
       ? [`${customQuery} site:shein.com`]
       : getQueryBatch(offset, queriesPerRun);
 
-    console.log(`[SHEIN_SCRAPER] START target=${targetItems} queries=${queries.length} offset=${offset} dryRun=${dryRun}`);
+    console.log(`[SHEIN_SCRAPER] START target=${targetItems} queries=${queries.length} offset=${offset} dryRun=${dryRun} budget=${budgetData?.count || 0}/${DAILY_CREDIT_CAP}`)
 
     const dropReasons: Record<string, number> = {};
     const allProducts: SheinProduct[] = [];
@@ -511,6 +513,13 @@ Deno.serve(async (req: Request) => {
       queriesUsed++;
       const remaining = targetItems - allProducts.length;
       const results = await firecrawlSearch(query, firecrawlKey, Math.min(remaining, FIRECRAWL_SEARCH_LIMIT), dropReasons);
+
+      // Track credits used (~FIRECRAWL_SEARCH_LIMIT per query)
+      await supabase.rpc("increment_provider_budget", {
+        p_provider: "firecrawl:shein",
+        p_window_type: "day",
+        p_limit: DAILY_CREDIT_CAP,
+      });
 
       for (const p of results) {
         if (allProducts.length >= targetItems) break;

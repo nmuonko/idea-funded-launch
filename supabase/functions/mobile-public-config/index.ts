@@ -673,7 +673,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       markup: { type: "percent", value: 10 },
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
       serviceFee: { percent: 0.12, minUsd: 5 },
-      limits: { maishapayMaxUsd: 5000, maishapayMaxCdf: 30000000 },
+      limits: { mobileMoneyMaxUsd: 5000, mobileMoneyMaxCdf: 30000000 },
       currency: "USD",
       updated_at: new Date().toISOString(),
       version: 0,

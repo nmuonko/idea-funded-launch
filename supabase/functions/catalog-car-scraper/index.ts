@@ -149,9 +149,7 @@ function isValidVdpUrl(url: string, provider: string): boolean {
     }
     if (provider === "carvana") return path.includes("/vehicle/");
     if (provider === "cargurus") {
-      // Accept listing pages, search pages, inventory pages, and VDP pages
-      // /Cars/l-Used-* are search result pages that contain individual listings
-      return path.includes("/listing/") || path.includes("/cars/") || path.includes("/inventory") ||
+      return path.includes("/listing/") || path.includes("/cars/") ||
              !!u.searchParams.get("listingId") || !!u.searchParams.get("id") || !!path.match(/\/(\d{5,})/);
     }
     return true;

@@ -215,7 +215,7 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
 
     <div class="info-section">
       <h3>Payment Reference</h3>
-      <div class="transaction-id">${order.operator_ref_id || order.maisha_transaction_id || 'N/A'}</div>
+      <div class="transaction-id">${order.operator_ref_id || 'N/A'}</div>
     </div>
 
     <table>

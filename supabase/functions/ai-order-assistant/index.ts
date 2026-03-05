@@ -129,7 +129,7 @@ Order ID: ${order.id}
 Status: ${order.status}
 Total: $${order.total_usd} USD (${order.total_cdf} CDF)
 Shipping City: ${order.shipping_city || 'N/A'}
-Payment Status: ${order.maisha_payment_status || 'Pending'}
+Payment Status: ${order.status || 'Pending'}
 Items: ${order.order_items?.length || 0} items
 ${order.order_items?.map((item: any) => 
   `- ${item.title || 'Product'}: ${item.quantity}x @ $${item.unit_price_usd} = $${item.subtotal_usd}`

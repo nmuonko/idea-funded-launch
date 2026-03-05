@@ -38,7 +38,7 @@ serve(async (req) => {
     // Get order with payment details
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('id, status, total_usd, total_cdf, maisha_payment_status, payment_verified_at')
+      .select('id, status, total_usd, total_cdf, payment_verified_at')
       .eq('id', orderId)
       .eq('user_id', user.id)
       .maybeSingle();
@@ -59,10 +59,6 @@ serve(async (req) => {
         order.status === 'SHIPPED' || order.status === 'READY_FOR_PICKUP' || 
         order.status === 'COMPLETED') {
       paymentStatus = 'paid';
-    } else if (order.maisha_payment_status === 'SUCCESS') {
-      paymentStatus = 'paid';
-    } else if (order.maisha_payment_status === 'FAILED') {
-      paymentStatus = 'failed';
     } else if (order.status === 'CANCELLED') {
       paymentStatus = 'cancelled';
     }

@@ -50,10 +50,10 @@ serve(async (req) => {
       .from('orders')
       .select(`
         id, created_at, total_usd, total_cdf, item_total_usd, service_fee_usd, shipping_fee_usd,
-        exchange_rate_used, status, maisha_payment_status, tracking_number, carrier,
+        exchange_rate_used, status, tracking_number, carrier,
         shipped_at, delivered_at, estimated_delivery,
         order_items(id, title, store, product_url, product_image_url, base_price_usd, unit_price_usd, subtotal_usd, markup_fee_usd, quantity, total_price_usd, total_price_cdf, shipping_status),
-        maisha_payments(confirmation_code, paid_at, status)
+        payment_attempts(confirmation_code, paid_at, status)
       `)
       .eq('id', orderId)
       .eq('user_id', user.id)
@@ -70,7 +70,7 @@ serve(async (req) => {
     }
 
     const displayRef = getDisplayRef(order.id);
-    const payment = order.maisha_payments?.[0] || null;
+    const payment = order.payment_attempts?.[0] || null;
 
     console.log(`[mobile-get-order-by-id] PERF auth=${authTime}ms query=${queryTime}ms total=${Date.now() - startTime}ms - Order ${orderId.substring(0, 8)}`);
 
@@ -87,7 +87,7 @@ serve(async (req) => {
         shippingFeeUsd: Number(order.shipping_fee_usd) || 0,
         exchangeRate: Number(order.exchange_rate_used) || 2800,
         status: normalizeStatus(order.status),
-        paymentStatus: payment?.status || order.maisha_payment_status || 'PENDING',
+        paymentStatus: payment?.status || 'PENDING',
         createdAt: order.created_at,
         paidAt: payment?.paid_at,
         shippedAt: order.shipped_at,

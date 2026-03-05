@@ -221,8 +221,8 @@ interface PublicConfigResponse {
     minUsd: number;
   };
   limits: {
-    maishapayMaxUsd: number;
-    maishapayMaxCdf: number;
+    mobileMoneyMaxUsd: number;
+    mobileMoneyMaxCdf: number;
   };
   currency: string;
   updated_at: string;
@@ -353,8 +353,6 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
         shipping_percent,
         service_fee_percent,
         min_service_fee_usd,
-        maishapay_max_usd,
-        maishapay_max_cdf,
         updated_at
       `)
       .limit(1)
@@ -637,7 +635,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       markup: { type: "percent", value: 10 },
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
       serviceFee: { percent: 0.12, minUsd: 5 },
-      limits: { maishapayMaxUsd: 5000, maishapayMaxCdf: 30000000 },
+      limits: { mobileMoneyMaxUsd: 5000, mobileMoneyMaxCdf: 30000000 },
       currency: "USD",
       updated_at: new Date().toISOString(),
       version: 0,
@@ -675,7 +673,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       markup: { type: "percent", value: 10 },
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
       serviceFee: { percent: 0.12, minUsd: 5 },
-      limits: { maishapayMaxUsd: 5000, maishapayMaxCdf: 30000000 },
+      limits: { mobileMoneyMaxUsd: 5000, mobileMoneyMaxCdf: 30000000 },
       currency: "USD",
       updated_at: new Date().toISOString(),
       version: 0,
@@ -802,8 +800,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       minUsd: Number(settings.min_service_fee_usd ?? 5),
     },
     limits: {
-      maishapayMaxUsd: Number(settings.maishapay_max_usd ?? 5000),
-      maishapayMaxCdf: Number(settings.maishapay_max_cdf ?? 30000000),
+      mobileMoneyMaxUsd: 5000,
+      mobileMoneyMaxCdf: 30000000,
     },
     currency: "USD",
     updated_at: updatedAt,

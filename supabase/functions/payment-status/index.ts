@@ -62,29 +62,15 @@ serve(async (req) => {
     if (confirmationCode) {
       console.log('[payment-status] Looking up by confirmation code');
       
-      // Try payment_attempts first
+      // Look up via payment_attempts
       const { data: attempt } = await supabaseAdmin
         .from('payment_attempts')
         .select('order_id, status')
         .eq('confirmation_code', confirmationCode.toUpperCase())
         .maybeSingle();
       
-      // Fallback to maisha_payments for historical orders
       let orderId: string | null = attempt?.order_id || null;
       let paymentLookupStatus: string | null = attempt?.status || null;
-      
-      if (!orderId) {
-        const { data: legacyPayment } = await supabaseAdmin
-          .from('maisha_payments')
-          .select('order_id, status')
-          .eq('confirmation_code', confirmationCode.toUpperCase())
-          .maybeSingle();
-        
-        if (legacyPayment) {
-          orderId = legacyPayment.order_id;
-          paymentLookupStatus = legacyPayment.status;
-        }
-      }
       
       if (!orderId) {
         return new Response(JSON.stringify({
@@ -130,7 +116,7 @@ serve(async (req) => {
     // Build query for authenticated user
     let query = supabaseAdmin
       .from('orders')
-      .select('id, status, total_usd, total_cdf, maisha_payment_status, payment_verified_at, created_at, user_id');
+      .select('id, status, total_usd, total_cdf, payment_verified_at, created_at, user_id');
 
     // Search by order ID or reference
     if (orderId) {
@@ -184,11 +170,7 @@ serve(async (req) => {
         order.status === 'SHIPPED' || order.status === 'READY_FOR_PICKUP' || 
         order.status === 'COMPLETED') {
       paymentStatus = 'paid';
-    } else if (order.maisha_payment_status === 'SUCCESS') {
-      paymentStatus = 'paid';
-    } else if (order.maisha_payment_status === 'FAILED') {
-      paymentStatus = 'failed';
-    } else if (order.maisha_payment_status === 'CANCELLED' || order.status === 'CANCELLED') {
+    } else if (order.status === 'CANCELLED') {
       paymentStatus = 'cancelled';
     }
 

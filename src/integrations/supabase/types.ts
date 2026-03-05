@@ -5881,8 +5881,6 @@ export type Database = {
         Args: never
         Returns: {
           exchange_rate: number
-          maishapay_max_cdf: number
-          maishapay_max_usd: number
           markup_percent: number
           shipping_base_fee: number
           shipping_percent: number
@@ -5975,6 +5973,13 @@ export type Database = {
         Args: { p_primary_id: string; p_secondary_ids: string[] }
         Returns: Json
       }
+      postgres_fdw_disconnect: { Args: { "": string }; Returns: boolean }
+      postgres_fdw_disconnect_all: { Args: never; Returns: boolean }
+      postgres_fdw_get_connections: {
+        Args: never
+        Returns: Record<string, unknown>[]
+      }
+      postgres_fdw_handler: { Args: never; Returns: unknown }
       promote_popular_searches: {
         Args: {
           p_auto_enqueue?: boolean

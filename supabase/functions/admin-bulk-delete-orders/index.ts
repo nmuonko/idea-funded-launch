@@ -125,7 +125,7 @@ serve(async (req) => {
       supabaseAdmin.from('order_actions').delete().in('order_id', foundIds),
       supabaseAdmin.from('order_items').delete().in('order_id', foundIds),
       supabaseAdmin.from('payments').delete().in('order_id', foundIds),
-      supabaseAdmin.from('maisha_payments').delete().in('order_id', foundIds),
+      supabaseAdmin.from('payments').delete().in('order_id', foundIds),
       supabaseAdmin.from('checkout_sessions').delete().in('order_id', foundIds),
       supabaseAdmin.from('payment_attempts').delete().in('order_id', foundIds),
       supabaseAdmin.from('manual_transfer_sessions').delete().in('order_id', foundIds),

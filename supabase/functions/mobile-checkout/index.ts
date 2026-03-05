@@ -1488,7 +1488,7 @@ serve(async (req) => {
           total_usd: totalsBreakdown.grand_total,
           total_cdf: totalsBreakdown.cdf_equivalent,
           exchange_rate_used: settings.exchangeRate,
-          maisha_payment_status: 'PENDING',
+          // maisha_payment_status removed
           admin_notes: notes || null,
           shipping_city: mapToShippingCity(profile.city),
           contains_vehicle: containsVehicle,
@@ -1504,9 +1504,9 @@ serve(async (req) => {
       }
 
       const largeOrderReference = `AFRISHOP-${largeOrderCheckout.id.slice(0, 8)}-${timestamp}`;
-      
+      // Store reference in operator_ref_id (maisha_transaction_id removed)
       await supabase.from('orders').update({
-        maisha_transaction_id: largeOrderReference,
+        operator_ref_id: largeOrderReference,
       }).eq('id', largeOrderCheckout.id);
 
       // Copy items to the checkout order
@@ -1573,7 +1573,7 @@ serve(async (req) => {
           pay_method: paymentMethodPreference,
           grand_total: totalsBreakdown.grand_total,
           integrity_hash: integrityHash,
-          maisha_reference: largeOrderReference,
+          // maisha_reference removed
           status: 'processing',
           metadata: {
             is_large_order: true,
@@ -1853,8 +1853,8 @@ serve(async (req) => {
         total_usd: totalsBreakdown.grand_total,
         total_cdf: totalsBreakdown.cdf_equivalent,
         exchange_rate_used: exchangeRate,
-        maisha_payment_status: 'PENDING',
-        maisha_transaction_id: reference, // PERF: Set reference in initial insert
+        // maisha columns removed
+        operator_ref_id: reference,
         admin_notes: notes || null,
         shipping_city: mapToShippingCity(profile.city),
         contains_vehicle: containsVehicle,
@@ -1875,9 +1875,8 @@ serve(async (req) => {
     // Update reference with actual order ID
     const finalReference = `AFRISHOP-${checkoutOrder.id.slice(0, 8)}-${timestamp}`;
     if (finalReference !== reference) {
-      // Only update if reference changed (it will since we used a temp UUID)
       await supabase.from('orders').update({
-        maisha_transaction_id: finalReference,
+        operator_ref_id: finalReference,
       }).eq('id', checkoutOrder.id);
     }
 
@@ -1970,7 +1969,7 @@ serve(async (req) => {
         pay_method: REQUESTED_METHOD,
         grand_total: payable_amount,
         integrity_hash: integrityHash,
-        maisha_reference: finalReference,
+        // maisha_reference removed
         status: 'awaiting_provider_selection', // CRITICAL: No provider called yet
         selected_provider: null, // Set by select-payment-provider
         metadata: {

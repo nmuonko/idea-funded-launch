@@ -281,10 +281,10 @@ async function firecrawlSearch(
         continue;
       }
 
-      // Extract price
+      // Extract price from description/title (no markdown without scrapeOptions)
       let price: number | null = null;
       const priceRegex = /\$[\d,]+(?:\.\d{2})?/g;
-      for (const text of [description, title, markdown.substring(0, 2000)]) {
+      for (const text of [description, title]) {
         const matches = text.match(priceRegex);
         if (matches) {
           for (const m of matches) {
@@ -292,13 +292,6 @@ async function firecrawlSearch(
             if (p && p >= 500 && p <= maxPrice) { price = p; break; }
           }
           if (price) break;
-        }
-      }
-      if (!price && markdown) {
-        const priceLabelMatch = markdown.match(/(?:price|listing price|sale price)[:\s]*\$?([\d,]+(?:\.\d{2})?)/i);
-        if (priceLabelMatch) {
-          const p = parseUsd(priceLabelMatch[1]);
-          if (p && p >= 500 && p <= maxPrice) price = p;
         }
       }
       if (!price) { dropReasons["no_price"] = (dropReasons["no_price"] || 0) + 1; continue; }

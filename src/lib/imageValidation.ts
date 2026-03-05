@@ -21,6 +21,21 @@ const BLOCKED_TOKENS = [
   '/banner', '_thumbnail_126x',
   'assets.fastly.carvana.io/merchui/images',
   'pt.ispot.tv',
+  // eBay description-area / seller template images
+  'descriptionimage', 'seller_pic', 'seller-pic',
+  '/00/s/', 'vistaprint', 'ebay.com/usr/',
+  // Amazon badges & renewed labels
+  'certified-renewed', 'certified_renewed', 'amazon-renewed',
+  'a]badge', 'satisfaction-guarantee', 'satisfaction_guarantee',
+  // Generic promo / marketing tokens
+  'free-shipping', 'free_shipping', 'best-seller', 'best_seller',
+  'warranty-badge', 'warranty_badge', 'money-back', 'money_back',
+  'trust-badge', 'trust_badge', 'guarantee-badge',
+  // SHEIN promo paths
+  'ltwebstatic.com/she_dist/', 'ltwebstatic.com/images/bg/',
+  // Filename-level markers (not domain)
+  '-logo.', '_logo.', '-badge.', '_badge.', '-stamp.', '_stamp.',
+  '-icon.', '_icon.',
 ];
 
 /**

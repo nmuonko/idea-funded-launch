@@ -1969,7 +1969,7 @@ serve(async (req) => {
         pay_method: REQUESTED_METHOD,
         grand_total: payable_amount,
         integrity_hash: integrityHash,
-        maisha_reference: finalReference,
+        // maisha_reference removed
         status: 'awaiting_provider_selection', // CRITICAL: No provider called yet
         selected_provider: null, // Set by select-payment-provider
         metadata: {

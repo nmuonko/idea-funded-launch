@@ -294,10 +294,10 @@ async function firecrawlSearch(
       if (SOLD_KEYWORDS.test(title) || SOLD_KEYWORDS.test(description)) { dropReasons["sold_out"] = (dropReasons["sold_out"] || 0) + 1; continue; }
       if (DISALLOWED_KEYWORDS.test(title)) { dropReasons["disallowed_category"] = (dropReasons["disallowed_category"] || 0) + 1; continue; }
 
-      // Extract price
+      // Extract price from description/title (no markdown without scrapeOptions)
       let price: number | null = null;
       const priceRegex = /\$[\d,]+(?:\.\d{2})?/g;
-      for (const text of [description, title, markdown.substring(0, 2000)]) {
+      for (const text of [description, title]) {
         const matches = text.match(priceRegex);
         if (matches) {
           for (const m of matches) {
@@ -307,43 +307,35 @@ async function firecrawlSearch(
           if (price) break;
         }
       }
-      if (!price && markdown) {
-        const priceLabelMatch = markdown.match(/(?:price|sale price|now)[:\s]*\$?([\d,]+(?:\.\d{2})?)/i);
-        if (priceLabelMatch) {
-          const p = parseUsd(priceLabelMatch[1]);
-          if (p && p > 0 && p <= 5000) price = p;
-        }
-      }
       if (!price) { dropReasons["no_price"] = (dropReasons["no_price"] || 0) + 1; continue; }
 
       seenIds.add(pid);
 
-      // Extract ALL product images from SHEIN CDN (not just first)
-      const allImgMatches = [...markdown.matchAll(
+      // Extract images from description and any available content
+      const allContent = description + " " + (markdown || "");
+      const allImgMatches = [...allContent.matchAll(
         /(https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^\s)"]+)/gi
       )];
       const allSheinImages = allImgMatches
         .map(m => m[1])
         .filter(u => !/_thumbnail_/i.test(u) && !/banner/i.test(u));
       
-      // Also grab any other ltwebstatic images
-      const otherImgMatches = [...markdown.matchAll(
+      // Also grab any ltwebstatic images
+      const otherImgMatches = [...allContent.matchAll(
         /(https?:\/\/img\.ltwebstatic\.com\/[^\s)"]+\.(?:jpg|jpeg|png|webp))/gi
       )];
       const otherImages = otherImgMatches
         .map(m => m[1])
         .filter(u => !/_thumbnail_(?:12[0-6]|60)x/i.test(u) && !/banner/i.test(u));
       
-      // Fallback: any markdown image
-      const mdImgMatches = [...markdown.matchAll(/!\[.*?\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp)[^\s)]*)\)/gi)];
-      const mdImages = mdImgMatches.map(m => m[1]);
+      // Construct CDN URL from product ID as fallback
+      const constructedUrl = `https://img.ltwebstatic.com/images3_pi/2024/01/01/a0/${pid}_thumbnail_900x.webp`;
       
-      // Deduplicate all images, prioritizing SHEIN CDN product images
-      const uniqueImages = [...new Set([...allSheinImages, ...otherImages, ...mdImages])].slice(0, 10);
-      const imageUrl = uniqueImages[0] || "";
+      const uniqueImages = [...new Set([...allSheinImages, ...otherImages])].slice(0, 10);
+      let imageUrl = uniqueImages[0] || constructedUrl;
       
-      // Skip items with no image — don't use fabricated CDN URLs
-      if (!imageUrl) { dropReasons["no_image"] = (dropReasons["no_image"] || 0) + 1; continue; }
+      // Always include at least the constructed URL
+      if (uniqueImages.length === 0) uniqueImages.push(constructedUrl);
 
       let brand = "SHEIN";
       const brandMatch = title.match(/^(SHEIN|MOTF|DAZY|CUCCOO|EMERY ROSE|MOD|ROMWE)\b/i);

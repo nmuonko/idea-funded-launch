@@ -70,7 +70,7 @@ serve(async (req) => {
     }
 
     const displayRef = getDisplayRef(order.id);
-    const payment = order.maisha_payments?.[0] || null;
+    const payment = order.payment_attempts?.[0] || null;
 
     console.log(`[mobile-get-order-by-id] PERF auth=${authTime}ms query=${queryTime}ms total=${Date.now() - startTime}ms - Order ${orderId.substring(0, 8)}`);
 

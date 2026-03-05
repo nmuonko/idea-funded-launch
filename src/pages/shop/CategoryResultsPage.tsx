@@ -60,9 +60,8 @@ interface CategoryResponse {
   sections?: Array<{ items: CategoryItem[] }>;
 }
 
-const POOL_TARGET = 300;
-const PAGE_SIZE = 100;
-const VISIBLE_STEP = 48;
+const PAGE_SIZE = 200;
+const VISIBLE_STEP = 200;
 
 export default function CategoryResultsPage() {
   const { key } = useParams<{ key: string }>();
@@ -209,7 +208,7 @@ export default function CategoryResultsPage() {
       let requestCount = 1;
       let emptyStreak = 0;
 
-      while (totalAccumulated < POOL_TARGET && !exhaustedRef.current && requestCount < 10) {
+      while (!exhaustedRef.current && requestCount < 50) {
         let items: Product[];
         if (categoryKey === 'all') {
           items = await fetchAllFromDb(dbOffsetRef.current);

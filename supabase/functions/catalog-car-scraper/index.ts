@@ -308,18 +308,38 @@ async function firecrawlSearch(
       if (seenIds.has(pid)) continue;
       seenIds.add(pid);
 
-      let imageUrl = "";
-      const imgMatch = markdown.match(/!\[.*?\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp)[^\s)]*)\)/i);
-      if (imgMatch) imageUrl = imgMatch[1];
-      // Carvana fallback: derive hero image from product ID
-      if (!imageUrl && provider === "carvana" && /^\d+$/.test(pid)) {
-        imageUrl = `https://vexgateway.fastly.carvana.io/${pid}/standardizedHero.jpg?width=800`;
+      // Extract ALL images from markdown
+      const allMdImgs = [...markdown.matchAll(/!\[.*?\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp)[^\s)]*)\)/gi)].map(m => m[1]);
+      
+      let imageUrl = allMdImgs[0] || "";
+      let allImages: string[] = [...allMdImgs];
+      
+      // Carvana: derive multi-angle images from product ID
+      if (provider === "carvana" && /^\d+$/.test(pid)) {
+        const carvanaAngles = [
+          `https://vexgateway.fastly.carvana.io/${pid}/standardizedHero.jpg?width=800`,
+          `https://vexgateway.fastly.carvana.io/${pid}/1.jpg?width=800`,
+          `https://vexgateway.fastly.carvana.io/${pid}/2.jpg?width=800`,
+          `https://vexgateway.fastly.carvana.io/${pid}/3.jpg?width=800`,
+          `https://vexgateway.fastly.carvana.io/${pid}/4.jpg?width=800`,
+          `https://vexgateway.fastly.carvana.io/${pid}/5.jpg?width=800`,
+          `https://vexgateway.fastly.carvana.io/${pid}/6.jpg?width=800`,
+          `https://vexgateway.fastly.carvana.io/${pid}/7.jpg?width=800`,
+        ];
+        if (!imageUrl) imageUrl = carvanaAngles[0];
+        allImages = [...new Set([...allImages, ...carvanaAngles])];
       }
-      // CarGurus fallback: try static.cargurus.com pattern
-      if (!imageUrl && provider === "cargurus") {
-        const cgurusImgMatch = markdown.match(/(https?:\/\/static\.cargurus\.com\/[^\s)"]+\.(?:jpg|jpeg|png|webp))/i);
-        if (cgurusImgMatch) imageUrl = cgurusImgMatch[1];
+      
+      // CarGurus: extract all static.cargurus.com images
+      if (provider === "cargurus") {
+        const cgurusImgs = [...markdown.matchAll(/(https?:\/\/static\.cargurus\.com\/[^\s)"]+\.(?:jpg|jpeg|png|webp))/gi)].map(m => m[1]);
+        if (!imageUrl && cgurusImgs.length > 0) imageUrl = cgurusImgs[0];
+        allImages = [...new Set([...allImages, ...cgurusImgs])];
       }
+      
+      // Also grab any generic image URLs from the markdown
+      const genericImgs = [...markdown.matchAll(/https?:\/\/[^\s"'<>()]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"'<>()]*)?/gi)].map(m => m[0]);
+      allImages = [...new Set([...allImages, ...genericImgs])].slice(0, 10);
 
       const yearMatch = title.match(/\b(19|20)\d{2}\b/);
 
@@ -331,7 +351,8 @@ async function firecrawlSearch(
         year: yearMatch ? parseInt(yearMatch[0]) : undefined,
         condition: "Used",
         provider_product_id: pid,
-      });
+        images: allImages.length > 0 ? allImages : (imageUrl ? [imageUrl] : []),
+      } as any);
     }
 
     return listings;
@@ -367,6 +388,7 @@ async function upsertListings(supabase: any, provider: string, listings: CarList
     is_disallowed: false,
     last_seen_at: now,
     last_checked_at: now,
+    images: (l as any).images || (l.image_url ? [l.image_url] : []),
     metadata: { year: l.year, mileage: l.mileage, condition: l.condition, source: "firecrawl_search_v2" },
   }));
 

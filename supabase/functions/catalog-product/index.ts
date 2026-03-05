@@ -1140,10 +1140,29 @@ Deno.serve(async (req: Request) => {
       }
 
       // ========== DB-only providers Gallery Enrichment (SHEIN/CarGurus/Carvana) ==========
-      if ((dbItem.provider === "shein" || dbItem.provider === "cargurus" || dbItem.provider === "carvana") && (item.images?.length || 0) <= 2) {
-        const scraped = await scrapeProviderGalleryFromPage(dbItem.provider, item.productUrl || dbItem.product_url);
-        // Firecrawl fallback DISABLED to conserve credits
-        // Direct scrape only — if it fails, we accept the existing images
+      if ((dbItem.provider === "shein" || dbItem.provider === "cargurus" || dbItem.provider === "carvana") && (item.images?.length || 0) <= 1) {
+        let scraped = await scrapeProviderGalleryFromPage(dbItem.provider, item.productUrl || dbItem.product_url);
+        
+        // Firecrawl fallback for items with <=1 image, budget-controlled (100/day)
+        if (scraped.length <= 1) {
+          try {
+            const budgetCheck = await db.rpc("check_provider_budget", { p_provider: "gallery_enrich", p_window_type: "day", p_limit: 100 });
+            const budgetData = budgetCheck?.data;
+            if (budgetData?.allowed) {
+              console.log(`[GALLERY_ENRICH] Firecrawl fallback for ${dbItem.provider} ${productId} (budget: ${budgetData.remaining} remaining)`);
+              const firecrawlScraped = await scrapeProviderGalleryFirecrawl(item.productUrl || dbItem.product_url, dbItem.provider);
+              if (firecrawlScraped.length > scraped.length) {
+                scraped = firecrawlScraped;
+              }
+              // Increment budget regardless of success
+              await db.rpc("increment_provider_budget", { p_provider: "gallery_enrich", p_window_type: "day" });
+            } else {
+              console.log(`[GALLERY_ENRICH] Firecrawl budget exhausted for gallery_enrich (${budgetData?.count}/${budgetData?.limit})`);
+            }
+          } catch (e) {
+            console.warn(`[GALLERY_ENRICH] Budget check failed: ${e}`);
+          }
+        }
         
         if (scraped.length > (item.images?.length || 0)) {
           item.images = scraped;

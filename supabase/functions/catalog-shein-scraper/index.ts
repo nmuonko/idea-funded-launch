@@ -40,7 +40,7 @@ interface SheinProduct {
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 
 const SEARCH_TIMEOUT_MS = 45000;
-const HARD_FUNCTION_CAP_MS = 50000;
+const HARD_FUNCTION_CAP_MS = 240000;
 const DEFAULT_TARGET_ITEMS = 300;
 const DEFAULT_QUERIES_PER_RUN = 5;
 const FIRECRAWL_SEARCH_LIMIT = 20;

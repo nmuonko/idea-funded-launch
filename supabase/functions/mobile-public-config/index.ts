@@ -800,8 +800,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       minUsd: Number(settings.min_service_fee_usd ?? 5),
     },
     limits: {
-      maishapayMaxUsd: Number(settings.maishapay_max_usd ?? 5000),
-      maishapayMaxCdf: Number(settings.maishapay_max_cdf ?? 30000000),
+      mobileMoneyMaxUsd: 5000,
+      mobileMoneyMaxCdf: 30000000,
     },
     currency: "USD",
     updated_at: updatedAt,

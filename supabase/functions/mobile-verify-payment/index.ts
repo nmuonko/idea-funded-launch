@@ -135,7 +135,7 @@ serve(async (req) => {
 
     // ==================== CHECK IF ALREADY PAID ====================
     
-    if (order.status === 'PAID' || order.maisha_payment_status === 'SUCCESS') {
+    if (order.status === 'PAID') {
       log.log('[PAYMENT_VERIFY] Order already paid', { orderId: order.id });
       
       // Try to send confirmation email if not sent yet

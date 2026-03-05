@@ -56,14 +56,6 @@ serve(async (req) => {
     
     if (attempt?.confirmation_code) {
       confirmationCode = attempt.confirmation_code;
-    } else {
-      // Fallback to legacy maisha_payments for old orders
-      const { data: legacyPayment } = await supabase
-        .from('maisha_payments')
-        .select('confirmation_code')
-        .eq('order_id', orderId)
-        .maybeSingle();
-      confirmationCode = legacyPayment?.confirmation_code || null;
     }
     
     if (!confirmationCode) {

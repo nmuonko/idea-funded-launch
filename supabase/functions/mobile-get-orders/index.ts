@@ -95,7 +95,7 @@ serve(async (req) => {
         serviceFeeUsd: Number(o.service_fee_usd) || 0,
         shippingFeeUsd: Number(o.shipping_fee_usd) || 0,
         status: normalizeStatus(o.status),
-        paymentStatus: o.maisha_payment_status || 'PENDING',
+        paymentStatus: 'PENDING',
         createdAt: o.created_at,
         trackingNumber: o.tracking_number,
         carrier: o.carrier,

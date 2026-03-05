@@ -370,7 +370,7 @@ serve(async (req) => {
           order_number: order.id.slice(0, 8).toUpperCase(),
           status: order.status,
           payment_status: order.status === 'PAID' ? 'SUCCESS' : order.status,
-          transaction_id: order.operator_ref_id || order.maisha_transaction_id,
+          transaction_id: order.operator_ref_id,
           paid_at: order.payment_verified_at || order.updated_at,
           customer: {
             name: profile?.full_name || profile?.name || 'Customer',

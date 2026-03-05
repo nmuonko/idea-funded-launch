@@ -87,7 +87,7 @@ serve(async (req) => {
         shippingFeeUsd: Number(order.shipping_fee_usd) || 0,
         exchangeRate: Number(order.exchange_rate_used) || 2800,
         status: normalizeStatus(order.status),
-        paymentStatus: payment?.status || order.maisha_payment_status || 'PENDING',
+        paymentStatus: payment?.status || 'PENDING',
         createdAt: order.created_at,
         paidAt: payment?.paid_at,
         shippedAt: order.shipped_at,

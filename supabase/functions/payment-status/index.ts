@@ -116,7 +116,7 @@ serve(async (req) => {
     // Build query for authenticated user
     let query = supabaseAdmin
       .from('orders')
-      .select('id, status, total_usd, total_cdf, maisha_payment_status, payment_verified_at, created_at, user_id');
+      .select('id, status, total_usd, total_cdf, payment_verified_at, created_at, user_id');
 
     // Search by order ID or reference
     if (orderId) {

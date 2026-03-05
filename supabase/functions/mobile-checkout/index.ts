@@ -1488,7 +1488,7 @@ serve(async (req) => {
           total_usd: totalsBreakdown.grand_total,
           total_cdf: totalsBreakdown.cdf_equivalent,
           exchange_rate_used: settings.exchangeRate,
-          maisha_payment_status: 'PENDING',
+          // maisha_payment_status removed
           admin_notes: notes || null,
           shipping_city: mapToShippingCity(profile.city),
           contains_vehicle: containsVehicle,

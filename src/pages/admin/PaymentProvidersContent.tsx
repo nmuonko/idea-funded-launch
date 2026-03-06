@@ -463,7 +463,7 @@ export default function PaymentProvidersContent() {
           <div>
              <span className="font-medium">Stripe:</span>
             <code className="ml-2 px-2 py-1 bg-muted rounded text-xs">
-              {`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/payments-webhook/stripe`}
+              {`${SUPABASE_URL}/functions/v1/payments-webhook/stripe`}
             </code>
           </div>
           <div>

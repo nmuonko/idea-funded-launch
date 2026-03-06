@@ -4,6 +4,8 @@
  * Active providers: PawaPay, Stripe
  */
 
+import { createClient } from "@supabase/supabase-js";
+
 // SDK-free: use 'any' for client type to avoid bundle bloat
 type SupabaseClient = any;
 

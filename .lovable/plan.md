@@ -1,57 +1,36 @@
 
 
-## Fix: Product Details Showing Only 1 Image for SHEIN, Carvana, CarGurus
+## Plan: Point Web App to New Supabase Project
 
-### Root Cause
+### Current State
+- **82 files** import `supabase` from `@/integrations/supabase/client` (auto-generated, cannot edit)
+- **16 files** reference `VITE_SUPABASE_URL` directly for edge function URLs
+- New project `ecqpqtirhpumfgbdtvhh`: **162 edge functions deployed**, **21 secrets set**, **542k+ catalog items** — all good
 
-**Two-layer problem:**
+### What Needs to Change
 
-1. **Scrapers only store `image_url` (single image)** — neither `catalog-shein-scraper` nor `catalog-car-scraper` populate the `images` JSONB array column. They only set `image_url` (one image). The upsert rows don't include an `images` field at all.
+**Step 1: Create custom Supabase client** (`src/lib/supabaseClient.ts`)
+- Hardcode the new project URL (`https://ecqpqtirhpumfgbdtvhh.supabase.co`) and its anon key
+- Import `Database` types from existing `@/integrations/supabase/types`
+- Same auth config (persistSession, autoRefreshToken)
 
-2. **Gallery enrichment fails silently** — when `catalog-product` detects <= 2 images, it tries `scrapeProviderGalleryFromPage()` which does a direct HTTP fetch to SHEIN/Carvana/CarGurus. These sites block direct scraping (bot protection), returning 403 or empty HTML. The Firecrawl fallback is deliberately disabled to conserve credits. Result: enrichment always fails, user sees 1 image.
+**Step 2: Update all 82 file imports**
+- Change `from '@/integrations/supabase/client'` → `from '@/lib/supabaseClient'`
 
-### Plan
+**Step 3: Update edge function URL references**
+- In `src/lib/api.ts`, `SearchResults.tsx`, `ProductDetails.tsx`, `ShopCartContext.tsx`, `PaymentSuccess.tsx`, `AcceptInvite.tsx`, `Orders.tsx`, `OrderDetail.tsx`, `PaymentProvidersContent.tsx` — replace `import.meta.env.VITE_SUPABASE_URL` with the new project's URL constant
+- Update `SupabaseConfigGuard.tsx` and `supabaseHealth.ts` accordingly
 
-#### 1. Extract ALL images during scraping (not just one)
+**Step 4: Clean up diagnostics**
+- Update `main.tsx` dev logging to reflect new config
 
-**`catalog-shein-scraper/index.ts`**: Extract all product images from the Firecrawl markdown using `matchAll` instead of `match`. Store them in the `images` JSONB array column during upsert.
+### What's Already Done (No Action Needed)
+- Edge functions: 162 deployed on new project
+- Secrets: 21 configured (EBAY, STRIPE, PAWAPAY, RAINFOREST, RESEND, etc.)
+- Database: catalog_items at parity, RLS policies active, RPC functions exist
+- pg_cron: 18 jobs already pointing to new project URL
 
-```
-// Extract ALL product images from markdown (not just first)
-const allImgMatches = [...markdown.matchAll(
-  /(https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^\s)"]+)/gi
-)];
-const allImages = allImgMatches
-  .map(m => m[1])
-  .filter(url => !/_thumbnail_/i.test(url) && !/banner/i.test(url));
-// Deduplicate
-const uniqueImages = [...new Set(allImages)].slice(0, 10);
-```
-
-Add `images: uniqueImages.length > 0 ? uniqueImages : [imageUrl]` to the upsert row.
-
-**`catalog-car-scraper/index.ts`**: Same pattern — extract all image URLs from markdown, store in `images` array. For Carvana, also generate multiple angle URLs from the vehicle ID (Carvana has predictable image URL patterns for different angles).
-
-#### 2. Re-enable Firecrawl gallery enrichment for DB-only providers (budget-controlled)
-
-In `catalog-product/index.ts`, re-enable `scrapeProviderGalleryFirecrawl()` as fallback when direct scrape fails, but only if:
-- The item has <= 1 image (not <= 2, to reduce calls)
-- Provider budget check passes (use existing `check_provider_budget` with a small daily cap like 100 credits for gallery enrichment)
-
-This ensures first-time product views get full galleries while staying within credit budget.
-
-#### 3. Persist enriched galleries back to `images` column
-
-Already implemented in current code (lines 1155-1171) — no changes needed here. Once enrichment succeeds, it writes back to `catalog_items.images` and `catalog_item_media`.
-
-### Files to modify
-
-1. **`supabase/functions/catalog-shein-scraper/index.ts`** — Extract all images from markdown, add `images` array to upsert
-2. **`supabase/functions/catalog-car-scraper/index.ts`** — Extract all images from markdown, add `images` array to upsert; add Carvana multi-angle URL generation
-3. **`supabase/functions/catalog-product/index.ts`** — Re-enable Firecrawl gallery fallback for shein/cargurus/carvana with budget cap (100/day)
-
-### Expected Result
-- New scraped items will have 3-10 images stored at ingestion time
-- Existing 1-image items will get enriched on first detail view (up to 100/day via Firecrawl)
-- Product detail pages will show full image galleries
+### Risks & Rollback
+- **Auth sessions will reset** — users must log in again (different auth project)
+- **Rollback**: one find-and-replace to revert imports back to `@/integrations/supabase/client`
 

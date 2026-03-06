@@ -21,7 +21,7 @@ function buildPriceApprovalEmail(params: {
   orderId?: string;
   appUrl?: string;
 }): { subject: string; html: string } {
-  const { customerName, itemTitle, approvedPrice, currency, orderId, appUrl = 'https://afrishop-usa.com' } = params;
+  const { customerName, itemTitle, approvedPrice, currency, orderId, appUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com' } = params;
   
   const formattedPrice = currency === 'USD' 
     ? `$${approvedPrice.toFixed(2)}` 

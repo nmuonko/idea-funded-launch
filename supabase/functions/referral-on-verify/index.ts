@@ -214,7 +214,7 @@ serve(async (req) => {
                         <p>Reward: <strong>${rewardLabel}</strong></p>
                         <p>Threshold: ${rule.threshold_verified_count} verified signups</p>
                         ${rewardType !== 'cash' ? '<p>Auto-delivery has been triggered via Reloadly.</p>' : '<p>Please process the payout in the admin dashboard.</p>'}
-                        <a href="https://afrishop-usa.com/admin/referrals" style="display:inline-block;background:#f97316;color:white;padding:10px 20px;text-decoration:none;border-radius:6px;margin-top:10px;">View Referrals Dashboard</a>
+                        <a href="${Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com'}/admin/referrals" style="display:inline-block;background:#f97316;color:white;padding:10px 20px;text-decoration:none;border-radius:6px;margin-top:10px;">View Referrals Dashboard</a>
                       </div>
                     `,
                     category: 'admin_notification',

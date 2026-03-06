@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
       pushed: totalPushed,
       errors: totalErrors,
       done,
-      progress_pct: Math.min(100, Math.round((lastPage / 520) * 100)),
+      progress_pct: Math.min(100, Math.round((lastPage / 1082) * 100)),
     };
 
     console.log(`[bulk-sync] ${JSON.stringify(result)}`);

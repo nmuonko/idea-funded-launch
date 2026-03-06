@@ -108,31 +108,32 @@ export default function AdminOrderDetail() {
           carrier: order.carrier,
         };
 
-        let emailFunction = '';
+        let emailType = '';
         let pushTitle = '';
         let pushBody = '';
         switch (newStatus) {
           case 'PROCESSING':
-            emailFunction = 'send-order-processing-email';
+            emailType = 'order_processing';
             pushTitle = '🔄 Commande en cours';
             pushBody = 'Votre commande est en cours de traitement.';
             break;
           case 'SHIPPED':
-            emailFunction = 'send-order-shipped-email';
+            emailType = 'order_shipped';
             pushTitle = '🚚 Commande expédiée';
             pushBody = 'Votre commande a été expédiée!';
             break;
           case 'READY_FOR_PICKUP':
-            emailFunction = 'send-order-ready-email';
+            emailType = 'order_ready';
             pushTitle = '📦 Commande prête!';
             pushBody = 'Votre commande est prête pour le ramassage.';
             break;
           case 'COMPLETED':
-            emailFunction = 'send-order-delivered-email';
+            emailType = 'order_delivered';
             pushTitle = '✅ Commande livrée';
             pushBody = 'Votre commande a été livrée avec succès.';
-            await supabase.functions.invoke(emailFunction, {
+            await supabase.functions.invoke('email-service', {
               body: {
+                type: emailType,
                 orderId: id,
                 customerEmail: order.profiles.email,
                 customerName: order.profiles.name || 'Customer',

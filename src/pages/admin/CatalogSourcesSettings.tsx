@@ -367,9 +367,8 @@ export default function CatalogSourcesSettings() {
         throw new Error('Not authenticated');
       }
 
-      const response = await supabase.functions.invoke('admin-catalog-settings', {
-        method: 'POST',
-        body: { updates },
+      const response = await supabase.functions.invoke('admin-service', {
+        body: { action: 'catalog_settings', method: 'POST', updates },
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },

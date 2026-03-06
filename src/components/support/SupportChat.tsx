@@ -227,8 +227,9 @@ export function SupportChat() {
       setInputValue('');
 
       // Call bot edge function
-      const { data, error } = await supabase.functions.invoke('support-chat-bot', {
+      const { data, error } = await supabase.functions.invoke('support-service', {
         body: {
+          action: 'chat_bot',
           conversation_id: conversation.id,
           message: content.trim(),
           language: language,

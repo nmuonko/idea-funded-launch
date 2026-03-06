@@ -7,7 +7,7 @@
  * DELETE - Delete rule
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "@supabase/supabase-js";
 import { verifyAndGetUser, handleCors, errorResponse, jsonResponse } from "../_shared/auth.ts";
 
 const corsHeaders = {

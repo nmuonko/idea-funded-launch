@@ -6,7 +6,7 @@
  * POST with action=approve: Copy approved suggestions to home_section_seeds
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "@supabase/supabase-js";
 import { verifyAndGetUser, unauthorizedResponse, errorResponse, AuthError } from "../_shared/auth.ts";
 import { logAdminAction } from "../_shared/auditLog.ts";
 import { getRandomTemplateQueries, getTemplateQueries } from "../_shared/homeSeedTemplates.ts";

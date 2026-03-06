@@ -4,7 +4,7 @@
  * POST: Update one or more settings
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "@supabase/supabase-js";
 import { verifyAndGetUser, handleCors, errorResponse, jsonResponse, createAdminClient } from "../_shared/auth.ts";
 import { getCatalogSettings, updateCatalogSetting, CatalogSettings } from "../_shared/catalogSettings.ts";
 import { invalidateTtlPolicyCache } from "../_shared/ttlPolicy.ts";

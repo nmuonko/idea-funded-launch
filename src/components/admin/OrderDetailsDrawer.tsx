@@ -59,8 +59,9 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
     
     setMarkingAsPaid(true);
     try {
-      const { error } = await supabase.functions.invoke('verify-payment', {
+      const { error } = await supabase.functions.invoke('payments-core', {
         body: {
+          action: 'admin_verify',
           order_id: orderId,
           manualOverride: true,
           notes: 'Manual verification by admin'

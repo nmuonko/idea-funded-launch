@@ -136,7 +136,7 @@ export default function AdminPayments() {
   const reconcileAllPending = async () => {
     try {
       setReconciling(true);
-      const { data, error } = await supabase.functions.invoke('reconcile-payment-status');
+      const { data, error } = await supabase.functions.invoke('payments-core', { body: { action: 'reconcile' } });
       if (error) throw error;
       toast({
         title: 'Reconciliation Complete',

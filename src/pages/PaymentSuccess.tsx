@@ -31,10 +31,8 @@ export default function PaymentSuccess() {
 
       try {
         // Call the payment-status endpoint
-        const { data, error } = await supabase.functions.invoke('payment-status', {
-          body: null,
-          headers: {},
-        });
+        // Legacy invoke kept for reference; actual fetch below uses query params
+        void 0;
 
         // Use fetch directly since we need query params
         const supabaseUrl = SUPABASE_URL;

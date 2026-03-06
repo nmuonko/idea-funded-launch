@@ -90,8 +90,8 @@ export default function PaymentPending() {
     setLoading(true);
     
     try {
-      const { data, error } = await supabase.functions.invoke('mobile-retry-payment', {
-        body: { order_id: orderId },
+      const { data, error } = await supabase.functions.invoke('payments-core', {
+        body: { action: 'retry', order_id: orderId },
       });
       
       if (error || data?.error) {

@@ -74,7 +74,7 @@ export default function OrderDetail() {
     if (!order) return;
     try {
       setRetrying(true);
-      const { data, error } = await supabase.functions.invoke('mobile-retry-payment/' + order.id);
+      const { data, error } = await supabase.functions.invoke('payments-core', { body: { action: 'retry', order_id: order.id } });
 
       if (error) throw error;
 

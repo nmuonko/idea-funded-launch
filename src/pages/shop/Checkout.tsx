@@ -264,8 +264,8 @@ export default function Checkout() {
         let providerData: any = null;
         try {
           const providerResponse = await supabase.functions.invoke(
-            'select-payment-provider',
-            { body: selectPayload }
+            'payments-provider',
+            { body: { action: 'select', ...selectPayload } }
           );
           providerData = providerResponse.data;
           const providerError = providerResponse.error;

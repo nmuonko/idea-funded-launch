@@ -64,7 +64,8 @@ export default function PaymentProvidersContent() {
       const { data: session } = await supabase.auth.getSession();
       if (!session?.session?.access_token) throw new Error('Not authenticated');
 
-      const response = await supabase.functions.invoke('get-payment-providers', {
+      const response = await supabase.functions.invoke('payments-provider', {
+        body: { action: 'get_providers' },
         headers: { Authorization: `Bearer ${session.session.access_token}` },
       });
 
@@ -85,8 +86,8 @@ export default function PaymentProvidersContent() {
       const { data: session } = await supabase.auth.getSession();
       if (!session?.session?.access_token) throw new Error('Not authenticated');
 
-      const response = await supabase.functions.invoke('update-payment-provider', {
-        body: params,
+      const response = await supabase.functions.invoke('payments-provider', {
+        body: { action: 'update_provider', ...params },
         headers: { Authorization: `Bearer ${session.session.access_token}` },
       });
 
@@ -111,8 +112,8 @@ export default function PaymentProvidersContent() {
       const { data: session } = await supabase.auth.getSession();
       if (!session?.session?.access_token) throw new Error('Not authenticated');
 
-      const response = await supabase.functions.invoke('admin-set-active-provider', {
-        body: { provider_code },
+      const response = await supabase.functions.invoke('payments-provider', {
+        body: { action: 'set_active', provider_code },
         headers: { Authorization: `Bearer ${session.session.access_token}` },
       });
 
@@ -136,8 +137,8 @@ export default function PaymentProvidersContent() {
       const { data: session } = await supabase.auth.getSession();
       if (!session?.session?.access_token) throw new Error('Not authenticated');
 
-      const response = await supabase.functions.invoke('admin-test-provider', {
-        body: { provider_code },
+      const response = await supabase.functions.invoke('payments-provider', {
+        body: { action: 'test_provider', provider_code },
         headers: { Authorization: `Bearer ${session.session.access_token}` },
       });
 

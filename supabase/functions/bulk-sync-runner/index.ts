@@ -93,25 +93,28 @@ Deno.serve(async (req) => {
         break;
       }
 
-      // Upsert directly to remote DB via REST API
-      const upsertUrl = `${remoteProjectUrl}/rest/v1/catalog_items?on_conflict=provider,provider_product_id`;
-      const resp = await fetch(upsertUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": remoteServiceKey,
-          "Authorization": `Bearer ${remoteServiceKey}`,
-          "Prefer": "resolution=merge-duplicates",
-        },
-        body: JSON.stringify(items),
-      });
+      // Upsert in small batches to avoid remote statement timeout
+      for (let b = 0; b < items.length; b += batchSize) {
+        const batch = items.slice(b, b + batchSize);
+        const upsertUrl = `${remoteProjectUrl}/rest/v1/catalog_items?on_conflict=provider,provider_product_id`;
+        const resp = await fetch(upsertUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": remoteServiceKey,
+            "Authorization": `Bearer ${remoteServiceKey}`,
+            "Prefer": "resolution=merge-duplicates",
+          },
+          body: JSON.stringify(batch),
+        });
 
-      if (resp.ok) {
-        totalPushed += items.length;
-      } else {
-        const errText = await resp.text();
-        console.error(`[bulk-sync] Upsert failed page ${page}: ${resp.status} ${errText}`);
-        totalErrors += items.length;
+        if (resp.ok) {
+          totalPushed += batch.length;
+        } else {
+          const errText = await resp.text();
+          console.error(`[bulk-sync] Upsert failed page ${page} batch ${b}: ${resp.status} ${errText}`);
+          totalErrors += batch.length;
+        }
       }
 
       lastPage = page + 1;

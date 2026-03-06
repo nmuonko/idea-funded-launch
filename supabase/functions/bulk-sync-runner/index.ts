@@ -66,8 +66,9 @@ Deno.serve(async (req) => {
     const remoteProjectUrl = `https://${remoteMatch[1]}.supabase.co`;
 
     // Process pages — upsert directly via REST API with service role key
-    const pagesPerRun = 5;
-    const pageSize = 1000;
+    const pagesPerRun = 10;
+    const pageSize = 500;
+    const batchSize = 100; // smaller batches to avoid remote statement timeout
     let totalPushed = 0;
     let totalErrors = 0;
     let lastPage = currentPage;

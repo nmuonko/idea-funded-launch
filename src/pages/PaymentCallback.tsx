@@ -90,7 +90,7 @@ export default function PaymentCallback() {
     try {
       setNetworkError(false);
       
-      const { data, error: fnError } = await supabase.functions.invoke("mobile-verify-payment", {
+      const { data, error: fnError } = await supabase.functions.invoke("payments-core", {
         body: { 
           orderId: effectiveOrderId, 
           depositId, 

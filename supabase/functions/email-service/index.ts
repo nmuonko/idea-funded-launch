@@ -4,24 +4,16 @@
  * Single entry point for all email/notification sending.
  * Routes by `type` field in POST body to the appropriate send-* function.
  * 
- * TEMPORARY: Forwards to original individual send-* functions to avoid
- * duplicating template logic and email infrastructure code.
- * 
- * Supported types:
- *   order_email, customer_email, order_confirmation, confirmation_email,
- *   payment_confirmation, order_processing, order_ready, order_shipped,
- *   order_delivered, delivery_notification, shipping_notification, shipping_update,
- *   cart_reminder, abandoned_cart, abandoned_cart_recovery,
- *   quote_email, quote_response, ticket_notification, feedback,
- *   fraud_alert, admin_payment_notification, application_email,
- *   order_assistance, test_email, push_notification
+ * AUTH: All actions require a valid JWT (via getClaims) or cron secret.
+ * Exception: cart_reminder and abandoned_cart may be triggered by cron.
  */
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
@@ -32,9 +24,36 @@ function jsonRes(data: unknown, status = 200) {
   });
 }
 
-/**
- * Map email type to original function name
- */
+async function requireAuth(req: Request): Promise<{ userId: string } | Response> {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return jsonRes({ ok: false, error: 'Unauthorized: missing Bearer token' }, 401);
+  }
+
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_ANON_KEY')!,
+    { global: { headers: { Authorization: authHeader } } }
+  );
+
+  const token = authHeader.replace('Bearer ', '');
+  const { data, error } = await supabase.auth.getClaims(token);
+  if (error || !data?.claims) {
+    return jsonRes({ ok: false, error: 'Unauthorized: invalid token' }, 401);
+  }
+
+  return { userId: data.claims.sub as string };
+}
+
+function hasCronSecret(req: Request): boolean {
+  const cronSecret = req.headers.get('x-cron-secret');
+  const expected = Deno.env.get('CRON_SECRET');
+  return !!(cronSecret && expected && cronSecret === expected);
+}
+
+// Email types that can be triggered by cron jobs
+const CRON_TYPES = new Set(['cart_reminder', 'abandoned_cart', 'abandoned_cart_recovery']);
+
 const TYPE_TO_FUNCTION: Record<string, string> = {
   // Order lifecycle
   order_email: 'send-order-email',
@@ -75,7 +94,7 @@ const TYPE_TO_FUNCTION: Record<string, string> = {
   application_email: 'send-application-emails',
   test_email: 'send-test-email',
 
-  // Push notifications (not email but same pattern)
+  // Push notifications
   push_notification: 'send-push-notification',
 };
 
@@ -92,7 +111,7 @@ async function forwardToFunction(functionName: string, req: Request, overrideBod
   if (authHeader) headers.set('Authorization', authHeader);
   headers.set('Content-Type', 'application/json');
 
-  for (const h of ['x-device-id', 'user-agent', 'x-client-info']) {
+  for (const h of ['x-device-id', 'user-agent', 'x-client-info', 'x-cron-secret']) {
     const v = req.headers.get(h);
     if (v) headers.set(h, v);
   }
@@ -139,9 +158,16 @@ serve(async (req) => {
       return jsonRes({ ok: false, error: `Unknown email type: ${emailType}. Expected one of: ${Object.keys(TYPE_TO_FUNCTION).join(', ')}` }, 400);
     }
 
+    // Auth gate: require JWT or cron secret
+    if (CRON_TYPES.has(emailType) && hasCronSecret(req)) {
+      // Cron-authenticated — proceed
+    } else {
+      const authResult = await requireAuth(req);
+      if (authResult instanceof Response) return authResult;
+    }
+
     console.log(`[email-service] Routing type="${emailType}" → ${targetFunction}`);
 
-    // Forward the body without the 'type' field
     const { type: _t, ...payload } = body;
     return forwardToFunction(targetFunction, req, payload);
   } catch (err: any) {

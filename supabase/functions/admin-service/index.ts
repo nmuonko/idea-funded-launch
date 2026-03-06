@@ -6,12 +6,12 @@
  *   invite_user, system_health, get_carts, ai_assistant, reset_section,
  *   catalog_settings
  * 
- * GET requests with no body default to system_health.
- * 
- * TEMPORARY: Proxies to original individual functions.
+ * AUTH: All actions require a valid JWT (via getClaims).
+ * No public actions — this is an admin-only endpoint.
  */
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -24,6 +24,27 @@ function jsonRes(data: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+async function requireAuth(req: Request): Promise<{ userId: string } | Response> {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return jsonRes({ ok: false, error: 'Unauthorized: missing Bearer token' }, 401);
+  }
+
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_ANON_KEY')!,
+    { global: { headers: { Authorization: authHeader } } }
+  );
+
+  const token = authHeader.replace('Bearer ', '');
+  const { data, error } = await supabase.auth.getClaims(token);
+  if (error || !data?.claims) {
+    return jsonRes({ ok: false, error: 'Unauthorized: invalid token' }, 401);
+  }
+
+  return { userId: data.claims.sub as string };
 }
 
 async function forwardToFunction(functionName: string, req: Request, overrideBody?: unknown, overrideMethod?: string): Promise<Response> {
@@ -83,6 +104,10 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  // Auth gate: ALL admin actions require authentication
+  const authResult = await requireAuth(req);
+  if (authResult instanceof Response) return authResult;
 
   try {
     // GET requests default to system_health

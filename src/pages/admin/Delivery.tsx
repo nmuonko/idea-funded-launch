@@ -93,8 +93,9 @@ export default function AdminDelivery() {
       if (error) throw error;
 
       // Send email
-      await supabase.functions.invoke('send-order-delivered-email', {
+      await supabase.functions.invoke('email-service', {
         body: {
+          type: 'order_delivered',
           orderId: order.id,
           customerEmail: order.profiles?.email,
           customerName: order.profiles?.full_name || 'Customer',

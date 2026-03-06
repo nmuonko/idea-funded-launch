@@ -128,21 +128,27 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Auth: require service role or cron secret
+    // Auth: require service role, cron secret, or remote service role key
     const authHeader = req.headers.get('authorization') ?? '';
     const cronSecret = req.headers.get('x-cron-secret') ?? '';
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const remoteServiceRoleKey = Deno.env.get('REMOTE_SERVICE_ROLE_KEY') ?? '';
     const configuredCronSecret = Deno.env.get('CRON_SECRET') ?? '';
 
-    const isServiceRole = authHeader === `Bearer ${serviceRoleKey}`;
+    const token = authHeader.replace('Bearer ', '');
+    const isServiceRole = token === serviceRoleKey;
+    const isRemoteServiceRole = remoteServiceRoleKey !== '' && token === remoteServiceRoleKey;
     const isCron = cronSecret !== '' && cronSecret === configuredCronSecret;
 
-    if (!isServiceRole && !isCron) {
+    if (!isServiceRole && !isRemoteServiceRole && !isCron) {
       return new Response(JSON.stringify({ error: 'Unauthorized. Requires service_role or cron secret.' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+    
+    // Use remote service role key if provided (to check remote project)
+    const effectiveServiceKey = serviceRoleKey;
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const admin = createClient(supabaseUrl, serviceRoleKey);

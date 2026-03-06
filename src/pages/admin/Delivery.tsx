@@ -58,8 +58,9 @@ export default function AdminDelivery() {
 
       // Send email
       const items = order.order_items?.map((i: any) => ({ title: i.title || 'Product', quantity: i.quantity })) || [];
-      await supabase.functions.invoke('send-order-ready-email', {
+      await supabase.functions.invoke('email-service', {
         body: {
+          type: 'order_ready',
           orderId: order.id,
           customerEmail: order.profiles?.email,
           customerName: order.profiles?.full_name || 'Customer',

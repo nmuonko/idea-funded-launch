@@ -585,7 +585,7 @@ export function buildOrderAssistanceEmail(params: {
     orderId, 
     itemCount, 
     totalUsd, 
-    frontendBaseUrl = 'https://afrishop-usa.com', 
+    frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com', 
     language = 'fr',
     supportWhatsapp = '243973141627',
     supportEmail = 'nkadimisha@afrishop-usa.com',

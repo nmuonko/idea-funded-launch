@@ -127,8 +127,8 @@ export default function AdminShipping() {
     }
     if (title) {
       try {
-        await supabase.functions.invoke('send-push-notification', {
-          body: { userId: order.user_id, title, body },
+        await supabase.functions.invoke('email-service', {
+          body: { type: 'push_notification', userId: order.user_id, title, body },
         });
       } catch (e) {
         console.error('Push notification failed:', e);

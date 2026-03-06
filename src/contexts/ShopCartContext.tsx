@@ -365,7 +365,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       console.log('[CART] syncing with server for user=', user.id);
-      const { data, error } = await supabase.functions.invoke('mobile-get-cart');
+      const { data, error } = await supabase.functions.invoke('mobile-cart', { body: { action: 'get_cart' } });
       
       if (error) throw error;
       

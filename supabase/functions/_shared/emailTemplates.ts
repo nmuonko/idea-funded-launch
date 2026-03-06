@@ -218,7 +218,7 @@ export function buildPaymentSuccessEmail(params: {
   orderId: string;
   frontendBaseUrl?: string;
 }): EmailTemplate {
-  const { customerName, confirmationCode, amountUsd, amountCdf, transactionId, orderId, frontendBaseUrl = 'https://afrishop-usa.com' } = params;
+  const { customerName, confirmationCode, amountUsd, amountCdf, transactionId, orderId, frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com' } = params;
 
   return {
     subject: `💰 Paiement reçu / Payment Received - ${confirmationCode} | AfriShop`,
@@ -585,7 +585,7 @@ export function buildOrderAssistanceEmail(params: {
     orderId, 
     itemCount, 
     totalUsd, 
-    frontendBaseUrl = 'https://afrishop-usa.com', 
+    frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com', 
     language = 'fr',
     supportWhatsapp = '243973141627',
     supportEmail = 'nkadimisha@afrishop-usa.com',

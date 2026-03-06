@@ -64,7 +64,8 @@ export default function PaymentProvidersContent() {
       const { data: session } = await supabase.auth.getSession();
       if (!session?.session?.access_token) throw new Error('Not authenticated');
 
-      const response = await supabase.functions.invoke('get-payment-providers', {
+      const response = await supabase.functions.invoke('payments-provider', {
+        body: { action: 'get_providers' },
         headers: { Authorization: `Bearer ${session.session.access_token}` },
       });
 

@@ -77,8 +77,8 @@ export default function AdminOrderDetail() {
   const sendPushNotification = async (title: string, body: string) => {
     if (!order?.user_id) return;
     try {
-      await supabase.functions.invoke('send-push-notification', {
-        body: { userId: order.user_id, title, body },
+      await supabase.functions.invoke('email-service', {
+        body: { type: 'push_notification', userId: order.user_id, title, body },
       });
     } catch (e) {
       console.error('Push notification failed:', e);

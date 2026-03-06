@@ -227,9 +227,9 @@ export default function AdminOrderDetail() {
       // Send single email if requested
       if (sendEmail && order?.profiles?.email) {
         const updatedItems = items.filter(i => selectedItems.has(i.id));
-        const emailFunction = newStatus === 'shipped' ? 'send-order-shipped-email' : 'send-order-delivered-email';
+        const emailType = newStatus === 'shipped' ? 'order_shipped' : 'order_delivered';
         
-        await supabase.functions.invoke(emailFunction, {
+        await supabase.functions.invoke('email-service', {
           body: {
             orderId: id,
             customerEmail: order.profiles.email,

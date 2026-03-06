@@ -66,8 +66,9 @@ Deno.serve(async (req) => {
     const remoteProjectUrl = `https://${remoteMatch[1]}.supabase.co`;
 
     // Process pages — upsert directly via REST API with service role key
-    const pagesPerRun = 5;
-    const pageSize = 1000;
+    const pagesPerRun = 10;
+    const pageSize = 500;
+    const batchSize = 100; // smaller batches to avoid remote statement timeout
     let totalPushed = 0;
     let totalErrors = 0;
     let lastPage = currentPage;
@@ -92,25 +93,28 @@ Deno.serve(async (req) => {
         break;
       }
 
-      // Upsert directly to remote DB via REST API
-      const upsertUrl = `${remoteProjectUrl}/rest/v1/catalog_items?on_conflict=provider,provider_product_id`;
-      const resp = await fetch(upsertUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": remoteServiceKey,
-          "Authorization": `Bearer ${remoteServiceKey}`,
-          "Prefer": "resolution=merge-duplicates",
-        },
-        body: JSON.stringify(items),
-      });
+      // Upsert in small batches to avoid remote statement timeout
+      for (let b = 0; b < items.length; b += batchSize) {
+        const batch = items.slice(b, b + batchSize);
+        const upsertUrl = `${remoteProjectUrl}/rest/v1/catalog_items?on_conflict=provider,provider_product_id`;
+        const resp = await fetch(upsertUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": remoteServiceKey,
+            "Authorization": `Bearer ${remoteServiceKey}`,
+            "Prefer": "resolution=merge-duplicates",
+          },
+          body: JSON.stringify(batch),
+        });
 
-      if (resp.ok) {
-        totalPushed += items.length;
-      } else {
-        const errText = await resp.text();
-        console.error(`[bulk-sync] Upsert failed page ${page}: ${resp.status} ${errText}`);
-        totalErrors += items.length;
+        if (resp.ok) {
+          totalPushed += batch.length;
+        } else {
+          const errText = await resp.text();
+          console.error(`[bulk-sync] Upsert failed page ${page} batch ${b}: ${resp.status} ${errText}`);
+          totalErrors += batch.length;
+        }
       }
 
       lastPage = page + 1;
@@ -138,7 +142,7 @@ Deno.serve(async (req) => {
       pushed: totalPushed,
       errors: totalErrors,
       done,
-      progress_pct: Math.min(100, Math.round((lastPage / 520) * 100)),
+      progress_pct: Math.min(100, Math.round((lastPage / 1082) * 100)),
     };
 
     console.log(`[bulk-sync] ${JSON.stringify(result)}`);

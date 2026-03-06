@@ -137,7 +137,7 @@ export default function HomeRecipes() {
 
   const fetchLastPrewarmJob = async () => {
     try {
-      const response = await get("catalog-prewarm-home?action=status");
+      const response = await get("catalog-service?action=prewarm&sub=status");
       if (response.data?.lastJob) {
         setLastPrewarmJob(response.data.lastJob);
       }
@@ -155,7 +155,7 @@ export default function HomeRecipes() {
     try {
       const body: Record<string, unknown> = {};
       if (sectionKey) body.sectionKey = sectionKey;
-      const response = await post("catalog-prewarm-home", body);
+      const response = await post("catalog-service?action=prewarm", body);
       if (response.data?.ok) {
         toast({ 
           title: fr ? "Publication lancée" : "Publishing started", 

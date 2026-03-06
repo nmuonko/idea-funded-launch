@@ -515,7 +515,7 @@ export default function CatalogSourcesSettings() {
         throw new Error('Not authenticated');
       }
 
-      const response = await supabase.functions.invoke('catalog-prewarm-home', {
+      const response = await supabase.functions.invoke('catalog-service?action=prewarm', {
         method: 'POST',
         body: {},
         headers: {

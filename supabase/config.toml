@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.email-service]
 verify_jwt = false
+
+[functions.auth-service]
+verify_jwt = false

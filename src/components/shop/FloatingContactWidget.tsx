@@ -129,9 +129,9 @@
              .eq('id', convoData.id);
            
            // Notify support agent
-           await supabase.functions.invoke('notify-support-agent', {
-             body: { conversation_id: convoData.id },
-           });
+            await supabase.functions.invoke('support-service', {
+              body: { action: 'notify_agent', conversation_id: convoData.id },
+            });
            
            setConversation({ ...convoData, status: 'waiting_agent' } as Conversation);
          }

@@ -15,7 +15,7 @@
  * Frontend doesn't need to specify method or currency.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
 import { getCorsHeaders } from "../_shared/http.ts";
 
 const corsHeaders = getCorsHeaders();

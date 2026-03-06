@@ -17,7 +17,7 @@
  * - Pagination: ?q=laptop&page=1&limit=24 then ?q=laptop&page=2&limit=24
  */
 
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { 
   searchEbayNormalized, 
   searchAmazonNormalized, 

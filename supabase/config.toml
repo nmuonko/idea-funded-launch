@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.pawapay-callback]
 verify_jwt = false
+
+[functions.migration-readiness-check]
+verify_jwt = false

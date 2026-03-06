@@ -551,8 +551,8 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
 
     if (user && sessionRef.current && !id.startsWith('local_')) {
       try {
-        const { error } = await supabase.functions.invoke('mobile-delete-cart-item', {
-          body: { cart_item_id: id },
+        const { error } = await supabase.functions.invoke('mobile-cart', {
+          body: { action: 'delete_item', item_id: id },
         });
         if (error) throw error;
         // Server confirmed deletion — remove from deleted IDs (it's gone for real)

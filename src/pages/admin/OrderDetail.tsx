@@ -143,8 +143,8 @@ export default function AdminOrderDetail() {
             break;
         }
 
-        if (emailFunction && newStatus !== 'COMPLETED') {
-          await supabase.functions.invoke(emailFunction, { body: emailPayload });
+        if (emailType && newStatus !== 'COMPLETED') {
+          await supabase.functions.invoke('email-service', { body: emailPayload });
         }
 
         // Send push notification

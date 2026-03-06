@@ -85,11 +85,8 @@ export default function ActiveCartsContent() {
         params.set('status', statusFilter);
       }
       
-      const { data, error } = await supabase.functions.invoke('admin-get-carts', {
-        body: null,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      const { data, error } = await supabase.functions.invoke('admin-service', {
+        body: { action: 'get_carts' },
       });
 
       // Since we can't easily pass query params to invoke, we'll filter/sort client-side

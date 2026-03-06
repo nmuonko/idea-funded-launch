@@ -93,8 +93,8 @@
        setLoading(true);
        try {
          console.log('[CONTACT] Starting support conversation with auto-escalation...');
-          const { data: startData, error: startError } = await supabase.functions.invoke('support-start', {
-            body: { language }
+          const { data: startData, error: startError } = await supabase.functions.invoke('support-service', {
+            body: { action: 'start', language }
           });
  
          if (startError) {
@@ -129,9 +129,9 @@
              .eq('id', convoData.id);
            
            // Notify support agent
-           await supabase.functions.invoke('notify-support-agent', {
-             body: { conversation_id: convoData.id },
-           });
+            await supabase.functions.invoke('support-service', {
+              body: { action: 'notify_agent', conversation_id: convoData.id },
+            });
            
            setConversation({ ...convoData, status: 'waiting_agent' } as Conversation);
          }
@@ -202,8 +202,9 @@
        setInputValue('');
  
        // Call bot edge function
-       const { data, error } = await supabase.functions.invoke('support-chat-bot', {
+       const { data, error } = await supabase.functions.invoke('support-service', {
          body: {
+           action: 'chat_bot',
            conversation_id: conversation.id,
            message: content.trim(),
            language: language,

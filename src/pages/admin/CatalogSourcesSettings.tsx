@@ -219,7 +219,7 @@ export default function CatalogSourcesSettings() {
   const { data: globalTtl } = useQuery({
     queryKey: ['admin-ttl-settings'],
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('admin-catalog-settings', { method: 'GET' });
+      const { data, error } = await supabase.functions.invoke('admin-service', { body: { action: 'catalog_settings', method: 'GET' } });
       if (error) throw error;
       return data;
     },
@@ -275,7 +275,7 @@ export default function CatalogSourcesSettings() {
   });
   const saveGlobalTtlMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('admin-catalog-settings', { method: 'POST', body: { updates: { global_max_item_age_days: String(maxItemAgeDays), global_price_refresh_days: String(priceRefreshDays), global_availability_refresh_days: String(availRefreshDays), db_search_min_results: String(dbMinResults) } } });
+      const { data, error } = await supabase.functions.invoke('admin-service', { body: { action: 'catalog_settings', method: 'POST', updates: { global_max_item_age_days: String(maxItemAgeDays), global_price_refresh_days: String(priceRefreshDays), global_availability_refresh_days: String(availRefreshDays), db_search_min_results: String(dbMinResults) } } });
       if (error) throw error;
       if (!data?.success) throw new Error(data?.message || 'Failed');
       return data;
@@ -287,7 +287,7 @@ export default function CatalogSourcesSettings() {
     mutationFn: async () => {
       const toSave = categoryOverrides.filter(c => c.max_item_age_days != null || c.price_refresh_days != null || c.availability_refresh_days != null || c.db_min_results != null || !c.enabled);
       if (toSave.length === 0) return;
-      const { data, error } = await supabase.functions.invoke('admin-catalog-settings', { method: 'PUT', body: { categoryOverrides: toSave } });
+      const { data, error } = await supabase.functions.invoke('admin-service', { body: { action: 'catalog_settings', method: 'PUT', categoryOverrides: toSave } });
       if (error) throw error;
       if (!data?.success) throw new Error('Failed to save overrides');
     },
@@ -295,7 +295,7 @@ export default function CatalogSourcesSettings() {
     onError: (error: any) => { toast({ title: 'Error', description: error.message, variant: 'destructive' }); },
   });
   const applyGlobalToAllMutation = useMutation({
-    mutationFn: async () => { const { data, error } = await supabase.functions.invoke('admin-catalog-settings', { method: 'DELETE' }); if (error) throw error; return data; },
+    mutationFn: async () => { const { data, error } = await supabase.functions.invoke('admin-service', { body: { action: 'catalog_settings', method: 'DELETE' } }); if (error) throw error; return data; },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['catalog-category-ttl'] });
       setCategoryOverrides(CANONICAL_CATEGORIES.map(c => ({ category_key: c.key, max_item_age_days: null, price_refresh_days: null, availability_refresh_days: null, db_min_results: null, enabled: true })));
@@ -367,9 +367,8 @@ export default function CatalogSourcesSettings() {
         throw new Error('Not authenticated');
       }
 
-      const response = await supabase.functions.invoke('admin-catalog-settings', {
-        method: 'POST',
-        body: { updates },
+      const response = await supabase.functions.invoke('admin-service', {
+        body: { action: 'catalog_settings', method: 'POST', updates },
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },

@@ -129,8 +129,8 @@ export function SupportChat() {
       setLoading(true);
       try {
         // Use edge function to reliably start/resume conversation
-        const { data: startData, error: startError } = await supabase.functions.invoke('support-start', {
-          body: {}
+        const { data: startData, error: startError } = await supabase.functions.invoke('support-service', {
+          body: { action: 'start' }
         });
 
         if (startError) {
@@ -227,8 +227,9 @@ export function SupportChat() {
       setInputValue('');
 
       // Call bot edge function
-      const { data, error } = await supabase.functions.invoke('support-chat-bot', {
+      const { data, error } = await supabase.functions.invoke('support-service', {
         body: {
+          action: 'chat_bot',
           conversation_id: conversation.id,
           message: content.trim(),
           language: language,
@@ -312,8 +313,8 @@ export function SupportChat() {
       setConversation(prev => prev ? { ...prev, status: 'waiting_agent' } : null);
 
       // Trigger agent notification
-      await supabase.functions.invoke('notify-support-agent', {
-        body: { conversation_id: conversation.id },
+      await supabase.functions.invoke('support-service', {
+        body: { action: 'notify_agent', conversation_id: conversation.id },
       });
     } catch (error) {
       console.error('Error escalating:', error);

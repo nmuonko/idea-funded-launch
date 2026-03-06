@@ -180,8 +180,9 @@ export default function AdminOrderDetail() {
     try {
       setUpdatingItems(true);
       
-      const { data, error } = await supabase.functions.invoke('admin-update-item-status', {
+      const { data, error } = await supabase.functions.invoke('admin-service', {
         body: {
+          action: 'update_item_status',
           item_id: itemId,
           shipping_status: newStatus,
           send_email: sendEmail,
@@ -215,11 +216,12 @@ export default function AdminOrderDetail() {
       
       // Update items one by one (could be optimized to batch)
       for (const itemId of selectedItems) {
-        await supabase.functions.invoke('admin-update-item-status', {
+        await supabase.functions.invoke('admin-service', {
           body: {
+            action: 'update_item_status',
             item_id: itemId,
             shipping_status: newStatus,
-            send_email: false, // Only send one email at the end
+            send_email: false,
           },
         });
       }

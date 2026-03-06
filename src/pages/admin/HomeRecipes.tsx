@@ -155,7 +155,7 @@ export default function HomeRecipes() {
     try {
       const body: Record<string, unknown> = {};
       if (sectionKey) body.sectionKey = sectionKey;
-      const response = await post("catalog-prewarm-home", body);
+      const response = await post("catalog-service?action=prewarm", body);
       if (response.data?.ok) {
         toast({ 
           title: fr ? "Publication lancée" : "Publishing started", 

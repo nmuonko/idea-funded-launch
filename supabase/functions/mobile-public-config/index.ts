@@ -4,7 +4,7 @@
 // Source of truth: `settings` table with aggressive caching
 // NEW: Also returns `runtime` config for backend-controlled UI + providers
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "@supabase/supabase-js";
 import { coalesce, CACHE_TTL, makeCacheKey } from "../_shared/responseCache.ts";
 import { withLoadShedding, getEndpointPriority, LoadSheddingError, loadSheddingResponse } from "../_shared/loadShedding.ts";
 import { getEnvironmentFromRequest, getEnvironmentConfig, EnvironmentConfig } from "../_shared/environmentResolver.ts";

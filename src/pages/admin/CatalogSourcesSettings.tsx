@@ -219,7 +219,7 @@ export default function CatalogSourcesSettings() {
   const { data: globalTtl } = useQuery({
     queryKey: ['admin-ttl-settings'],
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('admin-catalog-settings', { method: 'GET' });
+      const { data, error } = await supabase.functions.invoke('admin-service', { body: { action: 'catalog_settings', method: 'GET' } });
       if (error) throw error;
       return data;
     },

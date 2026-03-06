@@ -20,3 +20,15 @@ verify_jwt = false
 
 [functions.mobile-orders]
 verify_jwt = false
+
+[functions.payments-core]
+verify_jwt = false
+
+[functions.payments-provider]
+verify_jwt = false
+
+[functions.payments-webhook]
+verify_jwt = false
+
+[functions.payment-callback]
+verify_jwt = false

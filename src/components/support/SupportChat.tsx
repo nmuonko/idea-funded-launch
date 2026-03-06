@@ -129,8 +129,8 @@ export function SupportChat() {
       setLoading(true);
       try {
         // Use edge function to reliably start/resume conversation
-        const { data: startData, error: startError } = await supabase.functions.invoke('support-start', {
-          body: {}
+        const { data: startData, error: startError } = await supabase.functions.invoke('support-service', {
+          body: { action: 'start' }
         });
 
         if (startError) {

@@ -7,14 +7,8 @@ import { bustStaleCache } from "./lib/cacheBust";
 // Clear stale localStorage caches on new deployments
 bustStaleCache();
 
-// Development diagnostics - log environment info and run health check on startup
+// Development diagnostics
 if (import.meta.env.DEV) {
-  console.log('[App] Environment:', {
-    hostname: window.location.hostname,
-    supabaseProject: 'ecqpqtirhpumfgbdtvhh (production)',
-  });
-  
-  // Run startup health check
   runStartupHealthCheck();
 }
 

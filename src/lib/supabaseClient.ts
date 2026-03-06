@@ -1,13 +1,17 @@
 /**
- * Custom Supabase client pointing to the production project (ecqpqtirhpumfgbdtvhh).
+ * Custom Supabase client for the AfriShop production project.
+ * Reads URL and anon key from environment variables (VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY).
  * This file replaces the auto-generated client via a Vite alias in vite.config.ts.
- * All imports of '@/integrations/supabase/client' resolve here at build time.
  */
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/integrations/supabase/types';
 
-export const SUPABASE_URL = 'https://ecqpqtirhpumfgbdtvhh.supabase.co';
-export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjcXBxdGlyaHB1bWZnYmR0dmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2MTM4NTYsImV4cCI6MjA4NzE4OTg1Nn0.NtJUalyCRUOqnPge_g0DSS2r1aGLwJC1LcrLoYh8F60';
+export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error('[SupabaseClient] Missing VITE_SUPABASE_URL or VITE_SUPABASE_PUBLISHABLE_KEY');
+}
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {

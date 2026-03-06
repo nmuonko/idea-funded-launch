@@ -8,8 +8,8 @@ import { Loader2, Package, CheckCircle2, MapPin, RefreshCw } from 'lucide-react'
 
 const sendPushNotification = async (userId: string, title: string, body: string) => {
   try {
-    await supabase.functions.invoke('send-push-notification', {
-      body: { userId, title, body },
+    await supabase.functions.invoke('email-service', {
+      body: { type: 'push_notification', userId, title, body },
     });
   } catch (e) {
     console.error('Push notification failed:', e);

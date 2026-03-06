@@ -92,6 +92,7 @@ export default function PaymentCallback() {
       
       const { data, error: fnError } = await supabase.functions.invoke("payments-core", {
         body: { 
+          action: 'verify',
           orderId: effectiveOrderId, 
           depositId, 
           sessionId, 

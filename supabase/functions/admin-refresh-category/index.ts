@@ -15,7 +15,7 @@
  * { status, category, seeded, refreshed, error }
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "@supabase/supabase-js";
 import { extractBrand } from "../_shared/brandExtractor.ts";
 
 const corsHeaders = {

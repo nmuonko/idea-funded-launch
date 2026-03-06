@@ -144,7 +144,7 @@ export default function AdminOrderDetail() {
         }
 
         if (emailType && newStatus !== 'COMPLETED') {
-          await supabase.functions.invoke('email-service', { body: emailPayload });
+          await supabase.functions.invoke('email-service', { body: { type: emailType, ...emailPayload } });
         }
 
         // Send push notification

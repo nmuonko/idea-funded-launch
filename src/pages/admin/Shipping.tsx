@@ -152,8 +152,9 @@ export default function AdminShipping() {
       })) || [];
 
       if (status === 'SHIPPED') {
-        await supabase.functions.invoke('send-order-shipped-email', {
+        await supabase.functions.invoke('email-service', {
           body: {
+            type: 'order_shipped',
             customerEmail,
             customerName,
             orderId: order.id,

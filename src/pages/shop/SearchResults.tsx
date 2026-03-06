@@ -1,4 +1,4 @@
-import { SUPABASE_URL } from '@/integrations/supabase/client';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/integrations/supabase/client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { Loader2, X, RefreshCw, AlertCircle, Link2, ArrowRight } from 'lucide-react';

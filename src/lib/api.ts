@@ -115,7 +115,7 @@ export async function apiRequest<T = any>(
     const requestHeaders: Record<string, string> = {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
-      'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      'apikey': SUPABASE_ANON_KEY,
       ...headers,
     };
     

@@ -548,7 +548,7 @@ export default function ProductDetailsPage() {
 
         const resp = await fetch(apiUrl.toString(), {
           headers: {
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            apikey: SUPABASE_ANON_KEY,
             'Content-Type': 'application/json',
           },
         });

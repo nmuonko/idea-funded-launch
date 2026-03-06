@@ -38,10 +38,10 @@ async function getStripePromise(forceReload = false): Promise<Stripe | null> {
     
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/app-bootstrap`,
+        `${SUPABASE_URL}/functions/v1/app-bootstrap`,
         {
           headers: {
-            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            'apikey': SUPABASE_ANON_KEY,
             'Content-Type': 'application/json',
           },
           signal: controller.signal,

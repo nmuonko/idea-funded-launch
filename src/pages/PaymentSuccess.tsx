@@ -37,7 +37,7 @@ export default function PaymentSuccess() {
         });
 
         // Use fetch directly since we need query params
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseUrl = SUPABASE_URL;
         const params = new URLSearchParams();
         if (reference) params.set('reference', reference);
         if (orderId) params.set('order_id', orderId);

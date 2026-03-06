@@ -1,57 +1,62 @@
 
+You’re very close. The error is happening because your migration calls `gen_random_bytes(32)` without a schema, but in your target database that function is in the `extensions` schema.
 
-## Fix: Product Details Showing Only 1 Image for SHEIN, Carvana, CarGurus
+## Fastest fix (do this now)
 
-### Root Cause
+1) In SQL Editor of your target project, run this exact block:
 
-**Two-layer problem:**
+```sql
+-- Make sure extension exists
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 
-1. **Scrapers only store `image_url` (single image)** — neither `catalog-shein-scraper` nor `catalog-car-scraper` populate the `images` JSONB array column. They only set `image_url` (one image). The upsert rows don't include an `images` field at all.
-
-2. **Gallery enrichment fails silently** — when `catalog-product` detects <= 2 images, it tries `scrapeProviderGalleryFromPage()` which does a direct HTTP fetch to SHEIN/Carvana/CarGurus. These sites block direct scraping (bot protection), returning 403 or empty HTML. The Firecrawl fallback is deliberately disabled to conserve credits. Result: enrichment always fails, user sees 1 image.
-
-### Plan
-
-#### 1. Extract ALL images during scraping (not just one)
-
-**`catalog-shein-scraper/index.ts`**: Extract all product images from the Firecrawl markdown using `matchAll` instead of `match`. Store them in the `images` JSONB array column during upsert.
-
-```
-// Extract ALL product images from markdown (not just first)
-const allImgMatches = [...markdown.matchAll(
-  /(https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^\s)"]+)/gi
-)];
-const allImages = allImgMatches
-  .map(m => m[1])
-  .filter(url => !/_thumbnail_/i.test(url) && !/banner/i.test(url));
-// Deduplicate
-const uniqueImages = [...new Set(allImages)].slice(0, 10);
+-- Create compatibility wrapper so old migrations using gen_random_bytes(...) work
+CREATE OR REPLACE FUNCTION public.gen_random_bytes(integer)
+RETURNS bytea
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT extensions.gen_random_bytes($1);
+$$;
 ```
 
-Add `images: uniqueImages.length > 0 ? uniqueImages : [imageUrl]` to the upsert row.
+2) Re-run migrations from terminal:
 
-**`catalog-car-scraper/index.ts`**: Same pattern — extract all image URLs from markdown, store in `images` array. For Carvana, also generate multiple angle URLs from the vehicle ID (Carvana has predictable image URL patterns for different angles).
+```bash
+cd ~/Desktop/idea-funded-launch
+supabase db push
+```
 
-#### 2. Re-enable Firecrawl gallery enrichment for DB-only providers (budget-controlled)
+## If it still fails on the same file
 
-In `catalog-product/index.ts`, re-enable `scrapeProviderGalleryFirecrawl()` as fallback when direct scrape fails, but only if:
-- The item has <= 1 image (not <= 2, to reduce calls)
-- Provider budget check passes (use existing `check_provider_budget` with a small daily cap like 100 credits for gallery enrichment)
+Run debug once to confirm:
 
-This ensures first-time product views get full galleries while staying within credit budget.
+```bash
+supabase db push --debug
+```
 
-#### 3. Persist enriched galleries back to `images` column
+Then use fallback path:
 
-Already implemented in current code (lines 1155-1171) — no changes needed here. Once enrichment succeeds, it writes back to `catalog_items.images` and `catalog_item_media`.
+1) Mark that one migration as applied:
+```bash
+supabase migration repair 20251202192202 --status applied
+```
 
-### Files to modify
+2) Open `supabase/migrations/20251202192202_bc566fcc-95b5-4969-8ba4-cc744ac9d72f.sql`, replace:
+- `gen_random_bytes(32)` → `extensions.gen_random_bytes(32)`
 
-1. **`supabase/functions/catalog-shein-scraper/index.ts`** — Extract all images from markdown, add `images` array to upsert
-2. **`supabase/functions/catalog-car-scraper/index.ts`** — Extract all images from markdown, add `images` array to upsert; add Carvana multi-angle URL generation
-3. **`supabase/functions/catalog-product/index.ts`** — Re-enable Firecrawl gallery fallback for shein/cargurus/carvana with budget cap (100/day)
+3) Run that migration SQL manually in SQL Editor, then continue:
+```bash
+supabase db push
+```
 
-### Expected Result
-- New scraped items will have 3-10 images stored at ingestion time
-- Existing 1-image items will get enriched on first detail view (up to 100/day via Firecrawl)
-- Product detail pages will show full image galleries
+## Why this works
 
+Your old migrations assume `gen_random_bytes` is reachable via `search_path`. In this new project it isn’t, so adding the wrapper in `public` (or schema-qualifying with `extensions.`) makes legacy SQL compatible.
+
+## After this succeeds
+
+Next command will be:
+```bash
+supabase functions deploy --no-verify-jwt
+```
+Then we’ll verify secrets and cron jobs.

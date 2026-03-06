@@ -4,11 +4,12 @@
  * Routes by `action` field in POST body:
  *   create_intent, check_intent, verify, status, decision, retry, reconcile, receipt
  * 
- * TEMPORARY: Forwards to original individual functions to avoid duplicating
- * thousands of lines of battle-tested payment logic.
+ * AUTH: All actions require a valid JWT (via getClaims).
+ * Exception: reconcile may be called by cron with x-cron-secret.
  */
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -21,6 +22,36 @@ function jsonRes(data: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+async function requireAuth(req: Request): Promise<{ userId: string } | Response> {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return jsonRes({ ok: false, error: 'Unauthorized: missing Bearer token' }, 401);
+  }
+
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_ANON_KEY')!,
+    { global: { headers: { Authorization: authHeader } } }
+  );
+
+  const token = authHeader.replace('Bearer ', '');
+  const { data, error } = await supabase.auth.getClaims(token);
+  if (error || !data?.claims) {
+    return jsonRes({ ok: false, error: 'Unauthorized: invalid token' }, 401);
+  }
+
+  return { userId: data.claims.sub as string };
+}
+
+/**
+ * Allow cron jobs to authenticate via x-cron-secret header instead of JWT.
+ */
+function hasCronSecret(req: Request): boolean {
+  const cronSecret = req.headers.get('x-cron-secret');
+  const expected = Deno.env.get('CRON_SECRET');
+  return !!(cronSecret && expected && cronSecret === expected);
 }
 
 async function forwardToFunction(functionName: string, req: Request, overrideBody?: unknown): Promise<Response> {
@@ -66,9 +97,6 @@ async function forwardToFunction(functionName: string, req: Request, overrideBod
   });
 }
 
-/**
- * Forward GET request with query params preserved
- */
 async function forwardGetToFunction(functionName: string, req: Request): Promise<Response> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   if (!supabaseUrl) {
@@ -94,17 +122,48 @@ async function forwardGetToFunction(functionName: string, req: Request): Promise
   });
 }
 
+// Actions that can be called by cron (with x-cron-secret) instead of JWT
+const CRON_ACTIONS = new Set(['reconcile']);
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // For GET requests, check query param 'action' or default to 'status'
+    // Determine action early to check if it's a cron-allowed action
+    let action = '';
+
     if (req.method === 'GET') {
       const url = new URL(req.url);
-      const action = url.searchParams.get('action') || 'status';
-      
+      action = url.searchParams.get('action') || 'status';
+    }
+
+    // For POST, we need to peek at the body for the action
+    let body: any = null;
+    if (req.method === 'POST') {
+      const clonedReq = req.clone();
+      try {
+        body = await clonedReq.json();
+      } catch {
+        return jsonRes({ ok: false, error: 'Invalid JSON body' }, 400);
+      }
+      action = body?.action || '';
+      if (!action) {
+        return jsonRes({ ok: false, error: 'Missing action field' }, 400);
+      }
+    }
+
+    // Auth gate: require JWT or cron secret
+    if (CRON_ACTIONS.has(action) && hasCronSecret(req)) {
+      // Cron-authenticated — proceed
+    } else {
+      const authResult = await requireAuth(req);
+      if (authResult instanceof Response) return authResult;
+    }
+
+    // Route GET requests
+    if (req.method === 'GET') {
       switch (action) {
         case 'status':
           return forwardGetToFunction('payment-status', req);
@@ -115,20 +174,7 @@ serve(async (req) => {
       }
     }
 
-    // POST requests — parse body for action
-    const clonedReq = req.clone();
-    let body: any;
-    try {
-      body = await clonedReq.json();
-    } catch {
-      return jsonRes({ ok: false, error: 'Invalid JSON body' }, 400);
-    }
-
-    const action = body?.action;
-    if (!action) {
-      return jsonRes({ ok: false, error: 'Missing action field' }, 400);
-    }
-
+    // Route POST requests
     switch (action) {
       case 'create_intent': {
         const { action: _a, ...rest } = body;

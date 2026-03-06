@@ -93,8 +93,8 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
     
     setSendingAssistanceEmail(true);
     try {
-      const { data, error } = await supabase.functions.invoke('send-order-assistance-email', {
-        body: { orderId, language },
+      const { data, error } = await supabase.functions.invoke('email-service', {
+        body: { type: 'order_assistance', orderId, language },
       });
 
       if (error) throw error;

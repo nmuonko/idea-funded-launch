@@ -218,22 +218,22 @@ export default function AdminOrders() {
             carrier: order.carrier,
           };
 
-          let emailFunction = '';
+          let emailType = '';
           switch (newStatus) {
             case 'PROCESSING':
-              emailFunction = 'send-order-processing-email';
+              emailType = 'order_processing';
               break;
             case 'SHIPPED':
-              emailFunction = 'send-order-shipped-email';
+              emailType = 'order_shipped';
               break;
             case 'COMPLETED':
-              emailFunction = 'send-order-delivered-email';
+              emailType = 'order_delivered';
               break;
           }
 
-          if (emailFunction) {
+          if (emailType) {
             try {
-              await supabase.functions.invoke(emailFunction, { body: emailPayload });
+              await supabase.functions.invoke('email-service', { body: { type: emailType, ...emailPayload } });
             } catch (emailErr) {
               console.error(`Failed to send email for order ${order.id}:`, emailErr);
             }

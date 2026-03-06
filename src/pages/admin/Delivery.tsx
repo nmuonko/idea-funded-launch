@@ -8,8 +8,8 @@ import { Loader2, Package, CheckCircle2, MapPin, RefreshCw } from 'lucide-react'
 
 const sendPushNotification = async (userId: string, title: string, body: string) => {
   try {
-    await supabase.functions.invoke('send-push-notification', {
-      body: { userId, title, body },
+    await supabase.functions.invoke('email-service', {
+      body: { type: 'push_notification', userId, title, body },
     });
   } catch (e) {
     console.error('Push notification failed:', e);
@@ -58,8 +58,9 @@ export default function AdminDelivery() {
 
       // Send email
       const items = order.order_items?.map((i: any) => ({ title: i.title || 'Product', quantity: i.quantity })) || [];
-      await supabase.functions.invoke('send-order-ready-email', {
+      await supabase.functions.invoke('email-service', {
         body: {
+          type: 'order_ready',
           orderId: order.id,
           customerEmail: order.profiles?.email,
           customerName: order.profiles?.full_name || 'Customer',
@@ -92,8 +93,9 @@ export default function AdminDelivery() {
       if (error) throw error;
 
       // Send email
-      await supabase.functions.invoke('send-order-delivered-email', {
+      await supabase.functions.invoke('email-service', {
         body: {
+          type: 'order_delivered',
           orderId: order.id,
           customerEmail: order.profiles?.email,
           customerName: order.profiles?.full_name || 'Customer',

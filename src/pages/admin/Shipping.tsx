@@ -127,8 +127,8 @@ export default function AdminShipping() {
     }
     if (title) {
       try {
-        await supabase.functions.invoke('send-push-notification', {
-          body: { userId: order.user_id, title, body },
+        await supabase.functions.invoke('email-service', {
+          body: { type: 'push_notification', userId: order.user_id, title, body },
         });
       } catch (e) {
         console.error('Push notification failed:', e);
@@ -152,8 +152,9 @@ export default function AdminShipping() {
       })) || [];
 
       if (status === 'SHIPPED') {
-        await supabase.functions.invoke('send-order-shipped-email', {
+        await supabase.functions.invoke('email-service', {
           body: {
+            type: 'order_shipped',
             customerEmail,
             customerName,
             orderId: order.id,
@@ -165,8 +166,9 @@ export default function AdminShipping() {
           },
         });
       } else if (status === 'READY_FOR_PICKUP') {
-        await supabase.functions.invoke('send-order-ready-email', {
+        await supabase.functions.invoke('email-service', {
           body: {
+            type: 'order_ready',
             customerEmail,
             customerName,
             orderId: order.id,
@@ -174,8 +176,9 @@ export default function AdminShipping() {
           },
         });
       } else if (status === 'COMPLETED') {
-        await supabase.functions.invoke('send-order-delivered-email', {
+        await supabase.functions.invoke('email-service', {
           body: {
+            type: 'order_delivered',
             customerEmail,
             customerName,
             orderId: order.id,

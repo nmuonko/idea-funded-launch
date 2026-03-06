@@ -77,8 +77,8 @@ export default function AdminOrderDetail() {
   const sendPushNotification = async (title: string, body: string) => {
     if (!order?.user_id) return;
     try {
-      await supabase.functions.invoke('send-push-notification', {
-        body: { userId: order.user_id, title, body },
+      await supabase.functions.invoke('email-service', {
+        body: { type: 'push_notification', userId: order.user_id, title, body },
       });
     } catch (e) {
       console.error('Push notification failed:', e);
@@ -108,31 +108,32 @@ export default function AdminOrderDetail() {
           carrier: order.carrier,
         };
 
-        let emailFunction = '';
+        let emailType = '';
         let pushTitle = '';
         let pushBody = '';
         switch (newStatus) {
           case 'PROCESSING':
-            emailFunction = 'send-order-processing-email';
+            emailType = 'order_processing';
             pushTitle = '🔄 Commande en cours';
             pushBody = 'Votre commande est en cours de traitement.';
             break;
           case 'SHIPPED':
-            emailFunction = 'send-order-shipped-email';
+            emailType = 'order_shipped';
             pushTitle = '🚚 Commande expédiée';
             pushBody = 'Votre commande a été expédiée!';
             break;
           case 'READY_FOR_PICKUP':
-            emailFunction = 'send-order-ready-email';
+            emailType = 'order_ready';
             pushTitle = '📦 Commande prête!';
             pushBody = 'Votre commande est prête pour le ramassage.';
             break;
           case 'COMPLETED':
-            emailFunction = 'send-order-delivered-email';
+            emailType = 'order_delivered';
             pushTitle = '✅ Commande livrée';
             pushBody = 'Votre commande a été livrée avec succès.';
-            await supabase.functions.invoke(emailFunction, {
+            await supabase.functions.invoke('email-service', {
               body: {
+                type: emailType,
                 orderId: id,
                 customerEmail: order.profiles.email,
                 customerName: order.profiles.name || 'Customer',
@@ -142,8 +143,8 @@ export default function AdminOrderDetail() {
             break;
         }
 
-        if (emailFunction && newStatus !== 'COMPLETED') {
-          await supabase.functions.invoke(emailFunction, { body: emailPayload });
+        if (emailType && newStatus !== 'COMPLETED') {
+          await supabase.functions.invoke('email-service', { body: { type: emailType, ...emailPayload } });
         }
 
         // Send push notification
@@ -226,11 +227,12 @@ export default function AdminOrderDetail() {
       // Send single email if requested
       if (sendEmail && order?.profiles?.email) {
         const updatedItems = items.filter(i => selectedItems.has(i.id));
-        const emailFunction = newStatus === 'shipped' ? 'send-order-shipped-email' : 'send-order-delivered-email';
+        const emailType = newStatus === 'shipped' ? 'order_shipped' : 'order_delivered';
         
-        await supabase.functions.invoke(emailFunction, {
+        await supabase.functions.invoke('email-service', {
           body: {
             orderId: id,
+            type: emailType,
             customerEmail: order.profiles.email,
             customerName: order.profiles.name || 'Customer',
             items: updatedItems.map(i => ({
@@ -264,8 +266,9 @@ export default function AdminOrderDetail() {
   const handleSendShippingNotification = async () => {
     try {
       setSendingShipping(true);
-      const { error } = await supabase.functions.invoke('send-shipping-notification', {
+      const { error } = await supabase.functions.invoke('email-service', {
         body: {
+          type: 'shipping_notification',
           orderId: id,
           trackingNumber: order?.tracking_number,
           carrier: order?.carrier,
@@ -347,8 +350,8 @@ export default function AdminOrderDetail() {
   const handleSendAssistanceEmail = async (language: string) => {
     try {
       setSendingAssistanceEmail(true);
-      const { data, error } = await supabase.functions.invoke('send-order-assistance-email', {
-        body: { orderId: id, language },
+      const { data, error } = await supabase.functions.invoke('email-service', {
+        body: { type: 'order_assistance', orderId: id, language },
       });
 
       if (error) throw error;

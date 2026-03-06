@@ -53,8 +53,9 @@ export function SendOrderEmailDialog(props: SendOrderEmailDialogProps) {
 
         for (const orderId of orderIds) {
           try {
-            const { error } = await supabase.functions.invoke('send-order-email', {
+            const { error } = await supabase.functions.invoke('email-service', {
               body: {
+                type: 'order_email',
                 orderId,
                 templateType,
                 customSubject: templateType === 'custom' ? customSubject : undefined,
@@ -91,8 +92,9 @@ export function SendOrderEmailDialog(props: SendOrderEmailDialogProps) {
           });
         }
       } else {
-        const { error } = await supabase.functions.invoke('send-order-email', {
+        const { error } = await supabase.functions.invoke('email-service', {
           body: {
+            type: 'order_email',
             orderId: props.orderId,
             templateType,
             customSubject: templateType === 'custom' ? customSubject : undefined,

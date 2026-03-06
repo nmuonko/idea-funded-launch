@@ -8,7 +8,7 @@
  * Auth: x-cron-secret header must match CRON_SECRET env var.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "@supabase/supabase-js";
 import { searchRainforest, fetchProductDetails } from "../_shared/rainforestAdapter.ts";
 import { checkBudget, incrementBudget } from "../_shared/providerBudget.ts";
 import { getCatalogSettings } from "../_shared/catalogSettings.ts";

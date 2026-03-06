@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
 import { verifyCronAuth, cronAuthErrorResponse } from "../_shared/cronAuth.ts";
 import { generateTraceId, logAuditEvent, createTracedLogger } from "../_shared/auditLog.ts";
 

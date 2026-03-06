@@ -451,8 +451,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // 1. User creation with email_confirm: false
       // 2. Verification email via Resend
       // 3. Profile creation
-      const response = await supabase.functions.invoke('auth-register', {
+      const response = await supabase.functions.invoke('auth-service', {
         body: {
+          action: 'register',
           email,
           password,
           fullName,

@@ -76,8 +76,9 @@ export default function Profile() {
     
     try {
       setSendingVerification(true);
-      const response = await supabase.functions.invoke('auth-resend-verification', {
+      const response = await supabase.functions.invoke('auth-service', {
         body: {
+          action: 'resend_verification',
           email: user.email,
           redirectBaseUrl: window.location.origin,
         },

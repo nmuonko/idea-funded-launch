@@ -1,30 +1,18 @@
-## Web App → New Supabase Project (ecqpqtirhpumfgbdtvhh) — DONE
+## Edge Function Consolidation Refactor — Complete (Batches 1–6)
 
-### What Was Done
+### Batch 1: Decoupling and Cleanup
+- Decoupled `supabaseClient.ts` → uses env vars
+- Updated `config.toml` to production project ID
+- Removed diagnostic logging from `SupabaseConfigGuard` and `main.tsx`
+- Deleted 25 legacy/debug functions
 
-1. **Created `src/lib/supabaseClient.ts`** — Custom client with hardcoded production URL and anon key
-2. **Added Vite alias in `vite.config.ts`** — Redirects all `@/integrations/supabase/client` imports to the custom client at build time (avoids touching 99 files)
-3. **Added TypeScript path alias** in `tsconfig.json` and `tsconfig.app.json` for type resolution
-4. **Updated 14 files** that directly referenced `VITE_SUPABASE_URL` or `VITE_SUPABASE_PUBLISHABLE_KEY`:
-   - `src/lib/api.ts`
-   - `src/lib/catalogCache.ts`
-   - `src/lib/supabaseHealth.ts`
-   - `src/components/SupabaseConfigGuard.tsx`
-   - `src/main.tsx`
-   - `src/contexts/ShopCartContext.tsx`
-   - `src/pages/AcceptInvite.tsx`
-   - `src/pages/Cars.tsx`
-   - `src/pages/PaymentSuccess.tsx`
-   - `src/pages/admin/Orders.tsx`
-   - `src/pages/admin/OrderDetail.tsx`
-   - `src/pages/admin/PaymentProvidersContent.tsx`
-   - `src/pages/shop/SearchResults.tsx`
-   - `src/pages/shop/ProductDetails.tsx`
-   - `src/pages/shop/CardPayment.tsx`
+### Batch 2: Cart and Orders → `mobile-cart` (7 actions), `mobile-orders` (4 actions)
+### Batch 3: Payments → `payments-core` (8 actions), `payments-provider` (6 actions)
+### Batch 4: Email → `email-service` (25 email types)
+### Batch 5: Auth/Profile → `auth-service` (8 actions)
+### Batch 6: Admin/Support → `admin-service` (10 actions), `support-service` (3 actions)
 
-### Rollback
-To revert: remove the alias from `vite.config.ts` and `tsconfig*.json` files. All imports will resolve back to the auto-generated client.
+All use thin router/proxy pattern. Original functions preserved as proxy targets for mobile backward compatibility.
 
-### Notes
-- Auth sessions will reset — users must log in again
-- The auto-generated `src/integrations/supabase/client.ts` is untouched but bypassed via alias
+### Remaining
+- Batch 7: Catalog consolidation (`catalog-prewarm-home` still called directly)

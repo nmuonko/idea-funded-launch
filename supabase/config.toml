@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.support-service]
 verify_jwt = false
+
+[functions.catalog-service]
+verify_jwt = false

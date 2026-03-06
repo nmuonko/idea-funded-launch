@@ -295,7 +295,7 @@ export default function CatalogSourcesSettings() {
     onError: (error: any) => { toast({ title: 'Error', description: error.message, variant: 'destructive' }); },
   });
   const applyGlobalToAllMutation = useMutation({
-    mutationFn: async () => { const { data, error } = await supabase.functions.invoke('admin-catalog-settings', { method: 'DELETE' }); if (error) throw error; return data; },
+    mutationFn: async () => { const { data, error } = await supabase.functions.invoke('admin-service', { body: { action: 'catalog_settings', method: 'DELETE' } }); if (error) throw error; return data; },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['catalog-category-ttl'] });
       setCategoryOverrides(CANONICAL_CATEGORIES.map(c => ({ category_key: c.key, max_item_age_days: null, price_refresh_days: null, availability_refresh_days: null, db_min_results: null, enabled: true })));

@@ -1,7 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { supabase, SUPABASE_URL } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/supabase/client';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

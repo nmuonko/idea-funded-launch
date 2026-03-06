@@ -8,7 +8,8 @@
  * - Stale-while-revalidate: shows stale data instantly, refreshes in background
  * - Query normalization for maximum cache hits
  */
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/integrations/supabase/client';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
 const CACHE_PREFIX = 'afrishop_cache:v16:';
 const DEFAULT_TTL_SECONDS = 3600; // 1 hour fallback

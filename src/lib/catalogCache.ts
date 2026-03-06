@@ -394,7 +394,7 @@ async function fetchFromNetwork<T>(
   params: Record<string, any>,
   signal?: AbortSignal
 ): Promise<T> {
-  const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`);
+  const url = new URL(`${SUPABASE_URL}/functions/v1/${endpoint}`);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') {
       url.searchParams.set(key, String(value));

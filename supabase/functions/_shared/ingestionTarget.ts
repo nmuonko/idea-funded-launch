@@ -73,8 +73,14 @@ export function buildWorkerHeaders(): Record<string, string> {
  * Build headers for calling a remote import endpoint (cron auth).
  */
 export function buildCronHeaders(): Record<string, string> {
+  // Include the remote project's anon key so the Supabase gateway accepts the request
+  const remoteAnonKey = Deno.env.get("REMOTE_ANON_KEY") || "";
   return {
     "Content-Type": "application/json",
     "x-internal-cron-key": "afrishop-internal-cron-2026",
+    ...(remoteAnonKey ? {
+      "apikey": remoteAnonKey,
+      "Authorization": `Bearer ${remoteAnonKey}`,
+    } : {}),
   };
 }

@@ -240,7 +240,7 @@ export default function ProductDetailsPage() {
 
         const normalizedProvider = lowerProvider === 'rainforest' ? 'amazon' : lowerProvider;
 
-        const apiUrl = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product`);
+        const apiUrl = new URL(`${SUPABASE_URL}/functions/v1/catalog-product`);
         apiUrl.searchParams.set('provider', normalizedProvider);
         apiUrl.searchParams.set('id', cleanProductId);
         if (normalizedProvider === 'amazon') {

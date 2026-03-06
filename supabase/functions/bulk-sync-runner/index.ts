@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
       }
 
       // Upsert directly to remote DB via REST API
-      const upsertUrl = `${remoteProjectUrl}/rest/v1/catalog_items?on_conflict=id`;
+      const upsertUrl = `${remoteProjectUrl}/rest/v1/catalog_items?on_conflict=provider,provider_product_id`;
       const resp = await fetch(upsertUrl, {
         method: "POST",
         headers: {

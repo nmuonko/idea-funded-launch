@@ -112,8 +112,9 @@ export default function Orders() {
       if (!order || !order.order_items) return;
 
       for (const item of order.order_items) {
-        await supabase.functions.invoke('mobile-add-cart-item', {
+        await supabase.functions.invoke('mobile-cart', {
           body: {
+            action: 'add_item',
             productUrl: item.product_url,
             productPrice: item.base_price_usd,
             quantity: item.quantity,

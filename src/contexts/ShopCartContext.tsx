@@ -586,8 +586,8 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         // Delete each server item (skip local_ optimistic items)
         const serverItems = items.filter(item => !isLocalId(item.id));
         const deletePromises = serverItems.map(item =>
-          supabase.functions.invoke('mobile-delete-cart-item', {
-            body: { cart_item_id: item.id },
+          supabase.functions.invoke('mobile-cart', {
+            body: { action: 'delete_item', item_id: item.id },
           }).catch(err => console.error('[CART] Failed to delete item during clearCart:', item.id, err))
         );
         await Promise.all(deletePromises);

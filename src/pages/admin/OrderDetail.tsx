@@ -266,8 +266,9 @@ export default function AdminOrderDetail() {
   const handleSendShippingNotification = async () => {
     try {
       setSendingShipping(true);
-      const { error } = await supabase.functions.invoke('send-shipping-notification', {
+      const { error } = await supabase.functions.invoke('email-service', {
         body: {
+          type: 'shipping_notification',
           orderId: id,
           trackingNumber: order?.tracking_number,
           carrier: order?.carrier,

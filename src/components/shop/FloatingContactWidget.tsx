@@ -93,8 +93,8 @@
        setLoading(true);
        try {
          console.log('[CONTACT] Starting support conversation with auto-escalation...');
-          const { data: startData, error: startError } = await supabase.functions.invoke('support-start', {
-            body: { language }
+          const { data: startData, error: startError } = await supabase.functions.invoke('support-service', {
+            body: { action: 'start', language }
           });
  
          if (startError) {

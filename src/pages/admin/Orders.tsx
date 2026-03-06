@@ -648,8 +648,8 @@ export default function AdminOrders() {
       setBulkDeleteLoading(true);
       const orderIds = Array.from(selectedOrders);
       
-      const { data, error } = await supabase.functions.invoke('admin-bulk-delete-orders', {
-        body: { orderIds }
+      const { data, error } = await supabase.functions.invoke('admin-service', {
+        body: { action: 'bulk_delete_orders', orderIds }
       });
 
       if (error) {

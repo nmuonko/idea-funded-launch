@@ -38,3 +38,9 @@ verify_jwt = false
 
 [functions.auth-service]
 verify_jwt = false
+
+[functions.admin-service]
+verify_jwt = false
+
+[functions.support-service]
+verify_jwt = false

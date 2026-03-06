@@ -288,8 +288,8 @@ export default function AdminUsers() {
     try {
       setResending(invitationId);
 
-      const { data, error } = await supabase.functions.invoke('admin-invite-user', {
-        body: { resend: true, invitationId },
+      const { data, error } = await supabase.functions.invoke('admin-service', {
+        body: { action: 'invite_user', resend: true, invitationId },
       });
 
       if (error) throw error;

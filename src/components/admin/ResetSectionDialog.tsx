@@ -49,8 +49,8 @@ export function ResetSectionDialog({
     try {
       setLoading(true);
 
-      const { data, error } = await supabase.functions.invoke('admin-reset-section', {
-        body: { section, confirmationText }
+      const { data, error } = await supabase.functions.invoke('admin-service', {
+        body: { action: 'reset_section', section, confirmationText }
       });
 
       if (error) throw error;

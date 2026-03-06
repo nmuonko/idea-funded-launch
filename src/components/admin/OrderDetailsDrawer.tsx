@@ -176,8 +176,9 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
     try {
       setActionLoading(true);
       
-      const { error } = await supabase.functions.invoke('admin-order-action', {
+      const { error } = await supabase.functions.invoke('admin-service', {
         body: {
+          action: 'order_action',
           orderId,
           actionType,
           message: actionMessage,

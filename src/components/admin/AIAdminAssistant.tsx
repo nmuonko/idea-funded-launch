@@ -44,10 +44,11 @@ export function AIAdminAssistant({ floating = false }: AIAdminAssistantProps) {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke('admin-ai-assistant', {
+      const { data, error } = await supabase.functions.invoke('admin-service', {
         body: {
+          action: 'ai_assistant',
           query: userMessage,
-          conversationHistory: messages.slice(-10), // Keep last 10 messages for context
+          conversationHistory: messages.slice(-10),
         },
       });
 

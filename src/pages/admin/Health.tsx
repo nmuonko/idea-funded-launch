@@ -164,7 +164,7 @@ export default function AdminHealth() {
       // Fetch system health data
       (async () => {
         try {
-          const { data, error } = await supabase.functions.invoke('admin-system-health');
+          const { data, error } = await supabase.functions.invoke('admin-service', { body: { action: 'system_health' } });
           if (error) throw error;
           return data as SystemHealthData;
         } catch (err) {

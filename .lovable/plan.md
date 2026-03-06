@@ -1,62 +1,34 @@
 
-You’re very close. The error is happening because your migration calls `gen_random_bytes(32)` without a schema, but in your target database that function is in the `extensions` schema.
+Goal: Unblock your Stripe webhook setup when the UI forces a Thin payload flow.
 
-## Fastest fix (do this now)
+Plan:
+1) Complete the Stripe flow even if Thin is forced
+- If Stripe requires finishing Thin payload setup, finish it temporarily.
+- Use the same endpoint URL for now:
+  `https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/payments-webhook/stripe`
 
-1) In SQL Editor of your target project, run this exact block:
+2) Keep Snapshot as the real active destination for payments
+- Ensure you have one Snapshot destination configured with only:
+  - `checkout.session.completed`
+  - `checkout.session.expired`
+- This is the destination your payment finalization logic expects.
 
-```sql
--- Make sure extension exists
-CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+3) Remove or disable Thin destination after creation
+- In Stripe Webhooks/Destinations list, open the Thin destination and delete/disable it.
+- If Stripe won’t allow deletion, leave it enabled but remove its selected events so it becomes harmless.
 
--- Create compatibility wrapper so old migrations using gen_random_bytes(...) work
-CREATE OR REPLACE FUNCTION public.gen_random_bytes(integer)
-RETURNS bytea
-LANGUAGE sql
-IMMUTABLE
-AS $$
-  SELECT extensions.gen_random_bytes($1);
-$$;
-```
+4) Copy the correct signing secret
+- Reveal the signing secret from the Snapshot destination (the one with 2 events above).
+- Use that `whsec_...` value in your backend webhook secret configuration.
+- Do not use the Thin destination secret if Snapshot is the one you keep.
 
-2) Re-run migrations from terminal:
+5) Verify end-to-end
+- Trigger a test checkout and confirm:
+  - Webhook receives `checkout.session.completed`
+  - Order status transitions correctly (paid/cancelled behavior works)
+- If you get `Invalid signature (401)`, the secret in backend doesn’t match the active Stripe destination secret.
 
-```bash
-cd ~/Desktop/idea-funded-launch
-supabase db push
-```
-
-## If it still fails on the same file
-
-Run debug once to confirm:
-
-```bash
-supabase db push --debug
-```
-
-Then use fallback path:
-
-1) Mark that one migration as applied:
-```bash
-supabase migration repair 20251202192202 --status applied
-```
-
-2) Open `supabase/migrations/20251202192202_bc566fcc-95b5-4969-8ba4-cc744ac9d72f.sql`, replace:
-- `gen_random_bytes(32)` → `extensions.gen_random_bytes(32)`
-
-3) Run that migration SQL manually in SQL Editor, then continue:
-```bash
-supabase db push
-```
-
-## Why this works
-
-Your old migrations assume `gen_random_bytes` is reachable via `search_path`. In this new project it isn’t, so adding the wrapper in `public` (or schema-qualifying with `extensions.`) makes legacy SQL compatible.
-
-## After this succeeds
-
-Next command will be:
-```bash
-supabase functions deploy --no-verify-jwt
-```
-Then we’ll verify secrets and cron jobs.
+Technical notes:
+- Same endpoint URL can be used by both Thin and Snapshot.
+- The important part is payload format + matching signing secret.
+- Your current payments handler is designed around Snapshot-style event data for checkout session finalization.

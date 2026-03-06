@@ -493,8 +493,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        await supabase.functions.invoke('mobile-add-cart-item', {
+        await supabase.functions.invoke('mobile-cart', {
           body: {
+            action: 'add_item',
             productUrl: resolvedUrl,
             productPrice: item.priceUsd,
             quantity: item.quantity,

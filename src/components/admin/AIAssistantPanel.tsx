@@ -85,8 +85,9 @@ export function AIAssistantPanel({ order }: AIAssistantPanelProps) {
         body = lines.filter(line => !line.toLowerCase().startsWith('subject:')).join('\n').trim();
       }
 
-      const { error } = await supabase.functions.invoke('send-customer-email', {
+      const { error } = await supabase.functions.invoke('email-service', {
         body: {
+          type: 'customer_email',
           customerId: order.user_id,
           customerEmail: order.profiles.email,
           customerName: order.profiles.name || order.profiles.full_name || 'Customer',

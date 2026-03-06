@@ -171,8 +171,9 @@ export default function Orders() {
 
       // Send admin notification
       try {
-        await supabase.functions.invoke('send-quote-response-notification', {
+        await supabase.functions.invoke('email-service', {
           body: {
+            type: 'quote_response',
             quoteRequestId: selectedQuote.id,
             response: newStatus,
             customerEmail: profile?.email || user?.email || '',

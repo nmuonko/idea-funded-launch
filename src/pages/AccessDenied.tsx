@@ -26,7 +26,7 @@ export default function AccessDenied() {
       }
 
       // Send email request via edge function
-      const { error } = await supabase.functions.invoke('send-customer-email', {
+      const { error } = await supabase.functions.invoke('email-service', {
         body: {
           to: 'nkadimisha@afrishop-usa.com',
           subject: `Admin Access Request from ${user.email}`,

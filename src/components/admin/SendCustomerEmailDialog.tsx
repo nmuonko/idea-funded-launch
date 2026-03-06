@@ -144,8 +144,9 @@ export function SendCustomerEmailDialog({
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
-      const response = await supabase.functions.invoke('send-customer-email', {
+      const response = await supabase.functions.invoke('email-service', {
         body: {
+          type: 'customer_email',
           customer_id: customerId,
           customer_email: customerEmail,
           subject: subject.trim(),

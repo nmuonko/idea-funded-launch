@@ -492,8 +492,9 @@ export default function QuoteRequests() {
     
     setResendingEmail(request.id);
     try {
-      const { data, error } = await supabase.functions.invoke("send-quote-email", {
+      const { data, error } = await supabase.functions.invoke("email-service", {
         body: {
+          type: "quote_email",
           quoteRequestId: request.id,
           quotedShippingUsd: request.quoted_shipping_usd,
           quotedTotalUsd: request.quoted_total_usd,

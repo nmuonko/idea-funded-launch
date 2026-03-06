@@ -166,8 +166,9 @@ export default function AdminShipping() {
           },
         });
       } else if (status === 'READY_FOR_PICKUP') {
-        await supabase.functions.invoke('send-order-ready-email', {
+        await supabase.functions.invoke('email-service', {
           body: {
+            type: 'order_ready',
             customerEmail,
             customerName,
             orderId: order.id,

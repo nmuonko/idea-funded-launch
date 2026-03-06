@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, SUPABASE_URL } from '@/integrations/supabase/client';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { resizeImageUrl, imageQualityScore, IMAGE_SIZE_HERO, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { useLanguage } from '@/contexts/LanguageContext';

@@ -80,15 +80,15 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Upsert to remote via REST API
-        const upsertUrl = `${remoteProjectUrl}/rest/v1/${table.name}`;
+        // Upsert to remote via REST API with on_conflict
+        const upsertUrl = `${remoteProjectUrl}/rest/v1/${table.name}?on_conflict=${table.conflict}`;
         const resp = await fetch(upsertUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "apikey": remoteServiceKey,
             "Authorization": `Bearer ${remoteServiceKey}`,
-            "Prefer": `resolution=merge-duplicates`,
+            "Prefer": "resolution=merge-duplicates",
           },
           body: JSON.stringify(rows),
         });

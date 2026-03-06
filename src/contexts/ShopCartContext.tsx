@@ -523,8 +523,8 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
 
     if (user && sessionRef.current && !id.startsWith('local_')) {
       try {
-        await supabase.functions.invoke('mobile-update-cart-item', {
-          body: { cart_item_id: id, quantity },
+        await supabase.functions.invoke('mobile-cart', {
+          body: { action: 'update_item', item_id: id, quantity },
         });
       } catch (error) {
         console.error('[CART] Failed to update quantity:', error);

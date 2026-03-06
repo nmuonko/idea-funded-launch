@@ -20,27 +20,10 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
     }
 
-    // Check status
-    const { data: statusSetting } = await supabase
-      .from("admin_settings")
-      .select("value")
-      .eq("key", "bulk_sync_status")
-      .maybeSingle();
-
-    if (statusSetting?.value === "complete") {
-      return new Response(JSON.stringify({ status: "complete" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Read current page
-    const { data: pageSetting } = await supabase
-      .from("admin_settings")
-      .select("value")
-      .eq("key", "bulk_sync_page")
-      .maybeSingle();
-
-    const currentPage = parseInt(pageSetting?.value || "0");
+    // Determine mode: "full" (default, page-based) or "incremental" (time-based)
+    let body: any = {};
+    try { body = await req.json(); } catch { /* empty body is fine */ }
+    const mode = body?.mode || "full";
 
     // Remote config
     const remoteServiceKey = Deno.env.get("REMOTE_SERVICE_ROLE_KEY")!;
@@ -64,11 +47,122 @@ Deno.serve(async (req) => {
       });
     }
     const remoteProjectUrl = `https://${remoteMatch[1]}.supabase.co`;
+    const batchSize = 100;
 
-    // Process pages — upsert directly via REST API with service role key
+    // ─── INCREMENTAL MODE ───
+    if (mode === "incremental") {
+      // Get last incremental sync timestamp
+      const { data: lastSyncSetting } = await supabase
+        .from("admin_settings")
+        .select("value")
+        .eq("key", "incremental_sync_last_at")
+        .maybeSingle();
+
+      // Default to 30 minutes ago if never run
+      const lastSyncAt = lastSyncSetting?.value || new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const syncStartedAt = new Date().toISOString();
+
+      let totalPushed = 0;
+      let totalErrors = 0;
+      let page = 0;
+      const pageSize = 500;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data: items, error: readErr } = await supabase
+          .from("catalog_items")
+          .select("*")
+          .gt("updated_at", lastSyncAt)
+          .order("updated_at", { ascending: true })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (readErr) {
+          console.error(`[incremental-sync] Read error page ${page}: ${readErr.message}`);
+          break;
+        }
+
+        if (!items || items.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        // Upsert in small batches
+        for (let b = 0; b < items.length; b += batchSize) {
+          const batch = items.slice(b, b + batchSize);
+          const upsertUrl = `${remoteProjectUrl}/rest/v1/catalog_items?on_conflict=provider,provider_product_id`;
+          const resp = await fetch(upsertUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "apikey": remoteServiceKey,
+              "Authorization": `Bearer ${remoteServiceKey}`,
+              "Prefer": "resolution=merge-duplicates",
+            },
+            body: JSON.stringify(batch),
+          });
+
+          if (resp.ok) {
+            totalPushed += batch.length;
+          } else {
+            const errText = await resp.text();
+            console.error(`[incremental-sync] Upsert failed page ${page} batch ${b}: ${resp.status} ${errText}`);
+            totalErrors += batch.length;
+          }
+        }
+
+        page++;
+        if (items.length < pageSize) {
+          hasMore = false;
+        }
+
+        // Safety: cap at 20 pages per run (~10k items) to avoid timeout
+        if (page >= 20) {
+          break;
+        }
+      }
+
+      // Update last sync timestamp
+      await supabase
+        .from("admin_settings")
+        .upsert({ key: "incremental_sync_last_at", value: syncStartedAt, updated_at: new Date().toISOString() }, { onConflict: "key" });
+
+      const result = {
+        mode: "incremental",
+        since: lastSyncAt,
+        pages_processed: page,
+        pushed: totalPushed,
+        errors: totalErrors,
+      };
+
+      console.log(`[incremental-sync] ${JSON.stringify(result)}`);
+
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ─── FULL SYNC MODE (page-based, original) ───
+    const { data: statusSetting } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "bulk_sync_status")
+      .maybeSingle();
+
+    if (statusSetting?.value === "complete") {
+      return new Response(JSON.stringify({ status: "complete", hint: "Full sync done. Use mode=incremental for ongoing sync." }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { data: pageSetting } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "bulk_sync_page")
+      .maybeSingle();
+
+    const currentPage = parseInt(pageSetting?.value || "0");
     const pagesPerRun = 10;
     const pageSize = 500;
-    const batchSize = 100; // smaller batches to avoid remote statement timeout
     let totalPushed = 0;
     let totalErrors = 0;
     let lastPage = currentPage;
@@ -93,7 +187,6 @@ Deno.serve(async (req) => {
         break;
       }
 
-      // Upsert in small batches to avoid remote statement timeout
       for (let b = 0; b < items.length; b += batchSize) {
         const batch = items.slice(b, b + batchSize);
         const upsertUrl = `${remoteProjectUrl}/rest/v1/catalog_items?on_conflict=provider,provider_product_id`;
@@ -118,14 +211,12 @@ Deno.serve(async (req) => {
       }
 
       lastPage = page + 1;
-
       if (items.length < pageSize) {
         done = true;
         break;
       }
     }
 
-    // Update progress
     await supabase
       .from("admin_settings")
       .upsert({ key: "bulk_sync_page", value: String(lastPage), updated_at: new Date().toISOString() }, { onConflict: "key" });
@@ -134,9 +225,15 @@ Deno.serve(async (req) => {
       await supabase
         .from("admin_settings")
         .upsert({ key: "bulk_sync_status", value: "complete", updated_at: new Date().toISOString() }, { onConflict: "key" });
+
+      // Auto-set incremental baseline so incremental mode starts from now
+      await supabase
+        .from("admin_settings")
+        .upsert({ key: "incremental_sync_last_at", value: new Date().toISOString(), updated_at: new Date().toISOString() }, { onConflict: "key" });
     }
 
     const result = {
+      mode: "full",
       started_at_page: currentPage,
       ended_at_page: lastPage,
       pushed: totalPushed,

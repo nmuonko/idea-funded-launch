@@ -1,25 +1,22 @@
-## Edge Function Consolidation Refactor — Complete (Batches 1–7)
 
-### Batch 1: Decoupling and Cleanup
-- Decoupled `supabaseClient.ts` → uses env vars
-- Updated `config.toml` to production project ID
-- Removed diagnostic logging from `SupabaseConfigGuard` and `main.tsx`
-- Deleted 25 legacy/debug functions
 
-### Batch 2: Cart and Orders → `mobile-cart` (7 actions), `mobile-orders` (4 actions)
-### Batch 3: Payments → `payments-core` (8 actions), `payments-provider` (6 actions)
-### Batch 4: Email → `email-service` (25 email types)
-### Batch 5: Auth/Profile → `auth-service` (8 actions)
-### Batch 6: Admin/Support → `admin-service` (10 actions), `support-service` (3 actions)
+## Plan: Revert Everything to Lovable Cloud
 
-All Batches 2–6 use thin router/proxy pattern with in-code JWT auth gates.
+The web app's Vite alias was already removed, but **tsconfig.json** and **tsconfig.app.json** still redirect `@/integrations/supabase/client` to the custom `src/lib/supabaseClient.ts`. This means TypeScript IDE resolution still points to the old file. Additionally, `supabase/config.toml` references the old project ID (but that file is auto-managed and shouldn't be edited). Here's what needs to change:
 
-### Batch 7: Catalog Metadata → `catalog-service` (5 actions, inlined logic)
-- **Consolidated** `catalog-tabs`, `catalog-categories`, `catalog-nav`, `catalog-providers`, `catalog-prewarm-home` into single `catalog-service` router
-- **Inlined** all business logic directly (no proxy/fetch overhead)
-- **Auth**: `prewarm` requires admin JWT or cron secret; other actions are public read-only
-- **Frontend updated**: `CategoryTabs.tsx`, `HomeRecipes.tsx`, `CatalogSourcesSettings.tsx`
-- **Kept standalone** (performance-critical, large): `catalog-search`, `catalog-product`, `catalog-home`, `catalog-category`, `catalog-collection`, `catalog-filters`, `catalog-offers`
+### Changes
 
-### Remaining
-- Batch 8: Inline business logic into Batches 2–6 routers (eliminate internal fetch overhead)
+1. **Remove tsconfig path overrides** — In both `tsconfig.json` and `tsconfig.app.json`, remove the `@/integrations/supabase/client` path alias so imports resolve to the real auto-generated Lovable Cloud client.
+
+2. **Delete `src/lib/supabaseClient.ts`** — No longer needed; the auto-generated client at `src/integrations/supabase/client.ts` handles everything.
+
+3. **Fix remaining `SUPABASE_URL` / `SUPABASE_ANON_KEY` imports** — Any file still importing these named exports from the client needs to use `import.meta.env.VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` directly (already done for most files in prior fixes, but will verify completeness).
+
+4. **Update hardcoded `afrishop-usa.com` in edge functions** — Replace with `Deno.env.get('FRONTEND_BASE_URL')` fallback. Affected files (~25 edge functions). The `FRONTEND_BASE_URL` secret should be set to your published domain. This is cosmetic for now (emails/callbacks) but important for production correctness.
+
+5. **Update `payment-callback/index.ts`** — Replace hardcoded `https://afrishop-usa.com/payment-success` and `/payment-fail` URLs with dynamic `FRONTEND_BASE_URL`.
+
+### Not changing
+- `supabase/config.toml` — auto-managed by Lovable Cloud
+- Database migrations — user will handle separately
+

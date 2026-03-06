@@ -41,7 +41,8 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (existing) {
-      const share_url = `https://afrishop-usa.com/get?ref=${existing.ref_code}`;
+      const frontendBase = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+      const share_url = `${frontendBase}/get?ref=${existing.ref_code}`;
       return new Response(JSON.stringify({ ok: true, ref_code: existing.ref_code, share_url, existing: true }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

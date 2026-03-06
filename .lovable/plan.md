@@ -1,76 +1,57 @@
 
 
-## Pre-Migration Readiness Check
+## Fix: Product Details Showing Only 1 Image for SHEIN, Carvana, CarGurus
 
-Before pointing the web app to the new database (`ecqpqtirhpumfgbdtvhh`), we need a comprehensive diagnostic edge function that validates everything exists and nothing was lost during migration.
+### Root Cause
 
-### What We Will Build
+**Two-layer problem:**
 
-A new edge function called **`migration-readiness-check`** that runs against the new project and produces a full report covering:
+1. **Scrapers only store `image_url` (single image)** — neither `catalog-shein-scraper` nor `catalog-car-scraper` populate the `images` JSONB array column. They only set `image_url` (one image). The upsert rows don't include an `images` field at all.
 
-#### 1. Table Existence and Row Counts
-Query `information_schema.tables` and `pg_stat_user_tables` to verify all expected tables exist. Compare row counts against expected minimums (e.g., `catalog_items` should have ~519K rows, not 348).
+2. **Gallery enrichment fails silently** — when `catalog-product` detects <= 2 images, it tries `scrapeProviderGalleryFromPage()` which does a direct HTTP fetch to SHEIN/Carvana/CarGurus. These sites block direct scraping (bot protection), returning 403 or empty HTML. The Firecrawl fallback is deliberately disabled to conserve credits. Result: enrichment always fails, user sees 1 image.
 
-**Tables to check** (extracted from `types.ts` — roughly 80+ tables):
-- Core: `profiles`, `orders`, `order_items`, `catalog_items`, `catalog_categories`, `catalog_collections`, `catalog_config`
-- Auth/Admin: `admin_users`, `admin_settings`, `admin_invitations`, `admin_audit_logs`, `admin_notifications`, `admin_user_permissions`, `user_roles`
-- Cart/Checkout: `carts`, `cart_items`, `guest_confirmations`, `cart_recovery_ab_tests`, `cart_recovery_predictions`
-- Payments: `payments`, `payment_methods`, `payment_providers`, `bank_transfer_settings`, `bank_transfer_submissions`
-- Catalog infra: `catalog_cache`, `catalog_cache_settings`, `catalog_facets_cache`, `catalog_home_cache`, `catalog_collection_cache`, `catalog_category_ttl`, `catalog_filter_profiles`, `catalog_builder_goals`, `catalog_builder_runs`, `catalog_builder_sources`, `catalog_builder_state`
-- Home/Content: `home_recipes`, `home_recipe_items`, `home_sections`, `home_seed_suggestions`
-- Referrals: `referrers`, `referral_rewards`, `referral_payout_claims`, `referral_payout_rules`, `referral_topup_log`
-- Cars: `cars_listings_cache`, `cars_search_cache`, `cars_settings`, `cars_api_usage`, `cars_rate_limits`
-- Support: `support_tickets`, `support_messages`, `customer_satisfaction`
-- Config: `shipping_types`, `provider_budget`, `rate_limits`, `app_runtime_config`
-- And all remaining tables from the schema
+### Plan
 
-#### 2. Critical Data Counts with Thresholds
-Flag tables where row counts are suspiciously low:
-- `catalog_items` < 500,000 → WARNING
-- `profiles` = 0 → WARNING (no users migrated)
-- `orders` = 0 → INFO (may be expected)
-- `home_recipes` = 0 → WARNING (home page will be empty)
+#### 1. Extract ALL images during scraping (not just one)
 
-#### 3. Database Functions and Extensions
-- Query `pg_proc` to verify key RPC functions exist: `get_table_statistics`, `has_role`, etc.
-- Query `pg_extension` to confirm required extensions: `pg_cron`, `pg_net`, `pgcrypto`, `uuid-ossp`
+**`catalog-shein-scraper/index.ts`**: Extract all product images from the Firecrawl markdown using `matchAll` instead of `match`. Store them in the `images` JSONB array column during upsert.
 
-#### 4. pg_cron Jobs
-- Query `cron.job` to list all scheduled jobs and verify all 18 expected jobs are present
-
-#### 5. Edge Function Secrets
-- Boolean check (no values exposed) for all 36 required secrets: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PAWAPAY_API_TOKEN`, `PAWAPAY_BASE_URL`, `RESEND_API_KEY`, `OPENAI_API_KEY`, `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `RAINFOREST_API_KEY`, `RELOADLY_CLIENT_ID`, `RELOADLY_CLIENT_SECRET`, `CRON_SECRET`, `FRONTEND_BASE_URL`, `ADMIN_NOTIFICATION_EMAIL`, `EMAIL_FROM_ADDRESS`, etc.
-
-#### 6. RLS Policy Check
-- Query `pg_policies` to count RLS policies per table and flag any table with RLS enabled but zero policies
-
-#### 7. Storage Buckets
-- Verify expected storage buckets exist (if any)
-
-### Output Format
-
-The function returns a structured JSON report:
-```json
-{
-  "ready": true/false,
-  "timestamp": "...",
-  "summary": { "total_checks": 150, "passed": 148, "warnings": 2, "errors": 0 },
-  "tables": { "catalog_items": { "exists": true, "rows": 519000, "status": "ok" }, ... },
-  "functions": { "get_table_statistics": true, "has_role": true, ... },
-  "extensions": { "pg_cron": true, "pg_net": true, ... },
-  "cron_jobs": { "count": 18, "jobs": [...] },
-  "secrets": { "STRIPE_SECRET_KEY": true, ... },
-  "rls": { "tables_with_rls": 40, "tables_missing_policies": [] },
-  "warnings": ["catalog_items has only 348 rows, expected 500000+"],
-  "errors": []
-}
+```
+// Extract ALL product images from markdown (not just first)
+const allImgMatches = [...markdown.matchAll(
+  /(https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^\s)"]+)/gi
+)];
+const allImages = allImgMatches
+  .map(m => m[1])
+  .filter(url => !/_thumbnail_/i.test(url) && !/banner/i.test(url));
+// Deduplicate
+const uniqueImages = [...new Set(allImages)].slice(0, 10);
 ```
 
-### Implementation
+Add `images: uniqueImages.length > 0 ? uniqueImages : [imageUrl]` to the upsert row.
 
-- **1 new file**: `supabase/functions/migration-readiness-check/index.ts`
-- Uses `createAdminClient()` from shared auth (service role key to bypass RLS and read system tables)
-- Requires admin authentication to call
-- All checks run in parallel for speed
-- No secrets or sensitive data exposed in the response — only boolean flags and counts
+**`catalog-car-scraper/index.ts`**: Same pattern — extract all image URLs from markdown, store in `images` array. For Carvana, also generate multiple angle URLs from the vehicle ID (Carvana has predictable image URL patterns for different angles).
+
+#### 2. Re-enable Firecrawl gallery enrichment for DB-only providers (budget-controlled)
+
+In `catalog-product/index.ts`, re-enable `scrapeProviderGalleryFirecrawl()` as fallback when direct scrape fails, but only if:
+- The item has <= 1 image (not <= 2, to reduce calls)
+- Provider budget check passes (use existing `check_provider_budget` with a small daily cap like 100 credits for gallery enrichment)
+
+This ensures first-time product views get full galleries while staying within credit budget.
+
+#### 3. Persist enriched galleries back to `images` column
+
+Already implemented in current code (lines 1155-1171) — no changes needed here. Once enrichment succeeds, it writes back to `catalog_items.images` and `catalog_item_media`.
+
+### Files to modify
+
+1. **`supabase/functions/catalog-shein-scraper/index.ts`** — Extract all images from markdown, add `images` array to upsert
+2. **`supabase/functions/catalog-car-scraper/index.ts`** — Extract all images from markdown, add `images` array to upsert; add Carvana multi-angle URL generation
+3. **`supabase/functions/catalog-product/index.ts`** — Re-enable Firecrawl gallery fallback for shein/cargurus/carvana with budget cap (100/day)
+
+### Expected Result
+- New scraped items will have 3-10 images stored at ingestion time
+- Existing 1-image items will get enriched on first detail view (up to 100/day via Firecrawl)
+- Product detail pages will show full image galleries
 

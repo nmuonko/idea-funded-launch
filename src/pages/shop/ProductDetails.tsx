@@ -346,7 +346,7 @@ export default function ProductDetailsPage() {
             const productIdDecoded = decodeURIComponent(id);
             const normalizedProvider = provider.toLowerCase() === 'rainforest' ? 'amazon' : provider.toLowerCase();
             // Try with raw ID (no prefix stripping)
-            const retryUrl = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product`);
+            const retryUrl = new URL(`${SUPABASE_URL}/functions/v1/catalog-product`);
             retryUrl.searchParams.set('provider', normalizedProvider);
             retryUrl.searchParams.set('id', productIdDecoded);
             if (normalizedProvider === 'amazon') {

@@ -80,7 +80,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    const share_url = `https://afrishop-usa.com/get?ref=${created.ref_code}`;
+    const frontendBase2 = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+    const share_url = `${frontendBase2}/get?ref=${created.ref_code}`;
     console.log('[create-referrer] Created referrer:', created.ref_code);
 
     return new Response(JSON.stringify({ ok: true, ref_code: created.ref_code, share_url, existing: false }), {

@@ -206,12 +206,14 @@ function returnAppRedirect(
 ): Response {
   const deepLink = `afrishop://payment-complete?status=${status}&order_id=${orderId}${errorMessage ? `&error=${encodeURIComponent(errorMessage)}` : ''}`;
 
+  const frontendBase = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+
   // Fallback web URL for if deep link fails
   const webFallback = status === 'success'
-    ? `https://afrishop-usa.com/payment-success?orderId=${orderId}`
+    ? `${frontendBase}/payment-success?orderId=${orderId}`
     : status === 'cancelled'
-    ? `https://afrishop-usa.com/payment-fail?orderId=${orderId}&cancelled=true`
-    : `https://afrishop-usa.com/payment-fail?orderId=${orderId}`;
+    ? `${frontendBase}/payment-fail?orderId=${orderId}&cancelled=true`
+    : `${frontendBase}/payment-fail?orderId=${orderId}`;
 
   const statusConfig = {
     success: { emoji: '✓', title: 'Payment Successful', message: 'Your payment has been confirmed.', color: '#22c55e' },

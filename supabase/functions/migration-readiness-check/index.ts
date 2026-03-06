@@ -77,9 +77,8 @@ const TABLE_THRESHOLDS: Record<string, { min: number; severity: 'error' | 'warni
   // Support
   support_tickets: { min: 0, severity: 'info' },
   support_messages: { min: 0, severity: 'info' },
-  customer_satisfaction: { min: 0, severity: 'info' },
   // Config/Misc
-  shipping_types: { min: 1, severity: 'warning' },
+  shipping_item_types: { min: 1, severity: 'warning' },
   app_runtime_config: { min: 1, severity: 'warning' },
   feature_flags: { min: 1, severity: 'warning' },
   environments: { min: 1, severity: 'warning' },

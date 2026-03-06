@@ -75,7 +75,7 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
   useEffect(() => {
     const fetchTabs = async () => {
       try {
-        const { data, error } = await supabase.functions.invoke('catalog-tabs');
+        const { data, error } = await supabase.functions.invoke('catalog-service', { body: null, headers: {} });
         if (!error && data?.tabs) {
           const iconMap: Record<string, React.ReactNode> = {
             phones: <Smartphone className="h-4 w-4" />,

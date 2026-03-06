@@ -151,7 +151,7 @@ Deno.serve(async (req) => {
     const effectiveServiceKey = serviceRoleKey;
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const admin = createClient(supabaseUrl, serviceRoleKey);
+    const admin = createClient(supabaseUrl, effectiveServiceKey);
 
     const warnings: string[] = [];
     const errors: string[] = [];

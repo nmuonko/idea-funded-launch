@@ -160,9 +160,9 @@ export default function Checkout() {
       console.log('[WEB_CHECKOUT] Step 1: Creating order from cart... selectedIds=', selectedCartItemIds.length);
       
       const { data: orderData, error: orderError } = await supabase.functions.invoke(
-        'mobile-create-order-from-cart',
+        'mobile-orders',
         {
-          body: selectedCartItemIds.length > 0 ? { cart_item_ids: selectedCartItemIds } : undefined,
+          body: { action: 'create', ...(selectedCartItemIds.length > 0 ? { cart_item_ids: selectedCartItemIds } : {}) },
         }
       );
 

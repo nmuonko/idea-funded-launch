@@ -14,3 +14,9 @@ verify_jwt = false
 
 [functions.pawapay-callback]
 verify_jwt = false
+
+[functions.mobile-cart]
+verify_jwt = false
+
+[functions.mobile-orders]
+verify_jwt = false

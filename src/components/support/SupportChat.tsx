@@ -313,8 +313,8 @@ export function SupportChat() {
       setConversation(prev => prev ? { ...prev, status: 'waiting_agent' } : null);
 
       // Trigger agent notification
-      await supabase.functions.invoke('notify-support-agent', {
-        body: { conversation_id: conversation.id },
+      await supabase.functions.invoke('support-service', {
+        body: { action: 'notify_agent', conversation_id: conversation.id },
       });
     } catch (error) {
       console.error('Error escalating:', error);

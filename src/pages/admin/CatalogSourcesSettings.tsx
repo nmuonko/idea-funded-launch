@@ -287,7 +287,7 @@ export default function CatalogSourcesSettings() {
     mutationFn: async () => {
       const toSave = categoryOverrides.filter(c => c.max_item_age_days != null || c.price_refresh_days != null || c.availability_refresh_days != null || c.db_min_results != null || !c.enabled);
       if (toSave.length === 0) return;
-      const { data, error } = await supabase.functions.invoke('admin-catalog-settings', { method: 'PUT', body: { categoryOverrides: toSave } });
+      const { data, error } = await supabase.functions.invoke('admin-service', { body: { action: 'catalog_settings', method: 'PUT', categoryOverrides: toSave } });
       if (error) throw error;
       if (!data?.success) throw new Error('Failed to save overrides');
     },

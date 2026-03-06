@@ -409,7 +409,7 @@ export default function AdminOrders() {
       const receiptsHtml: string[] = [];
       
       for (const order of paidOrders) {
-        const receiptUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-payment-receipt?order_id=${order.id}`;
+        const receiptUrl = `${SUPABASE_URL}/functions/v1/generate-payment-receipt?order_id=${order.id}`;
         
         const response = await fetch(receiptUrl, {
           headers: {

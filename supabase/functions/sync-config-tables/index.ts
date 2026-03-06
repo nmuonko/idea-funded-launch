@@ -6,21 +6,21 @@ const corsHeaders = {
 };
 
 const TABLES_TO_SYNC = [
-  { name: "catalog_providers", conflict: "id" },
-  { name: "home_recipes", conflict: "id" },
   { name: "home_sections", conflict: "key" },
-  { name: "admin_settings", conflict: "key" },
-  { name: "home_recipe_seeds", conflict: "id" },
   { name: "home_section_seeds", conflict: "id" },
   { name: "catalog_categories", conflict: "slug" },
   { name: "catalog_nav_tabs", conflict: "key" },
-  { name: "catalog_nav_subtabs", conflict: "id" },
   { name: "catalog_seed_queries", conflict: "id" },
   { name: "feature_flags", conflict: "key,platform" },
-  { name: "catalog_config", conflict: "key" },
   { name: "catalog_filter_profiles", conflict: "key" },
   { name: "catalog_nav_settings", conflict: "key" },
   { name: "catalog_category_ttl", conflict: "category_key" },
+  // These need special handling due to composite unique constraints:
+  { name: "catalog_providers", conflict: "name" },
+  { name: "home_recipes", conflict: "target,key" },
+  { name: "admin_settings", conflict: "key" },
+  { name: "catalog_nav_subtabs", conflict: "key" },
+  { name: "home_recipe_seeds", conflict: "recipe_id,query" },
 ];
 
 Deno.serve(async (req) => {

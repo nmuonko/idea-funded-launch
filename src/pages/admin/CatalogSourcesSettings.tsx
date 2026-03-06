@@ -275,7 +275,7 @@ export default function CatalogSourcesSettings() {
   });
   const saveGlobalTtlMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('admin-catalog-settings', { method: 'POST', body: { updates: { global_max_item_age_days: String(maxItemAgeDays), global_price_refresh_days: String(priceRefreshDays), global_availability_refresh_days: String(availRefreshDays), db_search_min_results: String(dbMinResults) } } });
+      const { data, error } = await supabase.functions.invoke('admin-service', { body: { action: 'catalog_settings', method: 'POST', updates: { global_max_item_age_days: String(maxItemAgeDays), global_price_refresh_days: String(priceRefreshDays), global_availability_refresh_days: String(availRefreshDays), db_search_min_results: String(dbMinResults) } } });
       if (error) throw error;
       if (!data?.success) throw new Error(data?.message || 'Failed');
       return data;

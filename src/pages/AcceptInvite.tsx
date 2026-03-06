@@ -152,7 +152,7 @@ export default function AcceptInvite() {
       // Call the edge function to handle account creation and role assignment
       // This uses service role to bypass RLS restrictions
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/accept-invitation`,
+        `${SUPABASE_URL}/functions/v1/accept-invitation`,
         {
           method: 'POST',
           headers: {

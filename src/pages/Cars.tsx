@@ -173,7 +173,7 @@ export default function Cars() {
       }
       
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/cars-add-to-cart`,
+        `${SUPABASE_URL}/functions/v1/cars-add-to-cart`,
         {
           method: "POST",
           headers: {

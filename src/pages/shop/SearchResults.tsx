@@ -305,7 +305,7 @@ export default function SearchResults() {
           setIsRevalidating(true);
         }
       } else {
-        const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search`);
+        const url = new URL(`${SUPABASE_URL}/functions/v1/catalog-search`);
         Object.entries(params).forEach(([key, value]) => {
           if (value !== undefined && value !== null && value !== '') {
             url.searchParams.set(key, String(value));

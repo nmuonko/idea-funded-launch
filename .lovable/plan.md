@@ -1,34 +1,57 @@
 
-Goal: Unblock your Stripe webhook setup when the UI forces a Thin payload flow.
 
-Plan:
-1) Complete the Stripe flow even if Thin is forced
-- If Stripe requires finishing Thin payload setup, finish it temporarily.
-- Use the same endpoint URL for now:
-  `https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/payments-webhook/stripe`
+## Fix: Product Details Showing Only 1 Image for SHEIN, Carvana, CarGurus
 
-2) Keep Snapshot as the real active destination for payments
-- Ensure you have one Snapshot destination configured with only:
-  - `checkout.session.completed`
-  - `checkout.session.expired`
-- This is the destination your payment finalization logic expects.
+### Root Cause
 
-3) Remove or disable Thin destination after creation
-- In Stripe Webhooks/Destinations list, open the Thin destination and delete/disable it.
-- If Stripe won’t allow deletion, leave it enabled but remove its selected events so it becomes harmless.
+**Two-layer problem:**
 
-4) Copy the correct signing secret
-- Reveal the signing secret from the Snapshot destination (the one with 2 events above).
-- Use that `whsec_...` value in your backend webhook secret configuration.
-- Do not use the Thin destination secret if Snapshot is the one you keep.
+1. **Scrapers only store `image_url` (single image)** — neither `catalog-shein-scraper` nor `catalog-car-scraper` populate the `images` JSONB array column. They only set `image_url` (one image). The upsert rows don't include an `images` field at all.
 
-5) Verify end-to-end
-- Trigger a test checkout and confirm:
-  - Webhook receives `checkout.session.completed`
-  - Order status transitions correctly (paid/cancelled behavior works)
-- If you get `Invalid signature (401)`, the secret in backend doesn’t match the active Stripe destination secret.
+2. **Gallery enrichment fails silently** — when `catalog-product` detects <= 2 images, it tries `scrapeProviderGalleryFromPage()` which does a direct HTTP fetch to SHEIN/Carvana/CarGurus. These sites block direct scraping (bot protection), returning 403 or empty HTML. The Firecrawl fallback is deliberately disabled to conserve credits. Result: enrichment always fails, user sees 1 image.
 
-Technical notes:
-- Same endpoint URL can be used by both Thin and Snapshot.
-- The important part is payload format + matching signing secret.
-- Your current payments handler is designed around Snapshot-style event data for checkout session finalization.
+### Plan
+
+#### 1. Extract ALL images during scraping (not just one)
+
+**`catalog-shein-scraper/index.ts`**: Extract all product images from the Firecrawl markdown using `matchAll` instead of `match`. Store them in the `images` JSONB array column during upsert.
+
+```
+// Extract ALL product images from markdown (not just first)
+const allImgMatches = [...markdown.matchAll(
+  /(https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^\s)"]+)/gi
+)];
+const allImages = allImgMatches
+  .map(m => m[1])
+  .filter(url => !/_thumbnail_/i.test(url) && !/banner/i.test(url));
+// Deduplicate
+const uniqueImages = [...new Set(allImages)].slice(0, 10);
+```
+
+Add `images: uniqueImages.length > 0 ? uniqueImages : [imageUrl]` to the upsert row.
+
+**`catalog-car-scraper/index.ts`**: Same pattern — extract all image URLs from markdown, store in `images` array. For Carvana, also generate multiple angle URLs from the vehicle ID (Carvana has predictable image URL patterns for different angles).
+
+#### 2. Re-enable Firecrawl gallery enrichment for DB-only providers (budget-controlled)
+
+In `catalog-product/index.ts`, re-enable `scrapeProviderGalleryFirecrawl()` as fallback when direct scrape fails, but only if:
+- The item has <= 1 image (not <= 2, to reduce calls)
+- Provider budget check passes (use existing `check_provider_budget` with a small daily cap like 100 credits for gallery enrichment)
+
+This ensures first-time product views get full galleries while staying within credit budget.
+
+#### 3. Persist enriched galleries back to `images` column
+
+Already implemented in current code (lines 1155-1171) — no changes needed here. Once enrichment succeeds, it writes back to `catalog_items.images` and `catalog_item_media`.
+
+### Files to modify
+
+1. **`supabase/functions/catalog-shein-scraper/index.ts`** — Extract all images from markdown, add `images` array to upsert
+2. **`supabase/functions/catalog-car-scraper/index.ts`** — Extract all images from markdown, add `images` array to upsert; add Carvana multi-angle URL generation
+3. **`supabase/functions/catalog-product/index.ts`** — Re-enable Firecrawl gallery fallback for shein/cargurus/carvana with budget cap (100/day)
+
+### Expected Result
+- New scraped items will have 3-10 images stored at ingestion time
+- Existing 1-image items will get enriched on first detail view (up to 100/day via Firecrawl)
+- Product detail pages will show full image galleries
+

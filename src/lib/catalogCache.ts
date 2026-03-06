@@ -309,7 +309,7 @@ export async function cachedCatalogFetch<T>(
   const response = await fetch(url.toString(), {
     method: 'GET',
     headers: {
-      'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      'apikey': SUPABASE_ANON_KEY,
       'Content-Type': 'application/json',
     },
     cache: 'default',

@@ -7,7 +7,6 @@
  * 
  * This module is designed to be import-mapped from:
  *   "@supabase/supabase-js" -> "./_shared/supabaseShim.ts"
- *   "https://esm.sh/@supabase/supabase-js@*" -> "./_shared/supabaseShim.ts"
  */
 
 // Re-export the REST-based client as createClient

@@ -86,8 +86,8 @@ Deno.serve(async (req) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "apikey": remoteAnonKey,
-            "Authorization": `Bearer ${remoteAnonKey}`,
+            "apikey": remoteServiceKey,
+            "Authorization": `Bearer ${remoteServiceKey}`,
             "Prefer": `resolution=merge-duplicates`,
           },
           body: JSON.stringify(rows),

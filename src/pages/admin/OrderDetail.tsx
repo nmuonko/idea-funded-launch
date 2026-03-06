@@ -350,8 +350,8 @@ export default function AdminOrderDetail() {
   const handleSendAssistanceEmail = async (language: string) => {
     try {
       setSendingAssistanceEmail(true);
-      const { data, error } = await supabase.functions.invoke('send-order-assistance-email', {
-        body: { orderId: id, language },
+      const { data, error } = await supabase.functions.invoke('email-service', {
+        body: { type: 'order_assistance', orderId: id, language },
       });
 
       if (error) throw error;

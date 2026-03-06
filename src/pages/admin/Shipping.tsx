@@ -176,8 +176,9 @@ export default function AdminShipping() {
           },
         });
       } else if (status === 'COMPLETED') {
-        await supabase.functions.invoke('send-order-delivered-email', {
+        await supabase.functions.invoke('email-service', {
           body: {
+            type: 'order_delivered',
             customerEmail,
             customerName,
             orderId: order.id,

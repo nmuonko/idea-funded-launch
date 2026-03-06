@@ -8,6 +8,7 @@
  * - Stale-while-revalidate: shows stale data instantly, refreshes in background
  * - Query normalization for maximum cache hits
  */
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/integrations/supabase/client';
 
 const CACHE_PREFIX = 'afrishop_cache:v16:';
 const DEFAULT_TTL_SECONDS = 3600; // 1 hour fallback
@@ -298,7 +299,7 @@ export async function cachedCatalogFetch<T>(
   }
   
   // Fetch from network
-  const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`);
+  const url = new URL(`${SUPABASE_URL}/functions/v1/${endpoint}`);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') {
       url.searchParams.set(key, String(value));
@@ -308,7 +309,7 @@ export async function cachedCatalogFetch<T>(
   const response = await fetch(url.toString(), {
     method: 'GET',
     headers: {
-      'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      'apikey': SUPABASE_ANON_KEY,
       'Content-Type': 'application/json',
     },
     cache: 'default',
@@ -393,7 +394,7 @@ async function fetchFromNetwork<T>(
   params: Record<string, any>,
   signal?: AbortSignal
 ): Promise<T> {
-  const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`);
+  const url = new URL(`${SUPABASE_URL}/functions/v1/${endpoint}`);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') {
       url.searchParams.set(key, String(value));
@@ -403,7 +404,7 @@ async function fetchFromNetwork<T>(
   const response = await fetch(url.toString(), {
     method: 'GET',
     headers: {
-      'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      'apikey': SUPABASE_ANON_KEY,
       'Content-Type': 'application/json',
     },
     cache: 'default',

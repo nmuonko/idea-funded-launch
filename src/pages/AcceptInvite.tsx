@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -91,12 +91,12 @@ export default function AcceptInvite() {
       console.log('[AcceptInvite] No local data, trying server validation...');
       
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/accept-invitation`,
+        `${SUPABASE_URL}/functions/v1/accept-invitation`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            'apikey': SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({
             token,
@@ -152,12 +152,12 @@ export default function AcceptInvite() {
       // Call the edge function to handle account creation and role assignment
       // This uses service role to bypass RLS restrictions
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/accept-invitation`,
+        `${SUPABASE_URL}/functions/v1/accept-invitation`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            'apikey': SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({
             token,

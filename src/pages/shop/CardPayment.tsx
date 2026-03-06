@@ -6,7 +6,7 @@ import { ArrowLeft, Loader2, CreditCard, CheckCircle2, XCircle, Lock, RefreshCw 
  import { motion } from 'framer-motion';
  import { ShopHeader } from '@/components/shop/ShopHeader';
  import { Button } from '@/components/ui/button';
- import { supabase } from '@/integrations/supabase/client';
+ import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '@/integrations/supabase/client';
  import { useToast } from '@/hooks/use-toast';
  
 // Stripe instance cache with proper retry handling
@@ -38,10 +38,10 @@ async function getStripePromise(forceReload = false): Promise<Stripe | null> {
     
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/app-bootstrap`,
+        `${SUPABASE_URL}/functions/v1/app-bootstrap`,
         {
           headers: {
-            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            'apikey': SUPABASE_ANON_KEY,
             'Content-Type': 'application/json',
           },
           signal: controller.signal,

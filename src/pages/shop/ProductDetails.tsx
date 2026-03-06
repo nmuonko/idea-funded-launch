@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '@/integrations/supabase/client';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { resizeImageUrl, imageQualityScore, IMAGE_SIZE_HERO, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -240,7 +240,7 @@ export default function ProductDetailsPage() {
 
         const normalizedProvider = lowerProvider === 'rainforest' ? 'amazon' : lowerProvider;
 
-        const apiUrl = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product`);
+        const apiUrl = new URL(`${SUPABASE_URL}/functions/v1/catalog-product`);
         apiUrl.searchParams.set('provider', normalizedProvider);
         apiUrl.searchParams.set('id', cleanProductId);
         if (normalizedProvider === 'amazon') {
@@ -250,7 +250,7 @@ export default function ProductDetailsPage() {
         const response = await fetch(apiUrl.toString(), {
           signal: controller.signal,
           headers: {
-            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            'apikey': SUPABASE_ANON_KEY,
             'Content-Type': 'application/json',
           },
         });
@@ -346,7 +346,7 @@ export default function ProductDetailsPage() {
             const productIdDecoded = decodeURIComponent(id);
             const normalizedProvider = provider.toLowerCase() === 'rainforest' ? 'amazon' : provider.toLowerCase();
             // Try with raw ID (no prefix stripping)
-            const retryUrl = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product`);
+            const retryUrl = new URL(`${SUPABASE_URL}/functions/v1/catalog-product`);
             retryUrl.searchParams.set('provider', normalizedProvider);
             retryUrl.searchParams.set('id', productIdDecoded);
             if (normalizedProvider === 'amazon') {
@@ -355,7 +355,7 @@ export default function ProductDetailsPage() {
             const retryResp = await fetch(retryUrl.toString(), {
               signal: controller.signal,
               headers: {
-                'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+                'apikey': SUPABASE_ANON_KEY,
                 'Content-Type': 'application/json',
               },
             });
@@ -540,7 +540,7 @@ export default function ProductDetailsPage() {
     const fetchVariantData = async () => {
       try {
         const apiUrl = new URL(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product`
+          `${SUPABASE_URL}/functions/v1/catalog-product`
         );
         apiUrl.searchParams.set('provider', 'amazon');
         apiUrl.searchParams.set('id', asin);
@@ -548,7 +548,7 @@ export default function ProductDetailsPage() {
 
         const resp = await fetch(apiUrl.toString(), {
           headers: {
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            apikey: SUPABASE_ANON_KEY,
             'Content-Type': 'application/json',
           },
         });

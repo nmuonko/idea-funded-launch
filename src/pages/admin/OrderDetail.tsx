@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, SUPABASE_URL } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -298,7 +298,7 @@ export default function AdminOrderDetail() {
         throw new Error('Not authenticated');
       }
 
-      const receiptUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-payment-receipt?order_id=${id}`;
+      const receiptUrl = `${SUPABASE_URL}/functions/v1/generate-payment-receipt?order_id=${id}`;
       
       const response = await fetch(receiptUrl, {
         headers: {

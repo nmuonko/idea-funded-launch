@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
 export interface FeeSettings {
@@ -258,10 +258,10 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     const fetchConfig = async () => {
       try {
         const response = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mobile-public-config`,
+          `${SUPABASE_URL}/functions/v1/mobile-public-config`,
           {
             headers: {
-              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+              'apikey': SUPABASE_ANON_KEY,
             },
           }
         );

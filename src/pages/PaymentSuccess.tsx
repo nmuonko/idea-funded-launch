@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { CheckCircle, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/integrations/supabase/client";
 
 export default function PaymentSuccess() {
   const [searchParams] = useSearchParams();
@@ -37,7 +37,7 @@ export default function PaymentSuccess() {
         });
 
         // Use fetch directly since we need query params
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseUrl = SUPABASE_URL;
         const params = new URLSearchParams();
         if (reference) params.set('reference', reference);
         if (orderId) params.set('order_id', orderId);
@@ -46,7 +46,7 @@ export default function PaymentSuccess() {
           `${supabaseUrl}/functions/v1/payment-status?${params.toString()}`,
           {
             headers: {
-              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+              'apikey': SUPABASE_ANON_KEY,
             },
           }
         );

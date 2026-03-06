@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, SUPABASE_URL } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -463,13 +463,13 @@ export default function PaymentProvidersContent() {
           <div>
              <span className="font-medium">Stripe:</span>
             <code className="ml-2 px-2 py-1 bg-muted rounded text-xs">
-              {`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/payments-webhook/stripe`}
+              {`${SUPABASE_URL}/functions/v1/payments-webhook/stripe`}
             </code>
           </div>
           <div>
             <span className="font-medium">pawaPay:</span>
             <code className="ml-2 px-2 py-1 bg-muted rounded text-xs">
-              {`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/payments-webhook/pawapay`}
+              {`${SUPABASE_URL}/functions/v1/payments-webhook/pawapay`}
             </code>
           </div>
         </CardContent>

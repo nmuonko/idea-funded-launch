@@ -1,3 +1,4 @@
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/integrations/supabase/client';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { Loader2, X, RefreshCw, AlertCircle, Link2, ArrowRight } from 'lucide-react';
@@ -305,7 +306,7 @@ export default function SearchResults() {
           setIsRevalidating(true);
         }
       } else {
-        const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search`);
+        const url = new URL(`${SUPABASE_URL}/functions/v1/catalog-search`);
         Object.entries(params).forEach(([key, value]) => {
           if (value !== undefined && value !== null && value !== '') {
             url.searchParams.set(key, String(value));
@@ -314,8 +315,8 @@ export default function SearchResults() {
         const response = await fetch(url.toString(), {
           method: 'GET',
           headers: {
-            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
             'Content-Type': 'application/json',
             'Accept': 'application/json',
           },

@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, SUPABASE_URL } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -409,7 +409,7 @@ export default function AdminOrders() {
       const receiptsHtml: string[] = [];
       
       for (const order of paidOrders) {
-        const receiptUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-payment-receipt?order_id=${order.id}`;
+        const receiptUrl = `${SUPABASE_URL}/functions/v1/generate-payment-receipt?order_id=${order.id}`;
         
         const response = await fetch(receiptUrl, {
           headers: {

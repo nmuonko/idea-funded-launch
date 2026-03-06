@@ -11,7 +11,7 @@
  * Body: { "categories": ["phones", "computers"] } (optional - defaults to all)
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { createClient } from "@supabase/supabase-js";
 import { verifyCronAuth, cronAuthErrorResponse } from '../_shared/cronAuth.ts';
 import { mapUnifiedCategory } from '../_shared/categoryMapper.ts';
 

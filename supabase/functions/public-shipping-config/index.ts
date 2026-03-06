@@ -2,7 +2,7 @@
 // Returns public pricing fields for cart calculations with aggressive caching
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "@supabase/supabase-js";
 import { coalesce, CACHE_TTL } from "../_shared/responseCache.ts";
 import { withLoadShedding, getEndpointPriority, LoadSheddingError, loadSheddingResponse } from "../_shared/loadShedding.ts";
 

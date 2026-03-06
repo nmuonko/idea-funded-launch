@@ -91,7 +91,7 @@ export default function AcceptInvite() {
       console.log('[AcceptInvite] No local data, trying server validation...');
       
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/accept-invitation`,
+        `${SUPABASE_URL}/functions/v1/accept-invitation`,
         {
           method: 'POST',
           headers: {

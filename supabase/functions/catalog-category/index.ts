@@ -17,7 +17,7 @@
  * { status, items, nextCursor, hasMore, categoryResolved, providerStats }
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "@supabase/supabase-js";
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
 import { isDisallowedItem, filterDisallowedItems } from "../_shared/contentBlocker.ts";
 import { searchEbay, searchEbayWithFallback, upsertItemsToDb, NormalizedItem } from "../_shared/ebayBrowseSearch.ts";

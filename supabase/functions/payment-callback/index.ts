@@ -3,7 +3,7 @@
 // Verifies payment with Stripe, updates database, and redirects to app deep link
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 

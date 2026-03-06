@@ -14,7 +14,7 @@
  *   - mode (optional): "db" | "live" (default: "db", live only in staging)
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "@supabase/supabase-js";
 import { sanitizeImageUrl } from "../_shared/imageValidator.ts";
 
 // ─── CORS Headers ────────────────────────────────────────────────────────────

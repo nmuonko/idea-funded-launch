@@ -2,7 +2,7 @@
 // Returns drawer sections, home rails, and provider status for dynamic UI
 // PUBLIC: No JWT required - cached for 5-15 minutes
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "@supabase/supabase-js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

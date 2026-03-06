@@ -5,7 +5,7 @@
  * Validates that the provider is enabled and has all required secrets configured.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
 import { getCorsHeaders } from "../_shared/http.ts";
 
 const corsHeaders = getCorsHeaders();

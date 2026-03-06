@@ -14,7 +14,7 @@
  * with fallback to TEMPLATE_LIBRARY for hybrid/auto modes.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "@supabase/supabase-js";
 import { searchRainforest } from "../_shared/rainforestAdapter.ts";
 import { searchEbay, NormalizedItem } from "../_shared/ebayBrowseSearch.ts";
 

@@ -14,7 +14,7 @@
  * - Amazon item: /market-item-details-proxy?source=amazon&id=B09V3KXJPB
  */
 
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import {
   getEbayItemNormalized,
   getAmazonItemNormalized,

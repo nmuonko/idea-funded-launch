@@ -39,8 +39,8 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const localDb = createClient(supabaseUrl, serviceKey);
 
-    // Remote (new) project
-    const remoteAnonKey = Deno.env.get("REMOTE_ANON_KEY")!;
+    // Remote (new) project — use service role key to bypass RLS
+    const remoteServiceKey = Deno.env.get("REMOTE_SERVICE_ROLE_KEY") || Deno.env.get("REMOTE_ANON_KEY")!;
     const { data: targetSetting } = await localDb
       .from("admin_settings")
       .select("value")

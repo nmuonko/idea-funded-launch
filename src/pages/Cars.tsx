@@ -130,7 +130,7 @@ export default function Cars() {
       }
       
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/cars-search?${params}`,
+        `${SUPABASE_URL}/functions/v1/cars-search?${params}`,
         { headers }
       );
       

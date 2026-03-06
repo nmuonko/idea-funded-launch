@@ -232,6 +232,7 @@ export default function AdminOrderDetail() {
         await supabase.functions.invoke('email-service', {
           body: {
             orderId: id,
+            type: emailType,
             customerEmail: order.profiles.email,
             customerName: order.profiles.name || 'Customer',
             items: updatedItems.map(i => ({

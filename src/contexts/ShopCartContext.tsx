@@ -258,10 +258,10 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     const fetchConfig = async () => {
       try {
         const response = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mobile-public-config`,
+          `${SUPABASE_URL}/functions/v1/mobile-public-config`,
           {
             headers: {
-              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+              'apikey': SUPABASE_ANON_KEY,
             },
           }
         );

@@ -469,7 +469,7 @@ export default function PaymentProvidersContent() {
           <div>
             <span className="font-medium">pawaPay:</span>
             <code className="ml-2 px-2 py-1 bg-muted rounded text-xs">
-              {`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/payments-webhook/pawapay`}
+              {`${SUPABASE_URL}/functions/v1/payments-webhook/pawapay`}
             </code>
           </div>
         </CardContent>

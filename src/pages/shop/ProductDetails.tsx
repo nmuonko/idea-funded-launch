@@ -355,7 +355,7 @@ export default function ProductDetailsPage() {
             const retryResp = await fetch(retryUrl.toString(), {
               signal: controller.signal,
               headers: {
-                'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+                'apikey': SUPABASE_ANON_KEY,
                 'Content-Type': 'application/json',
               },
             });

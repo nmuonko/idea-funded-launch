@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
       });
     }
     const remoteProjectUrl = `https://${remoteMatch[1]}.supabase.co`;
-    const batchSize = 100;
+    const batchSize = 50;
 
     // ─── INCREMENTAL MODE ───
     if (mode === "incremental") {

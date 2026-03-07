@@ -1,20 +1,18 @@
 /**
  * Market Search Proxy Edge Function
- * Unified search endpoint wrapping eBay and Amazon APIs
+ * Unified search endpoint wrapping DB-first search + eBay/Amazon fallback
+ * 
+ * NOW uses the same DB-first approach as catalog-search for fast, accurate results.
+ * Live API calls only happen when the database has insufficient results.
  * 
  * Features:
- * - Platform gating via feature_flags table
+ * - DB-first search from catalog_items (instant, 200K+ items)
+ * - French→English query translation
+ * - Query expansion for broader matches
+ * - Live eBay/Amazon fallback when DB < threshold
  * - Per-source caching with SHA-256 keys + stale-while-revalidate
- * - Admin-controlled TTL via admin_settings
  * - Rate limiting (60/5min per IP, 120/5min per user)
  * - Normalized response format
- * - Structured logging
- * 
- * Test examples:
- * - eBay only: /market-search-proxy?q=iphone&maxPrice=200&source=ebay&limit=24&page=1
- * - Both providers: /market-search-proxy?q=iphone&maxPrice=200&source=both
- * - iOS gating: /market-search-proxy?q=iphone&source=both&clientPlatform=ios
- * - Pagination: ?q=laptop&page=1&limit=24 then ?q=laptop&page=2&limit=24
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
@@ -34,9 +32,11 @@ import {
   SearchParams as CacheSearchParams,
   CachedPayload,
   ProxyCacheSettings,
-  CacheResult,
 } from "../_shared/proxyCache.ts";
 import { getClientIp } from "../_shared/rateLimiter.ts";
+import { searchDbFirst, DbFirstParams } from "../_shared/searchDbFirst.ts";
+import { FR_EN_MAP } from "../_shared/frenchEnglishMap.ts";
+import { isValidProductImageUrl } from "../_shared/imageValidator.ts";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -49,6 +49,9 @@ const CORS_HEADERS = {
 const RATE_LIMIT_WINDOW_MINUTES = 5;
 const RATE_LIMIT_IP = 60;
 const RATE_LIMIT_USER = 120;
+const DB_MIN_THRESHOLD = 5; // Below this, also try live APIs
+const DEFAULT_LIMIT = 60;
+const MAX_LIMIT = 200;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -70,12 +73,14 @@ interface SearchRequest {
 interface SearchResponse {
   query: string;
   sourceRequested: SourceType;
-  sourceServed: ("ebay" | "amazon")[];
+  sourceServed: ("ebay" | "amazon" | "db")[];
   page: number;
   limit: number;
+  total: number;
   hasMore: boolean;
   items: NormalizedItem[];
   timingsMs: {
+    db: number;
     ebay: number;
     amazon: number;
     total: number;
@@ -95,17 +100,51 @@ interface FeatureFlag {
   enabled: boolean;
 }
 
+// ─── Query Translation (French → English) ─────────────────────────────────────
+
+function translateQuery(q: string): string {
+  const words = q.toLowerCase().split(/\s+/);
+  const translated = words.map(w => {
+    for (const [fr, en] of Object.entries(FR_EN_MAP)) {
+      if (w === fr.toLowerCase()) return en;
+    }
+    return w;
+  });
+  const result = translated.join(" ");
+  return result !== q.toLowerCase() ? result : q;
+}
+
+// ─── DB item → NormalizedItem mapper ──────────────────────────────────────────
+
+function mapDbItemToNormalized(item: Record<string, unknown>): NormalizedItem | null {
+  const imageUrl = item.imageUrl as string || item.image_url as string || null;
+  if (!imageUrl || !isValidProductImageUrl(imageUrl)) return null;
+  const title = (item.title as string) || "";
+  if (!title) return null;
+  const price = Number(item.priceUsd || item.price_usd || 0);
+  if (price <= 0) return null;
+
+  return {
+    id: String(item.id || ""),
+    title,
+    price,
+    currency: (item.currency as string) || "USD",
+    imageUrl,
+    productUrl: (item.productUrl || item.product_url || "") as string,
+    source: ((item.provider as string) || "ebay") as "ebay" | "amazon",
+    condition: "used",
+  };
+}
+
 // ─── Main Handler ────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
   const startTime = Date.now();
 
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
   }
 
-  // Only allow GET
   if (req.method !== "GET") {
     return new Response(
       JSON.stringify({ error: "Method not allowed" }),
@@ -114,20 +153,13 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Initialize Supabase client (service role for accessing protected tables)
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Load cache settings from admin_settings
     const cacheSettings = await getProxyCacheSettings(supabase);
-    
-    console.log("[SEARCH_PROXY] settings", JSON.stringify({
-      ttlFresh: cacheSettings.searchTtlSeconds,
-      ttlStaleMax: cacheSettings.staleMaxSeconds,
-    }));
 
-    // 1. Parse and validate request
+    // 1. Parse request
     const params = parseRequest(req);
     if ("error" in params) {
       return new Response(
@@ -136,7 +168,9 @@ Deno.serve(async (req) => {
       );
     }
 
+    const requestId = crypto.randomUUID().slice(0, 8);
     console.log("[SEARCH_PROXY] request", JSON.stringify({
+      requestId,
       q: params.q,
       source: params.source,
       page: params.page,
@@ -144,121 +178,121 @@ Deno.serve(async (req) => {
       platform: params.clientPlatform,
     }));
 
-    // 2. Rate limit check
+    // 2. Rate limit
     const clientIp = getClientIp(req);
     const authHeader = req.headers.get("Authorization");
     const userId = await extractUserId(supabase, authHeader);
-
     const rateLimitResult = await checkRateLimit(supabase, clientIp, userId);
     if (!rateLimitResult.allowed) {
-      console.log("[SEARCH_PROXY] rate_limit", JSON.stringify({
-        allowed: false,
-        blockedBy: rateLimitResult.blockedBy,
-        key: rateLimitResult.key,
-      }));
       return new Response(
-        JSON.stringify({ 
-          error: "rate_limited",
-          retry_after: rateLimitResult.retryAfter,
-        }),
-        { 
-          status: 429, 
-          headers: {
-            ...CORS_HEADERS,
-            "Retry-After": rateLimitResult.retryAfter || "60",
-          },
-        }
+        JSON.stringify({ error: "rate_limited", retry_after: rateLimitResult.retryAfter }),
+        { status: 429, headers: { ...CORS_HEADERS, "Retry-After": rateLimitResult.retryAfter || "60" } }
       );
     }
 
-    console.log("[SEARCH_PROXY] rate_limit", JSON.stringify({
-      allowed: true,
-      remaining: rateLimitResult.remaining,
-      key: rateLimitResult.key,
-    }));
+    // 3. Feature flags
+    const enabledSources = await getEnabledSources(supabase, params.source, params.clientPlatform);
 
-    // 3. Feature flag check
-    const enabledSources = await getEnabledSources(
-      supabase,
-      params.source,
-      params.clientPlatform
-    );
-
-    console.log("[SEARCH_PROXY] feature_check", JSON.stringify({
-      amazon: enabledSources.includes("amazon"),
-      ebay: enabledSources.includes("ebay"),
-      platform: params.clientPlatform || "all",
-    }));
-
-    // If no sources enabled, return empty results
-    if (enabledSources.length === 0) {
-      const response: SearchResponse = {
-        query: params.q,
-        sourceRequested: params.source,
-        sourceServed: [],
-        page: params.page,
-        limit: params.limit,
-        hasMore: false,
-        items: [],
-        timingsMs: { ebay: 0, amazon: 0, total: Date.now() - startTime },
-        cache: { hit: false, ttlSeconds: cacheSettings.searchTtlSeconds },
-        errors: [{ source: "all", message: "No search providers available" }],
-      };
-      return new Response(JSON.stringify(response), { headers: CORS_HEADERS });
+    // 4. Translate query (French → English)
+    const translatedQ = translateQuery(params.q);
+    const qNorm = translatedQ.toLowerCase().replace(/\s+/g, " ").trim();
+    if (translatedQ !== params.q) {
+      console.log(`[SEARCH_PROXY] requestId=${requestId} translated: "${params.q}" → "${translatedQ}"`);
     }
 
-    // 4. Build search params for cache and providers
-    const searchParams: CacheSearchParams = {
-      q: params.q,
-      minPrice: params.minPrice,
-      maxPrice: params.maxPrice,
-      condition: params.condition,
-      sort: params.sort,
-      limit: params.limit,
-      page: params.page,
-      currency: params.currency,
-      country: params.country,
-      category: params.category,
-      clientPlatform: params.clientPlatform,
-    };
+    // 5. DB-FIRST SEARCH — query catalog_items for instant results
+    const dbTimings = { start: Date.now(), duration: 0 };
+    let dbItems: NormalizedItem[] = [];
+    let dbTotal = 0;
 
-    // 5. Check cache and fetch from providers with stale-while-revalidate
-    const results = await fetchFromProvidersWithSWR(
-      supabase,
-      enabledSources,
-      searchParams,
-      cacheSettings
-    );
+    try {
+      const dbParams: DbFirstParams = {
+        supabase,
+        qNorm,
+        aiExpandedTerms: null,
+        limit: params.limit,
+        offset: (params.page - 1) * params.limit,
+        categoryKey: params.category || null,
+        requestId,
+      };
 
-    // 6. Build response
-    const allItems: NormalizedItem[] = [];
-    const sourceServed: ("ebay" | "amazon")[] = [];
-    const errors: { source: string; message: string }[] = [];
-    let hasAnyMore = false;
+      const dbResult = await searchDbFirst(dbParams);
+      dbTimings.duration = Date.now() - dbTimings.start;
+
+      const rawDbItems = dbResult.items || dbResult.fallbackItems || [];
+      dbItems = rawDbItems
+        .map((item: Record<string, unknown>) => mapDbItemToNormalized(item))
+        .filter((item: NormalizedItem | null): item is NormalizedItem => item !== null);
+      dbTotal = dbResult.dbCount;
+
+      console.log(`[SEARCH_PROXY] requestId=${requestId} db_first tier=${dbResult.tier} count=${dbItems.length} dbTotal=${dbTotal} ms=${dbTimings.duration}`);
+    } catch (dbErr) {
+      dbTimings.duration = Date.now() - dbTimings.start;
+      console.error(`[SEARCH_PROXY] requestId=${requestId} db_first_error`, dbErr);
+    }
+
+    // 6. LIVE API FALLBACK — only if DB returned too few results
+    let liveItems: NormalizedItem[] = [];
     let anyCacheHit = false;
     let anyStale = false;
     let maxAgeSeconds = 0;
+    const liveTimings = { ebay: 0, amazon: 0 };
+    const errors: { source: string; message: string }[] = [];
 
-    for (const [source, result] of Object.entries(results)) {
-      if (result.items.length > 0 || !result.error) {
-        sourceServed.push(source as "ebay" | "amazon");
-        allItems.push(...result.items);
-        if (result.hasMore) hasAnyMore = true;
-        if (result.cacheHit) {
-          anyCacheHit = true;
-          if (result.stale) anyStale = true;
-          if (result.ageSeconds && result.ageSeconds > maxAgeSeconds) {
-            maxAgeSeconds = result.ageSeconds;
+    const needLiveFallback = dbItems.length < DB_MIN_THRESHOLD && enabledSources.length > 0;
+
+    if (needLiveFallback) {
+      console.log(`[SEARCH_PROXY] requestId=${requestId} live_fallback triggered (dbItems=${dbItems.length} < ${DB_MIN_THRESHOLD})`);
+
+      const searchParams: CacheSearchParams = {
+        q: translatedQ, // Use translated query for API calls
+        minPrice: params.minPrice,
+        maxPrice: params.maxPrice,
+        condition: params.condition,
+        sort: params.sort,
+        limit: Math.min(params.limit, 50), // Live APIs still capped at 50
+        page: params.page,
+        currency: params.currency,
+        country: params.country,
+        category: params.category,
+        clientPlatform: params.clientPlatform,
+      };
+
+      const results = await fetchFromProvidersWithSWR(supabase, enabledSources, searchParams, cacheSettings);
+
+      for (const [source, result] of Object.entries(results)) {
+        if (result.items.length > 0 || !result.error) {
+          liveItems.push(...result.items);
+          if (result.cacheHit) {
+            anyCacheHit = true;
+            if (result.stale) anyStale = true;
+            if (result.ageSeconds && result.ageSeconds > maxAgeSeconds) {
+              maxAgeSeconds = result.ageSeconds;
+            }
           }
+          liveTimings[source as "ebay" | "amazon"] = result.durationMs;
         }
-      }
-      if (result.error) {
-        errors.push({ source, message: result.error });
+        if (result.error) {
+          errors.push({ source, message: result.error });
+        }
       }
     }
 
-    // Sort combined results by relevance (interleave sources)
-    const sortedItems = interleaveResults(allItems, params.limit);
+    // 7. MERGE & DEDUPE — DB items first (more relevant), then live items
+    const seenIds = new Set(dbItems.map(i => i.id));
+    const uniqueLiveItems = liveItems.filter(i => {
+      const key = i.id || `${i.title}-${i.price}`;
+      if (seenIds.has(key)) return false;
+      seenIds.add(key);
+      return true;
+    });
+
+    const allItems = [...dbItems, ...uniqueLiveItems].slice(0, params.limit);
+    const totalCount = Math.max(dbTotal, allItems.length);
+    const sourceServed: ("ebay" | "amazon" | "db")[] = [];
+    if (dbItems.length > 0) sourceServed.push("db");
+    if (uniqueLiveItems.some(i => i.source === "ebay")) sourceServed.push("ebay");
+    if (uniqueLiveItems.some(i => i.source === "amazon")) sourceServed.push("amazon");
 
     const response: SearchResponse = {
       query: params.q,
@@ -266,31 +300,31 @@ Deno.serve(async (req) => {
       sourceServed,
       page: params.page,
       limit: params.limit,
-      hasMore: hasAnyMore,
-      items: sortedItems,
+      total: totalCount,
+      hasMore: totalCount > params.page * params.limit,
+      items: allItems,
       timingsMs: {
-        ebay: results.ebay?.durationMs || 0,
-        amazon: results.amazon?.durationMs || 0,
+        db: dbTimings.duration,
+        ebay: liveTimings.ebay,
+        amazon: liveTimings.amazon,
         total: Date.now() - startTime,
       },
       cache: {
-        hit: anyCacheHit,
+        hit: anyCacheHit || dbItems.length > 0,
         ttlSeconds: cacheSettings.searchTtlSeconds,
         ...(anyCacheHit && { stale: anyStale }),
-        ...(anyCacheHit && maxAgeSeconds > 0 && { ageSeconds: maxAgeSeconds }),
+        ...(maxAgeSeconds > 0 && { ageSeconds: maxAgeSeconds }),
       },
       errors,
     };
 
-    console.log("[SEARCH_PROXY] cache_returned", JSON.stringify({
-      hit: anyCacheHit,
-      stale: anyStale,
-      ageSeconds: maxAgeSeconds || undefined,
-    }));
-
     console.log("[SEARCH_PROXY] response", JSON.stringify({
-      items: sortedItems.length,
-      hasMore: hasAnyMore,
+      requestId,
+      items: allItems.length,
+      dbItems: dbItems.length,
+      liveItems: uniqueLiveItems.length,
+      total: totalCount,
+      hasMore: response.hasMore,
       totalMs: response.timingsMs.total,
       sourceServed,
     }));
@@ -300,7 +334,6 @@ Deno.serve(async (req) => {
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     console.error("[SEARCH_PROXY] error", errorMsg);
-    
     return new Response(
       JSON.stringify({ error: "Internal server error" }),
       { status: 500, headers: CORS_HEADERS }
@@ -314,136 +347,78 @@ function parseRequest(req: Request): SearchRequest | { error: string } {
   const url = new URL(req.url);
   const params = url.searchParams;
 
-  // Required: q
   const q = params.get("q")?.trim();
-  if (!q || q.length < 1) {
-    return { error: "Missing required parameter: q" };
-  }
-  if (q.length > 200) {
-    return { error: "Query too long (max 200 characters)" };
-  }
+  if (!q || q.length < 1) return { error: "Missing required parameter: q" };
+  if (q.length > 200) return { error: "Query too long (max 200 characters)" };
 
-  // Optional: source
   const sourceRaw = params.get("source") || "both";
   if (!["ebay", "amazon", "both"].includes(sourceRaw)) {
     return { error: "Invalid source. Must be: ebay, amazon, or both" };
   }
   const source = sourceRaw as SourceType;
 
-  // Optional: minPrice / maxPrice
   let minPrice: number | undefined;
   let maxPrice: number | undefined;
-  
   if (params.has("minPrice")) {
     minPrice = parseFloat(params.get("minPrice")!);
-    if (isNaN(minPrice) || minPrice < 0) {
-      return { error: "Invalid minPrice. Must be a positive number" };
-    }
+    if (isNaN(minPrice) || minPrice < 0) return { error: "Invalid minPrice" };
   }
-  
   if (params.has("maxPrice")) {
     maxPrice = parseFloat(params.get("maxPrice")!);
-    if (isNaN(maxPrice) || maxPrice < 0) {
-      return { error: "Invalid maxPrice. Must be a positive number" };
-    }
+    if (isNaN(maxPrice) || maxPrice < 0) return { error: "Invalid maxPrice" };
   }
-  
   if (minPrice !== undefined && maxPrice !== undefined && minPrice > maxPrice) {
     return { error: "minPrice cannot be greater than maxPrice" };
   }
 
-  // Optional: condition
   const conditionRaw = params.get("condition") || "any";
   if (!["new", "used", "refurbished", "any"].includes(conditionRaw)) {
-    return { error: "Invalid condition. Must be: new, used, refurbished, or any" };
+    return { error: "Invalid condition" };
   }
   const condition = conditionRaw as ConditionType;
 
-  // Optional: sort
   const sortRaw = params.get("sort") || "best";
   if (!["best", "price_asc", "price_desc", "newly_listed"].includes(sortRaw)) {
-    return { error: "Invalid sort. Must be: best, price_asc, price_desc, or newly_listed" };
+    return { error: "Invalid sort" };
   }
   const sort = sortRaw as SortType;
 
-  // Optional: limit (default 24, max 50)
-  let limit = 24;
+  // Increased limit: default 60, max 200
+  let limit = DEFAULT_LIMIT;
   if (params.has("limit")) {
     limit = parseInt(params.get("limit")!, 10);
-    if (isNaN(limit) || limit < 1 || limit > 50) {
-      return { error: "Invalid limit. Must be between 1 and 50" };
+    if (isNaN(limit) || limit < 1 || limit > MAX_LIMIT) {
+      limit = Math.min(Math.max(limit || DEFAULT_LIMIT, 1), MAX_LIMIT);
     }
   }
 
-  // Optional: page (default 1)
   let page = 1;
   if (params.has("page")) {
     page = parseInt(params.get("page")!, 10);
-    if (isNaN(page) || page < 1) {
-      return { error: "Invalid page. Must be a positive integer" };
-    }
+    if (isNaN(page) || page < 1) page = 1;
   }
 
-  // Optional: currency (default USD)
   const currency = params.get("currency")?.toUpperCase() || "USD";
-  if (currency.length !== 3) {
-    return { error: "Invalid currency. Must be a 3-letter code" };
-  }
-
-  // Optional: country (default US)
   const country = params.get("country")?.toUpperCase() || "US";
-  if (country.length !== 2) {
-    return { error: "Invalid country. Must be a 2-letter code" };
-  }
-
-  // Optional: category
   const category = params.get("category") || undefined;
 
-  // Optional: clientPlatform
   const platformRaw = params.get("clientPlatform");
   let clientPlatform: "ios" | "android" | "web" | undefined;
-  if (platformRaw) {
-    if (!["ios", "android", "web"].includes(platformRaw)) {
-      return { error: "Invalid clientPlatform. Must be: ios, android, or web" };
-    }
+  if (platformRaw && ["ios", "android", "web"].includes(platformRaw)) {
     clientPlatform = platformRaw as "ios" | "android" | "web";
   }
 
-  return {
-    q,
-    source,
-    minPrice,
-    maxPrice,
-    condition,
-    sort,
-    limit,
-    page,
-    currency,
-    country,
-    category,
-    clientPlatform,
-  };
+  return { q, source, minPrice, maxPrice, condition, sort, limit, page, currency, country, category, clientPlatform };
 }
 
 // ─── Authentication ──────────────────────────────────────────────────────────
 
-async function extractUserId(
-  // deno-lint-ignore no-explicit-any
-  supabase: any,
-  authHeader: string | null
-): Promise<string | null> {
-  if (!authHeader?.startsWith("Bearer ")) {
-    return null;
-  }
-
+async function extractUserId(supabase: any, authHeader: string | null): Promise<string | null> {
+  if (!authHeader?.startsWith("Bearer ")) return null;
   try {
     const token = authHeader.replace("Bearer ", "");
     const { data, error } = await supabase.auth.getUser(token);
-    
-    if (error || !data.user) {
-      return null;
-    }
-    
+    if (error || !data.user) return null;
     return data.user.id;
   } catch {
     return null;
@@ -466,101 +441,42 @@ interface RateLimitRpcResult {
   reset_at: string;
 }
 
-async function checkRateLimit(
-  // deno-lint-ignore no-explicit-any
-  supabase: any,
-  clientIp: string,
-  userId: string | null
-): Promise<RateLimitResult> {
+async function checkRateLimit(supabase: any, clientIp: string, userId: string | null): Promise<RateLimitResult> {
   try {
-    // Check IP rate limit
     const ipKey = `ip:${clientIp}:market-search`;
     const { data: ipResult, error: ipError } = await supabase.rpc("check_rate_limit", {
-      p_key: ipKey,
-      p_limit: RATE_LIMIT_IP,
-      p_window_minutes: RATE_LIMIT_WINDOW_MINUTES,
+      p_key: ipKey, p_limit: RATE_LIMIT_IP, p_window_minutes: RATE_LIMIT_WINDOW_MINUTES,
     }) as { data: RateLimitRpcResult | null; error: Error | null };
 
-    if (ipError) {
-      console.error("[SEARCH_PROXY] rate_limit_error", ipError.message);
-      // Fail open on error
-      return { allowed: true, key: ipKey };
-    }
+    if (ipError) return { allowed: true, key: ipKey };
+    if (!ipResult?.allowed) return { allowed: false, blockedBy: "ip", retryAfter: ipResult?.reset_at, key: ipKey };
 
-    if (!ipResult?.allowed) {
-      return {
-        allowed: false,
-        blockedBy: "ip",
-        retryAfter: ipResult?.reset_at,
-        key: ipKey,
-      };
-    }
-
-    // If authenticated, also check user rate limit
     if (userId) {
       const userKey = `user:${userId}:market-search`;
       const { data: userResult, error: userError } = await supabase.rpc("check_rate_limit", {
-        p_key: userKey,
-        p_limit: RATE_LIMIT_USER,
-        p_window_minutes: RATE_LIMIT_WINDOW_MINUTES,
+        p_key: userKey, p_limit: RATE_LIMIT_USER, p_window_minutes: RATE_LIMIT_WINDOW_MINUTES,
       }) as { data: RateLimitRpcResult | null; error: Error | null };
 
-      if (userError) {
-        console.error("[SEARCH_PROXY] rate_limit_error", userError.message);
-        // Fail open on error
-        return { allowed: true, remaining: ipResult.remaining, key: userKey };
-      }
-
-      if (!userResult?.allowed) {
-        return {
-          allowed: false,
-          blockedBy: "user",
-          retryAfter: userResult?.reset_at,
-          key: userKey,
-        };
-      }
-
-      return { 
-        allowed: true, 
-        remaining: Math.min(ipResult.remaining, userResult.remaining),
-        key: userKey,
-      };
+      if (userError) return { allowed: true, remaining: ipResult.remaining, key: userKey };
+      if (!userResult?.allowed) return { allowed: false, blockedBy: "user", retryAfter: userResult?.reset_at, key: userKey };
+      return { allowed: true, remaining: Math.min(ipResult.remaining, userResult.remaining), key: userKey };
     }
 
-    return { 
-      allowed: true, 
-      remaining: ipResult.remaining,
-      key: ipKey,
-    };
-  } catch (err) {
-    console.error("[SEARCH_PROXY] rate_limit_exception", err);
-    // Fail open on exception
+    return { allowed: true, remaining: ipResult.remaining, key: ipKey };
+  } catch {
     return { allowed: true };
   }
 }
 
 // ─── Feature Flags ───────────────────────────────────────────────────────────
 
-interface FeatureFlagRow {
-  key: string;
-  platform: string;
-  enabled: boolean;
-}
+interface FeatureFlagRow { key: string; platform: string; enabled: boolean; }
 
-async function getEnabledSources(
-  // deno-lint-ignore no-explicit-any
-  supabase: any,
-  requestedSource: SourceType,
-  clientPlatform?: string
-): Promise<("ebay" | "amazon")[]> {
+async function getEnabledSources(supabase: any, requestedSource: SourceType, clientPlatform?: string): Promise<("ebay" | "amazon")[]> {
   try {
-    // Build list of platforms to check
     const platforms = ["all"];
-    if (clientPlatform) {
-      platforms.push(clientPlatform);
-    }
+    if (clientPlatform) platforms.push(clientPlatform);
 
-    // Fetch all relevant flags
     const { data: flags, error } = await supabase
       .from("feature_flags")
       .select("key, platform, enabled")
@@ -568,52 +484,23 @@ async function getEnabledSources(
       .in("platform", platforms) as { data: FeatureFlagRow[] | null; error: Error | null };
 
     if (error) {
-      console.error("[SEARCH_PROXY] feature_flags_error", error.message);
-      // Default to both enabled on error
-      return requestedSource === "ebay" ? ["ebay"] : 
-             requestedSource === "amazon" ? ["amazon"] : 
-             ["ebay", "amazon"];
+      return requestedSource === "ebay" ? ["ebay"] : requestedSource === "amazon" ? ["amazon"] : ["ebay", "amazon"];
     }
 
-    // Resolve flags (platform-specific overrides 'all')
     const resolveFlag = (key: string): boolean => {
       const allFlag = flags?.find((f: FeatureFlagRow) => f.key === key && f.platform === "all");
-      const platformFlag = clientPlatform 
-        ? flags?.find((f: FeatureFlagRow) => f.key === key && f.platform === clientPlatform)
-        : null;
-      
-      // Platform-specific takes precedence
-      if (platformFlag) {
-        return platformFlag.enabled;
-      }
-      // Fall back to 'all' flag
-      if (allFlag) {
-        return allFlag.enabled;
-      }
-      // Default to enabled if no flag exists
+      const platformFlag = clientPlatform ? flags?.find((f: FeatureFlagRow) => f.key === key && f.platform === clientPlatform) : null;
+      if (platformFlag) return platformFlag.enabled;
+      if (allFlag) return allFlag.enabled;
       return true;
     };
 
-    const amazonEnabled = resolveFlag("enable_amazon");
-    const ebayEnabled = resolveFlag("enable_ebay");
-
-    // Filter based on requested source
     const sources: ("ebay" | "amazon")[] = [];
-    
-    if (requestedSource === "both" || requestedSource === "ebay") {
-      if (ebayEnabled) sources.push("ebay");
-    }
-    if (requestedSource === "both" || requestedSource === "amazon") {
-      if (amazonEnabled) sources.push("amazon");
-    }
-
+    if ((requestedSource === "both" || requestedSource === "ebay") && resolveFlag("enable_ebay")) sources.push("ebay");
+    if ((requestedSource === "both" || requestedSource === "amazon") && resolveFlag("enable_amazon")) sources.push("amazon");
     return sources;
-  } catch (err) {
-    console.error("[SEARCH_PROXY] feature_flags_exception", err);
-    // Default to requested sources on exception
-    return requestedSource === "ebay" ? ["ebay"] : 
-           requestedSource === "amazon" ? ["amazon"] : 
-           ["ebay", "amazon"];
+  } catch {
+    return requestedSource === "ebay" ? ["ebay"] : requestedSource === "amazon" ? ["amazon"] : ["ebay", "amazon"];
   }
 }
 
@@ -641,31 +528,15 @@ async function fetchFromProvidersWithSWR(
     amazon: { items: [], total: 0, hasMore: false, durationMs: 0, error: null, cacheHit: false },
   };
 
-  // Fetch from each enabled source in parallel
   const fetchPromises: Promise<void>[] = [];
 
   for (const source of enabledSources) {
     fetchPromises.push(
       (async () => {
         const cacheKey = await generateCacheKey(source, params);
-        
-        // Check cache with stale-while-revalidate
-        const cacheResult = await getCacheWithAge(
-          supabase,
-          cacheKey,
-          settings.searchTtlSeconds,
-          settings.staleMaxSeconds
-        );
-        
+        const cacheResult = await getCacheWithAge(supabase, cacheKey, settings.searchTtlSeconds, settings.staleMaxSeconds);
+
         if (cacheResult) {
-          // Cache hit (fresh or stale)
-          console.log("[SEARCH_PROXY] cache_hit", JSON.stringify({
-            source,
-            cacheKey: cacheKey.slice(0, 20),
-            stale: cacheResult.isStale,
-            ageSeconds: cacheResult.ageSeconds,
-          }));
-          
           results[source] = {
             items: cacheResult.payload.items as NormalizedItem[],
             total: cacheResult.payload.total,
@@ -676,76 +547,37 @@ async function fetchFromProvidersWithSWR(
             stale: cacheResult.isStale,
             ageSeconds: cacheResult.ageSeconds,
           };
-          
-          // If stale, trigger background refresh (don't await)
+
           if (cacheResult.isStale) {
-            console.log("[SEARCH_PROXY] refresh_started", JSON.stringify({
-              source,
-              cacheKey: cacheKey.slice(0, 20),
-            }));
-            
-            // Fire and forget - background refresh
-            triggerBackgroundRefresh(
-              supabase,
-              source,
-              params,
-              cacheKey,
-              settings.searchTtlSeconds
-            );
+            triggerBackgroundRefresh(supabase, source, params, cacheKey, settings.searchTtlSeconds);
           }
-          
           return;
         }
 
-        console.log("[SEARCH_PROXY] cache_miss", JSON.stringify({
-          source,
-          cacheKey: cacheKey.slice(0, 20),
-        }));
-
-        // Fetch from provider
-        const startTime = Date.now();
+        const fetchStart = Date.now();
         let providerResult;
         if (source === "ebay") {
           providerResult = await searchEbayNormalized(supabase, {
-            q: params.q,
-            minPrice: params.minPrice,
-            maxPrice: params.maxPrice,
-            condition: params.condition as ConditionType,
-            sort: params.sort as SortType,
-            limit: params.limit,
-            page: params.page,
-            currency: params.currency,
-            country: params.country,
-            category: params.category,
+            q: params.q, minPrice: params.minPrice, maxPrice: params.maxPrice,
+            condition: params.condition as ConditionType, sort: params.sort as SortType,
+            limit: params.limit, page: params.page, currency: params.currency,
+            country: params.country, category: params.category,
           });
         } else {
           providerResult = await searchAmazonNormalized({
-            q: params.q,
-            minPrice: params.minPrice,
-            maxPrice: params.maxPrice,
-            condition: params.condition as ConditionType,
-            sort: params.sort as SortType,
-            limit: params.limit,
-            page: params.page,
-            currency: params.currency,
-            country: params.country,
-            category: params.category,
+            q: params.q, minPrice: params.minPrice, maxPrice: params.maxPrice,
+            condition: params.condition as ConditionType, sort: params.sort as SortType,
+            limit: params.limit, page: params.page, currency: params.currency,
+            country: params.country, category: params.category,
           });
         }
 
-        results[source] = {
-          ...providerResult,
-          durationMs: Date.now() - startTime,
-          cacheHit: false,
-        };
+        results[source] = { ...providerResult, durationMs: Date.now() - fetchStart, cacheHit: false };
 
-        // Cache successful results
         if (!providerResult.error && providerResult.items.length > 0) {
           const cachePayload: CachedPayload = {
-            items: providerResult.items,
-            total: providerResult.total,
-            hasMore: providerResult.hasMore,
-            fetchedAt: new Date().toISOString(),
+            items: providerResult.items, total: providerResult.total,
+            hasMore: providerResult.hasMore, fetchedAt: new Date().toISOString(),
           };
           await setCachedResult(supabase, cacheKey, source, cachePayload, settings.searchTtlSeconds);
         }
@@ -754,108 +586,41 @@ async function fetchFromProvidersWithSWR(
   }
 
   await Promise.all(fetchPromises);
-
   return results;
 }
 
-/**
- * Trigger a background refresh for stale cache entries
- * This is fire-and-forget - we don't wait for it to complete
- */
 function triggerBackgroundRefresh(
-  supabase: SupabaseClient,
-  source: "ebay" | "amazon",
-  params: CacheSearchParams,
-  cacheKey: string,
-  ttlSeconds: number
+  supabase: SupabaseClient, source: "ebay" | "amazon",
+  params: CacheSearchParams, cacheKey: string, ttlSeconds: number
 ): void {
-  // Execute refresh without blocking
   (async () => {
     try {
       const startTime = Date.now();
       let providerResult;
-      
       if (source === "ebay") {
         providerResult = await searchEbayNormalized(supabase, {
-          q: params.q,
-          minPrice: params.minPrice,
-          maxPrice: params.maxPrice,
-          condition: params.condition as ConditionType,
-          sort: params.sort as SortType,
-          limit: params.limit,
-          page: params.page,
-          currency: params.currency,
-          country: params.country,
-          category: params.category,
+          q: params.q, minPrice: params.minPrice, maxPrice: params.maxPrice,
+          condition: params.condition as ConditionType, sort: params.sort as SortType,
+          limit: params.limit, page: params.page, currency: params.currency,
+          country: params.country, category: params.category,
         });
       } else {
         providerResult = await searchAmazonNormalized({
-          q: params.q,
-          minPrice: params.minPrice,
-          maxPrice: params.maxPrice,
-          condition: params.condition as ConditionType,
-          sort: params.sort as SortType,
-          limit: params.limit,
-          page: params.page,
-          currency: params.currency,
-          country: params.country,
-          category: params.category,
+          q: params.q, minPrice: params.minPrice, maxPrice: params.maxPrice,
+          condition: params.condition as ConditionType, sort: params.sort as SortType,
+          limit: params.limit, page: params.page, currency: params.currency,
+          country: params.country, category: params.category,
         });
       }
-      
-      const durationMs = Date.now() - startTime;
-      
       if (!providerResult.error && providerResult.items.length > 0) {
         const cachePayload: CachedPayload = {
-          items: providerResult.items,
-          total: providerResult.total,
-          hasMore: providerResult.hasMore,
-          fetchedAt: new Date().toISOString(),
+          items: providerResult.items, total: providerResult.total,
+          hasMore: providerResult.hasMore, fetchedAt: new Date().toISOString(),
         };
         await setCachedResult(supabase, cacheKey, source, cachePayload, ttlSeconds);
-        
-        console.log("[SEARCH_PROXY] refresh_done", JSON.stringify({
-          source,
-          items: providerResult.items.length,
-          durationMs,
-        }));
-      } else {
-        console.log("[SEARCH_PROXY] refresh_failed", JSON.stringify({
-          source,
-          error: providerResult.error?.slice(0, 100),
-          durationMs,
-        }));
       }
     } catch (err) {
       console.error("[SEARCH_PROXY] refresh_error", err);
     }
   })();
-}
-
-// ─── Result Interleaving ─────────────────────────────────────────────────────
-
-/**
- * Interleave results from different sources to provide variety
- * Uses round-robin approach: ebay[0], amazon[0], ebay[1], amazon[1], ...
- */
-function interleaveResults(
-  items: NormalizedItem[],
-  limit: number
-): NormalizedItem[] {
-  const ebayItems = items.filter(i => i.source === "ebay");
-  const amazonItems = items.filter(i => i.source === "amazon");
-  
-  const result: NormalizedItem[] = [];
-  const maxLen = Math.max(ebayItems.length, amazonItems.length);
-  
-  for (let i = 0; i < maxLen && result.length < limit; i++) {
-    if (i < ebayItems.length) {
-      result.push(ebayItems[i]);
-    }
-    if (result.length < limit && i < amazonItems.length) {
-      result.push(amazonItems[i]);
-    }
-  }
-  
-  return result.slice(0, limit);
 }

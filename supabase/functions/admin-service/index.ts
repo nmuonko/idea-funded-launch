@@ -797,6 +797,14 @@ serve(async (req) => {
         return handleResetSection(auth, body);
       case 'catalog_settings':
         return handleCatalogSettings(auth, body, req);
+      case 'predict_ltv':
+        return proxyAdminToFunction('predict-customer-ltv', req, body);
+      case 'ai_actions_review':
+        return proxyAdminToFunction('get-ai-actions-for-review', req, body);
+      case 'execute_ai_action':
+        return proxyAdminToFunction('execute-ai-action', req, body);
+      case 'reloadly_topup':
+        return proxyAdminToFunction('reloadly-topup', req, body);
       default:
         return jsonRes({ ok: false, error: `Unknown action "${action}"` }, 400);
     }

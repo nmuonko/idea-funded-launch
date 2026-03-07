@@ -18,10 +18,12 @@
 
 **Net reduction so far: 32 Edge Functions deleted**
 
-### Remaining: Routers still using proxy pattern
+### Kept as Proxy (by decision)
+- **`payments-core`** — proxies 9 functions (too complex/risky to inline ~3,500 lines of payment logic)
+- **`payments-provider`** — proxies 10 functions (same payment complexity concern)
+
+### Remaining: Router still using proxy pattern
 - **`email-service`** — proxies 25 send-* functions
-- **`payments-core`** — proxies 9 functions
-- **`payments-provider`** — proxies 10 functions
 
 ### Phase 2 (future): ~20 standalone functions still called directly from frontend
 ### Phase 3 (future): Delete any unused orphan functions

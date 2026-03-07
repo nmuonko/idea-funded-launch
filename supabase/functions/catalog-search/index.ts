@@ -65,8 +65,8 @@ const PAGE0_DEADLINE_MS = 8000;  // Hard deadline for page 0 (generous for both 
 const TOTAL_BUDGET_MS = 10000;   // Budget for page > 0
 const FAST_MIN_FIRST_PAGE = 60;  // Return page 0 as soon as we have this many items
 const REWRITE_BUDGET_MS = 600;   // Tighter rewrite budget
-const DB_BUDGET_MS_P0 = 800;     // DB budget on page 0 (generous — DB is fast and providers may be down)
-const DB_BUDGET_MS = 800;        // DB budget on page > 0
+const DB_BUDGET_MS_P0 = 1800;    // DB budget on page 0 (allow DB-first to complete for high-volume queries)
+const DB_BUDGET_MS = 1500;       // DB budget on page > 0
 const AMAZON_TIMEOUT_P0 = 5000;  // Amazon-specific timeout on page 0
 const EBAY_TIMEOUT_P0 = 5000;    // eBay-specific timeout on page 0
 const PROVIDER_TIMEOUT_PN = 6000; // Provider timeout on page > 0
@@ -810,6 +810,8 @@ Deno.serve(async (req: Request) => {
 
     let dbFallbackItems: any[] | null = null;
     let dbCount = 0;
+    let pendingDbWork: Promise<any> | null = null;
+    let dbTimedOut = false;
     const dbFirstStart = Date.now();
 
     // Always attempt DB-first on ALL pages, including direct queries.
@@ -817,12 +819,13 @@ Deno.serve(async (req: Request) => {
     // For pages > 0, we offset the DB query to return the next batch.
     {
       try {
-        const dbTimeout = new Promise<null>((r) => setTimeout(() => r(null), isFirstPage ? DB_BUDGET_MS_P0 : DB_BUDGET_MS));
+        const dbBudgetMs = isFirstPage ? DB_BUDGET_MS_P0 : DB_BUDGET_MS;
+        const dbTimeout = new Promise<null>((r) => setTimeout(() => r(null), dbBudgetMs));
         const dbOffset = page * limit;
-        const dbWork = searchDbFirst({
+        pendingDbWork = searchDbFirst({
           supabase, qNorm: dbQuery, aiExpandedTerms, limit, offset: dbOffset, categoryKey, requestId,
         });
-        const dbResult = await Promise.race([dbWork, dbTimeout]);
+        const dbResult = await Promise.race([pendingDbWork, dbTimeout]);
         
         if (dbResult) {
           dbCount = dbResult.dbCount;
@@ -850,7 +853,8 @@ Deno.serve(async (req: Request) => {
             dbFallbackItems = dbResult.fallbackItems;
           }
         } else {
-          console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_first_timeout after ${DB_BUDGET_MS}ms`);
+          dbTimedOut = true;
+          console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_first_timeout after ${dbBudgetMs}ms`);
         }
       } catch (dbErr) {
         console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_first_error:`, (dbErr as Error).message);
@@ -1319,6 +1323,32 @@ Deno.serve(async (req: Request) => {
     // ─── MERGE DB-FIRST ITEMS WITH PROVIDER RESULTS ──────────────────────────
     // Deduplicate by provider:id to combine DB + live results
     let mergedItems = [...mixResult.items] as CatalogItem[];
+
+    // If DB timed out on the initial budget, wait a short grace window and salvage DB results
+    // so direct phone queries don't get stuck with a tiny provider-only page.
+    if (!dbFallbackItems && dbTimedOut && pendingDbWork) {
+      const lateDbBudgetMs = isFirstPage ? 1200 : 900;
+      const lateDbResult = await Promise.race([
+        pendingDbWork.catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), lateDbBudgetMs)),
+      ]);
+
+      if (lateDbResult?.items?.length) {
+        const dbQueryTokens = dbQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
+        const lateScoreResult = scoreAndRankItems(
+          lateDbResult.items as unknown as Record<string, unknown>[],
+          effectiveIntent,
+          dbQueryTokens,
+          Math.max(limit, 400),
+        );
+        if (lateScoreResult.items.length > 0) {
+          dbFallbackItems = lateScoreResult.items as any[];
+          dbCount = Math.max(dbCount, Number(lateDbResult.dbCount || 0));
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} db_late_merge: recovered=${dbFallbackItems.length} within ${lateDbBudgetMs}ms grace`);
+        }
+      }
+    }
+
     if (dbFallbackItems && dbFallbackItems.length > 0) {
       const existingKeys = new Set(mergedItems.map(i => `${(i as any).provider}:${i.id}`));
       const newDbItems = dbFallbackItems.filter((item: any) => !existingKeys.has(`${item.provider}:${item.id}`));

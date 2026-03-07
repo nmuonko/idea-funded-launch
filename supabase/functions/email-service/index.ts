@@ -93,6 +93,7 @@ const TYPE_TO_FUNCTION: Record<string, string> = {
   customer_email: 'send-customer-email',
   application_email: 'send-application-emails',
   test_email: 'send-test-email',
+  saved_cart_reminders: 'saved-cart-reminders',
 
   // Push notifications
   push_notification: 'send-push-notification',

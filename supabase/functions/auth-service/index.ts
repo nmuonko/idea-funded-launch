@@ -611,6 +611,7 @@ serve(async (req) => {
       case 'get_profile': return handleGetProfile(req);
       case 'update_profile': return handleUpdateProfile(payload, req);
       case 'update_profile_web': return handleUpdateProfileWeb(payload, req);
+      case 'create_referrer': return proxyAuthToFunction('create-referrer', req, body);
       default: return jsonRes({ ok: false, error: 'Unknown action' }, 400);
     }
   } catch (err: any) {

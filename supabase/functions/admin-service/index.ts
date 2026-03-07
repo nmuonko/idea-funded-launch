@@ -823,6 +823,8 @@ serve(async (req) => {
         return proxyAdminToFunction('get-ai-actions-for-review', req, body);
       case 'execute_ai_action':
         return proxyAdminToFunction('execute-ai-action', req, body);
+      case 'ai_order_assistant':
+        return proxyAdminToFunction('ai-order-assistant', req, body);
       case 'reloadly_topup':
         return proxyAdminToFunction('reloadly-topup', req, body);
       default:

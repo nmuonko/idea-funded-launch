@@ -69,8 +69,9 @@ export function AIActionsPanel() {
 
     setExecuting(true);
     try {
-      const { data, error } = await supabase.functions.invoke('execute-ai-action', {
+      const { data, error } = await supabase.functions.invoke('admin-service', {
         body: {
+          action: 'execute_ai_action',
           actionId: selectedAction.id,
           decision,
           modifiedContent: modifiedContent || undefined,

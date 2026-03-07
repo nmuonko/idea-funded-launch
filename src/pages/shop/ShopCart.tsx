@@ -57,7 +57,7 @@ export default function ShopCart() {
   const requestVehicleQuote = async () => {
     setRequestingQuote(true);
     try {
-      const { data, error } = await supabase.functions.invoke('mobile-request-quote');
+      const { data, error } = await supabase.functions.invoke('mobile-orders', { body: { action: 'request_quote' } });
       if (error) throw error;
       // Optimistically update UI immediately
       markQuoteRequested();

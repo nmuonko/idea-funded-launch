@@ -340,8 +340,8 @@ export default function ActiveCartsContent() {
                           onClick={async () => {
                             setSendingReminder(cart.userId);
                             try {
-                              await supabase.functions.invoke('saved-cart-reminders', {
-                                body: { targetUserId: cart.userId },
+                              await supabase.functions.invoke('email-service', {
+                                body: { type: 'saved_cart_reminders', targetUserId: cart.userId },
                               });
                             } catch (e) {
                               console.error(e);

@@ -25,10 +25,11 @@ export function AIAssistantPanel({ order }: AIAssistantPanelProps) {
       setActiveAction(action);
       setResult('');
 
-      const { data, error } = await supabase.functions.invoke('ai-order-assistant', {
+      const { data, error } = await supabase.functions.invoke('admin-service', {
         body: {
+          action: 'ai_assistant',
           orderId: order.id,
-          action,
+          aiAction: action,
           customPrompt: action === 'DRAFT_EMAIL' ? customPrompt : undefined
         }
       });

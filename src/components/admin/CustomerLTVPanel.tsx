@@ -42,8 +42,8 @@ export default function CustomerLTVPanel() {
       setLoading(true);
       setPrediction(null);
 
-      const { data, error } = await supabase.functions.invoke('predict-customer-ltv', {
-        body: { userId: userId.trim() },
+      const { data, error } = await supabase.functions.invoke('admin-service', {
+        body: { action: 'predict_ltv', userId: userId.trim() },
       });
 
       if (error) throw error;

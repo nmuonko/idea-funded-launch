@@ -207,8 +207,8 @@ export default function Checkout() {
       
       console.log('[WEB_CHECKOUT] Checkout payload:', checkoutPayload);
       
-      const { data, error } = await supabase.functions.invoke('mobile-checkout', {
-        body: checkoutPayload,
+      const { data, error } = await supabase.functions.invoke('mobile-orders', {
+        body: { action: 'checkout', ...checkoutPayload },
       });
 
       console.log('[WEB_CHECKOUT] Checkout response:', { data, error });

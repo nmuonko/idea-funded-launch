@@ -771,7 +771,7 @@ serve(async (req) => {
     const action = body.action;
 
     if (!action || typeof action !== 'string') {
-      return jsonRes({ ok: false, error: 'Missing "action" field. Supported: order_action, delete_order, bulk_delete_orders, update_item_status, invite_user, system_health, get_carts, ai_assistant, reset_section, catalog_settings' }, 400);
+      return jsonRes({ ok: false, error: 'Missing "action" field. Supported: order_action, delete_order, bulk_delete_orders, update_item_status, invite_user, system_health, get_carts, ai_assistant, reset_section, catalog_settings, predict_ltv, ai_actions_review, execute_ai_action, reloadly_topup' }, 400);
     }
 
     console.log(`[admin-service] action="${action}" user=${auth.user.email}`);

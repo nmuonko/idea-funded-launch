@@ -52,6 +52,11 @@ function isLowResThumbnail(url: string): boolean {
 export function resizeImageUrl(url: string, targetSize: number): string {
   if (!url || url === '/placeholder.svg') return url;
 
+  // SHEIN: strip _thumbnail_NNNxNNN suffix to get full-size image
+  if (url.includes('ltwebstatic.com') && /_thumbnail_\d+x\d+/i.test(url)) {
+    url = url.replace(/_thumbnail_\d+x\d+/i, '');
+  }
+
   // Guard: don't fake-upscale known tiny thumbnails
   const ebayMatch = url.match(/s-l(\d+)/i);
   if (ebayMatch) {

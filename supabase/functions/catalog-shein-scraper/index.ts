@@ -173,9 +173,8 @@ function extractSheinProductId(url: string): string | null {
     if (match) return `p${match[1]}`;
     const id = u.searchParams.get("id");
     if (id && /^\d{5,}$/.test(id)) return `p${id}`;
-    // Fallback: use the full path as ID
-    const pathId = u.pathname.replace(/\//g, "_").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 60);
-    if (pathId.length > 10) return `path_${pathId}`;
+    // REMOVED: path_ fallback was ingesting category pages as products
+    // Only accept real product IDs (numeric SKUs)
     return null;
   } catch { return null; }
 }

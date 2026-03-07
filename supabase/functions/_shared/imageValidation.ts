@@ -59,6 +59,10 @@ export const BLOCKED_IMAGE_PATTERNS: RegExp[] = [
   /shein.*logo/i,
   /sheinsz\.ltwebstatic\.com.*logo/i,
   /img\.ltwebstatic\.com.*logo/i,
+  // SHEIN known category placeholder image
+  /1585556531965e5d98ef5a432eab61147c16af31c6/i,
+  // SHEIN color swatch images (tiny solid-color squares)
+  /ltwebstatic\.com\/v4\/p\/ccc\//i,
   
   // Macy's generic images
   /macys.*logo/i,
@@ -152,6 +156,13 @@ function upgradeToHighRes(url: string): string {
     if (upgraded !== url) {
       console.log("[IMAGE_UPGRADE] Amazon:", url.substring(0, 50), "→ high-res");
     }
+    return upgraded;
+  }
+  
+  // SHEIN images: strip thumbnail suffix for full-size
+  if (url.includes("ltwebstatic.com") && /_thumbnail_\d+x\d+/i.test(url)) {
+    const upgraded = url.replace(/_thumbnail_\d+x\d+/i, '');
+    console.log("[IMAGE_UPGRADE] SHEIN:", url.substring(0, 50), "→ full-size");
     return upgraded;
   }
   

@@ -545,11 +545,31 @@ async function handleUpdateProfileWeb(body: any, req: Request) {
   });
 }
 
+// ─── Proxy Helper ──────────────────────────────────────
+
+async function proxyAuthToFunction(functionName: string, req: Request, body: any): Promise<Response> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const headers = new Headers();
+  const authHeader = req.headers.get('Authorization');
+  if (authHeader) headers.set('Authorization', authHeader);
+  headers.set('Content-Type', 'application/json');
+  headers.set('apikey', Deno.env.get('SUPABASE_ANON_KEY') || '');
+  const { action: _a, ...payload } = body;
+  const resp = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+    method: 'POST', headers, body: JSON.stringify(payload),
+  });
+  const text = await resp.text();
+  return new Response(text, {
+    status: resp.status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
 // ═══════════════════════════════════════════════════════
 // MAIN ROUTER
 // ═══════════════════════════════════════════════════════
 
-const SUPPORTED_ACTIONS = ['register', 'login', 'me', 'check_verified', 'resend_verification', 'get_profile', 'update_profile', 'update_profile_web'];
+const SUPPORTED_ACTIONS = ['register', 'login', 'me', 'check_verified', 'resend_verification', 'get_profile', 'update_profile', 'update_profile_web', 'create_referrer'];
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {

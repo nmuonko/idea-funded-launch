@@ -52,7 +52,7 @@ function hasCronSecret(req: Request): boolean {
 }
 
 // Email types that can be triggered by cron jobs
-const CRON_TYPES = new Set(['cart_reminder', 'abandoned_cart', 'abandoned_cart_recovery']);
+const CRON_TYPES = new Set(['cart_reminder', 'abandoned_cart', 'abandoned_cart_recovery', 'saved_cart_reminders']);
 
 const TYPE_TO_FUNCTION: Record<string, string> = {
   // Order lifecycle

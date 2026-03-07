@@ -31,8 +31,9 @@ const BLOCKED_TOKENS = [
   'free-shipping', 'free_shipping', 'best-seller', 'best_seller',
   'warranty-badge', 'warranty_badge', 'money-back', 'money_back',
   'trust-badge', 'trust_badge', 'guarantee-badge',
-  // SHEIN promo paths & known placeholder
+  // SHEIN promo paths, swatches & known placeholder
   'ltwebstatic.com/she_dist/', 'ltwebstatic.com/images/bg/',
+  'images3_ccc/', // SHEIN color swatch images
   '1585556531965e5d98ef5a432eab61147c16af31c6', // SHEIN category placeholder
   // Filename-level markers (not domain)
   '-logo.', '_logo.', '-badge.', '_badge.', '-stamp.', '_stamp.',

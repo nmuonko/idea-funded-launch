@@ -25,6 +25,30 @@ import {
   corsHeaders,
 } from "../_shared/auth.ts";
 
+// ─── Proxy Helper (for actions not yet inlined) ──────────
+
+async function proxyToFunction(functionName: string, req: Request, body: unknown): Promise<Response> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const headers = new Headers();
+  const authHeader = req.headers.get('Authorization');
+  if (authHeader) headers.set('Authorization', authHeader);
+  headers.set('Content-Type', 'application/json');
+  headers.set('apikey', Deno.env.get('SUPABASE_ANON_KEY') || '');
+  for (const h of ['x-device-id', 'user-agent', 'x-client-info']) {
+    const v = req.headers.get(h);
+    if (v) headers.set(h, v);
+  }
+  const { action: _a, ...payload } = body as any;
+  const resp = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+    method: 'POST', headers, body: JSON.stringify(payload),
+  });
+  const text = await resp.text();
+  return new Response(text, {
+    status: resp.status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
 // ─── Shared Helpers ───────────────────────────────────────
 
 const round2 = (n: number) => Math.round(n * 100) / 100;

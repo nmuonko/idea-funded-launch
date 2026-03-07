@@ -810,6 +810,8 @@ Deno.serve(async (req: Request) => {
 
     let dbFallbackItems: any[] | null = null;
     let dbCount = 0;
+    let pendingDbWork: Promise<any> | null = null;
+    let dbTimedOut = false;
     const dbFirstStart = Date.now();
 
     // Always attempt DB-first on ALL pages, including direct queries.
@@ -817,12 +819,13 @@ Deno.serve(async (req: Request) => {
     // For pages > 0, we offset the DB query to return the next batch.
     {
       try {
-        const dbTimeout = new Promise<null>((r) => setTimeout(() => r(null), isFirstPage ? DB_BUDGET_MS_P0 : DB_BUDGET_MS));
+        const dbBudgetMs = isFirstPage ? DB_BUDGET_MS_P0 : DB_BUDGET_MS;
+        const dbTimeout = new Promise<null>((r) => setTimeout(() => r(null), dbBudgetMs));
         const dbOffset = page * limit;
-        const dbWork = searchDbFirst({
+        pendingDbWork = searchDbFirst({
           supabase, qNorm: dbQuery, aiExpandedTerms, limit, offset: dbOffset, categoryKey, requestId,
         });
-        const dbResult = await Promise.race([dbWork, dbTimeout]);
+        const dbResult = await Promise.race([pendingDbWork, dbTimeout]);
         
         if (dbResult) {
           dbCount = dbResult.dbCount;
@@ -850,7 +853,8 @@ Deno.serve(async (req: Request) => {
             dbFallbackItems = dbResult.fallbackItems;
           }
         } else {
-          console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_first_timeout after ${DB_BUDGET_MS}ms`);
+          dbTimedOut = true;
+          console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_first_timeout after ${dbBudgetMs}ms`);
         }
       } catch (dbErr) {
         console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_first_error:`, (dbErr as Error).message);

@@ -21,5 +21,11 @@ All Batches 2–6 use thin router/proxy pattern with in-code JWT auth gates.
 - **Frontend updated**: `CategoryTabs.tsx`, `HomeRecipes.tsx`, `CatalogSourcesSettings.tsx`
 - **Kept standalone** (performance-critical, large): `catalog-search`, `catalog-product`, `catalog-home`, `catalog-category`, `catalog-collection`, `catalog-filters`, `catalog-offers`
 
+### Lovable Cloud Migration — Complete
+- **admin_settings**: `edge_function_base_url` updated to `igmkhxffnyzoogcqvdab`
+- **11 cron jobs**: Unscheduled old → rescheduled to Lovable Cloud URLs
+- **`_cron_call_refresh_worker`**: Fallback URL updated to Lovable Cloud
+- **Verification**: Zero cron jobs reference old project `ecqpqtirhpumfgbdtvhh`
+
 ### Remaining
 - Batch 8: Inline business logic into Batches 2–6 routers (eliminate internal fetch overhead)

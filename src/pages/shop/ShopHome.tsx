@@ -1442,11 +1442,6 @@ export default function ShopHome() {
                         <p className="text-sm sm:text-lg font-bold text-white leading-tight">
                           {language === 'fr' ? "Collez le lien. On calcule le prix." : "Paste the link. We get the price."}
                         </p>
-                        <span className="inline-flex items-center gap-1 bg-white/10 border border-white/20 rounded-full px-2 py-0.5 flex-shrink-0">
-                          <img src="/images/flags/us.png" alt="USA" className="h-3 w-4 sm:h-3.5 sm:w-5 object-cover rounded-sm" />
-                          <span className="text-white/50 text-[10px]">→</span>
-                          <img src="/images/flags/cd.png" alt="RDC" className="h-3 w-4 sm:h-3.5 sm:w-5 object-cover rounded-sm" />
-                        </span>
                       </div>
                       <p className="text-xs sm:text-sm text-white/65 leading-snug">
                         {language === 'fr' ? "Introuvable en catalogue ? Collez le lien du produit." : "Can’t find it in catalog? Paste the product link."}

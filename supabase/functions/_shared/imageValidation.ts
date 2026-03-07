@@ -159,6 +159,13 @@ function upgradeToHighRes(url: string): string {
     return upgraded;
   }
   
+  // SHEIN images: strip thumbnail suffix for full-size
+  if (url.includes("ltwebstatic.com") && /_thumbnail_\d+x\d+/i.test(url)) {
+    const upgraded = url.replace(/_thumbnail_\d+x\d+/i, '');
+    console.log("[IMAGE_UPGRADE] SHEIN:", url.substring(0, 50), "→ full-size");
+    return upgraded;
+  }
+  
   return url;
 }
 

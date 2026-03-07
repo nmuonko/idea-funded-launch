@@ -1323,6 +1323,32 @@ Deno.serve(async (req: Request) => {
     // ─── MERGE DB-FIRST ITEMS WITH PROVIDER RESULTS ──────────────────────────
     // Deduplicate by provider:id to combine DB + live results
     let mergedItems = [...mixResult.items] as CatalogItem[];
+
+    // If DB timed out on the initial budget, wait a short grace window and salvage DB results
+    // so direct phone queries don't get stuck with a tiny provider-only page.
+    if (!dbFallbackItems && dbTimedOut && pendingDbWork) {
+      const lateDbBudgetMs = isFirstPage ? 1200 : 900;
+      const lateDbResult = await Promise.race([
+        pendingDbWork.catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), lateDbBudgetMs)),
+      ]);
+
+      if (lateDbResult?.items?.length) {
+        const dbQueryTokens = dbQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
+        const lateScoreResult = scoreAndRankItems(
+          lateDbResult.items as unknown as Record<string, unknown>[],
+          effectiveIntent,
+          dbQueryTokens,
+          Math.max(limit, 400),
+        );
+        if (lateScoreResult.items.length > 0) {
+          dbFallbackItems = lateScoreResult.items as any[];
+          dbCount = Math.max(dbCount, Number(lateDbResult.dbCount || 0));
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} db_late_merge: recovered=${dbFallbackItems.length} within ${lateDbBudgetMs}ms grace`);
+        }
+      }
+    }
+
     if (dbFallbackItems && dbFallbackItems.length > 0) {
       const existingKeys = new Set(mergedItems.map(i => `${(i as any).provider}:${i.id}`));
       const newDbItems = dbFallbackItems.filter((item: any) => !existingKeys.has(`${item.provider}:${item.id}`));

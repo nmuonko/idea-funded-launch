@@ -478,6 +478,9 @@ serve(async (req) => {
         return handleGetById(user, supabase, url, body);
       case 'status':
         return handleStatus(user, supabase, url, body);
+      case 'checkout':
+      case 'request_quote':
+        return proxyToFunction(action === 'checkout' ? 'mobile-checkout' : 'mobile-request-quote', req, body);
       default:
         return jsonResponse({ ok: false, error: `Unknown action: ${action}` }, 400);
     }

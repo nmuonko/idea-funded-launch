@@ -2,7 +2,7 @@
  * mobile-orders — Consolidated Orders Router (INLINED)
  * 
  * Routes by `action` field in POST body:
- *   create, list, get_by_id, status
+ *   create, list, get_by_id, status, checkout, request_quote
  * 
  * AUTH: All actions require a valid JWT.
  * 
@@ -11,6 +11,9 @@
  *   - mobile-get-orders
  *   - mobile-get-order-by-id
  *   - mobile-order-status
+ * Phase 2: Proxy additions:
+ *   - checkout → mobile-checkout
+ *   - request_quote → mobile-request-quote
  */
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";

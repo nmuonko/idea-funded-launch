@@ -1,40 +1,39 @@
-## Edge Function Consolidation Refactor — Phase 3 Complete
 
-### Phase 3: Orphan Deletion — 10 Functions Deleted
-- **`create-referrer`** — routed via auth-service
-- **`execute-ai-action`** — routed via admin-service
-- **`get-ai-actions-for-review`** — routed via admin-service
-- **`predict-customer-ltv`** — routed via admin-service
-- **`ai-order-assistant`** — routed via admin-service
-- **`catalog-categories`** — inlined into catalog-service
-- **`catalog-tabs`** — inlined into catalog-service
-- **`catalog-nav`** — inlined into catalog-service
-- **`catalog-providers`** — inlined into catalog-service
-- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
-- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
-- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
-- **`auth-service`** — added `create_referrer`
-- **`email-service`** — added `saved_cart_reminders`
+## Problem Analysis
 
-### Batches 1–10: Inlined — 32 Functions Deleted
-- **Batch 10**: auth-service (8 functions)
-- **Batch 9**: mobile-cart (7), mobile-orders (4)
-- **Batch 8**: admin-service (10), support-service (3)
-- **Batch 7**: catalog-service (5 metadata endpoints)
+Two issues with category filtering on the homepage:
 
-**Total reduction: 42 Edge Functions deleted**
+### Root Cause 1: Wrong category sent to backend
+In `ShopHome.tsx` line 537, when user selects "Ordinateurs/Laptops" (`computers`), the frontend remaps it to `electronics`:
+```ts
+const endpointCategory = catKey === 'computers' ? 'electronics' : catKey;
+```
+This sends the broad `electronics` category to `catalog-category`, which returns phones, cables, HDMI adapters, etc. Then `isRelevantToCategory` filters client-side with computer keywords, dropping most items → **only 9 survive out of 200 fetched**.
 
-### Kept as Proxy (by decision)
-- **`payments-core`** — proxies 9 functions (complex payment logic)
-- **`payments-provider`** — proxies 10 functions (payment provider logic)
-- **`email-service`** — proxies 25 send-* functions (HTML template code)
+The backend **already supports** `computers` as an alias for `electronics_computers` (in `categoryRegistry.ts` line 107). So the fix is to stop remapping and send `computers` directly.
 
-### Remaining Standalone (active, not orphaned)
-- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
-- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
-- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
-- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
-- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
-- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment
+### Root Cause 2: Inflated total count
+The backend's `total` reflects the full `electronics` category (~10,000 items), but only 9 pass the client-side keyword filter. The UI shows "Affichage 9 sur 10,000 produits" which is misleading.
+
+The DB count query (line 793-800) counts items where `unified_category = canonicalKey`. If `canonicalKey` resolves to `electronics_computers`, the count should be accurate. The frontend should use the post-filter count, not the raw backend total.
+
+---
+
+## Plan
+
+### 1. Fix category mapping in `ShopHome.tsx`
+- **Remove** the `computers → electronics` remapping on line 537. Send `catKey` directly to the backend for all categories. The backend's category registry handles alias resolution.
+- Also check for any other similar remappings that bypass the backend's resolver.
+
+### 2. Remove redundant client-side keyword filtering on backend results
+- Line 556: `.filter(p => isRelevantToCategory(p, catKey))` — this aggressively filters backend results using title keywords. Since the backend already resolves to the correct subcategory and queries the DB/eBay accordingly, this double-filtering causes data loss.
+- **Remove** the `isRelevantToCategory` filter on `catalog-category` results. Keep it only for fallback search results where relevance isn't guaranteed.
+
+### 3. Fix total count display
+- After removing the keyword filter, the backend's `total` should be accurate since it now queries `electronics_computers` (not broad `electronics`).
+- Update `setCategoryTotalCount` to use the count of actually displayed items when it's clearly lower than backend total, to prevent the "9 sur 10,000" mismatch.
+
+### Files changed
+- `src/pages/shop/ShopHome.tsx` — lines 537 and 556
+

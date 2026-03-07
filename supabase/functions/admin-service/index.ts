@@ -748,6 +748,26 @@ async function handleCatalogSettings(auth: AdminAuth, body: any, req: Request): 
   return jsonRes({ error: 'Unknown catalog_settings subAction' }, 400);
 }
 
+// ─── Proxy Helper (for actions not yet inlined) ─────────────────────────────
+
+async function proxyAdminToFunction(functionName: string, req: Request, body: any): Promise<Response> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const headers = new Headers();
+  const authHeader = req.headers.get('Authorization');
+  if (authHeader) headers.set('Authorization', authHeader);
+  headers.set('Content-Type', 'application/json');
+  headers.set('apikey', Deno.env.get('SUPABASE_ANON_KEY') || '');
+  const { action: _a, ...payload } = body;
+  const resp = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+    method: 'POST', headers, body: JSON.stringify(payload),
+  });
+  const text = await resp.text();
+  return new Response(text, {
+    status: resp.status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN ROUTER
 // ═══════════════════════════════════════════════════════════════════════════════

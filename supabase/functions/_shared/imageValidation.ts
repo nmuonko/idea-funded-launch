@@ -59,6 +59,10 @@ export const BLOCKED_IMAGE_PATTERNS: RegExp[] = [
   /shein.*logo/i,
   /sheinsz\.ltwebstatic\.com.*logo/i,
   /img\.ltwebstatic\.com.*logo/i,
+  // SHEIN known category placeholder image
+  /1585556531965e5d98ef5a432eab61147c16af31c6/i,
+  // SHEIN color swatch images (tiny solid-color squares)
+  /ltwebstatic\.com\/v4\/p\/ccc\//i,
   
   // Macy's generic images
   /macys.*logo/i,

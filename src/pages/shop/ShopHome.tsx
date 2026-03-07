@@ -534,13 +534,12 @@ export default function ShopHome() {
     else setCategoryLoadingMore(true);
 
     try {
-      const endpointCategory = catKey === 'computers' ? 'electronics' : catKey;
       let mapped: Product[] = [];
       let totalCount = 0;
 
       try {
         const data = await cachedCatalogFetch<any>('catalog-category', {
-          category: endpointCategory,
+          category: catKey,
           page: page + 1,
           pageSize: PAGE_SIZE,
           client: 'web',
@@ -552,8 +551,7 @@ export default function ShopHome() {
 
         mapped = rawItems
           .map((item: any) => mapItemToProduct(item))
-          .filter(isValidProduct)
-          .filter(p => isRelevantToCategory(p, catKey));
+          .filter(isValidProduct);
       } catch (endpointErr) {
         console.warn(`[ShopHome] catalog-category fetch for ${catKey} page ${page} failed:`, endpointErr);
       }

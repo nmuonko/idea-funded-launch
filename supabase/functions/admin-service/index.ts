@@ -4,7 +4,8 @@
  * Actions:
  *   order_action, delete_order, bulk_delete_orders, update_item_status,
  *   invite_user, system_health, get_carts, ai_assistant, reset_section,
- *   catalog_settings
+ *   catalog_settings, predict_ltv, ai_actions_review, execute_ai_action,
+ *   reloadly_topup
  *
  * AUTH: All actions require a valid JWT + admin role.
  */
@@ -747,6 +748,26 @@ async function handleCatalogSettings(auth: AdminAuth, body: any, req: Request): 
   return jsonRes({ error: 'Unknown catalog_settings subAction' }, 400);
 }
 
+// ─── Proxy Helper (for actions not yet inlined) ─────────────────────────────
+
+async function proxyAdminToFunction(functionName: string, req: Request, body: any): Promise<Response> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const headers = new Headers();
+  const authHeader = req.headers.get('Authorization');
+  if (authHeader) headers.set('Authorization', authHeader);
+  headers.set('Content-Type', 'application/json');
+  headers.set('apikey', Deno.env.get('SUPABASE_ANON_KEY') || '');
+  const { action: _a, ...payload } = body;
+  const resp = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+    method: 'POST', headers, body: JSON.stringify(payload),
+  });
+  const text = await resp.text();
+  return new Response(text, {
+    status: resp.status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN ROUTER
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -770,7 +791,7 @@ serve(async (req) => {
     const action = body.action;
 
     if (!action || typeof action !== 'string') {
-      return jsonRes({ ok: false, error: 'Missing "action" field. Supported: order_action, delete_order, bulk_delete_orders, update_item_status, invite_user, system_health, get_carts, ai_assistant, reset_section, catalog_settings' }, 400);
+      return jsonRes({ ok: false, error: 'Missing "action" field. Supported: order_action, delete_order, bulk_delete_orders, update_item_status, invite_user, system_health, get_carts, ai_assistant, reset_section, catalog_settings, predict_ltv, ai_actions_review, execute_ai_action, reloadly_topup' }, 400);
     }
 
     console.log(`[admin-service] action="${action}" user=${auth.user.email}`);
@@ -796,6 +817,16 @@ serve(async (req) => {
         return handleResetSection(auth, body);
       case 'catalog_settings':
         return handleCatalogSettings(auth, body, req);
+      case 'predict_ltv':
+        return proxyAdminToFunction('predict-customer-ltv', req, body);
+      case 'ai_actions_review':
+        return proxyAdminToFunction('get-ai-actions-for-review', req, body);
+      case 'execute_ai_action':
+        return proxyAdminToFunction('execute-ai-action', req, body);
+      case 'ai_order_assistant':
+        return proxyAdminToFunction('ai-order-assistant', req, body);
+      case 'reloadly_topup':
+        return proxyAdminToFunction('reloadly-topup', req, body);
       default:
         return jsonRes({ ok: false, error: `Unknown action "${action}"` }, 400);
     }

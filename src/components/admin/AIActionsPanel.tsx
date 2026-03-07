@@ -44,8 +44,8 @@ export function AIActionsPanel() {
   const fetchActions = async (status: string = 'pending_review') => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('get-ai-actions-for-review', {
-        body: {},
+      const { data, error } = await supabase.functions.invoke('admin-service', {
+        body: { action: 'ai_actions_review' },
       });
 
       if (error) throw error;
@@ -69,8 +69,9 @@ export function AIActionsPanel() {
 
     setExecuting(true);
     try {
-      const { data, error } = await supabase.functions.invoke('execute-ai-action', {
+      const { data, error } = await supabase.functions.invoke('admin-service', {
         body: {
+          action: 'execute_ai_action',
           actionId: selectedAction.id,
           decision,
           modifiedContent: modifiedContent || undefined,

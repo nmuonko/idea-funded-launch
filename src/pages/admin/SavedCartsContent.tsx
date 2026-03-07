@@ -156,7 +156,7 @@ export default function SavedCartsContent() {
     try {
       toast({ title: t.savedCarts.sendingReminders, description: t.savedCarts.mayTakeMoment });
       
-      const { data, error } = await supabase.functions.invoke('saved-cart-reminders');
+      const { data, error } = await supabase.functions.invoke('email-service', { body: { type: 'saved_cart_reminders' } });
       
       if (error) throw error;
       
@@ -356,8 +356,8 @@ export default function SavedCartsContent() {
                           onClick={async () => {
                             setSendingReminder(cart.userId);
                             try {
-                              const { data, error } = await supabase.functions.invoke('saved-cart-reminders', {
-                                body: { targetUserId: cart.userId },
+                              const { data, error } = await supabase.functions.invoke('email-service', {
+                                body: { type: 'saved_cart_reminders', targetUserId: cart.userId },
                               });
                               if (error) throw error;
                               toast({ title: language === 'fr' ? 'Rappel envoyé' : 'Reminder sent' });

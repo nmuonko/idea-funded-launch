@@ -52,7 +52,7 @@ function hasCronSecret(req: Request): boolean {
 }
 
 // Email types that can be triggered by cron jobs
-const CRON_TYPES = new Set(['cart_reminder', 'abandoned_cart', 'abandoned_cart_recovery']);
+const CRON_TYPES = new Set(['cart_reminder', 'abandoned_cart', 'abandoned_cart_recovery', 'saved_cart_reminders']);
 
 const TYPE_TO_FUNCTION: Record<string, string> = {
   // Order lifecycle
@@ -93,6 +93,7 @@ const TYPE_TO_FUNCTION: Record<string, string> = {
   customer_email: 'send-customer-email',
   application_email: 'send-application-emails',
   test_email: 'send-test-email',
+  saved_cart_reminders: 'saved-cart-reminders',
 
   // Push notifications
   push_notification: 'send-push-notification',

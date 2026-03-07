@@ -80,8 +80,8 @@ export function InviteEarn({ language }: InviteEarnProps) {
     }
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('create-referrer', {
-        body: { full_name: form.full_name, email: form.email, phone: form.phone },
+      const { data, error } = await supabase.functions.invoke('auth-service', {
+        body: { action: 'create_referrer', full_name: form.full_name, email: form.email, phone: form.phone },
       });
       if (error || !data?.ok) {
         toast({ title: 'Error', description: data?.message || error?.message || 'Failed', variant: 'destructive' });

@@ -173,8 +173,9 @@ export default function AdminReferrals() {
         return;
       }
 
-      const { data, error } = await supabase.functions.invoke('reloadly-topup', {
+      const { data, error } = await supabase.functions.invoke('admin-service', {
         body: {
+          action: 'reloadly_topup',
           phone: claim.referrer_phone,
           countryCode: rule.operator_country_code || 'CD',
           topupType: rule.reward_type,

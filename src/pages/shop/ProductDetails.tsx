@@ -494,8 +494,8 @@ export default function ProductDetailsPage() {
   const handleRequestQuote = useCallback(async () => {
     setAdding(true);
     try {
-      const { error } = await supabase.functions.invoke('mobile-request-quote', {
-        body: { locale: language }
+      const { error } = await supabase.functions.invoke('mobile-orders', {
+        body: { action: 'request_quote', locale: language }
       });
       if (error) throw error;
       setQuoteRequested(true);

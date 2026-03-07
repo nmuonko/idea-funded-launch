@@ -1,31 +1,25 @@
-## Edge Function Consolidation Refactor — Complete (Batches 1–7)
+## Edge Function Consolidation Refactor — In Progress
 
-### Batch 1: Decoupling and Cleanup
-- Decoupled `supabaseClient.ts` → uses env vars
-- Updated `config.toml` to production project ID
-- Removed diagnostic logging from `SupabaseConfigGuard` and `main.tsx`
-- Deleted 25 legacy/debug functions
+### Completed: Batches 1–7 (Router Creation) + Batch 8 (Inlining)
 
-### Batch 2: Cart and Orders → `mobile-cart` (7 actions), `mobile-orders` (4 actions)
-### Batch 3: Payments → `payments-core` (8 actions), `payments-provider` (6 actions)
-### Batch 4: Email → `email-service` (25 email types)
-### Batch 5: Auth/Profile → `auth-service` (8 actions)
-### Batch 6: Admin/Support → `admin-service` (10 actions), `support-service` (3 actions)
+#### Batch 8: True Inlining — Business Logic Moved Into Routers
+- **`admin-service`** — 10 standalone functions INLINED and DELETED:
+  - `admin-order-action`, `admin-delete-order`, `admin-bulk-delete-orders`, `admin-update-item-status`
+  - `admin-invite-user`, `admin-system-health`, `admin-get-carts`, `admin-ai-assistant`
+  - `admin-reset-section`, `admin-catalog-settings`
+- **`support-service`** — 3 standalone functions INLINED and DELETED:
+  - `support-start`, `support-chat-bot`, `notify-support-agent`
+- **`catalog-service`** — Already inlined in Batch 7 (no proxy)
 
-All Batches 2–6 use thin router/proxy pattern with in-code JWT auth gates.
+**Net reduction: 13 Edge Functions deleted** (business logic now lives directly in routers)
 
-### Batch 7: Catalog Metadata → `catalog-service` (5 actions, inlined logic)
-- **Consolidated** `catalog-tabs`, `catalog-categories`, `catalog-nav`, `catalog-providers`, `catalog-prewarm-home` into single `catalog-service` router
-- **Inlined** all business logic directly (no proxy/fetch overhead)
-- **Auth**: `prewarm` requires admin JWT or cron secret; other actions are public read-only
-- **Frontend updated**: `CategoryTabs.tsx`, `HomeRecipes.tsx`, `CatalogSourcesSettings.tsx`
-- **Kept standalone** (performance-critical, large): `catalog-search`, `catalog-product`, `catalog-home`, `catalog-category`, `catalog-collection`, `catalog-filters`, `catalog-offers`
+### Remaining: Routers still using proxy pattern
+- **`auth-service`** — proxies 8 functions (`auth-register`, `auth-login`, `auth-me`, `auth-check-verified`, `auth-resend-verification`, `mobile-profile`, `mobile-profile-update`, `update-profile`)
+- **`email-service`** — proxies 25 send-* functions
+- **`mobile-cart`** — proxies 7 functions (`mobile-get-cart`, `mobile-add-cart-item`, `mobile-update-cart-item`, `mobile-delete-cart-item`, `cart-sync-from-client`, `merge-guest-cart`, `cart-guest-snapshot`)
+- **`mobile-orders`** — proxies 4 functions (`mobile-create-order-from-cart`, `mobile-get-orders`, `mobile-get-order-by-id`, `mobile-order-status`)
+- **`payments-core`** — proxies 9 functions
+- **`payments-provider`** — proxies 10 functions
 
-### Lovable Cloud Migration — Complete
-- **admin_settings**: `edge_function_base_url` updated to `igmkhxffnyzoogcqvdab`
-- **11 cron jobs**: Unscheduled old → rescheduled to Lovable Cloud URLs
-- **`_cron_call_refresh_worker`**: Fallback URL updated to Lovable Cloud
-- **Verification**: Zero cron jobs reference old project `ecqpqtirhpumfgbdtvhh`
-
-### Remaining
-- Batch 8: Inline business logic into Batches 2–6 routers (eliminate internal fetch overhead)
+### Phase 2 (future): ~20 standalone functions still called directly from frontend
+### Phase 3 (future): Delete any unused orphan functions

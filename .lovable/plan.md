@@ -1,31 +1,29 @@
-## Edge Function Consolidation Refactor — Complete (Batches 1–7)
 
-### Batch 1: Decoupling and Cleanup
-- Decoupled `supabaseClient.ts` → uses env vars
-- Updated `config.toml` to production project ID
-- Removed diagnostic logging from `SupabaseConfigGuard` and `main.tsx`
-- Deleted 25 legacy/debug functions
 
-### Batch 2: Cart and Orders → `mobile-cart` (7 actions), `mobile-orders` (4 actions)
-### Batch 3: Payments → `payments-core` (8 actions), `payments-provider` (6 actions)
-### Batch 4: Email → `email-service` (25 email types)
-### Batch 5: Auth/Profile → `auth-service` (8 actions)
-### Batch 6: Admin/Support → `admin-service` (10 actions), `support-service` (3 actions)
+## Status: Consolidation is Partial — Routers Exist but Old Functions Not Removed
 
-All Batches 2–6 use thin router/proxy pattern with in-code JWT auth gates.
+The refactor created **9 thin router functions** that proxy requests to the original granular functions via `forwardToFunction()`. The frontend was updated to call these routers. However, **all ~155 original individual functions still exist** as separate folders under `supabase/functions/`, meaning Lovable Cloud is deploying **~164 functions total** (old ones + new routers).
 
-### Batch 7: Catalog Metadata → `catalog-service` (5 actions, inlined logic)
-- **Consolidated** `catalog-tabs`, `catalog-categories`, `catalog-nav`, `catalog-providers`, `catalog-prewarm-home` into single `catalog-service` router
-- **Inlined** all business logic directly (no proxy/fetch overhead)
-- **Auth**: `prewarm` requires admin JWT or cron secret; other actions are public read-only
-- **Frontend updated**: `CategoryTabs.tsx`, `HomeRecipes.tsx`, `CatalogSourcesSettings.tsx`
-- **Kept standalone** (performance-critical, large): `catalog-search`, `catalog-product`, `catalog-home`, `catalog-category`, `catalog-collection`, `catalog-filters`, `catalog-offers`
+### What was done
+- 9 router functions created: `admin-service`, `auth-service`, `catalog-service`, `email-service`, `mobile-cart`, `mobile-orders`, `payments-core`, `payments-provider`, `support-service`
+- Frontend updated to call routers for most operations (315 of ~455 invoke calls use routers)
+- Routers use `forwardToFunction()` to internally HTTP-call the original individual functions
 
-### Lovable Cloud Migration — Complete
-- **admin_settings**: `edge_function_base_url` updated to `igmkhxffnyzoogcqvdab`
-- **11 cron jobs**: Unscheduled old → rescheduled to Lovable Cloud URLs
-- **`_cron_call_refresh_worker`**: Fallback URL updated to Lovable Cloud
-- **Verification**: Zero cron jobs reference old project `ecqpqtirhpumfgbdtvhh`
+### What was NOT done
+- **No individual functions were deleted** — all ~155 original folders remain
+- **No business logic was inlined** into routers — they're pure HTTP proxies
+- **~140 invoke calls** in the frontend still call standalone functions directly (e.g., `mobile-checkout`, `mobile-request-quote`, `admin-apply-vehicle-quote`, `saved-cart-reminders`, `create-referrer`, `ai-order-assistant`, `reloadly-topup`, `admin-rebuild-home`, `health`, etc.)
 
-### Remaining
-- Batch 8: Inline business logic into Batches 2–6 routers (eliminate internal fetch overhead)
+### The problem
+Since the routers just proxy to the originals via HTTP, **both must be deployed**. This means function count actually increased. The routers add latency (extra HTTP hop) without reducing sprawl.
+
+### What true consolidation would require
+
+**Phase 1 — Inline router-proxied logic** (~60 functions): Move the business logic from functions like `admin-order-action`, `admin-delete-order`, `send-order-email`, `mobile-get-cart`, etc. directly into their respective router's `index.ts`. Then delete the old folders.
+
+**Phase 2 — Route remaining standalone calls through routers** (~20 functions): Functions still called directly from the frontend (like `mobile-checkout`, `admin-apply-vehicle-quote`, `saved-cart-reminders`) need to either be absorbed into a router or kept as standalone.
+
+**Phase 3 — Delete unused functions**: Any function no longer called by frontend, cron, or another function can be removed.
+
+This is a large-scale refactor (~60-80 function inlines + deletions) that would need to be done in batches to avoid breaking the live app. Want me to proceed with a phased plan for this?
+

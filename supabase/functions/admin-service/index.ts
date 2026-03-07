@@ -4,7 +4,8 @@
  * Actions:
  *   order_action, delete_order, bulk_delete_orders, update_item_status,
  *   invite_user, system_health, get_carts, ai_assistant, reset_section,
- *   catalog_settings
+ *   catalog_settings, predict_ltv, ai_actions_review, execute_ai_action,
+ *   reloadly_topup
  *
  * AUTH: All actions require a valid JWT + admin role.
  */

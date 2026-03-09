@@ -1539,7 +1539,7 @@ export default function ShopHome() {
                   <SectionBlock
                     key={catKey}
                     title={getCategoryTitle(catKey, language)}
-                    items={applyFilters(categoryItems[catKey] ?? [])}
+                    items={applyFilters(pinnedByCategory[catKey]?.length ? pinnedByCategory[catKey] : (categoryItems[catKey] ?? []))}
                     loading={categoryLoadingMap[catKey] === true}
                     mode="grid"
                     categoryKey={catKey}

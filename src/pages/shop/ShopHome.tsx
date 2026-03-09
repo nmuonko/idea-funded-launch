@@ -1236,20 +1236,76 @@ export default function ShopHome() {
     });
   }, [language]);
 
+  // Fetch pinned items from admin
+  useEffect(() => {
+    if (pinnedFetchedRef.current) return;
+    pinnedFetchedRef.current = true;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("homepage_pinned_items")
+          .select("*")
+          .order("category_key")
+          .order("sort_order");
+        if (error) throw error;
+        const grouped: Record<string, Product[]> = {};
+        for (const item of data || []) {
+          const catKey = (item as any).category_key;
+          if (!grouped[catKey]) grouped[catKey] = [];
+          grouped[catKey].push({
+            id: (item as any).provider_product_id || (item as any).catalog_item_id,
+            provider: (item as any).provider || 'ebay',
+            title: (item as any).title || 'Product',
+            imageUrl: (item as any).image_url || '',
+            priceUsd: Number((item as any).price_usd) || 0,
+            inStock: true,
+          });
+        }
+        setPinnedByCategory(grouped);
+        // Mark pinned categories as loaded immediately
+        const loadingUpdates: Record<string, boolean> = {};
+        for (const catKey of ALL_HOMEPAGE_CATEGORIES) {
+          if (grouped[catKey]?.length > 0) {
+            loadingUpdates[catKey] = false;
+          }
+        }
+        if (Object.keys(loadingUpdates).length > 0) {
+          setCategoryLoadingMap(prev => ({ ...prev, ...loadingUpdates }));
+        }
+      } catch (err) {
+        console.warn('[ShopHome] Failed to fetch pinned items:', err);
+      }
+    })();
+  }, []);
+
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
     fetchAccueilFeed();
-    // Wave 1: above-fold promo categories
-    fetchCategoryItems(PROMO_CATEGORIES).then(() => {
-      // Wave 2: remaining categories after a short delay
-      setTimeout(() => {
-        const remaining = ALL_HOMEPAGE_CATEGORIES.filter(k => !PROMO_CATEGORIES.includes(k));
-        fetchCategoryItems(remaining).then(scheduleCategoryPrefetch);
-      }, 300);
-    });
+    // Only fetch categories that don't have pins
+    const categoriesWithPins = new Set(Object.keys(pinnedByCategory).filter(k => pinnedByCategory[k]?.length > 0));
+    const catsToFetch = ALL_HOMEPAGE_CATEGORIES.filter(k => !categoriesWithPins.has(k));
+    
+    if (catsToFetch.length > 0) {
+      const promos = catsToFetch.filter(k => PROMO_CATEGORIES.includes(k));
+      const rest = catsToFetch.filter(k => !PROMO_CATEGORIES.includes(k));
+      
+      if (promos.length > 0) {
+        fetchCategoryItems(promos).then(() => {
+          if (rest.length > 0) {
+            setTimeout(() => {
+              fetchCategoryItems(rest).then(scheduleCategoryPrefetch);
+            }, 300);
+          } else {
+            scheduleCategoryPrefetch();
+          }
+        });
+      } else if (rest.length > 0) {
+        fetchCategoryItems(rest).then(scheduleCategoryPrefetch);
+      }
+    }
     loadRecentlyViewed();
-  }, []);
+  }, [pinnedByCategory]);
 
   // Re-fetch on language change
   useEffect(() => {

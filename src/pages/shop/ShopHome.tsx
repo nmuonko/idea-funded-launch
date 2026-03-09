@@ -1151,10 +1151,9 @@ export default function ShopHome() {
                   <SelectItem
                     key={opt.value}
                     value={opt.value}
-                    disabled={opt.count === 0}
-                    className={`text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer ${opt.count === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
+                    className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
                   >
-                    {opt.label} {opt.count > 0 ? `(${opt.count.toLocaleString()})` : (language === 'fr' ? '(bientôt)' : '(coming soon)')}
+                    {opt.label} ({opt.count.toLocaleString()})
                   </SelectItem>
                 ))}
               </SelectContent>

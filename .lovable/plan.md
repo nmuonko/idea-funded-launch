@@ -1,261 +1,111 @@
 
 
-# Payment Integration Testing Plan
+# Fix Homepage: Manual Control, Amazon Inclusion, 4 Full-Picture Items Per Category
 
-## Objective
-Run comprehensive simulation-based tests for both Stripe and PawaPay payment providers, verifying the full checkout orchestration without creating live charges. Provide proof via API responses, backend logs, database state, and UI screenshots.
+## Problem Summary
 
----
-
-## Testing Scope
-
-### Providers to Test
-1. **Stripe** (Card payment via Checkout Session)
-2. **PawaPay** (Mobile money via USSD)
-
-### Coverage Areas
-- Order creation from cart
-- Payment session initiation
-- Provider selection and routing
-- Webhook/callback handling
-- Order status transitions (`PENDING_PAYMENT` → `PAID`)
-- Cart clearing post-payment
-- Idempotency (duplicate request handling)
+1. **Auto-rotation every 48-72h**: The `home-auto-refresh` cron and `catalog-home` cache TTL cause homepage products to change automatically. You want **manual-only** control.
+2. **Unattractive items**: The current fetch logic uses live search queries with random/rotated results, producing inconsistent quality.
+3. **No Amazon items**: The `fetchItemsFromDB` in `homeRecipeBuilder.ts` queries `search_catalog_items_ranked` which returns items from all providers, but the frontend category fetch (`ShopHome.tsx`) relies on `catalog-home` and `catalog-search` which may not surface Amazon (rainforest) items prominently. You have 46,000+ Amazon items in the catalog.
+4. **Categories need exactly 4 items with full pictures**: Already showing 4, but image quality is inconsistent.
 
 ---
 
-## Test Execution Strategy
+## Changes
 
-### Phase 1: Database Setup Verification
-**Actions:**
-- Query `payment_providers` table to confirm both `stripe` and `pawapay` are `is_enabled = true`
-- Query `admin_settings` to retrieve payment thresholds and configuration
-- Check `orders` and `payment_attempts` tables for baseline state
+### 1. Disable Auto-Refresh (Keep Manual "Publish" Only)
 
-**Proof Artifacts:**
-- Database snapshots showing enabled providers and configuration
+**File: `supabase/functions/home-auto-refresh/index.ts`**
+- Add a check: if auto-refresh is disabled in settings, return early without rebuilding
+- The admin "Publish All" button in Home Curation will remain the **only** way to update homepage content
 
----
+**Database: `home_refresh_settings`**
+- Set `mobile_refresh_hours` and `web_refresh_hours` to `0` (disables auto-rebuild)
+- Or add a `auto_refresh_enabled = false` flag
 
-### Phase 2: Stripe Payment Simulation
+**File: `supabase/functions/catalog-home/index.ts`**
+- Remove the async background rebuild that triggers when cache is stale (lines ~1127 and ~1339)
+- Cache should serve stale data indefinitely until admin manually rebuilds
+- Only rebuild when explicitly triggered from admin portal
 
-#### 2.1 Order Creation
-**API Call:** `POST /functions/v1/mobile-orders` with `action=checkout`
-- Create a test cart with 1-2 items (total < $5,000 to stay within auto-redirect limits)
-- Backend should create order in `PENDING_PAYMENT` status
+### 2. Admin Portal: Add "Pin Products" Feature per Category
 
-**Expected Response:**
-```json
-{
-  "ok": true,
-  "order_id": "uuid-here",
-  "status": "PENDING_PAYMENT"
-}
+**File: `src/pages/admin/HomeRecipes.tsx`**
+- Add a new section: **"Homepage Category Pins"** — a simple UI where you can:
+  - Search the `catalog_items` database for any product (including Amazon/rainforest)
+  - Pin exactly 4 products per category
+  - Drag to reorder
+  - Preview the product image before pinning
+- Pinned products are stored in a new table
+
+**New Database Table: `homepage_pinned_items`**
+```sql
+CREATE TABLE homepage_pinned_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  category_key TEXT NOT NULL,
+  catalog_item_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  provider_product_id TEXT NOT NULL,
+  title TEXT,
+  image_url TEXT,
+  price_usd NUMERIC,
+  sort_order INT NOT NULL DEFAULT 0,
+  pinned_by UUID REFERENCES auth.users(id),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(category_key, catalog_item_id)
+);
+ALTER TABLE homepage_pinned_items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "admins_manage_pins" ON homepage_pinned_items FOR ALL TO authenticated
+  USING (public.has_role(auth.uid(), 'admin'))
+  WITH CHECK (public.has_role(auth.uid(), 'admin'));
 ```
 
-#### 2.2 Payment Session Initiation
-**API Call:** `POST /functions/v1/select-payment-provider`
-```json
-{
-  "order_id": "uuid-from-step-1",
-  "payment_method": "card"
-}
+### 3. Frontend: Use Pinned Items First, Fallback to Current Logic
+
+**File: `src/pages/shop/ShopHome.tsx`**
+- At startup, fetch `homepage_pinned_items` ordered by `category_key, sort_order`
+- For each category: if pinned items exist (up to 4), use those directly — skip the complex `fetchCategoryItems` logic
+- Only fall back to the current search-based fetch if no pins exist for a category
+- This makes the homepage **deterministic** and **admin-controlled**
+
+### 4. Ensure Amazon Items Are Searchable in Admin Pin UI
+
+**Admin search in pin UI:**
+- Query `catalog_items` directly with `ilike` on title, filtered by category keywords
+- Include `provider IN ('ebay', 'rainforest', 'cargurus', 'carvana', 'shein')` to ensure Amazon items appear
+- Show provider badge next to each search result so admin can see the source
+- Filter to only show items with valid `image_url` (non-null, passes `isValidProductImageUrl`)
+
+### 5. Enforce Full Pictures (4 Per Category)
+
+**File: `src/components/shop/CategoryCard.tsx`**
+- Already shows exactly 4 items in a 2x2 grid with `aspect-square` and `object-contain` on white background
+- Add stricter image validation: skip pinned items whose `image_url` fails to load (fallback to placeholder)
+- The admin pin UI will preview images before allowing a pin, preventing bad images from being selected
+
+---
+
+## Architecture Summary
+
+```text
+BEFORE:
+  Cron (48-72h) → auto-refresh → random items from DB seeds
+  Frontend → catalog-home/catalog-search → random results each time
+
+AFTER:
+  Admin Portal → search catalog_items → pin 4 items per category
+  Frontend → fetch homepage_pinned_items → deterministic display
+  Manual "Publish All" → only for recipe-based mobile/web cache
+  Auto-refresh → disabled
 ```
 
-**Expected Response:**
-```json
-{
-  "ok": true,
-  "mode": "redirect",
-  "redirect_url": "https://checkout.stripe.com/...",
-  "provider": "stripe",
-  "reference": "AFRI-..."
-}
-```
+## Files to Create/Modify
 
-**Database State After:**
-- `payment_attempts` table has new row with `provider = 'stripe'`, `status = 'pending'`
-- `orders.payment_status` remains `PENDING_PAYMENT`
-
-#### 2.3 Simulate Stripe Webhook
-**API Call:** `POST /functions/v1/payments-webhook?provider=stripe`
-- Send mock `checkout.session.completed` event with valid signature (or bypass signature check for testing)
-- Include session ID matching the `provider_deposit_id` in `payment_attempts`
-
-**Expected Backend Actions:**
-- Look up order via session ID
-- Update `orders.payment_status` to `PAID`
-- Update `payment_attempts.status` to `completed`
-- Trigger email notification (if configured)
-
-**Database State After:**
-- `orders.payment_status = 'PAID'`
-- `payment_attempts.status = 'completed'`
-
----
-
-### Phase 3: PawaPay Payment Simulation
-
-#### 3.1 Order Creation
-**API Call:** `POST /functions/v1/mobile-orders` with `action=checkout`
-- Create a fresh test cart (different items from Stripe test)
-- Backend creates order in `PENDING_PAYMENT` status
-
-#### 3.2 Payment Session Initiation
-**API Call:** `POST /functions/v1/select-payment-provider`
-```json
-{
-  "order_id": "uuid-from-step-1",
-  "payment_method": "mobile_money"
-}
-```
-
-**Expected Response:**
-```json
-{
-  "ok": true,
-  "mode": "manual",
-  "provider": "pawapay",
-  "reference": "AFRI-...",
-  "ussd_code": "*123#" // or similar
-}
-```
-
-**Database State After:**
-- `payment_attempts` table has new row with `provider = 'pawapay'`, `status = 'pending'`
-
-#### 3.3 Simulate PawaPay Callback
-**API Call:** `POST /functions/v1/pawapay-callback`
-- Send mock callback payload with `status = 'COMPLETED'`
-- Include `depositId` matching the `provider_deposit_id` in `payment_attempts`
-
-**Expected Backend Actions:**
-- Validate signature (or skip for simulation)
-- Look up order via `depositId`
-- Update `orders.payment_status` to `PAID`
-- Update `payment_attempts.status` to `completed`
-
-**Database State After:**
-- `orders.payment_status = 'PAID'`
-- `payment_attempts.status = 'completed'`
-
----
-
-### Phase 4: Idempotency & Error Handling
-
-#### 4.1 Duplicate Session Request
-**API Call:** Retry `select-payment-provider` with same `order_id` from Stripe test
-**Expected Response:**
-```json
-{
-  "ok": true,
-  "mode": "redirect",
-  "redirect_url": "https://checkout.stripe.com/...",
-  "reference": "AFRI-..." // Same reference as before
-}
-```
-- Should return existing session, not create new one
-
-#### 4.2 Already-Paid Order
-**API Call:** Send another webhook for an already-paid order
-**Expected Behavior:**
-- Backend logs "Order already in terminal state"
-- No status changes in database
-- Returns HTTP 200 to provider
-
----
-
-### Phase 5: UI Screenshot Verification
-
-#### 5.1 Checkout Page
-- Navigate to `/checkout` in browser
-- Add items to cart
-- Select payment method (card vs mobile money)
-- Capture screenshot showing provider selection UI
-
-#### 5.2 Payment Pending Page (PawaPay)
-- Navigate to `/payment-pending?reference=AFRI-...`
-- Capture screenshot showing "Check Your Phone" instructions
-
-#### 5.3 Payment Success Page
-- Navigate to `/payment-success-shop?order_id=...`
-- Capture screenshot showing order confirmation
-
----
-
-## Proof Deliverables
-
-### 1. API Response Evidence
-- Raw JSON responses from each edge function call
-- HTTP status codes
-- Key fields: `order_id`, `reference`, `provider`, `status`, `redirect_url`
-
-### 2. Backend Logs
-- Edge function logs for:
-  - `mobile-orders` (order creation)
-  - `select-payment-provider` (session initiation)
-  - `payments-webhook` (Stripe finalization)
-  - `pawapay-callback` (PawaPay finalization)
-- Look for structured log entries with `[CHECKOUT_EDGE]` prefix
-- Confirm no errors or signature validation failures
-
-### 3. Database State
-- **Before tests:**
-  - Count of existing orders and payment attempts
-- **After Stripe test:**
-  - New order with `payment_status = 'PAID'`
-  - Corresponding `payment_attempts` row with `provider = 'stripe'`
-- **After PawaPay test:**
-  - New order with `payment_status = 'PAID'`
-  - Corresponding `payment_attempts` row with `provider = 'pawapay'`
-- **Queries to run:**
-  ```sql
-  SELECT id, payment_status, total_usd, created_at FROM orders ORDER BY created_at DESC LIMIT 5;
-  SELECT order_id, provider, status, provider_deposit_id FROM payment_attempts ORDER BY created_at DESC LIMIT 5;
-  ```
-
-### 4. UI Screenshots
-- Checkout page with provider selection
-- Payment pending page (PawaPay)
-- Payment success page
-- All screenshots annotated with provider and test phase
-
----
-
-## Technical Implementation Notes
-
-### Edge Functions to Test
-- `mobile-orders` (router handling `checkout` action)
-- `select-payment-provider`
-- `payments-webhook` (Stripe)
-- `pawapay-callback`
-
-### Authentication
-- Use valid `Authorization: Bearer <jwt>` for authenticated endpoints
-- Skip JWT for webhook endpoints (signature-based auth)
-
-### Simulation Mode
-- For Stripe: Use test mode keys (already configured in secrets)
-- For PawaPay: Mock callback payload without hitting live API
-- Bypass signature verification where necessary for testing
-
-### Files to Inspect
-- `supabase/functions/mobile-orders/index.ts`
-- `supabase/functions/select-payment-provider/index.ts`
-- `supabase/functions/payments-webhook/index.ts`
-- `supabase/functions/pawapay-callback/index.ts`
-- `src/pages/shop/Checkout.tsx`
-- `src/pages/shop/ShopPaymentSuccess.tsx`
-
----
-
-## Success Criteria
-
-✅ Both Stripe and PawaPay flows complete without errors  
-✅ Orders transition from `PENDING_PAYMENT` → `PAID`  
-✅ `payment_attempts` records created with correct provider metadata  
-✅ Idempotency prevents duplicate sessions  
-✅ Already-paid orders reject further webhooks gracefully  
-✅ UI routes correctly display payment instructions and confirmation  
-✅ Backend logs show structured entries with no signature/auth failures  
+| File | Action |
+|------|--------|
+| `homepage_pinned_items` table | Create (migration) |
+| `src/pages/admin/HomeRecipes.tsx` | Add pinned items management UI |
+| `src/pages/shop/ShopHome.tsx` | Fetch pins first, skip search if pins exist |
+| `supabase/functions/home-auto-refresh/index.ts` | Disable auto-rebuild |
+| `supabase/functions/catalog-home/index.ts` | Remove background async rebuilds |
 

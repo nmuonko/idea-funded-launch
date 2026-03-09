@@ -603,7 +603,7 @@ export default function AdminShipping() {
           <DialogHeader>
             <DialogTitle>Update Shipment</DialogTitle>
             <DialogDescription>
-              Order: {selectedOrder?.id.slice(0, 8)}...
+              Order: {selectedOrder ? formatOrderId(selectedOrder.id, selectedOrder.profiles?.full_name) : ''}
             </DialogDescription>
           </DialogHeader>
           

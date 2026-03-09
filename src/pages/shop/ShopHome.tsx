@@ -21,120 +21,29 @@ import { getRecentlyViewed } from '@/lib/recentlyViewed';
 import { isRenderableImageUrl } from '@/lib/imageValidation';
 import { supabase } from '@/integrations/supabase/client';
 
-const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
-  phones: { fr: 'Téléphones', en: 'Phones' },
-  electronics: { fr: 'Électronique', en: 'Electronics' },
-  gaming: { fr: 'Jeux Vidéo', en: 'Gaming' },
-  vehicles: { fr: 'Véhicules', en: 'Vehicles' },
-  clothing: { fr: 'Mode', en: 'Fashion' },
-  home_garden: { fr: 'Salon, Salle à Manger & Cuisine', en: 'Home & Living' },
-  toys: { fr: 'Jouets', en: 'Toys' },
-  sporting_goods: { fr: 'Sport', en: 'Sports' },
-  jewelry_watches: { fr: 'Montres & Bijoux', en: 'Jewelry & Watches' },
-  parts_accessories: { fr: 'Pièces Auto', en: 'Parts & Accessories' },
-  refurbished: { fr: 'Reconditionné', en: 'Refurbished' },
-  beauty_health: { fr: 'Beauté & Santé', en: 'Beauty & Health' },
-  collectibles: { fr: 'Collections', en: 'Collectibles' },
-  audio_music: { fr: 'Audio & Musique', en: 'Audio & Music' },
-  shoes_sneakers: { fr: 'Chaussures & Sneakers', en: 'Shoes & Sneakers' },
-  cameras_photo: { fr: 'Caméras & Photo', en: 'Cameras & Photo' },
-};
-
-// Fallback search queries for categories that lack dedicated backend recipes
-const CATEGORY_SEARCH_QUERIES: Record<string, string[]> = {
-  computers: ['MacBook Pro laptop', 'Dell XPS laptop', 'Lenovo ThinkPad laptop', 'ASUS ROG gaming laptop'],
-  phones: ['iPhone 15 Pro Max', 'Samsung Galaxy S24 Ultra', 'Google Pixel 8 Pro', 'OnePlus 12 smartphone'],
-  electronics: ['laptop notebook computer', 'tablet iPad Samsung', 'monitor 4K display', 'drone camera'],
-  gaming: ['PS5 console bundle', 'Nintendo Switch OLED', 'Xbox Series X', 'Steam Deck gaming'],
-  vehicles: ['Tesla Model X used car', 'Range Rover SUV used', 'Mercedes GLS SUV used', 'BMW X7 SUV used'],
-  clothing: ['women long maxi dress', 'mens jacket coat', 'abaya kaftan long dress', 'women blazer suit'],
-  home_garden: ['sofa living room furniture', 'kitchen appliance blender', 'bed frame mattress', 'garden outdoor patio'],
-  toys: ['LEGO building set', 'Barbie doll playset', 'Nerf blaster gun', 'puzzle board game'],
-  sporting_goods: ['treadmill home gym', 'dumbbell weight set', 'yoga mat fitness', 'bicycle mountain bike'],
-  jewelry_watches: ['Rolex luxury watch', 'gold diamond necklace', 'Casio Seiko watch', 'silver bracelet jewelry'],
-  parts_accessories: ['brake pad rotor', 'car headlight assembly', 'OEM auto parts', 'catalytic converter exhaust'],
-  refurbished: ['refurbished iPhone certified', 'renewed MacBook laptop', 'refurbished iPad tablet', 'certified pre-owned Samsung'],
-  beauty_health: ['perfume fragrance', 'skincare serum moisturizer', 'makeup cosmetics lipstick', 'hair dryer curling iron'],
-  collectibles: ['Funko Pop vinyl figure', 'Pokemon cards booster', 'vintage antique collectible', 'sports memorabilia signed autograph'],
-  audio_music: ['bluetooth speaker JBL Bose', 'headphones wireless noise cancelling', 'electric guitar acoustic', 'turntable vinyl record player'],
-  shoes_sneakers: ['Nike Air Max sneakers', 'Adidas Yeezy shoes', 'Jordan retro basketball shoe', 'New Balance running shoe'],
-  cameras_photo: ['Canon EOS DSLR camera', 'Sony Alpha mirrorless camera', 'GoPro action camera', 'camera lens tripod'],
-};
-
-const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  computers: ['laptop', 'notebook', 'computer', 'macbook', 'chromebook', 'dell laptop', 'lenovo laptop', 'asus laptop', 'acer laptop', 'hp laptop', 'gaming laptop', 'desktop computer', 'all-in-one pc', 'workstation', 'thinkpad', 'inspiron', 'pavilion', 'surface laptop', 'surface pro', 'ideapad', 'zenbook', 'vivobook', 'elitebook', 'probook', 'latitude', 'precision', 'envy', 'omen', 'predator', 'rog', 'razer blade', 'msi laptop', 'pc portable', 'ordinateur'],
-  phones: ['iphone', 'samsung galaxy', 'pixel phone', 'google pixel', 'smartphone', 'android phone', 'unlocked phone', 'cellphone', 'téléphone', 'oneplus', 'xiaomi', 'motorola', 'galaxy s2', 'galaxy s3', 'galaxy z fold', 'galaxy z flip', 'galaxy a5', 'galaxy a7', 'galaxy s24', 'galaxy s23', 'galaxy s22', 'galaxy note', 'iphone 1', 'iphone pro', 'iphone plus'],
-  electronics: ['laptop', 'notebook', 'computer', 'tablet', 'monitor', 'headphone', 'speaker', 'camera', 'drone', 'television', 'earbuds', 'printer', 'router', 'hard drive', 'ssd', 'gpu', 'cpu', 'macbook', 'ipad', 'dell laptop', 'lenovo laptop', 'asus laptop', 'acer laptop', 'oled tv', 'qled tv', '4k tv', 'smart tv', 'mechanical keyboard', 'webcam', 'projector', 'soundbar', 'electronic', 'tech', 'gadget', 'smart home', 'alexa', 'echo', 'google home', 'fire stick', 'chromecast', 'apple tv', 'roku', 'modem', 'switch', 'network', 'server', 'nas', 'external drive', 'flash drive', 'usb hub', 'power strip', 'ups', 'surge protector'],
-  gaming: ['ps5', 'playstation 5', 'playstation 4', 'xbox series', 'xbox one', 'nintendo switch', 'switch oled', 'video game', 'steam deck', 'gaming laptop', 'gaming monitor', 'gaming headset', 'dualsense', 'game disc', 'ps4', 'xbox console', 'controller', 'gamepad', 'joystick', 'gaming pc', 'rtx 40', 'rtx 30', 'geforce rtx'],
-  vehicles: ['toyota', 'honda', 'bmw', 'ford f-', 'ford mustang', 'ford explorer', 'ford escape', 'motorcycle', 'jeep', 'nissan', 'mercedes-benz', 'mercedes benz', 'audi', 'hyundai', 'kia', 'chevrolet', 'land cruiser', 'mustang', 'rav4', 'cr-v', 'sedan', 'convertible', 'minivan', 'corvette', 'camaro', 'civic', 'accord', 'corolla', 'tacoma', 'wrangler', 'range rover', 'lexus', 'cadillac', 'escalade', 'tesla model'],
-  clothing: ['shirt', 't-shirt', 'polo', 'hoodie', 'jacket', 'coat', 'jeans', 'pants', 'trousers', 'dress', 'skirt', 'suit', 'blazer', 'sweater', 'cardigan', 'abaya', 'kaftan', 'chemise', 'veste', 'pantalon', 'robe', 'manteau', 'pull', 'vêtement', 'blouse', 'sweatshirt', 'legging', 'tracksuit', 'handbag', 'gucci', 'prada', 'dior', 'burberry', 'louis vuitton', 'apparel', 'outfit', 'fashion', 'wear', 'garment', 'uniform', 'vest', 'cape', 'poncho', 'scarf', 'shawl', 'hat', 'cap', 'glove', 'belt', 'tie', 'tuxedo', 'kimono', 'dashiki', 'boubou'],
-  home_garden: ['sofa', 'couch', 'dining table', 'bed frame', 'mattress', 'blender', 'microwave', 'oven', 'refrigerator', 'lamp', 'furniture', 'curtain', 'rug', 'shelf', 'cabinet', 'air conditioner', 'washer', 'dryer', 'dishwasher', 'vacuum', 'coffee maker', 'recliner', 'bookshelf', 'generator', 'solar panel', 'freezer', 'fridge', 'kitchen', 'living room', 'garden', 'patio', 'outdoor', 'indoor', 'planter', 'grill', 'lawn', 'mower', 'fan', 'heater', 'humidifier', 'dehumidifier', 'iron', 'toaster', 'mixer', 'food processor', 'pressure cooker', 'instant pot', 'air fryer', 'slow cooker'],
-  toys: ['toy', 'jouet', 'lego', 'doll', 'puzzle', 'action figure', 'barbie', 'nerf', 'playset', 'plush', 'stuffed animal', 'board game', 'play-doh', 'hot wheels', 'building blocks', 'toy set'],
-  sporting_goods: ['fitness equipment', 'gym equipment', 'yoga mat', 'running shoe', 'bicycle', 'soccer ball', 'basketball', 'tennis racket', 'golf club', 'camping', 'hiking', 'treadmill', 'dumbbell', 'exercise bike', 'kayak', 'garmin watch', 'sport', 'athletic', 'exercise', 'football', 'baseball', 'volleyball', 'cricket', 'boxing', 'martial arts', 'swimming', 'surfboard', 'skateboard', 'roller skate', 'helmet', 'knee pad', 'elbow pad', 'resistance band', 'jump rope', 'pull up bar', 'bench press', 'weight', 'barbell', 'kettlebell'],
-  jewelry_watches: ['watch ', 'montre', 'bracelet', 'necklace', 'ring ', 'earring', 'jewelry', 'bijou', 'gold necklace', 'gold ring', 'gold bracelet', 'silver necklace', 'silver ring', 'diamond', 'rolex', 'casio watch', 'seiko', 'fossil watch', 'pendant', 'luxury watch', '14k', '18k', '10k gold'],
-  parts_accessories: ['auto part', 'car part', 'brake pad', 'oil filter', 'alternator', 'car battery', 'headlight assembly', 'bumper', 'wiper blade', 'spark plug', 'transmission', 'radiator', 'pièce auto', 'oem part', 'catalytic converter', 'exhaust', 'strut', 'control arm', 'axle', 'wheel bearing', 'fuel pump', 'thermostat', 'serpentine belt', 'timing belt', 'car accessory', 'vehicle part', 'engine', 'muffler', 'caliper', 'rotor', 'gasket', 'clutch', 'differential', 'suspension', 'tie rod', 'ball joint', 'sway bar', 'power steering', 'water pump', 'oxygen sensor', 'mass air flow', 'ignition coil'],
-  refurbished: ['refurbished', 'renewed', 'reconditioned', 'reconditionné', 'certified pre-owned', 'factory refurbished', 'pre-owned', 'used', 'open box', 'like new', 'grade a', 'grade b', 'restored', 'geek squad certified'],
-  beauty_health: ['perfume', 'cologne', 'skincare', 'makeup', 'lipstick', 'foundation', 'serum', 'moisturizer', 'shampoo', 'hair dryer', 'fragrance', 'cosmetic', 'face cream', 'nail polish', 'lotion', 'vitamins', 'beauty', 'health', 'cream', 'body wash', 'soap', 'deodorant', 'hair', 'skin', 'nail', 'brush', 'curling iron', 'straightener', 'derma', 'sunscreen', 'anti-aging', 'cleanser', 'toner', 'mascara', 'eyeshadow', 'blush', 'concealer', 'primer'],
-  collectibles: ['trading card', 'pokemon card', 'vintage', 'antique', 'collectible', 'memorabilia', 'comic book', 'figurine', 'rare coin', 'yugioh', 'collection', 'limited edition', 'signed', 'autograph', 'first edition', 'mint condition', 'graded', 'psa', 'cgc', 'funko pop', 'hot toys', 'statue', 'bust', 'replica', 'prop'],
-  audio_music: ['speaker', 'subwoofer', 'soundbar', 'home theater', 'amplifier', 'receiver', 'headphones', 'earbuds', 'bluetooth speaker', 'studio monitor', 'pa speaker', 'guitar', 'electric guitar', 'acoustic guitar', 'bass guitar', 'digital piano', 'midi controller', 'drum', 'drum kit', 'microphone', 'audio interface', 'turntable', 'hi-fi', 'surround sound', 'wireless speaker', 'portable speaker', 'bose', 'jbl', 'harman kardon', 'bang & olufsen', 'sennheiser', 'marshall', 'beats', 'audio', 'music'],
-  shoes_sneakers: ['nike', 'adidas', 'jordan', 'air max', 'new balance', 'puma', 'reebok', 'converse', 'vans', 'sneakers', 'running shoe', 'basketball shoe', 'yeezy', 'air force 1', 'dunk low', 'dunk high', 'boot', 'loafer', 'sandal', 'trail shoe', 'hiking boot', 'timberland', 'skechers', 'asics', 'under armour', 'shoe'],
-  cameras_photo: ['canon', 'nikon', 'sony camera', 'sony alpha', 'fujifilm', 'gopro', 'dslr', 'mirrorless camera', 'camera lens', 'tripod', 'ring light', 'camera bag', 'drone camera', 'action camera', 'instant camera', 'polaroid', 'digital camera', 'camcorder', 'camera body', 'telephoto lens', 'wide angle lens', 'canon eos', 'nikon z', 'camera', 'photo', 'photography', 'lumix', 'leica', 'olympus', 'flash', 'studio light', 'softbox', 'backdrop'],
-};
-
-// ===== GLOBAL HARD EXCLUDES — applied to ALL categories except the owner =====
-const GLOBAL_SHOE_TERMS = ['shoe', 'shoes', 'sneaker', 'sneakers', 'boot', 'boots', 'nike', 'jordan', 'air max', 'yeezy', 'adidas', 'puma', 'new balance', 'reebok', 'converse', 'vans', 'timberland', 'skechers', 'asics', 'dunk low', 'dunk high', 'air force 1', 'loafer', 'sandal'];
-const GLOBAL_WATCH_JEWELRY_TERMS = ['watch', 'smartwatch', 'apple watch', 'rolex', 'omega', 'cartier', 'seiko', 'casio', 'fossil', 'montre', 'necklace', 'pendant', 'ring', 'bracelet', 'earring', 'diamond', 'gold chain', 'jewelry', 'bijou'];
-const GLOBAL_TOY_TERMS = ['toy', 'toys', 'lego', 'puzzle', 'doll', 'action figure', 'barbie', 'building set', 'playset', 'jouet', 'nerf', 'plush', 'stuffed animal', 'hot wheels', 'play-doh'];
-
-// Categories that OWN each global group (exempt from those excludes)
-const SHOE_OWNER_CATS = new Set(['shoes_sneakers', 'sporting_goods', 'clothing']);
-const WATCH_JEWELRY_OWNER_CATS = new Set(['jewelry_watches']);
-const TOY_OWNER_CATS = new Set(['toys', 'collectibles']);
-
-const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
-  electronics: ['sofa', 'couch', 'recliner', 'dining', 'bed', 'mattress', 'rug', 'curtain', 'furniture', 'garden', 'pillow', 'décor', 'decor', 'dress', 'shirt', 'pants', 'clothing', 'fashion', 'phone case', 'screen protector', 'ps5', 'playstation', 'xbox', 'nintendo', 'console', 'game disc', 'guitar', 'drum', 'piano', 'yoga', 'exercise', 'workout', 'sport', 'perfume', 'cologne', 'makeup'],
-  gaming: ['sofa', 'couch', 'bed', 'mattress', 'furniture', 'kitchen', 'garden', 'dress', 'shirt', 'charger', 'cable', 'cooling fan', 'internal fan', 'replacement fan', 'gaming chair', 'chair', 'desk', 'skin', 'decal', 'speaker', 'guitar', 'piano', 'perfume', 'sofa set', 'dining table', 'makeup', 'cologne'],
-  phones: ['sofa', 'bed', 'table', 'chair', 'furniture', 'kitchen', 'garden', 'dress', 'mattress', 'case', 'protector', 'screen protector', 'cable', 'charger', 'mount', 'holder', 'stand', 'tempered glass', 'cover', 'wallet', 'strap', 'armband', 'phone case', 'phone mount', 'phone holder', 'phone stand', 'phone charger', 'phone cable', 'car mount', 'film', 'adapter', 'earphones', 'earbuds', 'headphone'],
-  vehicles: ['iphone', 'macbook', 'ps5', 'laptop', 'tablet', 'smartphone', 'dress', 'shirt', 'sofa', 'bed', 'charger', 'cable', 'stereo', 'gps', 'carplay', 'android auto', 'dash cam', 'phone mount', 'car charger', 'phone holder', 'bluetooth adapter', 'fm transmitter', 'screen protector', 'tempered glass', 'floor mat', 'seat cover', 'phone', 'head unit', 'radio', 'brake pad', 'oil filter', 'wiper', 'spark plug', 'alternator', 'bumper cover', 'perfume', 'cologne'],
-  clothing: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'couch', 'bed', 'mattress', 'fridge', 'microwave', 'phone case', 'car part', 'charger', 'cable', 'electronic', 'appliance', 'lego', 'toy', 'puzzle', 'doll', 'action figure', 'building block', 'playset', 'yoga mat', 'treadmill', 'dumbbell', 'exercise', 'auto part', 'brake pad', 'oil filter', 'car battery', 'headlight', 'spark plug', 'wiper', 'sofa set', 'dining table', 'refrigerator', 'vacuum', 'blender', 'lingerie', 'bikini', 'thong', 'lace bra', 'sexy', 'lingerie set', 'sneaker', 'sneakers', 'air max', 'air force 1', 'dunk low', 'dunk high', 'yeezy', 'running shoe', 'basketball shoe', 'hiking boot', 'camera', 'lens', 'tripod', 'mini dress', 'short dress', 'crop top', 'tank top', 'camisole', 'bralette', 'console', 'playstation', 'xbox', 'nintendo', 'game', 'controller', 'smartphone', 'samsung', 'pixel', 'android'],
-  home_garden: ['iphone', 'ps5', 'macbook', 'laptop', 'smartphone', 'playstation', 'xbox', 'nintendo', 'gpu', 'earbuds', 'phone case', 'gaming', 'video game', 'console', 'hdmi', 'usb', 'cable', 'apple watch', 'smartwatch', 'airpods', 'headphones', 'samsung galaxy', 'trading card', 'pokemon', 'carplay', 'stereo', 'perfume', 'cologne', 'makeup', 'phone', 'samsung', 'tablet'],
-  toys: ['iphone', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'ps5', 'phone case', 'charger', 'cable', 'brake pad', 'oil filter', 'perfume', 'cologne'],
-  sporting_goods: ['iphone', 'macbook', 'ps5', 'sofa', 'bed', 'mattress', 'laptop', 'tablet', 'phone case', 'gaming', 'charger', 'cable', 'console', 'playstation', 'xbox', 'nintendo', 'trading card', 'pokemon', 'perfume', 'cologne'],
-  jewelry_watches: ['iphone', 'ps5', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'phone case', 'charger', 'cable', 'tool', 'appliance', 'furniture', 'brake pad', 'perfume', 'cologne', 'makeup'],
-  parts_accessories: ['iphone', 'samsung galaxy', 'macbook', 'laptop', 'ps5', 'playstation', 'xbox', 'nintendo', 'sofa', 'bed', 'dress', 'shirt', 'perfume', 'makeup', 'tablet', 'airpods', 'headphones', 'speaker', 'cologne', 'screen protector', 'tempered glass', 'phone', 'samsung'],
-  beauty_health: ['sofa', 'bed', 'mattress', 'iphone', 'ps5', 'laptop', 'console', 'brake pad', 'car part', 'cable', 'charger', 'camera', 'lens', 'xbox', 'nintendo', 'playstation', 'phone', 'samsung', 'case', 'protector', 'computer', 'tablet', 'gaming'],
-  collectibles: ['sofa', 'bed', 'mattress', 'iphone', 'laptop', 'ps5', 'brake pad', 'oil filter', 'charger', 'cable', 'perfume', 'cologne'],
-  audio_music: ['ps5', 'playstation', 'xbox', 'nintendo', 'console', 'controller', 'game disc', 'gaming chair', 'cooling fan', 'video game', 'case', 'cover', 'protector', 'screen protector', 'tempered glass', 'mount', 'holder', 'stand', 'adapter', 'replacement', 'spare', 'repair', 'car gps', 'carplay', 'android auto', 'dash cam', 'phone case', 'sofa', 'bed', 'mattress', 'furniture', 'dress', 'shirt', 'brake pad', 'oil filter', 'perfume', 'cologne', 'makeup', 'phone', 'iphone', 'samsung', 'laptop', 'tablet', 'camera', 'lens', 'kindle', 'e-reader', 'ebook', 'paperwhite', 'reader'],
-  shoes_sneakers: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'bed', 'mattress', 'phone case', 'charger', 'cable', 'lego', 'toy', 'car part', 'brake pad', 'console', 'gaming', 'perfume', 'cologne'],
-  cameras_photo: ['sofa', 'bed', 'mattress', 'phone case', 'dress', 'shirt', 'lego', 'car part', 'charger cable', 'ps5', 'playstation', 'xbox', 'console', 'brake pad', 'oil filter', 'perfume', 'cologne', 'carplay', 'stereo', 'makeup', 'iphone', 'samsung galaxy', 'laptop', 'macbook', 'gaming', 'alienware', 'msi', 'dell', 'lenovo', 'asus', 'acer', 'hp pavilion', 'tablet', 'ipad', 'android', 'smartphone', 'phone', 'cellphone'],
-  refurbished: [],
-};
-
-// Build effective excludes: category-specific + global excludes (shoes/watches/toys) unless owner
-function getEffectiveExcludes(catKey: string): string[] {
-  const base = CATEGORY_EXCLUDE_KEYWORDS[catKey] || [];
-  const extras: string[] = [];
-  if (!SHOE_OWNER_CATS.has(catKey)) extras.push(...GLOBAL_SHOE_TERMS);
-  if (!WATCH_JEWELRY_OWNER_CATS.has(catKey)) extras.push(...GLOBAL_WATCH_JEWELRY_TERMS);
-  if (!TOY_OWNER_CATS.has(catKey)) extras.push(...GLOBAL_TOY_TERMS);
-  return [...new Set([...base, ...extras])];
-}
-
-function isRelevantToCategory(product: Product, categoryKey: string): boolean {
-  if (categoryKey === 'all') return true;
-  const keywords = CATEGORY_KEYWORDS[categoryKey];
-  if (!keywords) return true;
-  const titleLower = (product.title || '').toLowerCase();
-  const matches = keywords.some(kw => titleLower.includes(kw));
-  if (!matches) return false;
-  const excludes = getEffectiveExcludes(categoryKey);
-  if (excludes.some(ex => titleLower.includes(ex))) return false;
-  return true;
-}
-
-function getCategoryTitle(key: string, lang: string): string {
-  return CATEGORY_TITLE_MAP[key]?.[lang] || CATEGORY_TITLE_MAP[key]?.en || key;
-}
+// Import static data and helpers from extracted module
+import {
+  CATEGORY_TITLE_MAP,
+  CATEGORY_SEARCH_QUERIES,
+  CATEGORY_KEYWORDS,
+  CATEGORY_EXCLUDE_KEYWORDS,
+  CATEGORY_FILTER_OPTIONS,
+  ALL_HOMEPAGE_CATEGORIES,
+  PROMO_CATEGORIES,
+  PROVIDER_DISPLAY,
+  COMING_SOON_STORES,
+  CONCURRENCY_LIMIT,
+  CURATED_CACHE_TTL_MS,
+  MODE_OVERRIDE_QUERIES,
+  LUXURY_KEYWORDS,
+  getEffectiveExcludes,
+  isRelevantToCategory,
+  getCategoryTitle,
+  filterForCategory,
+  sortByLuxury,
+  deduplicateProducts,
+  runWithConcurrency,
+} from '@/lib/categoryConfig';
 
 interface HomeFeedResponse {
   ok: boolean;
@@ -164,18 +73,6 @@ interface HomeFeedResponse {
   _meta?: { source?: string; poolSize?: number; isStale?: boolean };
 }
 
-// All homepage categories in display order
-const ALL_HOMEPAGE_CATEGORIES = [
-  'phones', 'electronics', 'audio_music', 'gaming',
-  'vehicles', 'home_garden', 'toys', 'sporting_goods',
-  'jewelry_watches', 'parts_accessories', 'refurbished',
-  'clothing', 'cameras_photo',
-];
-const PROMO_CATEGORIES = ALL_HOMEPAGE_CATEGORIES.slice(0, 4);
-
-const LUXURY_KEYWORDS = ['pro', 'max', 'ultra', 'premium', 'oled', 'macbook', 'rolex', 'diamond', 'gold', 'luxury', 'designer', '4k', '8k', 'titanium'];
-const CONCURRENCY_LIMIT = 4;
-const CURATED_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const SLOW_CATEGORIES = new Set(ALL_HOMEPAGE_CATEGORIES);
 
 function getCachedCategoryResult(catKey: string): Product[] | null {
@@ -246,7 +143,6 @@ const mapSearchItemToProduct = (item: any): Product => {
 
 const isValidProduct = (p: Product) => p.id && p.priceUsd > 0 && (p.imageUrl ? isRenderableImageUrl(p.imageUrl) : true);
 
-
 const extractFirstImageFromJson = (images: any): string | null => {
   const readCandidates = (obj: any): string[] => {
     if (!obj || typeof obj !== 'object') return [];
@@ -278,58 +174,8 @@ const deriveProviderImageFallback = (provider: string, providerProductId?: strin
   if (p === 'carvana') {
     return `https://vexgateway.fastly.carvana.io/${providerProductId}/standardizedHero.jpg?width=800`;
   }
-  // Removed broken SHEIN CDN fallback - the fabricated URL pattern doesn't resolve
   return null;
 };
-
-/** Run async tasks with a concurrency limit */
-async function runWithConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
-  const results: T[] = [];
-  let index = 0;
-  async function worker() {
-    while (index < tasks.length) {
-      const i = index++;
-      results[i] = await tasks[i]();
-    }
-  }
-  const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
-  await Promise.allSettled(workers);
-  return results;
-}
-
-/** Deduplicate products by ID within a list */
-function deduplicateProducts(items: Product[]): Product[] {
-  const seen = new Set<string>();
-  return items.filter(p => {
-    const key = p.id;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-/** Filter products by category relevance */
-function filterForCategory(items: Product[], catKey: string): Product[] {
-  const excludes = getEffectiveExcludes(catKey);
-  const keywords = CATEGORY_KEYWORDS[catKey];
-  return items.filter(p => {
-    const titleLower = (p.title || '').toLowerCase();
-    if (excludes.some(ex => titleLower.includes(ex))) return false;
-    // For strict categories, require keyword match
-    if (keywords && !keywords.some(kw => titleLower.includes(kw))) return false;
-    return true;
-  });
-}
-
-/** Sort by luxury/price */
-function sortByLuxury(items: Product[]): Product[] {
-  return [...items].sort((a, b) => {
-    const aLux = LUXURY_KEYWORDS.some(kw => (a.title || '').toLowerCase().includes(kw)) ? 1 : 0;
-    const bLux = LUXURY_KEYWORDS.some(kw => (b.title || '').toLowerCase().includes(kw)) ? 1 : 0;
-    if (bLux !== aLux) return bLux - aLux;
-    return (b.priceUsd || 0) - (a.priceUsd || 0);
-  });
-}
 
 export default function ShopHome() {
   const { language } = useLanguage();
@@ -339,16 +185,13 @@ export default function ShopHome() {
   const shop = t.shop;
 
   // ====== STATE ======
-  // Trending: still uses shared feed
   const [accueilProducts, setAccueilProducts] = useState<Product[]>([]);
   const [accueilLoading, setAccueilLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Pinned items from admin (deterministic homepage)
   const [pinnedByCategory, setPinnedByCategory] = useState<Record<string, Product[]>>({});
   const pinnedFetchedRef = useRef(false);
 
-  // Per-category independent items and loading states
   const [categoryItems, setCategoryItems] = useState<Record<string, Product[]>>({});
   const [categoryLoadingMap, setCategoryLoadingMap] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
@@ -362,14 +205,12 @@ export default function ShopHome() {
   const fetchedRef = useRef(false);
   const [dynamicStores, setDynamicStores] = useState<{ value: string; label: string; count: number }[]>([]);
 
-  // Store-filtered products (flat grid from DB)
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
   const [storeProductsLoading, setStoreProductsLoading] = useState(false);
   const [storeTotalCount, setStoreTotalCount] = useState(0);
   const [storeProductsPage, setStoreProductsPage] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // Category-only filtered products (flat grid from DB, no store filter)
   const [categoryProducts, setCategoryProducts] = useState<Product[]>([]);
   const [categoryProductsLoading, setCategoryProductsLoading] = useState(false);
   const [categoryTotalCount, setCategoryTotalCount] = useState(0);
@@ -377,27 +218,7 @@ export default function ShopHome() {
   const [categoryLoadingMore, setCategoryLoadingMore] = useState(false);
   const categoryProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
 
-  // Cache store-filtered results per provider for instant re-display
   const storeProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
-
-  const PROVIDER_DISPLAY: Record<string, string> = {
-    rainforest: 'Amazon', amazon: 'Amazon', ebay: 'eBay', shein: 'SHEIN',
-    carvana: 'Carvana', cargurus: 'CarGurus', walmart: 'Walmart',
-    bestbuy: 'Best Buy', macys: "Macy's", homedepot: 'Home Depot',
-    wayfair: 'Wayfair', temu: 'Temu', ford: 'Ford', toyota: 'Toyota', tesla: 'Tesla',
-  };
-
-  // Popular stores to always show even if they have 0 products yet
-  const COMING_SOON_STORES = ['walmart', 'bestbuy', 'macys', 'homedepot', 'wayfair', 'temu', 'ford', 'toyota', 'tesla'];
-
-  // Category filter options
-  const CATEGORY_FILTER_OPTIONS = [
-    { value: 'all', labelEn: 'All Categories', labelFr: 'Toutes catégories' },
-    { value: 'phones', labelEn: 'Phones', labelFr: 'Téléphones' },
-    { value: 'vehicles', labelEn: 'Vehicles', labelFr: 'Véhicules' },
-    { value: 'clothing', labelEn: 'Clothes / Fashion', labelFr: 'Mode / Vêtements' },
-    { value: 'computers', labelEn: 'Computers / Laptops', labelFr: 'Ordinateurs / Laptops' },
-  ];
 
   // Fetch distinct providers via RPC for dynamic store dropdown
   useEffect(() => {
@@ -406,7 +227,6 @@ export default function ShopHome() {
         const { data, error } = await supabase.rpc('get_active_providers');
         if (error) throw error;
         if (!data) return;
-        // Merge rainforest+amazon counts
         const mergedMap = new Map<string, number>();
         for (const row of data as { provider: string; item_count: number }[]) {
           const key = row.provider === 'rainforest' ? 'amazon' : row.provider;
@@ -421,7 +241,6 @@ export default function ShopHome() {
           }))
           .sort((a, b) => b.count - a.count);
 
-        // Add coming-soon stores that aren't already in the list
         const existingKeys = new Set(stores.map(s => s.value));
         for (const storeKey of COMING_SOON_STORES) {
           if (!existingKeys.has(storeKey)) {
@@ -512,7 +331,6 @@ export default function ShopHome() {
       return;
     }
 
-    // Instant display from cache if available
     const cached = storeProductsCacheRef.current[providerFilter];
     if (cached) {
       setStoreProducts(cached.products);
@@ -530,7 +348,7 @@ export default function ShopHome() {
     fetchStorePage(providerFilter, nextPage, true);
   }, [storeProductsPage, providerFilter, fetchStorePage]);
 
-  // Fetch category-only products using fast backend category endpoint (avoids DB timeout on large OR scans)
+  // Fetch category-only products using fast backend category endpoint
   const fetchCategoryPage = useCallback(async (catKey: string, page: number, append: boolean) => {
     const PAGE_SIZE = 200;
 
@@ -560,7 +378,7 @@ export default function ShopHome() {
         console.warn(`[ShopHome] catalog-category fetch for ${catKey} page ${page} failed:`, endpointErr);
       }
 
-      // Fallback for custom categories like "computers" (and any temporary endpoint misses)
+      // Fallback for custom categories
       if (mapped.length === 0 && page === 0) {
         const queries = CATEGORY_SEARCH_QUERIES[catKey] || [catKey.replace('_', ' ')];
         const fallbackPool: Product[] = [];
@@ -571,7 +389,7 @@ export default function ShopHome() {
             const searchItems = (data?.items || [])
               .map(mapSearchItemToProduct)
               .filter(isValidProduct)
-              .filter(p => isRelevantToCategory(p, catKey));
+              .filter((p: Product) => isRelevantToCategory(p, catKey));
             fallbackPool.push(...searchItems);
           } catch {
             // Continue with next query
@@ -601,7 +419,6 @@ export default function ShopHome() {
     }
   }, [language]);
 
-  // Load category products: instant from cache, first page from API, manual Load More only
   useEffect(() => {
     if (providerFilter && providerFilter !== 'all') return;
     if (!categoryFilter || categoryFilter === 'all') {
@@ -711,7 +528,6 @@ export default function ShopHome() {
       try {
         const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 15 });
         const raw = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct);
-        console.log(`[Vehicles] query "${q}" raw:`, raw.slice(0, 5).map((x: Product) => x.title));
         for (const p of raw) {
           if (results.length >= max) break;
           const title = (p.title || '').toLowerCase();
@@ -727,30 +543,21 @@ export default function ShopHome() {
     return results;
   }
 
-  // ====== MODE (clothing) SPECIAL OVERRIDE QUERIES ======
-  const MODE_OVERRIDE_QUERIES = [
-    'women long maxi dress elegant',
-    'mens jacket coat fashion',
-    'abaya kaftan dress women',
-    'blazer suit women professional',
-    'hoodie sweatshirt men',
-    'handbag designer leather',
-    'jeans denim pants',
-    'robe longue femme',
-    'veste homme',
-    'sac à main cuir',
-  ];
-
   // ====== PER-CATEGORY INDEPENDENT FETCH ======
-  const fetchCategoryItems = useCallback(async (categories: string[]) => {
+  const fetchCategoryItems = useCallback(async (categories: string[], pinnedMap?: Record<string, Product[]>) => {
+    const pinned = pinnedMap || pinnedByCategory;
     const tasks = categories.map((catKey) => async () => {
+      // OPTIMIZATION: Skip fetch entirely if pinned items exist for this category
+      if (pinned[catKey]?.length > 0) {
+        setCategoryLoadingMap(prev => ({ ...prev, [catKey]: false }));
+        return;
+      }
+
       setCategoryLoadingMap(prev => ({ ...prev, [catKey]: true }));
-      // For slow categories, show cached curated result instantly
       let backgroundRefresh = false;
       if (SLOW_CATEGORIES.has(catKey)) {
         const cached = getCachedCategoryResult(catKey);
         if (cached) {
-          // Re-validate cached items: filter out stale misclassified or bad-image products
           const validated = filterForCategory(
             cached.filter(p => p.imageUrl && isRenderableImageUrl(p.imageUrl)),
             catKey
@@ -783,15 +590,13 @@ export default function ShopHome() {
                 items.push(p);
                 seenIds.add(p.id);
               }
-              console.log(`[Mode] query tried: "${q}", valid so far: ${items.length}`);
             } catch (e) {
-              console.warn(`[Mode] query "${q}" failed`, e);
+              console.warn(`[Mode] query failed`, e);
             }
           }
           items = sortByLuxury(items).slice(0, 4);
 
-        // ===== SPECIAL PATH FOR "vehicles" (Véhicules) =====
-        // Goal: 1 Tesla luxury + 3 SUVs. Try DB-cached sources first, then live search fallback.
+        // ===== SPECIAL PATH FOR "vehicles" =====
         } else if (catKey === 'vehicles') {
           const vehicleExcludes = [
             ...(CATEGORY_EXCLUDE_KEYWORDS['vehicles'] || []),
@@ -809,7 +614,6 @@ export default function ShopHome() {
           };
           const seenIds = new Set<string>();
 
-          // Exact vehicle queries for the 4 luxury cars
           const EXACT_VEHICLE_QUERIES = [
             '2026 Tesla Model Y Long Range',
             '2025 GMC Yukon XL AT4 Ultimate 4WD Lifted Vossens',
@@ -828,15 +632,13 @@ export default function ShopHome() {
                 if (seenIds.has(key)) continue;
                 seenIds.add(key);
                 items.push(p);
-                break; // take only first valid match per query
+                break;
               }
-              console.log(`[Vehicles] exact query "${q}" → found ${searchItems.length} valid, total so far: ${items.length}`);
             } catch (e) {
-              console.warn(`[Vehicles] exact query "${q}" failed:`, e);
+              console.warn(`[Vehicles] exact query failed:`, e);
             }
           }
 
-          // Fallback: if fewer than 4 vehicles, run broader queries
           if (items.length < 4) {
             const BROAD_VEHICLE_QUERIES = [
               'Tesla Model Y SUV',
@@ -860,57 +662,45 @@ export default function ShopHome() {
                   break;
                 }
               } catch (e) {
-                console.warn(`[Vehicles] broad fallback "${q}" failed:`, e);
+                console.warn(`[Vehicles] broad fallback failed:`, e);
               }
             }
-            console.log(`[Vehicles] after broad fallback: ${items.length} items`);
           }
 
           items = items.slice(0, 4);
-          console.log('[Vehicles] selected:', items.map(p => `${p.title} ($${p.priceUsd})`));
 
-        // ===== SPECIAL PATH FOR "jewelry_watches" (Montres & Bijoux) =====
+        // ===== SPECIAL PATH FOR "jewelry_watches" =====
         } else if (catKey === 'jewelry_watches') {
           const seenIds = new Set<string>();
-          // Phase 1: Collect watches (aim 2+)
           const watchQueries = [
             'Rolex watch', 'Cartier watch', 'Omega watch',
             'Tag Heuer watch', 'Breitling watch', 'Tudor watch',
             'luxury watch men', 'luxury watch women',
           ];
           const watches = await searchValidItems(watchQueries, 4, seenIds);
-          // Phase 2: Collect rings (aim 1+)
           const ringQueries = [
             'diamond ring', 'gold ring luxury', 'Cartier ring',
             'Tiffany ring', 'engagement ring diamond',
           ];
           const rings = await searchValidItems(ringQueries, 2, seenIds);
-          // Phase 3: Optional filler
           const fillerQueries = [
             'Cartier bracelet', 'diamond bracelet',
             'luxury necklace', 'diamond necklace',
           ];
 
-          // Assemble with mix: 2 watches + 1 ring + 1 best remaining
           const assembled: Product[] = [];
-          // Add up to 2 watches
           for (const w of watches) { if (assembled.length < 2) assembled.push(w); }
-          // Add at least 1 ring
           for (const r of rings) { if (assembled.length < 3) assembled.push(r); }
-          // Fill remaining from leftover watches, rings, or filler
           const leftover = [...watches.slice(2), ...rings.slice(1)];
           for (const p of leftover) { if (assembled.length < 4) assembled.push(p); }
-          // If still < 4, fetch filler
           if (assembled.length < 4) {
             const filler = await searchValidItems(fillerQueries, 4 - assembled.length, seenIds);
             assembled.push(...filler);
           }
           items = assembled.slice(0, 4);
-          // Sort by price (highest first) for luxury feel
           items.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
-          console.log('[WatchesJewelry] selected:', items.map(p => p.title));
 
-        // ===== SPECIAL PATH FOR "parts_accessories" (Pièces Auto) =====
+        // ===== SPECIAL PATH FOR "parts_accessories" =====
         } else if (catKey === 'parts_accessories') {
           const seenIds = new Set<string>();
           const seenImages = new Set<string>();
@@ -918,39 +708,18 @@ export default function ShopHome() {
 
           const addUnique = (p: Product, bucket: Product[]) => {
             const titleKey = (p.title || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40);
-            const imgKey = (p.imageUrl || '').split('?')[0];
-            if (seenIds.has(p.id)) return false;
-            if (titleKey && seenTitleKeys.has(titleKey)) return false;
-            if (imgKey && seenImages.has(imgKey)) return false;
+            if (seenIds.has(p.id) || seenTitleKeys.has(titleKey)) return false;
+            if (p.imageUrl && seenImages.has(p.imageUrl)) return false;
             seenIds.add(p.id);
             seenTitleKeys.add(titleKey);
-            if (imgKey) seenImages.add(imgKey);
+            if (p.imageUrl) seenImages.add(p.imageUrl);
             bucket.push(p);
             return true;
           };
 
-          // Use broad queries known to return auto parts results
-          const AUTO_PARTS_QUERIES = [
-            'brake pad rotor', 'car headlight assembly', 'alternator',
-            'car battery', 'spark plug set', 'oil filter', 'air filter car',
-            'wiper blade', 'car bumper', 'wheel bearing', 'serpentine belt',
-            'ignition coil', 'oxygen sensor', 'power steering pump',
-            'water pump car', 'strut assembly', 'tie rod end',
-            'brake caliper', 'radiator', 'fuel pump',
-          ];
-
-          const partsExcludes = CATEGORY_EXCLUDE_KEYWORDS['parts_accessories'] || [];
-          const isAutoPartItem = (p: Product): boolean => {
-            if (!p.id || !p.imageUrl || !p.priceUsd) return false;
-            const t = (p.title || '').toLowerCase();
-            if (partsExcludes.some(ex => t.includes(ex))) return false;
-            if (AUTO_PARTS_JUNK_TERMS.some(jt => t.includes(jt))) return false;
-            return ['brake', 'rotor', 'pad', 'headlight', 'alternator', 'battery', 'spark', 'filter', 'wiper', 'bumper', 'bearing', 'belt', 'coil', 'sensor', 'steering', 'pump', 'strut', 'tie rod', 'caliper', 'radiator', 'fuel', 'exhaust', 'muffler', 'axle', 'transmission', 'clutch', 'gasket', 'suspension', 'engine', 'motor', 'turbo', 'injector', 'catalytic', 'car', 'auto', 'vehicle'].some(k => t.includes(k));
-          };
-
           const allParts: Product[] = [];
 
-          // Attempt 1: catalog-category (DB-cached auto parts)
+          // Phase 1: DB-cached items
           try {
             const data = await cachedCatalogFetch<any>('catalog-category', {
               category: 'parts_accessories', limit: 50, page: 1, pageSize: 50, client: 'web',
@@ -963,39 +732,26 @@ export default function ShopHome() {
               priceUsd: item.priceUsd || item.price_usd || 0,
               rating: item.rating, inStock: true,
               productUrl: item.productUrl || item.product_url || '',
-            } as Product)).filter(isAutoPartItem);
-            console.log('[AutoParts] catalog-category raw:', rawItems.slice(0, 5).map((p: Product) => `${p.title} ($${p.priceUsd})`));
+            } as Product)).filter(isValidProduct).filter(isNotAutoPartsJunk);
             for (const p of rawItems) {
               if (allParts.length >= 8) break;
               addUnique(p, allParts);
             }
           } catch (e) { console.warn('[AutoParts] catalog-category failed:', e); }
 
-          // Attempt 2: catalog-home feed (DB-cached)
+          // Phase 2: search fallback
           if (allParts.length < 4) {
-            try {
-              const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
-                category: 'parts_accessories', page: 1, pageSize: 80, client: 'web',
-              });
-              const feedItems = (data?.sections?.flatMap(s => s.items) || [])
-                .map(mapItemToProduct).filter(isValidProduct).filter(isAutoPartItem);
-              console.log('[AutoParts] catalog-home raw:', feedItems.slice(0, 5).map((p: Product) => `${p.title} ($${p.priceUsd})`));
-              for (const p of feedItems) {
-                if (allParts.length >= 8) break;
-                addUnique(p, allParts);
-              }
-            } catch (e) { console.warn('[AutoParts] catalog-home fallback failed:', e); }
-          }
-
-          // Attempt 3: live search fallback
-          if (allParts.length < 4) {
-            for (const q of AUTO_PARTS_QUERIES) {
+            const partsQueries = [
+              'brake rotor pad set', 'headlight assembly OEM', 'catalytic converter exhaust',
+              'car battery AGM', 'alternator replacement', 'strut assembly front',
+              'wheel bearing hub', 'fuel pump module', 'power steering rack',
+            ];
+            for (const q of partsQueries) {
               if (allParts.length >= 8) break;
               try {
                 const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 10 });
-                const raw = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct).filter(isNotAutoPartsJunk);
-                console.log(`[AutoParts] search "${q}" raw:`, raw.slice(0, 3).map((x: Product) => x.title));
-                for (const p of raw) {
+                const searchItems = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct).filter(isNotAutoPartsJunk);
+                for (const p of searchItems) {
                   if (allParts.length >= 8) break;
                   const t = (p.title || '').toLowerCase();
                   const looksAutoPart = ['brake', 'rotor', 'pad', 'headlight', 'alternator', 'battery', 'spark', 'filter', 'wiper', 'bumper', 'bearing', 'belt', 'coil', 'sensor', 'steering', 'pump', 'strut', 'tie rod', 'caliper', 'radiator', 'fuel', 'exhaust', 'muffler', 'axle', 'transmission', 'clutch', 'gasket', 'suspension', 'engine', 'motor', 'turbo', 'injector', 'catalytic', 'car', 'auto', 'vehicle'].some(k => t.includes(k));
@@ -1005,10 +761,8 @@ export default function ShopHome() {
             }
           }
 
-          // Sort by price descending to prefer substantial parts
           allParts.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
           items = allParts.slice(0, 4);
-          console.log('[AutoParts] selected titles:', items.map(p => `${p.title} ($${p.priceUsd})`));
 
         // ===== SPECIAL PATH FOR "cameras_photo" =====
         } else if (catKey === 'cameras_photo') {
@@ -1032,7 +786,6 @@ export default function ShopHome() {
 
           const allCameras: Product[] = [];
 
-          // Attempt 1: catalog-category (DB-cached camera items)
           try {
             const data = await cachedCatalogFetch<any>('catalog-category', {
               category: 'cameras_photo', limit: 50, page: 1, pageSize: 50, client: 'web',
@@ -1052,7 +805,6 @@ export default function ShopHome() {
             }
           } catch (e) { console.warn('[Cameras] catalog-category failed:', e); }
 
-          // Attempt 2: catalog-home feed
           if (allCameras.length < 4) {
             try {
               const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
@@ -1067,7 +819,6 @@ export default function ShopHome() {
             } catch (e) { console.warn('[Cameras] catalog-home failed:', e); }
           }
 
-          // Attempt 3: broad search queries
           if (allCameras.length < 4) {
             const CAMERA_QUERIES = [
               'DSLR camera', 'mirrorless camera Sony Canon Nikon',
@@ -1089,11 +840,9 @@ export default function ShopHome() {
 
           allCameras.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
           items = allCameras.slice(0, 4);
-          console.log('[Cameras] selected:', items.map(p => `${p.title?.slice(0, 40)} ($${p.priceUsd})`));
 
         } else {
-          // ===== STANDARD PATH FOR ALL OTHER CATEGORIES =====
-          // Stage 1: Try dedicated category feed
+          // ===== STANDARD PATH =====
           try {
             const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
               category: catKey,
@@ -1107,7 +856,6 @@ export default function ShopHome() {
             // Ignore, proceed to search fallback
           }
 
-          // Stage 2: If not enough, try search queries
           if (items.length < 4) {
             const queries = CATEGORY_SEARCH_QUERIES[catKey] || [catKey.replace('_', ' ')];
             for (const q of queries.slice(0, 4)) {
@@ -1123,18 +871,13 @@ export default function ShopHome() {
             items = filterForCategory(items, catKey);
           }
 
-          // Deduplicate and take first 4
           items = deduplicateProducts(sortByLuxury(items)).slice(0, 4);
         }
 
-        console.log(`[ShopHome] Category ${catKey}: fetched=${items.length}, shown=${Math.min(items.length, 4)}`);
-
-        // Cache curated result for slow categories
         if (SLOW_CATEGORIES.has(catKey)) {
           setCachedCategoryResult(catKey, items);
         }
 
-        // Only update UI if we got results (don't blank out cached display with empty)
         if (items.length > 0 || !backgroundRefresh) {
           setCategoryItems(prev => ({ ...prev, [catKey]: items }));
         }
@@ -1151,7 +894,7 @@ export default function ShopHome() {
     });
 
     await runWithConcurrency(tasks, CONCURRENCY_LIMIT);
-  }, []);
+  }, [pinnedByCategory]);
 
   const loadRecentlyViewed = useCallback(async () => {
     try {
@@ -1162,13 +905,12 @@ export default function ShopHome() {
     }
   }, [user?.id]);
 
-  // ====== TRENDING FEED (from shared accueil pool + pinned items) ======
+  // ====== TRENDING FEED (memoized) ======
   const trendingFeed = useMemo(() => {
     const dedup = new Set<string>();
     const trendingCats = ['phones', 'cameras_photo', 'vehicles', 'clothing', 'electronics', 'jewelry_watches', 'gaming', 'audio_music', 'home_garden', 'sporting_goods', 'toys', 'parts_accessories', 'refurbished'];
     const trending: Product[] = [];
 
-    // Combine accueil products with pinned items for a richer pool
     const allPinnedProducts: Product[] = [];
     for (const catKey of trendingCats) {
       const pins = pinnedByCategory[catKey] || [];
@@ -1176,10 +918,9 @@ export default function ShopHome() {
     }
     const combinedPool = [...allPinnedProducts, ...accueilProducts];
 
-    // Round-robin from combined pool by category — prefer Amazon/pinned items
     for (const cat of trendingCats) {
+      if (trending.length >= 16) break; // Early termination
       const relevant = combinedPool.filter(p => isRelevantToCategory(p, cat));
-      // Prefer Amazon (rainforest) items first, then others
       const amazonFirst = [
         ...relevant.filter(p => (p.provider || '').toLowerCase() === 'rainforest'),
         ...relevant.filter(p => (p.provider || '').toLowerCase() !== 'rainforest'),
@@ -1196,7 +937,6 @@ export default function ShopHome() {
       }
     }
 
-    // Backfill
     if (trending.length < 16) {
       for (const p of sortByLuxury(combinedPool)) {
         if (trending.length >= 16) break;
@@ -1207,8 +947,7 @@ export default function ShopHome() {
       }
     }
 
-    // Provider diversity: interleave so eBay and Amazon alternate
-    const interleaved: Product[] = [];
+    // Provider diversity interleave
     const byProvider: Record<string, Product[]> = {};
     for (const p of trending) {
       const prov = (p.provider || 'ebay').toLowerCase();
@@ -1217,6 +956,7 @@ export default function ShopHome() {
       byProvider[key].push(p);
     }
     const providerQueues = Object.values(byProvider).sort((a, b) => b.length - a.length);
+    const interleaved: Product[] = [];
     let qi = 0;
     while (interleaved.length < trending.length) {
       let added = false;
@@ -1233,8 +973,29 @@ export default function ShopHome() {
     return interleaved.slice(0, 16);
   }, [accueilProducts, pinnedByCategory]);
 
+  // ====== MEMOIZED FILTERED RESULTS ======
+  const filteredTrending = useMemo(() => applyFilters(trendingFeed), [applyFilters, trendingFeed]);
+  const filteredRecentlyViewed = useMemo(() => applyFilters(recentlyViewed), [applyFilters, recentlyViewed]);
+  const filteredStoreProducts = useMemo(() => filterByCategory(storeProducts), [filterByCategory, storeProducts]);
+
+  // Memoize per-category display items
+  const promoCategoryItems = useMemo(() => {
+    return PROMO_CATEGORIES.map(catKey => ({
+      catKey,
+      items: applyFilters(pinnedByCategory[catKey]?.length ? pinnedByCategory[catKey] : (categoryItems[catKey] ?? [])),
+      loading: categoryLoadingMap[catKey] === true,
+    }));
+  }, [applyFilters, pinnedByCategory, categoryItems, categoryLoadingMap]);
+
+  const remainingCategoryItems = useMemo(() => {
+    return ALL_HOMEPAGE_CATEGORIES.filter(k => !PROMO_CATEGORIES.includes(k)).map(catKey => ({
+      catKey,
+      items: applyFilters(pinnedByCategory[catKey]?.length ? pinnedByCategory[catKey] : (categoryItems[catKey] ?? [])),
+      loading: categoryLoadingMap[catKey] === true,
+    }));
+  }, [applyFilters, pinnedByCategory, categoryItems, categoryLoadingMap]);
+
   // ====== EFFECTS ======
-  // Idle prefetch: warm category caches after homepage loads
   const scheduleCategoryPrefetch = useCallback(() => {
     const schedule = typeof requestIdleCallback === 'function'
       ? requestIdleCallback
@@ -1244,16 +1005,19 @@ export default function ShopHome() {
       ALL_HOMEPAGE_CATEGORIES.forEach((catKey, i) => {
         setTimeout(() => {
           prefetchCatalogCategory(catKey, language);
-        }, i * 500); // stagger 500ms apart
+        }, i * 500);
       });
     });
   }, [language]);
 
-  // Fetch pinned items from admin
+  // OPTIMIZATION: Parallel initial data fetch — pinned + accueil + providers in parallel
   useEffect(() => {
     if (pinnedFetchedRef.current) return;
     pinnedFetchedRef.current = true;
+
     (async () => {
+      // Phase 1: Fetch pinned items (must resolve first to know which categories need dynamic fetch)
+      let grouped: Record<string, Product[]> = {};
       try {
         const { data, error } = await supabase
           .from("homepage_pinned_items")
@@ -1261,7 +1025,6 @@ export default function ShopHome() {
           .order("category_key")
           .order("sort_order");
         if (error) throw error;
-        const grouped: Record<string, Product[]> = {};
         for (const item of data || []) {
           const catKey = (item as any).category_key;
           if (!grouped[catKey]) grouped[catKey] = [];
@@ -1275,7 +1038,6 @@ export default function ShopHome() {
           });
         }
         setPinnedByCategory(grouped);
-        // Mark pinned categories as loaded immediately
         const loadingUpdates: Record<string, boolean> = {};
         for (const catKey of ALL_HOMEPAGE_CATEGORIES) {
           if (grouped[catKey]?.length > 0) {
@@ -1288,37 +1050,56 @@ export default function ShopHome() {
       } catch (err) {
         console.warn('[ShopHome] Failed to fetch pinned items:', err);
       }
+
+      // Phase 2: Fire accueil feed + category fetches in parallel
+      const catsToFetch = ALL_HOMEPAGE_CATEGORIES.filter(k => !(grouped[k]?.length > 0));
+
+      const accueilPromise = (async () => {
+        setAccueilLoading(true);
+        setError(null);
+        try {
+          const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
+            page: 1,
+            pageSize: 100,
+            client: 'web',
+          });
+          if (data?.sections?.length) {
+            const all = data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0);
+            setAccueilProducts(all);
+          }
+        } catch (err: any) {
+          setError(err.message || 'Failed to load');
+        } finally {
+          setAccueilLoading(false);
+        }
+      })();
+
+      const categoryPromise = (async () => {
+        if (catsToFetch.length === 0) {
+          scheduleCategoryPrefetch();
+          return;
+        }
+        const promos = catsToFetch.filter(k => PROMO_CATEGORIES.includes(k));
+        const rest = catsToFetch.filter(k => !PROMO_CATEGORIES.includes(k));
+
+        // Use the grouped pinned data directly (avoids stale closure on pinnedByCategory)
+        if (promos.length > 0) {
+          await fetchCategoryItems(promos, grouped);
+          if (rest.length > 0) {
+            await fetchCategoryItems(rest, grouped);
+          }
+        } else if (rest.length > 0) {
+          await fetchCategoryItems(rest, grouped);
+        }
+        scheduleCategoryPrefetch();
+      })();
+
+      const recentPromise = loadRecentlyViewed();
+
+      await Promise.allSettled([accueilPromise, categoryPromise, recentPromise]);
+      fetchedRef.current = true;
     })();
   }, []);
-
-  useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-    fetchAccueilFeed();
-    // Only fetch categories that don't have pins
-    const categoriesWithPins = new Set(Object.keys(pinnedByCategory).filter(k => pinnedByCategory[k]?.length > 0));
-    const catsToFetch = ALL_HOMEPAGE_CATEGORIES.filter(k => !categoriesWithPins.has(k));
-    
-    if (catsToFetch.length > 0) {
-      const promos = catsToFetch.filter(k => PROMO_CATEGORIES.includes(k));
-      const rest = catsToFetch.filter(k => !PROMO_CATEGORIES.includes(k));
-      
-      if (promos.length > 0) {
-        fetchCategoryItems(promos).then(() => {
-          if (rest.length > 0) {
-            setTimeout(() => {
-              fetchCategoryItems(rest).then(scheduleCategoryPrefetch);
-            }, 300);
-          } else {
-            scheduleCategoryPrefetch();
-          }
-        });
-      } else if (rest.length > 0) {
-        fetchCategoryItems(rest).then(scheduleCategoryPrefetch);
-      }
-    }
-    loadRecentlyViewed();
-  }, [pinnedByCategory]);
 
   // Re-fetch on language change
   useEffect(() => {
@@ -1345,7 +1126,7 @@ export default function ShopHome() {
 
       <main className="pb-8">
         <div className="container mx-auto px-3 sm:px-4">
-          {/* Filters Row - Store + Category */}
+          {/* Filters Row */}
           <div className="grid grid-cols-2 sm:flex sm:justify-end gap-2 mb-4">
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
               <SelectTrigger className="w-full sm:w-[180px] bg-white/10 border border-white/20 text-white rounded-full h-11 px-4 text-sm">
@@ -1409,13 +1190,13 @@ export default function ShopHome() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-white/90">
-                    {PROVIDER_DISPLAY[providerFilter] || providerFilter.charAt(0).toUpperCase() + providerFilter.slice(1)} — {language === 'fr' ? 'Affichage' : 'Showing'} {filterByCategory(storeProducts).length.toLocaleString()} {language === 'fr' ? 'sur' : 'of'} {storeTotalCount.toLocaleString()} {language === 'fr' ? 'produits' : 'products'}
+                    {PROVIDER_DISPLAY[providerFilter] || providerFilter.charAt(0).toUpperCase() + providerFilter.slice(1)} — {language === 'fr' ? 'Affichage' : 'Showing'} {filteredStoreProducts.length.toLocaleString()} {language === 'fr' ? 'sur' : 'of'} {storeTotalCount.toLocaleString()} {language === 'fr' ? 'produits' : 'products'}
                   </h2>
                 </div>
                 <SectionBlock
-                  items={filterByCategory(storeProducts)}
+                  items={filteredStoreProducts}
                   mode="static-grid"
-                  maxItems={filterByCategory(storeProducts).length}
+                  maxItems={filteredStoreProducts.length}
                 />
                 {storeProducts.length < storeTotalCount && (
                   <div className="flex justify-center pt-4">
@@ -1515,7 +1296,7 @@ export default function ShopHome() {
                         </p>
                       </div>
                       <p className="text-xs sm:text-sm text-white/65 leading-snug">
-                        {language === 'fr' ? "Introuvable en catalogue ? Collez le lien du produit." : "Can’t find it in catalog? Paste the product link."}
+                        {language === 'fr' ? "Introuvable en catalogue ? Collez le lien du produit." : "Can't find it in catalog? Paste the product link."}
                       </p>
                     </div>
 
@@ -1536,24 +1317,24 @@ export default function ShopHome() {
                 </div>
               </Link>
 
-              {/* 2) Trending Grid — 16 diverse luxury items */}
-              {applyFilters(trendingFeed).length > 0 && (
+              {/* 2) Trending Grid */}
+              {filteredTrending.length > 0 && (
                 <SectionBlock
                   title={language === 'fr' ? 'Tendances' : 'Trending Now'}
-                  items={applyFilters(trendingFeed)}
+                  items={filteredTrending}
                   mode="static-grid"
                   seeAllLink="/category/all"
                 />
               )}
 
-              {/* 3) Promo Tiles — top 4 categories */}
+              {/* 3) Promo Tiles */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {PROMO_CATEGORIES.map(catKey => (
+                {promoCategoryItems.map(({ catKey, items, loading }) => (
                   <SectionBlock
                     key={catKey}
                     title={getCategoryTitle(catKey, language)}
-                    items={applyFilters(pinnedByCategory[catKey]?.length ? pinnedByCategory[catKey] : (categoryItems[catKey] ?? []))}
-                    loading={categoryLoadingMap[catKey] === true}
+                    items={items}
+                    loading={loading}
                     mode="grid"
                     categoryKey={catKey}
                   />
@@ -1561,7 +1342,7 @@ export default function ShopHome() {
               </div>
 
               {/* 4) Recently Viewed */}
-              {applyFilters(recentlyViewed).length > 0 && (
+              {filteredRecentlyViewed.length > 0 && (
                 <LazySection minHeight={180}>
                   <div className="bg-[#1a1d23] border border-white/[0.08] rounded-2xl p-3 sm:p-4 shadow-md">
                     <div className="flex items-center gap-2 mb-3 px-1">
@@ -1570,7 +1351,7 @@ export default function ShopHome() {
                         {language === 'fr' ? 'Vus récemment' : 'Recently Viewed'}
                       </h2>
                     </div>
-                    <HorizontalProductRow products={applyFilters(recentlyViewed)} />
+                    <HorizontalProductRow products={filteredRecentlyViewed} />
                   </div>
                 </LazySection>
               )}
@@ -1578,12 +1359,12 @@ export default function ShopHome() {
               {/* 5) Remaining Category Grid Cards */}
               <LazySection minHeight={600}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                  {ALL_HOMEPAGE_CATEGORIES.filter(k => !PROMO_CATEGORIES.includes(k)).map(catKey => (
+                  {remainingCategoryItems.map(({ catKey, items, loading }) => (
                     <SectionBlock
                       key={catKey}
                       title={getCategoryTitle(catKey, language)}
-                      items={applyFilters(pinnedByCategory[catKey]?.length ? pinnedByCategory[catKey] : (categoryItems[catKey] ?? []))}
-                      loading={categoryLoadingMap[catKey] === true}
+                      items={items}
+                      loading={loading}
                       mode="grid"
                       categoryKey={catKey}
                     />

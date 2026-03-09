@@ -1958,6 +1958,22 @@ serve(async (req) => {
       await supabase.from('orders').delete().eq('id', checkoutOrder.id);
       return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
     }
+
+    // POST-COPY VERIFICATION: Ensure items actually exist on the new order
+    const { count: verifyItemCount } = await supabase
+      .from('order_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('order_id', checkoutOrder.id);
+    
+    if (!verifyItemCount || verifyItemCount === 0) {
+      console.error('[mobile-checkout] POST_COPY_VERIFY_FAILED: Checkout order has 0 items after copy', {
+        order_id: checkoutOrder.id,
+        expected_items: copiedItems.length,
+        inserted_items_response: insertedItems?.length,
+      });
+      await supabase.from('orders').delete().eq('id', checkoutOrder.id);
+      return jsonResponse({ success: false, error: 'Failed to process checkout items. Please try again.' }, 500);
+    }
     
     // Log cart state after checkout (DRAFT cart should be unchanged)
     console.log('[checkout] item ids count before/after (should be same)', {

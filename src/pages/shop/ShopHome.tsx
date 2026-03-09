@@ -239,10 +239,8 @@ export default function ShopHome() {
             label: PROVIDER_DISPLAY[p] || p.charAt(0).toUpperCase() + p.slice(1),
             count,
           }))
+          .filter(s => s.count > 0)
           .sort((a, b) => b.count - a.count);
-
-        // Only show stores that have actual products
-        stores = stores.filter(s => s.count > 0);
 
         setDynamicStores(stores);
       } catch (e) { console.warn('[ShopHome] Failed to fetch providers:', e); }

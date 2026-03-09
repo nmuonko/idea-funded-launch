@@ -1,40 +1,57 @@
-## Edge Function Consolidation Refactor — Phase 3 Complete
 
-### Phase 3: Orphan Deletion — 10 Functions Deleted
-- **`create-referrer`** — routed via auth-service
-- **`execute-ai-action`** — routed via admin-service
-- **`get-ai-actions-for-review`** — routed via admin-service
-- **`predict-customer-ltv`** — routed via admin-service
-- **`ai-order-assistant`** — routed via admin-service
-- **`catalog-categories`** — inlined into catalog-service
-- **`catalog-tabs`** — inlined into catalog-service
-- **`catalog-nav`** — inlined into catalog-service
-- **`catalog-providers`** — inlined into catalog-service
-- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
-- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
-- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
-- **`auth-service`** — added `create_referrer`
-- **`email-service`** — added `saved_cart_reminders`
+# Homepage Performance Optimization Plan
 
-### Batches 1–10: Inlined — 32 Functions Deleted
-- **Batch 10**: auth-service (8 functions)
-- **Batch 9**: mobile-cart (7), mobile-orders (4)
-- **Batch 8**: admin-service (10), support-service (3)
-- **Batch 7**: catalog-service (5 metadata endpoints)
+## Problem Analysis
 
-**Total reduction: 42 Edge Functions deleted**
+`ShopHome.tsx` is **1,607 lines** — a monolithic component with ~500 lines of static configuration data, complex per-category fetch logic with multiple fallback paths, and heavy runtime filtering. Key bottlenecks:
 
-### Kept as Proxy (by decision)
-- **`payments-core`** — proxies 9 functions (complex payment logic)
-- **`payments-provider`** — proxies 10 functions (payment provider logic)
-- **`email-service`** — proxies 25 send-* functions (HTML template code)
+1. **Massive static data inlined**: ~200 lines of keyword/exclude arrays are parsed on every render
+2. **Waterfall fetches**: Pinned items fetch → then accueil feed → then category fetches (sequential chain via `useEffect` dependency on `pinnedByCategory`)
+3. **Redundant category fetching**: When pinned items exist, the component still triggers `fetchCategoryItems` for unpinned categories AND `fetchAccueilFeed` — both run sequentially after pins resolve
+4. **Heavy per-category special paths**: 6 special-case category handlers (vehicles, clothing, jewelry, parts, cameras, standard) each making 3-8 sequential API calls with fallback chains — but these are **dead code when pins exist**
+5. **`trendingFeed` recomputes expensively**: Filters `combinedPool` through `isRelevantToCategory` for 13 categories on every render when `accueilProducts` or `pinnedByCategory` changes
+6. **`applyFilters` called inline in JSX**: Creates new arrays on every render for trending, recently viewed, and each category section
 
-### Remaining Standalone (active, not orphaned)
-- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
-- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
-- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
-- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
-- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
-- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment
+## Changes
+
+### 1. Extract Static Data to a Separate Module
+**New file: `src/lib/categoryConfig.ts`**
+- Move all `CATEGORY_TITLE_MAP`, `CATEGORY_SEARCH_QUERIES`, `CATEGORY_KEYWORDS`, `CATEGORY_EXCLUDE_KEYWORDS`, `GLOBAL_*_TERMS`, and helper functions (`getEffectiveExcludes`, `isRelevantToCategory`, `filterForCategory`, `sortByLuxury`) out of the component
+- This eliminates ~400 lines from ShopHome and prevents re-parsing on each module evaluation
+
+### 2. Parallelize Initial Data Fetching
+**File: `src/pages/shop/ShopHome.tsx`**
+- Fetch pinned items, accueil feed, and active providers **in parallel** instead of sequentially
+- Remove the `useEffect` dependency chain where category fetches wait for `pinnedByCategory` to resolve
+- Use a single `useEffect` that runs `Promise.all([fetchPinned, fetchAccueil, fetchProviders])`, then determines which categories still need dynamic fetching
+
+### 3. Skip Dead-Code Fetch Paths When Pins Exist
+- In `fetchCategoryItems`, add an early return for categories that have pinned items — currently the function runs all the special-case logic (vehicles, clothing, etc.) even when pins will override the result
+- This eliminates dozens of unnecessary API calls on homepage load
+
+### 4. Memoize Filtered Results
+- Wrap `applyFilters(trendingFeed)`, `applyFilters(recentlyViewed)`, and per-category pin/fallback selections in `useMemo` instead of computing inline in JSX
+- This prevents re-creating arrays on every render cycle
+
+### 5. Reduce `trendingFeed` Computation
+- Pre-group pinned items by provider during the pinned fetch, avoiding repeated `.filter()` calls inside the trending memo
+- Use early termination once 16 items are collected instead of processing all 13 categories
+
+### 6. Lazy-load the Category Fetch Logic
+- Move the special-case category handlers (vehicles, clothing, jewelry, etc.) into a separate async module that's only imported when actually needed (i.e., when a category has no pins)
+- This reduces the initial JS bundle for the common case where all categories are pinned
+
+## Files to Modify
+
+| File | Action |
+|------|--------|
+| `src/lib/categoryConfig.ts` | Create — extract ~400 lines of static data + helpers |
+| `src/pages/shop/ShopHome.tsx` | Refactor — parallel fetches, skip pinned categories, memoize filters, import from categoryConfig |
+
+## Expected Impact
+- **Initial load**: 3-5 fewer sequential API calls (parallel instead of waterfall)
+- **Bundle**: ~400 lines of static data tree-shaken into separate chunk
+- **Render**: Fewer re-computations per frame from memoized filter results
+- **Network**: Categories with pins skip all fallback fetch chains entirely
+

@@ -466,16 +466,22 @@ function extractProductInfo(html: string, store: StoreType): ProductInfo {
 
   // Priority 4: SHEIN CDN fallback
   if (!imageUrl && (store === 'shein' || html.includes('ltwebstatic.com'))) {
+    const isSheinSwatch = (u: string) => /\/v4\/p\/ccc\//i.test(u) || /\/p\/ccc\//i.test(u);
     const cdnMatch = html.match(/(?:src|content|data-src)=["']((?:https?:)?\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^"'\s]+)["']/i);
-    if (cdnMatch && cdnMatch[1] && !/logo/i.test(cdnMatch[1]) && !/banner/i.test(cdnMatch[1])) {
+    if (cdnMatch && cdnMatch[1] && !/logo/i.test(cdnMatch[1]) && !/banner/i.test(cdnMatch[1]) && !isSheinSwatch(cdnMatch[1])) {
       imageUrl = cdnMatch[1];
     }
     if (!imageUrl) {
       const anyMatch = html.match(/(?:src|content)=["']((?:https?:)?\/\/img\.ltwebstatic\.com\/[^"'\s]+\.(?:jpg|webp|png))["']/i);
-      if (anyMatch && anyMatch[1] && !/logo/i.test(anyMatch[1]) && !/banner/i.test(anyMatch[1])) {
+      if (anyMatch && anyMatch[1] && !/logo/i.test(anyMatch[1]) && !/banner/i.test(anyMatch[1]) && !isSheinSwatch(anyMatch[1])) {
         imageUrl = anyMatch[1];
       }
     }
+  }
+  // Re-check: if imageUrl is a SHEIN swatch, reject it and try other priorities
+  if (imageUrl && (/\/v4\/p\/ccc\//i.test(imageUrl) || /\/p\/ccc\//i.test(imageUrl))) {
+    console.log(`[extract-price] Rejected SHEIN swatch image: ${imageUrl.substring(0, 80)}`);
+    imageUrl = null;
   }
 
   // Priority 5: Store-specific product image patterns

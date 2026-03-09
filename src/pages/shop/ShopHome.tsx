@@ -344,6 +344,10 @@ export default function ShopHome() {
   const [accueilLoading, setAccueilLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Pinned items from admin (deterministic homepage)
+  const [pinnedByCategory, setPinnedByCategory] = useState<Record<string, Product[]>>({});
+  const pinnedFetchedRef = useRef(false);
+
   // Per-category independent items and loading states
   const [categoryItems, setCategoryItems] = useState<Record<string, Product[]>>({});
   const [categoryLoadingMap, setCategoryLoadingMap] = useState<Record<string, boolean>>(() => {

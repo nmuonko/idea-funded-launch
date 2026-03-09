@@ -725,11 +725,16 @@ async function extractViaFirecrawlFull(
   if (!firecrawlApiKey) return null;
 
   try {
-    console.log(`[extract-price] Firecrawl full fallback attempting for ${store}: ${url.substring(0, 80)}`);
+    console.log(`[extract-price] Firecrawl PRIMARY attempting for ${store}: ${url.substring(0, 80)}`);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     const isShein = store === 'shein' || url.includes('shein.com');
+    // JS-heavy stores that need waitFor to render product data
+    const jsHeavyStores: StoreType[] = ['shein', 'aliexpress', 'walmart', 'target', 'bestbuy', 'macys', 'homedepot', 'wayfair', 'mercari'];
+    const needsWait = jsHeavyStores.includes(store) || isShein;
+    const waitMs = isShein ? 5000 : (needsWait ? 3000 : 0);
+
     const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
       method: 'POST',
       headers: {
@@ -738,9 +743,9 @@ async function extractViaFirecrawlFull(
       },
       body: JSON.stringify({ 
         url, 
-        formats: ['html'], 
+        formats: ['html', 'markdown'], 
         onlyMainContent: false,
-        ...(isShein ? { waitFor: 5000 } : {}),
+        ...(waitMs > 0 ? { waitFor: waitMs } : {}),
       }),
       signal: controller.signal,
     });
@@ -753,78 +758,107 @@ async function extractViaFirecrawlFull(
     }
 
     const data = await response.json();
-    const html = data?.data?.html || data?.html;
-    if (!html || html.length < 100) {
-      console.warn('[extract-price] Firecrawl returned empty/short HTML');
+    const html = data?.data?.html || data?.html || '';
+    const markdown = data?.data?.markdown || data?.markdown || '';
+    
+    if ((!html || html.length < 100) && (!markdown || markdown.length < 50)) {
+      console.warn('[extract-price] Firecrawl returned empty/short content');
       return null;
     }
 
-    // Extract price using the same methods as direct scraping
+    // Extract price using multiple strategies
     let price: number | null = null;
     let currencyCode: string | null = null;
 
-    // Try JSON-LD first
-    const jsonLdResult = extractFromJsonLd(html);
-    if (jsonLdResult) {
-      price = jsonLdResult.price;
-      currencyCode = jsonLdResult.currency ?? null;
+    // Strategy 1: JSON-LD from HTML (most reliable)
+    if (html) {
+      const jsonLdResult = extractFromJsonLd(html);
+      if (jsonLdResult) {
+        price = jsonLdResult.price;
+        currencyCode = jsonLdResult.currency ?? null;
+        console.log(`[extract-price] Firecrawl JSON-LD price: ${price} ${currencyCode}`);
+      }
     }
 
-    // Try meta tags / selectors
-    if (!price) {
+    // Strategy 2: Store-specific selectors from HTML
+    if (!price && html) {
       price = extractFromSelectors(html, store);
+      if (price) console.log(`[extract-price] Firecrawl selector price: ${price}`);
     }
 
-    // Try regex
-    if (!price) {
+    // Strategy 3: Regex from HTML
+    if (!price && html) {
       const regexResult = extractWithRegex(html);
       if (regexResult) {
         price = regexResult.price;
         currencyCode = regexResult.currencyHint;
+        console.log(`[extract-price] Firecrawl HTML regex price: ${price}`);
       }
     }
 
-    if (!price) {
-      // For SHEIN, still extract title/image even without price (user can enter manually)
-      if (isShein) {
-        const productInfo = extractProductInfo(html, store);
-        let imgUrl = productInfo.imageUrl;
-        // Normalize protocol-relative URLs
-        if (imgUrl && imgUrl.startsWith('//')) imgUrl = `https:${imgUrl}`;
-        // Upgrade SHEIN thumbnails to full-size
-        if (imgUrl) imgUrl = imgUrl.replace(/_thumbnail_\d+x\d+/g, '');
-        if (productInfo.title || imgUrl) {
-          console.log(`[extract-price] Firecrawl: SHEIN price not found but got title/image`);
-          return { price: 0, currencyCode: 'USD', title: productInfo.title, imageUrl: imgUrl };
-        }
+    // Strategy 4: Regex from markdown (catches prices that only appear in rendered text)
+    if (!price && markdown) {
+      const mdRegexResult = extractWithRegex(markdown);
+      if (mdRegexResult) {
+        price = mdRegexResult.price;
+        currencyCode = mdRegexResult.currencyHint;
+        console.log(`[extract-price] Firecrawl markdown regex price: ${price}`);
       }
-      console.warn('[extract-price] Firecrawl HTML returned but no price found');
+    }
+
+    // Extract product info (title, image) from HTML
+    let productTitle: string | null = null;
+    let productImage: string | null = null;
+    
+    if (html) {
+      const productInfo = extractProductInfo(html, store);
+      productTitle = productInfo.title;
+      productImage = productInfo.imageUrl;
+    }
+
+    // Fallback title from markdown heading
+    if (!productTitle && markdown) {
+      const headingMatch = markdown.match(/^#\s+(.+)$/m);
+      if (headingMatch?.[1]) {
+        productTitle = validateTitle(headingMatch[1].trim());
+      }
+    }
+
+    // Fallback image from metadata
+    if (!productImage && data?.data?.metadata?.ogImage) {
+      productImage = data.data.metadata.ogImage;
+    }
+
+    // Normalize image URL
+    if (productImage && productImage.startsWith('//')) productImage = `https:${productImage}`;
+    if (productImage) productImage = productImage.replace(/_thumbnail_\d+x\d+/g, '');
+
+    if (!price) {
+      // Return title/image even without price (for manual entry UX)
+      if (productTitle || productImage) {
+        console.log(`[extract-price] Firecrawl: no price but got title/image for ${store}`);
+        return { price: 0, currencyCode: 'USD', title: productTitle, imageUrl: productImage };
+      }
+      console.warn('[extract-price] Firecrawl: no price, title, or image found');
       return null;
     }
 
-    // Extract product info (title, image)
-    const productInfo = extractProductInfo(html, store);
-    // Normalize image URL for SHEIN
-    if (productInfo.imageUrl) {
-      if (productInfo.imageUrl.startsWith('//')) productInfo.imageUrl = `https:${productInfo.imageUrl}`;
-      productInfo.imageUrl = productInfo.imageUrl.replace(/_thumbnail_\d+x\d+/g, '');
-    }
     // Detect currency if not already found
-    if (!currencyCode) {
+    if (!currencyCode && html) {
       const detected = detectCurrency(html, url);
       currencyCode = detected.code;
     }
 
-    console.log(`[extract-price] Firecrawl full extraction succeeded for ${store}: price=${price} currency=${currencyCode}`);
+    console.log(`[extract-price] Firecrawl extraction succeeded for ${store}: price=${price} currency=${currencyCode} title=${productTitle?.substring(0, 40)} hasImage=${!!productImage}`);
 
     return {
       price,
       currencyCode,
-      title: productInfo.title,
-      imageUrl: productInfo.imageUrl,
+      title: productTitle,
+      imageUrl: productImage,
     };
   } catch (error) {
-    console.warn('[extract-price] Firecrawl full fallback failed:', error);
+    console.warn('[extract-price] Firecrawl primary extraction failed:', error);
     return null;
   }
 }

@@ -1123,12 +1123,8 @@ serve(async (req) => {
               const normalizedSections = normalizeSectionTitles(normalized, langKey) as typeof normalized;
               const totalItems = calculateTotalItems(normalizedSections);
               
-              // Trigger async rebuild
-              buildMobileHomepage(env).then(async (result) => {
-                const ttl = recipeSettings.mobile_refresh_hours * 3600;
-                await writeMobileCache(env, result.payload, ttl, recipeSettings.mobile_schema_version);
-                console.log(`[CATALOG_HOME] recipe_cache_rebuilt_async correlationId=${correlationId} items=${result.itemCount}`);
-              }).catch(err => console.error(`[CATALOG_HOME] async_rebuild_error: ${err}`));
+              // Auto-rebuild disabled — admin controls homepage manually
+              console.log(`[CATALOG_HOME] stale_mobile_cache_served_no_rebuild correlationId=${correlationId} (manual-only mode)`);
               
               return jsonResponse({
                 ok: true,

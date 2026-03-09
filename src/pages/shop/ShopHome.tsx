@@ -1162,16 +1162,29 @@ export default function ShopHome() {
     }
   }, [user?.id]);
 
-  // ====== TRENDING FEED (from shared accueil pool) ======
+  // ====== TRENDING FEED (from shared accueil pool + pinned items) ======
   const trendingFeed = useMemo(() => {
     const dedup = new Set<string>();
-    const trendingCats = ['phones', 'electronics', 'vehicles', 'jewelry_watches', 'gaming', 'audio_music', 'cameras_photo', 'home_garden', 'sporting_goods', 'toys', 'parts_accessories', 'refurbished', 'collectibles'];
+    const trendingCats = ['phones', 'cameras_photo', 'vehicles', 'clothing', 'electronics', 'jewelry_watches', 'gaming', 'audio_music', 'home_garden', 'sporting_goods', 'toys', 'parts_accessories', 'refurbished'];
     const trending: Product[] = [];
 
-    // Round-robin from accueil products by category
+    // Combine accueil products with pinned items for a richer pool
+    const allPinnedProducts: Product[] = [];
+    for (const catKey of trendingCats) {
+      const pins = pinnedByCategory[catKey] || [];
+      allPinnedProducts.push(...pins);
+    }
+    const combinedPool = [...allPinnedProducts, ...accueilProducts];
+
+    // Round-robin from combined pool by category — prefer Amazon/pinned items
     for (const cat of trendingCats) {
-      const relevant = accueilProducts.filter(p => isRelevantToCategory(p, cat));
-      const sorted = sortByLuxury(relevant);
+      const relevant = combinedPool.filter(p => isRelevantToCategory(p, cat));
+      // Prefer Amazon (rainforest) items first, then others
+      const amazonFirst = [
+        ...relevant.filter(p => (p.provider || '').toLowerCase() === 'rainforest'),
+        ...relevant.filter(p => (p.provider || '').toLowerCase() !== 'rainforest'),
+      ];
+      const sorted = sortByLuxury(amazonFirst);
       let count = 0;
       for (const p of sorted) {
         if (count >= 2) break;
@@ -1185,7 +1198,7 @@ export default function ShopHome() {
 
     // Backfill
     if (trending.length < 16) {
-      for (const p of sortByLuxury(accueilProducts)) {
+      for (const p of sortByLuxury(combinedPool)) {
         if (trending.length >= 16) break;
         if (!dedup.has(p.id) && (p.priceUsd || 0) > 0) {
           trending.push(p);
@@ -1218,7 +1231,7 @@ export default function ShopHome() {
     }
 
     return interleaved.slice(0, 16);
-  }, [accueilProducts]);
+  }, [accueilProducts, pinnedByCategory]);
 
   // ====== EFFECTS ======
   // Idle prefetch: warm category caches after homepage loads

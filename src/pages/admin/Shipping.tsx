@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Package, Truck, CheckCircle, Download, Search, Mail, Calendar, DollarSign, MapPin } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
+import { formatOrderId } from '@/lib/formatOrderId';
 
 export default function AdminShipping() {
   const [orders, setOrders] = useState<any[]>([]);
@@ -530,7 +531,7 @@ export default function AdminShipping() {
                           />
                         </TableCell>
                         <TableCell className="font-mono text-xs">
-                          {order.id.slice(0, 8)}...
+                          {formatOrderId(order.id, order.profiles?.full_name)}
                         </TableCell>
                         <TableCell>{getStatusBadge(order.status)}</TableCell>
                         <TableCell>
@@ -602,7 +603,7 @@ export default function AdminShipping() {
           <DialogHeader>
             <DialogTitle>Update Shipment</DialogTitle>
             <DialogDescription>
-              Order: {selectedOrder?.id.slice(0, 8)}...
+              Order: {selectedOrder ? formatOrderId(selectedOrder.id, selectedOrder.profiles?.full_name) : ''}
             </DialogDescription>
           </DialogHeader>
           

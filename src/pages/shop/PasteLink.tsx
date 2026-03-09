@@ -71,7 +71,23 @@ export default function PasteLink() {
       const { data, error: fnError } = await supabase.functions.invoke('extract-price', {
         body: { url: trimmed },
       });
-      if (fnError) throw fnError;
+
+      // Even on error, try to extract partial data (title/image) from the response
+      if (fnError) {
+        // supabase.functions.invoke returns data even on non-2xx if JSON
+        const partialTitle = data?.title || extractDomain(trimmed);
+        const partialImage = data?.imageUrl || data?.image || null;
+        
+        if (partialTitle || partialImage) {
+          setShowManualPrice(true);
+          const store = extractDomain(trimmed);
+          const vehicleResult = detectVehicle(trimmed, partialTitle);
+          setResult({ title: partialTitle, priceUsd: 0, imageUrl: partialImage, store, vehicleResult });
+        } else {
+          throw fnError;
+        }
+        return;
+      }
 
       const priceUsd = data?.basePrice ?? data?.price ?? data?.priceUsd ?? null;
       const title = data?.title || extractDomain(trimmed);

@@ -725,11 +725,16 @@ async function extractViaFirecrawlFull(
   if (!firecrawlApiKey) return null;
 
   try {
-    console.log(`[extract-price] Firecrawl full fallback attempting for ${store}: ${url.substring(0, 80)}`);
+    console.log(`[extract-price] Firecrawl PRIMARY attempting for ${store}: ${url.substring(0, 80)}`);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     const isShein = store === 'shein' || url.includes('shein.com');
+    // JS-heavy stores that need waitFor to render product data
+    const jsHeavyStores: StoreType[] = ['shein', 'aliexpress', 'walmart', 'target', 'bestbuy', 'macys', 'homedepot', 'wayfair', 'mercari'];
+    const needsWait = jsHeavyStores.includes(store) || isShein;
+    const waitMs = isShein ? 5000 : (needsWait ? 3000 : 0);
+
     const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
       method: 'POST',
       headers: {
@@ -738,9 +743,9 @@ async function extractViaFirecrawlFull(
       },
       body: JSON.stringify({ 
         url, 
-        formats: ['html'], 
+        formats: ['html', 'markdown'], 
         onlyMainContent: false,
-        ...(isShein ? { waitFor: 5000 } : {}),
+        ...(waitMs > 0 ? { waitFor: waitMs } : {}),
       }),
       signal: controller.signal,
     });
@@ -753,78 +758,107 @@ async function extractViaFirecrawlFull(
     }
 
     const data = await response.json();
-    const html = data?.data?.html || data?.html;
-    if (!html || html.length < 100) {
-      console.warn('[extract-price] Firecrawl returned empty/short HTML');
+    const html = data?.data?.html || data?.html || '';
+    const markdown = data?.data?.markdown || data?.markdown || '';
+    
+    if ((!html || html.length < 100) && (!markdown || markdown.length < 50)) {
+      console.warn('[extract-price] Firecrawl returned empty/short content');
       return null;
     }
 
-    // Extract price using the same methods as direct scraping
+    // Extract price using multiple strategies
     let price: number | null = null;
     let currencyCode: string | null = null;
 
-    // Try JSON-LD first
-    const jsonLdResult = extractFromJsonLd(html);
-    if (jsonLdResult) {
-      price = jsonLdResult.price;
-      currencyCode = jsonLdResult.currency ?? null;
+    // Strategy 1: JSON-LD from HTML (most reliable)
+    if (html) {
+      const jsonLdResult = extractFromJsonLd(html);
+      if (jsonLdResult) {
+        price = jsonLdResult.price;
+        currencyCode = jsonLdResult.currency ?? null;
+        console.log(`[extract-price] Firecrawl JSON-LD price: ${price} ${currencyCode}`);
+      }
     }
 
-    // Try meta tags / selectors
-    if (!price) {
+    // Strategy 2: Store-specific selectors from HTML
+    if (!price && html) {
       price = extractFromSelectors(html, store);
+      if (price) console.log(`[extract-price] Firecrawl selector price: ${price}`);
     }
 
-    // Try regex
-    if (!price) {
+    // Strategy 3: Regex from HTML
+    if (!price && html) {
       const regexResult = extractWithRegex(html);
       if (regexResult) {
         price = regexResult.price;
         currencyCode = regexResult.currencyHint;
+        console.log(`[extract-price] Firecrawl HTML regex price: ${price}`);
       }
     }
 
-    if (!price) {
-      // For SHEIN, still extract title/image even without price (user can enter manually)
-      if (isShein) {
-        const productInfo = extractProductInfo(html, store);
-        let imgUrl = productInfo.imageUrl;
-        // Normalize protocol-relative URLs
-        if (imgUrl && imgUrl.startsWith('//')) imgUrl = `https:${imgUrl}`;
-        // Upgrade SHEIN thumbnails to full-size
-        if (imgUrl) imgUrl = imgUrl.replace(/_thumbnail_\d+x\d+/g, '');
-        if (productInfo.title || imgUrl) {
-          console.log(`[extract-price] Firecrawl: SHEIN price not found but got title/image`);
-          return { price: 0, currencyCode: 'USD', title: productInfo.title, imageUrl: imgUrl };
-        }
+    // Strategy 4: Regex from markdown (catches prices that only appear in rendered text)
+    if (!price && markdown) {
+      const mdRegexResult = extractWithRegex(markdown);
+      if (mdRegexResult) {
+        price = mdRegexResult.price;
+        currencyCode = mdRegexResult.currencyHint;
+        console.log(`[extract-price] Firecrawl markdown regex price: ${price}`);
       }
-      console.warn('[extract-price] Firecrawl HTML returned but no price found');
+    }
+
+    // Extract product info (title, image) from HTML
+    let productTitle: string | null = null;
+    let productImage: string | null = null;
+    
+    if (html) {
+      const productInfo = extractProductInfo(html, store);
+      productTitle = productInfo.title;
+      productImage = productInfo.imageUrl;
+    }
+
+    // Fallback title from markdown heading
+    if (!productTitle && markdown) {
+      const headingMatch = markdown.match(/^#\s+(.+)$/m);
+      if (headingMatch?.[1]) {
+        productTitle = validateTitle(headingMatch[1].trim());
+      }
+    }
+
+    // Fallback image from metadata
+    if (!productImage && data?.data?.metadata?.ogImage) {
+      productImage = data.data.metadata.ogImage;
+    }
+
+    // Normalize image URL
+    if (productImage && productImage.startsWith('//')) productImage = `https:${productImage}`;
+    if (productImage) productImage = productImage.replace(/_thumbnail_\d+x\d+/g, '');
+
+    if (!price) {
+      // Return title/image even without price (for manual entry UX)
+      if (productTitle || productImage) {
+        console.log(`[extract-price] Firecrawl: no price but got title/image for ${store}`);
+        return { price: 0, currencyCode: 'USD', title: productTitle, imageUrl: productImage };
+      }
+      console.warn('[extract-price] Firecrawl: no price, title, or image found');
       return null;
     }
 
-    // Extract product info (title, image)
-    const productInfo = extractProductInfo(html, store);
-    // Normalize image URL for SHEIN
-    if (productInfo.imageUrl) {
-      if (productInfo.imageUrl.startsWith('//')) productInfo.imageUrl = `https:${productInfo.imageUrl}`;
-      productInfo.imageUrl = productInfo.imageUrl.replace(/_thumbnail_\d+x\d+/g, '');
-    }
     // Detect currency if not already found
-    if (!currencyCode) {
+    if (!currencyCode && html) {
       const detected = detectCurrency(html, url);
       currencyCode = detected.code;
     }
 
-    console.log(`[extract-price] Firecrawl full extraction succeeded for ${store}: price=${price} currency=${currencyCode}`);
+    console.log(`[extract-price] Firecrawl extraction succeeded for ${store}: price=${price} currency=${currencyCode} title=${productTitle?.substring(0, 40)} hasImage=${!!productImage}`);
 
     return {
       price,
       currencyCode,
-      title: productInfo.title,
-      imageUrl: productInfo.imageUrl,
+      title: productTitle,
+      imageUrl: productImage,
     };
   } catch (error) {
-    console.warn('[extract-price] Firecrawl full fallback failed:', error);
+    console.warn('[extract-price] Firecrawl primary extraction failed:', error);
     return null;
   }
 }
@@ -1599,515 +1633,179 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ===== NON-AMAZON STORES: Standard scraping flow =====
-    // Get store-specific timeout (fail fast for problematic stores)
-    const storeTimeouts = STORE_TIMEOUTS[store] || STORE_TIMEOUTS.generic;
-    const fetchTimeout = mode === 'fast' ? storeTimeouts.fast : storeTimeouts.standard;
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      console.log(`[extract-price] Timeout reached for ${store} after ${fetchTimeout}ms`);
-      controller.abort();
-    }, fetchTimeout);
+    // ===== NON-AMAZON STORES: FIRECRAWL-FIRST FLOW =====
+    // Instead of wasting 3-4s on a direct fetch that usually fails for JS-heavy stores,
+    // we go straight to Firecrawl which handles JS rendering reliably.
 
-    let response: Response;
-    try {
-      response = await fetch(formattedUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-          'Cache-Control': 'no-cache',
-        },
-        signal: controller.signal,
-        redirect: 'follow',
+    // Step 1: Check catalog fallback FIRST (instant, zero credits)
+    const catalogResult = await getCatalogFallbackPrice(supabase, formattedUrl, normalizedUrl, store);
+    if (catalogResult) {
+      const now = new Date().toISOString();
+      const currencyCodeFb = 'USD';
+      const currencySymbolFb = getCurrencySymbol(currencyCodeFb);
+
+      await setCachedPrice(supabase, normalizedUrl, {
+        store,
+        basePrice: catalogResult.basePrice,
+        currencySymbol: currencySymbolFb,
+        rawCurrencyCode: currencyCodeFb,
+        title: catalogResult.title,
+        imageUrl: catalogResult.imageUrl,
       });
-      clearTimeout(timeoutId);
-    } catch (fetchError: unknown) {
-      clearTimeout(timeoutId);
-      const duration = Date.now() - startTime;
-      
-      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-        // Fail fast with PRICE_NOT_FOUND instead of TIMEOUT for better mobile UX
-        logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', reason: 'timeout', store, duration };
-        console.log(JSON.stringify(logData));
-        return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, `Price extraction timed out for ${store}`);
-      }
-      
-      // Network error - fail fast
-      logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', reason: 'network_error', store, duration };
+      saveToHotCache(supabase, normalizedUrl, store, {
+        basePrice: catalogResult.basePrice,
+        currencySymbol: currencySymbolFb,
+        rawCurrencyCode: currencyCodeFb,
+        store,
+        title: catalogResult.title,
+        imageUrl: catalogResult.imageUrl,
+        lastFetchedAt: now,
+      }).catch(() => {});
+
+      logData = { ...logData, cacheHit: false, method: 'catalog_fast_path', priceFound: true, duration: Date.now() - startTime };
       console.log(JSON.stringify(logData));
-      return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, `Unable to fetch price from ${store}`);
+
+      return jsonSuccess({
+        url: normalizedUrl,
+        store,
+        basePrice: catalogResult.basePrice,
+        currencySymbol: currencySymbolFb,
+        rawCurrencyCode: currencyCodeFb,
+        title: catalogResult.title,
+        imageUrl: catalogResult.imageUrl,
+        cacheHit: false,
+        lastFetchedAt: now,
+      } as PriceResolveResponse);
     }
 
-    if (!response.ok) {
-      // Try Firecrawl FIRST for HTTP error responses (most reliable)
-      const firecrawlHttpResult = await extractViaFirecrawlFull(formattedUrl, store, 10000);
-      if (firecrawlHttpResult?.price) {
-        const now = new Date().toISOString();
-        const resolvedCurrencyCode = firecrawlHttpResult.currencyCode || 'USD';
-        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
-
-        await setCachedPrice(supabase, normalizedUrl, {
-          store,
-          basePrice: firecrawlHttpResult.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: firecrawlHttpResult.title,
-          imageUrl: firecrawlHttpResult.imageUrl,
-        });
-        saveToHotCache(supabase, normalizedUrl, store, {
-          basePrice: firecrawlHttpResult.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          store,
-          title: firecrawlHttpResult.title,
-          imageUrl: firecrawlHttpResult.imageUrl,
-          lastFetchedAt: now,
-        }).catch(() => {});
-
-        // Persist to catalog (fire-and-forget)
-        saveToCatalogItems(supabase, store, formattedUrl, firecrawlHttpResult.price, firecrawlHttpResult.title, firecrawlHttpResult.imageUrl).catch(() => {});
-
-        logData = { ...logData, cacheHit: false, method: 'firecrawl_primary_http_error', priceFound: true, duration: Date.now() - startTime };
-        console.log(JSON.stringify(logData));
-
-        return jsonSuccess({
-          url: normalizedUrl,
-          store,
-          basePrice: firecrawlHttpResult.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: firecrawlHttpResult.title,
-          imageUrl: firecrawlHttpResult.imageUrl,
-          cacheHit: false,
-          lastFetchedAt: now,
-        } as PriceResolveResponse);
-      }
-
-      // Fallback: mirror scraping
-      const mirror = await extractViaMirror(formattedUrl, store, 3500);
-      if (mirror?.price) {
-        const now = new Date().toISOString();
-        const resolvedCurrencyCode = mirror.currencyCode || 'USD';
-        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
-
-        await setCachedPrice(supabase, normalizedUrl, {
-          store,
-          basePrice: mirror.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: mirror.title,
-          imageUrl: mirror.imageUrl,
-        });
-        saveToHotCache(supabase, normalizedUrl, store, {
-          basePrice: mirror.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          store,
-          title: mirror.title,
-          imageUrl: mirror.imageUrl,
-          lastFetchedAt: now,
-        }).catch(() => {});
-
-        saveToCatalogItems(supabase, store, formattedUrl, mirror.price, mirror.title, mirror.imageUrl).catch(() => {});
-
-        logData = {
-          ...logData,
-          cacheHit: false,
-          method: 'mirror_fallback_http_error',
-          priceFound: true,
-          duration: Date.now() - startTime,
-          httpStatus: response.status,
-        };
-        console.log(JSON.stringify(logData));
-
-        return jsonSuccess({
-          url: normalizedUrl,
-          store,
-          basePrice: mirror.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: mirror.title,
-          imageUrl: mirror.imageUrl,
-          cacheHit: false,
-          lastFetchedAt: now,
-        } as PriceResolveResponse);
-      }
-
-      // Last resort: catalog fallback
-      const fallback = await getCatalogFallbackPrice(supabase, formattedUrl, normalizedUrl, store);
-      if (fallback) {
-        const now = new Date().toISOString();
-        const fallbackCurrencyCode = 'USD';
-        const fallbackCurrencySymbol = getCurrencySymbol(fallbackCurrencyCode);
-
-        await setCachedPrice(supabase, normalizedUrl, {
-          store,
-          basePrice: fallback.basePrice,
-          currencySymbol: fallbackCurrencySymbol,
-          rawCurrencyCode: fallbackCurrencyCode,
-          title: fallback.title,
-          imageUrl: fallback.imageUrl,
-        });
-        saveToHotCache(supabase, normalizedUrl, store, {
-          basePrice: fallback.basePrice,
-          currencySymbol: fallbackCurrencySymbol,
-          rawCurrencyCode: fallbackCurrencyCode,
-          store,
-          title: fallback.title,
-          imageUrl: fallback.imageUrl,
-          lastFetchedAt: now,
-        }).catch(() => {});
-
-        logData = {
-          ...logData,
-          cacheHit: false,
-          method: 'catalog_fallback_http_error',
-          priceFound: true,
-          duration: Date.now() - startTime,
-          httpStatus: response.status,
-        };
-        console.log(JSON.stringify(logData));
-
-        return jsonSuccess({
-          url: normalizedUrl,
-          store,
-          basePrice: fallback.basePrice,
-          currencySymbol: fallbackCurrencySymbol,
-          rawCurrencyCode: fallbackCurrencyCode,
-          title: fallback.title,
-          imageUrl: fallback.imageUrl,
-          cacheHit: false,
-          lastFetchedAt: now,
-        } as PriceResolveResponse);
-      }
-
-      logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', reason: 'http_error', httpStatus: response.status, store };
-      console.log(JSON.stringify(logData));
-      return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, `Store returned error ${response.status}`);
-    }
-
-    // Read response body with timeout protection
-    let html: string;
-    try {
-      const bodyController = new AbortController();
-      const bodyTimeout = setTimeout(() => bodyController.abort(), 3000);
-      html = await response.text();
-      clearTimeout(bodyTimeout);
-    } catch {
-      logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', reason: 'body_timeout', store };
-      console.log(JSON.stringify(logData));
-      return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, 'Response body read timeout');
-    }
-
-    // Check for bot detection / captcha pages
-    if (detectBotBlock(html)) {
-      // Try Firecrawl FIRST for bot-blocked stores (most reliable bypass)
-      const firecrawlTimeout = store === 'shein' ? 20000 : 10000;
-      const firecrawlBotResult = await extractViaFirecrawlFull(formattedUrl, store, firecrawlTimeout);
-      if (firecrawlBotResult && firecrawlBotResult.price > 0) {
-        const now = new Date().toISOString();
-        const resolvedCurrencyCode = firecrawlBotResult.currencyCode || 'USD';
-        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
-
-        await setCachedPrice(supabase, normalizedUrl, {
-          store,
-          basePrice: firecrawlBotResult.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: firecrawlBotResult.title,
-          imageUrl: firecrawlBotResult.imageUrl,
-        });
-        saveToHotCache(supabase, normalizedUrl, store, {
-          basePrice: firecrawlBotResult.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          store,
-          title: firecrawlBotResult.title,
-          imageUrl: firecrawlBotResult.imageUrl,
-          lastFetchedAt: now,
-        }).catch(() => {});
-
-        saveToCatalogItems(supabase, store, formattedUrl, firecrawlBotResult.price, firecrawlBotResult.title, firecrawlBotResult.imageUrl).catch(() => {});
-
-        logData = { ...logData, cacheHit: false, method: 'firecrawl_primary_bot_blocked', priceFound: true, duration: Date.now() - startTime };
-        console.log(JSON.stringify(logData));
-
-        return jsonSuccess({
-          url: normalizedUrl,
-          store,
-          basePrice: firecrawlBotResult.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: firecrawlBotResult.title,
-          imageUrl: firecrawlBotResult.imageUrl,
-          cacheHit: false,
-          lastFetchedAt: now,
-        } as PriceResolveResponse);
-      }
-
-      // SHEIN: Firecrawl got title/image but no price — return with price=0 for manual entry
-      if (firecrawlBotResult && firecrawlBotResult.price === 0 && (firecrawlBotResult.title || firecrawlBotResult.imageUrl)) {
-        console.log(`[extract-price] SHEIN: Firecrawl got title/image but no price, returning for manual entry`);
-        return jsonSuccess({
-          url: normalizedUrl,
-          store,
-          basePrice: 0,
-          currencySymbol: '$',
-          rawCurrencyCode: 'USD',
-          title: firecrawlBotResult.title,
-          imageUrl: firecrawlBotResult.imageUrl,
-          image: firecrawlBotResult.imageUrl,
-          cacheHit: false,
-          lastFetchedAt: new Date().toISOString(),
-        } as any);
-      }
-
-      // Fallback: mirror scraping
-      const mirror = await extractViaMirror(formattedUrl, store, 3500);
-      if (mirror?.price) {
-        const now = new Date().toISOString();
-        const resolvedCurrencyCode = mirror.currencyCode || 'USD';
-        const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
-
-        await setCachedPrice(supabase, normalizedUrl, {
-          store,
-          basePrice: mirror.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: mirror.title,
-          imageUrl: mirror.imageUrl,
-        });
-        saveToHotCache(supabase, normalizedUrl, store, {
-          basePrice: mirror.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          store,
-          title: mirror.title,
-          imageUrl: mirror.imageUrl,
-          lastFetchedAt: now,
-        }).catch(() => {});
-
-        saveToCatalogItems(supabase, store, formattedUrl, mirror.price, mirror.title, mirror.imageUrl).catch(() => {});
-
-        logData = {
-          ...logData,
-          cacheHit: false,
-          method: 'mirror_fallback_bot_blocked',
-          priceFound: true,
-          duration: Date.now() - startTime,
-        };
-        console.log(JSON.stringify(logData));
-
-        return jsonSuccess({
-          url: normalizedUrl,
-          store,
-          basePrice: mirror.price,
-          currencySymbol: resolvedCurrencySymbol,
-          rawCurrencyCode: resolvedCurrencyCode,
-          title: mirror.title,
-          imageUrl: mirror.imageUrl,
-          cacheHit: false,
-          lastFetchedAt: now,
-        } as PriceResolveResponse);
-      }
-
-      // Last resort: catalog fallback
-      const fallback = await getCatalogFallbackPrice(supabase, formattedUrl, normalizedUrl, store);
-      if (fallback) {
-        const now = new Date().toISOString();
-        const fallbackCurrencyCode = 'USD';
-        const fallbackCurrencySymbol = getCurrencySymbol(fallbackCurrencyCode);
-
-        await setCachedPrice(supabase, normalizedUrl, {
-          store,
-          basePrice: fallback.basePrice,
-          currencySymbol: fallbackCurrencySymbol,
-          rawCurrencyCode: fallbackCurrencyCode,
-          title: fallback.title,
-          imageUrl: fallback.imageUrl,
-        });
-        saveToHotCache(supabase, normalizedUrl, store, {
-          basePrice: fallback.basePrice,
-          currencySymbol: fallbackCurrencySymbol,
-          rawCurrencyCode: fallbackCurrencyCode,
-          store,
-          title: fallback.title,
-          imageUrl: fallback.imageUrl,
-          lastFetchedAt: now,
-        }).catch(() => {});
-
-        logData = {
-          ...logData,
-          cacheHit: false,
-          method: 'catalog_fallback_bot_blocked',
-          priceFound: true,
-          duration: Date.now() - startTime,
-        };
-        console.log(JSON.stringify(logData));
-
-        return jsonSuccess({
-          url: normalizedUrl,
-          store,
-          basePrice: fallback.basePrice,
-          currencySymbol: fallbackCurrencySymbol,
-          rawCurrencyCode: fallbackCurrencyCode,
-          title: fallback.title,
-          imageUrl: fallback.imageUrl,
-          cacheHit: false,
-          lastFetchedAt: now,
-        } as PriceResolveResponse);
-      }
-
-      logData = { ...logData, status: 403, error: 'SCRAPE_BLOCKED', store, duration: Date.now() - startTime };
-      console.log(JSON.stringify(logData));
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          code: 'SCRAPE_BLOCKED',
-          message: `${store} is blocking automated access`,
-          message_en: `${store} is blocking automated access. Please open the page manually.`,
-          message_fr: `${store} bloque l'accès automatisé. Veuillez ouvrir la page manuellement.`,
-          retryable: false,
-          webviewFallback: true,
-          suggestedFallback: 'WEBVIEW',
-        }),
-        { status: 403, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }
-      );
-    }
-
-    let price: number | null = null;
-    let currencyCode: string | null = null;
-    let extractionMethod: string | null = null;
-
-    // Strategy 1: JSON-LD (fastest, most reliable) - PRIORITY for Edmunds
-    const jsonLdResult = extractFromJsonLd(html);
-    if (jsonLdResult) {
-      price = jsonLdResult.price;
-      currencyCode = jsonLdResult.currency ?? null;
-      extractionMethod = 'jsonld';
-      console.log(`[extract-price] JSON-LD extraction succeeded: ${price} ${currencyCode}`);
-    }
-
-    // Strategy 2: Store-specific selectors
-    if (!price) {
-      price = extractFromSelectors(html, store);
-      if (price) {
-        extractionMethod = 'selector';
-        console.log(`[extract-price] Selector extraction succeeded: ${price}`);
-      }
-    }
-
-    // Strategy 3: Regex fallback (only if selectors fail)
-    if (!price) {
-      const regexResult = extractWithRegex(html);
-      if (regexResult) {
-        price = regexResult.price;
-        currencyCode = regexResult.currencyHint;
-        extractionMethod = 'regex';
-        console.log(`[extract-price] Regex extraction succeeded: ${price} ${currencyCode}`);
-      }
-    }
-
-    // Strategy 4: OCR DISABLED — was consuming Firecrawl credits (1 call per request)
-    // The OCR path called Firecrawl API which drained credits. Regex extraction above is sufficient.
-    // if (!price && allowOcr && !skipOcrStores.includes(store)) { ... }
-
-    // Fail fast if no price found
-    if (!price) {
-      const fallback = await getCatalogFallbackPrice(supabase, formattedUrl, normalizedUrl, store);
-      if (fallback) {
-        price = fallback.basePrice;
-        currencyCode = 'USD';
-        extractionMethod = 'catalog_fallback_no_price';
-      } else {
-        const duration = Date.now() - startTime;
-        logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', store, duration, triedMethods: ['jsonld', 'selector', 'regex', allowOcr ? 'ocr' : 'none', 'catalog_fallback'] };
-        console.log(JSON.stringify(logData));
-        
-        // For dynamic content stores, suggest WebView fallback
-        const isDynamicStore = DYNAMIC_CONTENT_STORES.includes(store);
-        const errorCode = isDynamicStore ? 'DYNAMIC_CONTENT' : 'PRICE_NOT_FOUND';
-        
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            code: errorCode,
-            message: isDynamicStore 
-              ? `${store} requires manual viewing`
-              : `Could not extract price from ${store}`,
-            message_en: isDynamicStore 
-              ? `${store} requires manual viewing. Please open the product page.`
-              : `Could not extract price from ${store}. Try opening the page manually.`,
-            message_fr: isDynamicStore 
-              ? `${store} nécessite une consultation manuelle. Veuillez ouvrir la page.`
-              : `Impossible d'extraire le prix de ${store}. Essayez d'ouvrir la page manuellement.`,
-            retryable: false,
-            webviewFallback: true,
-            suggestedFallback: 'WEBVIEW',
-          }),
-          { status: 404, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }
-        );
-      }
-    }
-
-    // Extract product info
-    const productInfo = extractProductInfo(html, store);
-
-    // Image-only Firecrawl fallback DISABLED — was consuming extra Firecrawl credits per request.
-    // If direct scrape got price but no image, we accept it without image rather than burning credits.
-    // The image will be shown as a placeholder on the frontend.
-
-    // Determine currency
-    const detectedCurrency = currencyCode
-      ? { code: currencyCode, symbol: getCurrencySymbol(currencyCode) }
-      : detectCurrency(html, formattedUrl);
-
-    // Cache result to BOTH caches
-    const cacheData = {
-      store,
-      basePrice: price,
-      currencySymbol: detectedCurrency.symbol,
-      rawCurrencyCode: detectedCurrency.code,
-      title: productInfo.title,
-      imageUrl: productInfo.imageUrl,
-    };
+    // Step 2: Firecrawl PRIMARY — handles JS rendering, bot bypass, and full extraction
+    const firecrawlTimeout = store === 'shein' ? 25000 : 15000;
+    const firecrawlResult = await extractViaFirecrawlFull(formattedUrl, store, firecrawlTimeout);
     
-    // Save to standard cache (4-48 hour TTL)
-    await setCachedPrice(supabase, normalizedUrl, cacheData);
-    
-    // Save to hot cache (5-15 min TTL) for fast subsequent access
-    saveToHotCache(supabase, normalizedUrl, store, {
-      ...cacheData,
-      lastFetchedAt: new Date().toISOString(),
-    }).catch(() => {});
+    if (firecrawlResult && firecrawlResult.price > 0) {
+      const now = new Date().toISOString();
+      const resolvedCurrencyCode = firecrawlResult.currencyCode || 'USD';
+      const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
 
-    // Persist to catalog_items permanently (fire-and-forget)
-    saveToCatalogItems(supabase, store, formattedUrl, price, productInfo.title, productInfo.imageUrl).catch(() => {});
+      await setCachedPrice(supabase, normalizedUrl, {
+        store,
+        basePrice: firecrawlResult.price,
+        currencySymbol: resolvedCurrencySymbol,
+        rawCurrencyCode: resolvedCurrencyCode,
+        title: firecrawlResult.title,
+        imageUrl: firecrawlResult.imageUrl,
+      });
+      saveToHotCache(supabase, normalizedUrl, store, {
+        basePrice: firecrawlResult.price,
+        currencySymbol: resolvedCurrencySymbol,
+        rawCurrencyCode: resolvedCurrencyCode,
+        store,
+        title: firecrawlResult.title,
+        imageUrl: firecrawlResult.imageUrl,
+        lastFetchedAt: now,
+      }).catch(() => {});
 
-    logData = {
-      ...logData,
-      cacheHit: false,
-      method: extractionMethod,
-      priceFound: true,
-      duration: Date.now() - startTime,
-    };
+      saveToCatalogItems(supabase, store, formattedUrl, firecrawlResult.price, firecrawlResult.title, firecrawlResult.imageUrl).catch(() => {});
+
+      logData = { ...logData, cacheHit: false, method: 'firecrawl_primary', priceFound: true, duration: Date.now() - startTime };
+      console.log(JSON.stringify(logData));
+
+      return jsonSuccess({
+        url: normalizedUrl,
+        store,
+        basePrice: firecrawlResult.price,
+        currencySymbol: resolvedCurrencySymbol,
+        rawCurrencyCode: resolvedCurrencyCode,
+        title: firecrawlResult.title,
+        imageUrl: firecrawlResult.imageUrl,
+        cacheHit: false,
+        lastFetchedAt: now,
+      } as PriceResolveResponse);
+    }
+
+    // Firecrawl got title/image but no price — return for manual entry
+    if (firecrawlResult && firecrawlResult.price === 0 && (firecrawlResult.title || firecrawlResult.imageUrl)) {
+      console.log(`[extract-price] ${store}: Firecrawl got title/image but no price, returning for manual entry`);
+      return jsonSuccess({
+        url: normalizedUrl,
+        store,
+        basePrice: 0,
+        currencySymbol: '$',
+        rawCurrencyCode: 'USD',
+        title: firecrawlResult.title,
+        imageUrl: firecrawlResult.imageUrl,
+        image: firecrawlResult.imageUrl,
+        cacheHit: false,
+        lastFetchedAt: new Date().toISOString(),
+      } as any);
+    }
+
+    // Step 3: Mirror scraping fallback (fast, no credits)
+    const mirror = await extractViaMirror(formattedUrl, store, 4000);
+    if (mirror?.price) {
+      const now = new Date().toISOString();
+      const resolvedCurrencyCode = mirror.currencyCode || 'USD';
+      const resolvedCurrencySymbol = getCurrencySymbol(resolvedCurrencyCode);
+
+      await setCachedPrice(supabase, normalizedUrl, {
+        store,
+        basePrice: mirror.price,
+        currencySymbol: resolvedCurrencySymbol,
+        rawCurrencyCode: resolvedCurrencyCode,
+        title: mirror.title,
+        imageUrl: mirror.imageUrl,
+      });
+      saveToHotCache(supabase, normalizedUrl, store, {
+        basePrice: mirror.price,
+        currencySymbol: resolvedCurrencySymbol,
+        rawCurrencyCode: resolvedCurrencyCode,
+        store,
+        title: mirror.title,
+        imageUrl: mirror.imageUrl,
+        lastFetchedAt: now,
+      }).catch(() => {});
+
+      saveToCatalogItems(supabase, store, formattedUrl, mirror.price, mirror.title, mirror.imageUrl).catch(() => {});
+
+      logData = { ...logData, cacheHit: false, method: 'mirror_fallback', priceFound: true, duration: Date.now() - startTime };
+      console.log(JSON.stringify(logData));
+
+      return jsonSuccess({
+        url: normalizedUrl,
+        store,
+        basePrice: mirror.price,
+        currencySymbol: resolvedCurrencySymbol,
+        rawCurrencyCode: resolvedCurrencyCode,
+        title: mirror.title,
+        imageUrl: mirror.imageUrl,
+        cacheHit: false,
+        lastFetchedAt: now,
+      } as PriceResolveResponse);
+    }
+
+    // Step 4: All methods failed — return error with manual price option
+    const duration = Date.now() - startTime;
+    logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', store, duration, triedMethods: ['catalog', 'firecrawl', 'mirror'] };
     console.log(JSON.stringify(logData));
 
-    const result: PriceResolveResponse = {
-      url: normalizedUrl,
-      store,
-      basePrice: price,
-      currencySymbol: detectedCurrency.symbol,
-      rawCurrencyCode: detectedCurrency.code,
-      title: productInfo.title,
-      imageUrl: productInfo.imageUrl,
-      cacheHit: false,
-      lastFetchedAt: new Date().toISOString(),
-    };
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        code: 'PRICE_NOT_FOUND',
+        message: `Could not extract price from ${store}`,
+        message_en: `Could not extract price from ${store}. Please enter the price manually.`,
+        message_fr: `Impossible d'extraire le prix de ${store}. Veuillez entrer le prix manuellement.`,
+        retryable: false,
+        webviewFallback: true,
+        suggestedFallback: 'MANUAL',
+        // Pass through any partial data from Firecrawl
+        title: firecrawlResult?.title || null,
+        imageUrl: firecrawlResult?.imageUrl || null,
+        image: firecrawlResult?.imageUrl || null,
+      }),
+      { status: 404, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }
+    );
 
-    return jsonSuccess(result);
   } catch (error) {
     logData = { ...logData, status: 500, error: 'INTERNAL_ERROR', duration: Date.now() - startTime };
     console.error('[extract-price] Error:', error);

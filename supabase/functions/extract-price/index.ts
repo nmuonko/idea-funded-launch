@@ -839,6 +839,51 @@ async function extractViaFirecrawlFull(
     if (productImage && productImage.startsWith('//')) productImage = `https:${productImage}`;
     if (productImage) productImage = productImage.replace(/_thumbnail_\d+x\d+/g, '');
 
+    // Strategy 5: SHEIN LLM JSON extraction fallback (when HTML/regex fails)
+    if (!price && isShein) {
+      console.log(`[extract-price] SHEIN: HTML extraction failed, trying Firecrawl JSON extraction`);
+      try {
+        const jsonController = new AbortController();
+        const jsonTimeoutId = setTimeout(() => jsonController.abort(), 20000);
+        const jsonResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${firecrawlApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            url,
+            formats: [{ type: 'json', schema: {
+              type: 'object',
+              properties: {
+                product_name: { type: 'string' },
+                price: { type: 'number' },
+                currency: { type: 'string' },
+                image_url: { type: 'string' },
+              },
+              required: ['product_name', 'price'],
+            }}],
+            waitFor: 8000,
+          }),
+          signal: jsonController.signal,
+        });
+        clearTimeout(jsonTimeoutId);
+        if (jsonResponse.ok) {
+          const jsonData = await jsonResponse.json();
+          const extracted = jsonData?.data?.json || jsonData?.json;
+          if (extracted?.price && extracted.price > 0) {
+            price = extracted.price;
+            currencyCode = extracted.currency || 'USD';
+            if (!productTitle && extracted.product_name) productTitle = validateTitle(extracted.product_name);
+            if (!productImage && extracted.image_url) productImage = extracted.image_url;
+            console.log(`[extract-price] SHEIN JSON extraction succeeded: price=${price} title=${productTitle?.substring(0, 40)}`);
+          }
+        }
+      } catch (jsonErr) {
+        console.warn('[extract-price] SHEIN JSON extraction failed:', jsonErr);
+      }
+    }
+
     if (!price) {
       // Return title/image even without price (for manual entry UX)
       if (productTitle || productImage) {

@@ -42,9 +42,9 @@ interface SheinProduct {
 const SEARCH_TIMEOUT_MS = 45000;
 const HARD_FUNCTION_CAP_MS = 240000;
 const DEFAULT_TARGET_ITEMS = 500;
-const DEFAULT_QUERIES_PER_RUN = 8;
+const DEFAULT_QUERIES_PER_RUN = 15;
 const FIRECRAWL_SEARCH_LIMIT = 20;
-const DAILY_CREDIT_CAP = 3000;
+const DAILY_CREDIT_CAP = 5000;
 
 // Words that indicate non-clothing items
 const DISALLOWED_KEYWORDS = /\b(appliance|refrigerator|washer|dryer|dishwasher|microwave|oven|stove|vacuum|blender|toaster|laptop|computer|monitor|tablet|phone|television|tv|gaming console|playstation|xbox|nintendo|toy|action figure|lego|doll|drone|robot)\b/i;
@@ -258,7 +258,6 @@ async function firecrawlSearch(
         limit: Math.min(limit, FIRECRAWL_SEARCH_LIMIT),
         lang: "en",
         country: "us",
-        scrapeOptions: { formats: ["markdown"], waitFor: 5000 },
       }),
     });
 
@@ -325,19 +324,20 @@ async function firecrawlSearch(
       const allImgMatches = [...allContent.matchAll(
         /(https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^\s)"]+)/gi
       )];
+      const isSwatchUrl = (u: string) => /\/v4\/p\/ccc\//i.test(u) || /\/p\/ccc\//i.test(u);
       const allSheinImages = allImgMatches
         .map(m => m[1])
-        .filter(u => !/_thumbnail_/i.test(u) && !/banner/i.test(u));
+        .filter(u => !/_thumbnail_/i.test(u) && !/banner/i.test(u) && !isSwatchUrl(u));
       
       const otherImgMatches = [...allContent.matchAll(
         /(https?:\/\/img\.ltwebstatic\.com\/[^\s)"]+\.(?:jpg|jpeg|png|webp))/gi
       )];
       const otherImages = otherImgMatches
         .map(m => m[1])
-        .filter(u => !/_thumbnail_(?:12[0-6]|60)x/i.test(u) && !/banner/i.test(u));
+        .filter(u => !/_thumbnail_(?:12[0-6]|60)x/i.test(u) && !/banner/i.test(u) && !isSwatchUrl(u));
       
       const mdImgMatches = [...allContent.matchAll(/!\[.*?\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp)[^\s)]*)\)/gi)];
-      const mdImages = mdImgMatches.map(m => m[1]);
+      const mdImages = mdImgMatches.map(m => m[1]).filter(u => !isSwatchUrl(u));
       
       const uniqueImages = [...new Set([...allSheinImages, ...otherImages, ...mdImages])].slice(0, 10);
       const imageUrl = uniqueImages[0] || "";

@@ -31,7 +31,7 @@ import {
   ALL_HOMEPAGE_CATEGORIES,
   PROMO_CATEGORIES,
   PROVIDER_DISPLAY,
-  COMING_SOON_STORES,
+  
   CONCURRENCY_LIMIT,
   CURATED_CACHE_TTL_MS,
   MODE_OVERRIDE_QUERIES,
@@ -239,18 +239,8 @@ export default function ShopHome() {
             label: PROVIDER_DISPLAY[p] || p.charAt(0).toUpperCase() + p.slice(1),
             count,
           }))
+          .filter(s => s.count > 0)
           .sort((a, b) => b.count - a.count);
-
-        const existingKeys = new Set(stores.map(s => s.value));
-        for (const storeKey of COMING_SOON_STORES) {
-          if (!existingKeys.has(storeKey)) {
-            stores.push({
-              value: storeKey,
-              label: PROVIDER_DISPLAY[storeKey] || storeKey.charAt(0).toUpperCase() + storeKey.slice(1),
-              count: 0,
-            });
-          }
-        }
 
         setDynamicStores(stores);
       } catch (e) { console.warn('[ShopHome] Failed to fetch providers:', e); }
@@ -1159,10 +1149,9 @@ export default function ShopHome() {
                   <SelectItem
                     key={opt.value}
                     value={opt.value}
-                    disabled={opt.count === 0}
-                    className={`text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer ${opt.count === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
+                    className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
                   >
-                    {opt.label} {opt.count > 0 ? `(${opt.count.toLocaleString()})` : (language === 'fr' ? '(bientôt)' : '(coming soon)')}
+                    {opt.label} ({opt.count.toLocaleString()})
                   </SelectItem>
                 ))}
               </SelectContent>

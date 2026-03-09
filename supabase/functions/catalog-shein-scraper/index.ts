@@ -41,10 +41,10 @@ interface SheinProduct {
 
 const SEARCH_TIMEOUT_MS = 45000;
 const HARD_FUNCTION_CAP_MS = 240000;
-const DEFAULT_TARGET_ITEMS = 300;
-const DEFAULT_QUERIES_PER_RUN = 2;
+const DEFAULT_TARGET_ITEMS = 500;
+const DEFAULT_QUERIES_PER_RUN = 8;
 const FIRECRAWL_SEARCH_LIMIT = 20;
-const DAILY_CREDIT_CAP = 1500;
+const DAILY_CREDIT_CAP = 3000;
 
 // Words that indicate non-clothing items
 const DISALLOWED_KEYWORDS = /\b(appliance|refrigerator|washer|dryer|dishwasher|microwave|oven|stove|vacuum|blender|toaster|laptop|computer|monitor|tablet|phone|television|tv|gaming console|playstation|xbox|nintendo|toy|action figure|lego|doll|drone|robot)\b/i;

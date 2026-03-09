@@ -161,7 +161,7 @@ export const PROVIDER_DISPLAY: Record<string, string> = {
   wayfair: 'Wayfair', temu: 'Temu', ford: 'Ford', toyota: 'Toyota', tesla: 'Tesla',
 };
 
-export const COMING_SOON_STORES = ['walmart', 'bestbuy', 'macys', 'homedepot', 'wayfair', 'temu', 'ford', 'toyota', 'tesla'];
+export const COMING_SOON_STORES: string[] = [];
 
 export const CATEGORY_FILTER_OPTIONS = [
   { value: 'all', labelEn: 'All Categories', labelFr: 'Toutes catégories' },

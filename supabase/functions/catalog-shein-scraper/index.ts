@@ -258,7 +258,6 @@ async function firecrawlSearch(
         limit: Math.min(limit, FIRECRAWL_SEARCH_LIMIT),
         lang: "en",
         country: "us",
-        scrapeOptions: { formats: ["markdown"], waitFor: 5000 },
       }),
     });
 

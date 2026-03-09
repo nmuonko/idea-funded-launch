@@ -36,13 +36,12 @@ async function requireAuth(req: Request): Promise<{ userId: string } | Response>
     { global: { headers: { Authorization: authHeader } } }
   );
 
-  const token = authHeader.replace('Bearer ', '');
-  const { data, error } = await supabase.auth.getClaims(token);
-  if (error || !data?.claims) {
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
     return jsonRes({ ok: false, error: 'Unauthorized: invalid token' }, 401);
   }
 
-  return { userId: data.claims.sub as string };
+  return { userId: user.id };
 }
 
 function hasCronSecret(req: Request): boolean {

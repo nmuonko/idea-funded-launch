@@ -41,9 +41,19 @@ export function ShopHeader() {
       <div className="container mx-auto px-3 md:px-4 py-2 md:py-3">
         <div className="flex items-center gap-2 md:gap-3">
           {/* Logo - Far Left */}
-          <Link to="/" className="flex-shrink-0">
+          <button
+            onClick={() => {
+              if (location.pathname === '/') {
+                // Already on homepage — force full reload to reset filters
+                window.location.href = '/';
+              } else {
+                navigate('/');
+              }
+            }}
+            className="flex-shrink-0"
+          >
             <img src={afrishopLogo} alt="AfriShop" className="h-9 brightness-0 invert" />
-          </Link>
+          </button>
 
           {/* Search Bar - Takes most space */}
           <div className="flex-1 mx-1 md:mx-4">

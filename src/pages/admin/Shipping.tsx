@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Package, Truck, CheckCircle, Download, Search, Mail, Calendar, DollarSign, MapPin } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
+import { formatOrderId } from '@/lib/formatOrderId';
 
 export default function AdminShipping() {
   const [orders, setOrders] = useState<any[]>([]);

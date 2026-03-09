@@ -531,7 +531,7 @@ export default function AdminShipping() {
                           />
                         </TableCell>
                         <TableCell className="font-mono text-xs">
-                          {order.id.slice(0, 8)}...
+                          {formatOrderId(order.id, order.profiles?.full_name)}
                         </TableCell>
                         <TableCell>{getStatusBadge(order.status)}</TableCell>
                         <TableCell>

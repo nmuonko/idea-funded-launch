@@ -241,16 +241,8 @@ export default function ShopHome() {
           }))
           .sort((a, b) => b.count - a.count);
 
-        const existingKeys = new Set(stores.map(s => s.value));
-        for (const storeKey of COMING_SOON_STORES) {
-          if (!existingKeys.has(storeKey)) {
-            stores.push({
-              value: storeKey,
-              label: PROVIDER_DISPLAY[storeKey] || storeKey.charAt(0).toUpperCase() + storeKey.slice(1),
-              count: 0,
-            });
-          }
-        }
+        // Only show stores that have actual products
+        stores = stores.filter(s => s.count > 0);
 
         setDynamicStores(stores);
       } catch (e) { console.warn('[ShopHome] Failed to fetch providers:', e); }

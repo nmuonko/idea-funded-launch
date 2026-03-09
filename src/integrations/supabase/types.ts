@@ -2732,6 +2732,48 @@ export type Database = {
         }
         Relationships: []
       }
+      homepage_pinned_items: {
+        Row: {
+          catalog_item_id: string
+          category_key: string
+          created_at: string | null
+          id: string
+          image_url: string | null
+          pinned_by: string | null
+          price_usd: number | null
+          provider: string
+          provider_product_id: string
+          sort_order: number
+          title: string | null
+        }
+        Insert: {
+          catalog_item_id: string
+          category_key: string
+          created_at?: string | null
+          id?: string
+          image_url?: string | null
+          pinned_by?: string | null
+          price_usd?: number | null
+          provider?: string
+          provider_product_id?: string
+          sort_order?: number
+          title?: string | null
+        }
+        Update: {
+          catalog_item_id?: string
+          category_key?: string
+          created_at?: string | null
+          id?: string
+          image_url?: string | null
+          pinned_by?: string | null
+          price_usd?: number | null
+          provider?: string
+          provider_product_id?: string
+          sort_order?: number
+          title?: string | null
+        }
+        Relationships: []
+      }
       invitation_attempts: {
         Row: {
           attempted_at: string | null

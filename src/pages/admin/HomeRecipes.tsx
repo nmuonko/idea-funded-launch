@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { clearCatalogHomeCache } from "@/lib/catalogCache";
+import { HomepagePinnedItems } from "@/components/admin/HomepagePinnedItems";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -416,6 +417,9 @@ export default function HomeRecipes() {
 
   return (
     <div className="space-y-6">
+      {/* Pinned Products Section — FIRST for prominence */}
+      <HomepagePinnedItems />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

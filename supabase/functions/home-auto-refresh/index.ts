@@ -42,6 +42,12 @@ serve(async (req) => {
     const settings = await loadRefreshSettings(env);
     console.log(`[HOME_AUTO_REFRESH] checking staleness for env=${env}`);
 
+    // Auto-refresh is disabled — admin controls homepage manually via "Publish All"
+    if (settings.mobile_refresh_hours <= 0 && settings.web_refresh_hours <= 0) {
+      console.log(`[HOME_AUTO_REFRESH] auto-refresh disabled (hours=0), skipping`);
+      return json({ ok: true, env, ts: Date.now(), skipped: true, reason: "auto_refresh_disabled" });
+    }
+
     // Check mobile
     if (settings.mobile_refresh_hours > 0) {
       const mobileCache = await readMobileCache(env);

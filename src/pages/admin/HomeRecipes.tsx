@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { clearCatalogHomeCache } from "@/lib/catalogCache";
+import { HomepagePinnedItems } from "@/components/admin/HomepagePinnedItems";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 

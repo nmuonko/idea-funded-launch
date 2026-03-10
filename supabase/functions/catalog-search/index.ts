@@ -581,6 +581,11 @@ Deno.serve(async (req: Request) => {
     isHeavyEquipment = isHeavyEquipmentQuery(qNormForIntent);
 
     earlyIntent = classifySearchIntent(qNormForIntent);
+    // ─── DEVICE INTENT PARSING (for family-aware scoring) ──────────────────
+    const deviceIntent: DeviceIntent = parseDeviceIntent(qNormForIntent);
+    if (deviceIntent.hasStrongFamilyIntent) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} DEVICE_INTENT: brand=${deviceIntent.brand} line=${deviceIntent.line} family=${deviceIntent.family} gen=${deviceIntent.generation} normalized="${deviceIntent.normalizedIntent}"`);
+    }
     console.log(`[CATALOG_SEARCH] requestId=${requestId} intent=${earlyIntent.intentKey} (post-translate)`);
 
     if (qCanonicalized !== qNorm) {

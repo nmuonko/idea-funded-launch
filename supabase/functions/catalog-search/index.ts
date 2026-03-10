@@ -949,7 +949,7 @@ Deno.serve(async (req: Request) => {
 
       // Apply intent-based scoring and ranking (same as main path)
       const scoringTokens = (providerQuery || qNorm).toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
-      const scoreResult = scoreAndRankItems(dbFiltered, effectiveIntent, scoringTokens, limit);
+      const scoreResult = scoreAndRankItems(dbFiltered, effectiveIntent, scoringTokens, limit, deviceIntent);
       console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH scoring: input=${dbFiltered.length} output=${scoreResult.items.length} dropped=${scoreResult.dropped} topScores=${JSON.stringify(scoreResult.topScores)}`);
 
       // Quality gate: only use fast path if top results are actually relevant

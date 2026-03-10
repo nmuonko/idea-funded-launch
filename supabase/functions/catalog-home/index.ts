@@ -215,14 +215,22 @@ function generateCorrelationId(): string {
 }
 
 function jsonResponse(data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
-  // Auto-add Cache-Control for web responses that include ttlSeconds
   const finalHeaders: Record<string, string> = { ...corsHeaders, "Content-Type": "application/json; charset=utf-8", ...extraHeaders };
-  if (typeof data === "object" && data !== null && "ttlSeconds" in (data as Record<string, unknown>)) {
+
+  if (status >= 400) {
+    // Never cache error responses
+    finalHeaders["Cache-Control"] = "no-store, no-cache, must-revalidate";
+    finalHeaders["Surrogate-Control"] = "no-store";
+    finalHeaders["Pragma"] = "no-cache";
+  } else if (typeof data === "object" && data !== null && "ttlSeconds" in (data as Record<string, unknown>)) {
     const ttl = (data as Record<string, unknown>).ttlSeconds;
-    if (typeof ttl === "number" && ttl > 0 && !finalHeaders["Cache-Control"]) {
-      finalHeaders["Cache-Control"] = `public, max-age=${ttl}`;
+    // Cap cache at 5 minutes to prevent stale 404s from being cached long-term
+    const cappedTtl = typeof ttl === "number" && ttl > 0 ? Math.min(ttl, 300) : 0;
+    if (cappedTtl > 0 && !finalHeaders["Cache-Control"]) {
+      finalHeaders["Cache-Control"] = `public, max-age=${cappedTtl}`;
     }
   }
+
   return new Response(JSON.stringify(data), {
     status,
     headers: finalHeaders,

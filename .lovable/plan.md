@@ -1,50 +1,40 @@
+## Edge Function Consolidation Refactor — Phase 3 Complete
 
+### Phase 3: Orphan Deletion — 10 Functions Deleted
+- **`create-referrer`** — routed via auth-service
+- **`execute-ai-action`** — routed via admin-service
+- **`get-ai-actions-for-review`** — routed via admin-service
+- **`predict-customer-ltv`** — routed via admin-service
+- **`ai-order-assistant`** — routed via admin-service
+- **`catalog-categories`** — inlined into catalog-service
+- **`catalog-tabs`** — inlined into catalog-service
+- **`catalog-nav`** — inlined into catalog-service
+- **`catalog-providers`** — inlined into catalog-service
+- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-## Diagnosis Summary
+### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
+- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
+- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
+- **`auth-service`** — added `create_referrer`
+- **`email-service`** — added `saved_cart_reminders`
 
-**All backend edge functions are returning HTTP 200 with valid data** when tested directly:
-- `catalog-home` → 200, returns 12 sections with 112 items
-- `mobile-public-config` → 200, returns correct `catalogApiBaseUrl` pointing to `igmkhxffnyzoogcqvdab`
-- `app-bootstrap` → 200, returns payment config
+### Batches 1–10: Inlined — 32 Functions Deleted
+- **Batch 10**: auth-service (8 functions)
+- **Batch 9**: mobile-cart (7), mobile-orders (4)
+- **Batch 8**: admin-service (10), support-service (3)
+- **Batch 7**: catalog-service (5 metadata endpoints)
 
-The `environments` table was already fixed by the previous migration (both `production` and `staging` rows now have `catalog_mode = 'native'` and the correct `api_base_url`).
+**Total reduction: 42 Edge Functions deleted**
 
-## Root Cause: `config.toml` Project ID Mismatch
+### Kept as Proxy (by decision)
+- **`payments-core`** — proxies 9 functions (complex payment logic)
+- **`payments-provider`** — proxies 10 functions (payment provider logic)
+- **`email-service`** — proxies 25 send-* functions (HTML template code)
 
-The file `supabase/config.toml` line 1 reads:
-```
-project_id = "ecqpqtirhpumfgbdtvhh"
-```
-But the actual Lovable Cloud project is `igmkhxffnyzoogcqvdab`. This is a leftover from your backend migration attempt. This file controls how Lovable deploys edge functions. **If the deployment pipeline uses this project ID, functions may have been deployed to the old project (`ecqpqtirhpumfgbdtvhh`) instead of the current one (`igmkhxffnyzoogcqvdab`).**
-
-The functions we're testing via curl may be **stale versions** that were deployed before the migration. Any edits or redeployments since then may have gone to the wrong project.
-
-## Secondary Issue: 7-Day Cache on `catalog-home`
-
-`catalog-home` returns `Cache-Control: public, max-age=604800` (7 days). If any 404 error was returned during the migration window, the Android HTTP cache or any intermediate proxy could be serving the cached 404 for up to 7 days.
-
-## Plan
-
-### Step 1: Redeploy all critical mobile-facing edge functions
-Force-redeploy to ensure the current Lovable Cloud project has the latest function code:
-- `catalog-home`
-- `mobile-public-config`
-- `app-bootstrap`
-- `catalog-product`
-- `catalog-search`
-- `catalog-category`
-- `mobile-cart`
-- `mobile-orders`
-
-### Step 2: Reduce `catalog-home` cache duration
-Change `Cache-Control: public, max-age=604800` to `max-age=300` (5 minutes) in `catalog-home/index.ts`. This prevents 404s from being cached for a week.
-
-### Step 3: Add cache-busting headers
-Add `Surrogate-Control: no-store` and `Pragma: no-cache` to error responses in `catalog-home` so that failed responses are never cached by any layer.
-
-### Step 4: Verify after deployment
-Test each redeployed function via curl to confirm they return 200.
-
-### Technical note on `config.toml`
-This file is auto-managed by Lovable Cloud and cannot be edited directly. The stale `project_id` should not affect curl-based testing (which uses the correct project), but may affect automated deployments. The redeployment in Step 1 will ensure functions are on the correct project regardless.
-
+### Remaining Standalone (active, not orphaned)
+- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
+- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
+- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
+- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
+- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
+- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment

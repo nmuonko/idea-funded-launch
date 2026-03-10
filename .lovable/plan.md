@@ -1,42 +1,40 @@
+## Edge Function Consolidation Refactor — Phase 3 Complete
 
+### Phase 3: Orphan Deletion — 10 Functions Deleted
+- **`create-referrer`** — routed via auth-service
+- **`execute-ai-action`** — routed via admin-service
+- **`get-ai-actions-for-review`** — routed via admin-service
+- **`predict-customer-ltv`** — routed via admin-service
+- **`ai-order-assistant`** — routed via admin-service
+- **`catalog-categories`** — inlined into catalog-service
+- **`catalog-tabs`** — inlined into catalog-service
+- **`catalog-nav`** — inlined into catalog-service
+- **`catalog-providers`** — inlined into catalog-service
+- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-# Plan: Remove Email Verification Requirement
+### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
+- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
+- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
+- **`auth-service`** — added `create_referrer`
+- **`email-service`** — added `saved_cart_reminders`
 
-## What Changes
+### Batches 1–10: Inlined — 32 Functions Deleted
+- **Batch 10**: auth-service (8 functions)
+- **Batch 9**: mobile-cart (7), mobile-orders (4)
+- **Batch 8**: admin-service (10), support-service (3)
+- **Batch 7**: catalog-service (5 metadata endpoints)
 
-This requires changes in **both backend and frontend**. The goal is to let users create an account and immediately sign in without needing to verify their email first.
+**Total reduction: 42 Edge Functions deleted**
 
-### 1. Enable Auto-Confirm in Auth Config
-Use the auth configuration to enable automatic email confirmation so new signups are instantly verified.
+### Kept as Proxy (by decision)
+- **`payments-core`** — proxies 9 functions (complex payment logic)
+- **`payments-provider`** — proxies 10 functions (payment provider logic)
+- **`email-service`** — proxies 25 send-* functions (HTML template code)
 
-### 2. Backend: Update `auth-service` Edge Function
-In `supabase/functions/auth-service/index.ts`:
-- **Registration** (line ~174): Change `email_confirm: false` to `email_confirm: true` in `admin.createUser()` — this auto-confirms the user at creation time
-- **Registration response** (lines ~231-254): Remove the `needsEmailConfirmation` / `emailVerificationRequired` flags; return a direct success with session tokens since sign-in will now succeed immediately
-- **Login** (line ~268): Remove the `EMAIL_NOT_VERIFIED` error branch since all users will be auto-confirmed
-- **Skip sending verification email** (lines ~188-205): Remove or skip the magic link verification email send block
-- Keep the `resend-verification` and `check-verification` handlers but make them no-ops or return "already verified"
-
-### 3. Frontend: Update Auth Flow
-- **`src/pages/shop/ShopAuth.tsx`**: Remove the `mode === 'verify'` screen and the redirect to verification on "Email not confirmed" error. After successful registration, go straight to the logged-in state
-- **`src/pages/Profile.tsx`**: Remove the email verification banner (lines ~235-250)
-- **`src/contexts/AuthContext.tsx`**: Remove any logic that checks `email_confirmed_at` for gating access
-- **`src/pages/EmailConfirmed.tsx`** and **`src/pages/AuthCallback.tsx`**: These pages can stay but won't be needed for new signups anymore
-
-### 4. Database: Update RLS Policies
-The `is_email_verified()` check in RLS policies on `orders`, `checkout_sessions`, and `payment_attempts` currently blocks unverified users from placing orders. Update these policies to remove the `AND public.is_email_verified() = true` condition so all authenticated users can checkout:
-- `orders` INSERT policy
-- `checkout_sessions` INSERT policy  
-- `payment_attempts` INSERT policy
-
-### 5. Deploy
-- Deploy updated `auth-service` edge function
-- Run database migration for RLS policy updates
-
-### Summary of Files to Change
-- `supabase/functions/auth-service/index.ts` — remove verification email sending, auto-confirm users, clean up response
-- `src/pages/shop/ShopAuth.tsx` — remove verify mode/screen
-- `src/pages/Profile.tsx` — remove verification banner
-- `src/contexts/AuthContext.tsx` — remove email_confirmed_at checks
-- New SQL migration — update 3 RLS policies to drop `is_email_verified()` check
-
+### Remaining Standalone (active, not orphaned)
+- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
+- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
+- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
+- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
+- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
+- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment

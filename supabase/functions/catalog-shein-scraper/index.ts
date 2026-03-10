@@ -169,12 +169,21 @@ function extractSheinProductId(url: string): string | null {
   try {
     const u = new URL(url);
     if (!u.hostname.includes("shein.com")) return null;
+    // Pattern 1: standard product page like -p-12345678.html or _p_12345678
     const match = u.pathname.match(/[_-]p[_-]?(\d{5,})/i);
     if (match) return `p${match[1]}`;
+    // Pattern 2: ?id= query param
     const id = u.searchParams.get("id");
     if (id && /^\d{5,}$/.test(id)) return `p${id}`;
-    // REMOVED: path_ fallback was ingesting category pages as products
-    // Only accept real product IDs (numeric SKUs)
+    // Pattern 3: product URL with numeric slug like /Product-Name-12345678.html
+    const numericSlug = u.pathname.match(/-(\d{6,})(?:\.html)?$/i);
+    if (numericSlug) return `p${numericSlug[1]}`;
+    // Pattern 4: m.shein.com style e.g. /product-p-352636002.html
+    const mobileMatch = u.pathname.match(/p-(\d{5,})/i);
+    if (mobileMatch) return `p${mobileMatch[1]}`;
+    // Pattern 5: any long numeric ID in the path (last resort for product pages)
+    const anyNumeric = u.pathname.match(/(\d{7,})/);
+    if (anyNumeric && !/-cat-|-sc-/i.test(u.pathname)) return `p${anyNumeric[1]}`;
     return null;
   } catch { return null; }
 }

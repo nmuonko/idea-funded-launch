@@ -188,6 +188,7 @@ export default function ShopHome() {
   const [accueilProducts, setAccueilProducts] = useState<Product[]>([]);
   const [accueilLoading, setAccueilLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   const [pinnedByCategory, setPinnedByCategory] = useState<Record<string, Product[]>>({});
   const pinnedFetchedRef = useRef(false);
@@ -480,6 +481,31 @@ export default function ShopHome() {
     } finally {
       setAccueilLoading(false);
     }
+  }, []);
+
+  // Full retry: clears all caches, resets state, re-fetches everything
+  const handleFullRetry = useCallback(() => {
+    // 1. Clear ALL caches (localStorage + memory)
+    clearAllCatalogCache();
+
+    // 2. Reset all state
+    setAccueilProducts([]);
+    setCategoryItems({});
+    setPinnedByCategory({});
+    setRecentlyViewed([]);
+    setError(null);
+    setCategoryLoadingMap(() => {
+      const init: Record<string, boolean> = {};
+      ALL_HOMEPAGE_CATEGORIES.forEach(k => { init[k] = true; });
+      return init;
+    });
+
+    // 3. Allow the main useEffect to re-run
+    pinnedFetchedRef.current = false;
+    fetchedRef.current = false;
+
+    // 4. Force re-mount by toggling a key (triggers useEffect)
+    setRetryCount(c => c + 1);
   }, []);
 
   // ====== CURATED CATEGORY HELPERS ======
@@ -1095,7 +1121,7 @@ export default function ShopHome() {
       await Promise.allSettled([accueilPromise, categoryPromise, recentPromise]);
       fetchedRef.current = true;
     })();
-  }, []);
+  }, [retryCount]);
 
   // Re-fetch on language change
   useEffect(() => {
@@ -1264,8 +1290,8 @@ export default function ShopHome() {
             </div>
           ) : error ? (
             <div className="text-center py-20">
-              <p className="text-red-400 mb-4">{error}</p>
-              <Button onClick={() => fetchAccueilFeed(true)} variant="outline" className="border-white/20 text-white/90 hover:bg-white/10">
+              <p className="text-destructive mb-4">{error}</p>
+              <Button onClick={handleFullRetry} variant="outline" className="border-white/20 text-white/90 hover:bg-white/10">
                 {shop.tryAgain}
               </Button>
             </div>

@@ -436,7 +436,7 @@ export async function serveMobileSections(
     },
   }), {
     status: 200,
-    headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" },
+    headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache" },
   });
 }
 

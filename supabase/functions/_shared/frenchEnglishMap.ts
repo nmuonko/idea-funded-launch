@@ -323,4 +323,11 @@ export const FR_EN_MAP: Record<string, string> = {
   // ─── Home ───
   "marmite": "cooking pot",
   "mixeur cuisine": "kitchen blender",
+  // ─── Foldable / Pliable ───
+  "pliable": "foldable",
+  "telephone pliable": "foldable phone",
+  "téléphone pliable": "foldable phone",
+  "galaxy pliable": "samsung galaxy z fold",
+  "samsung pliable": "samsung galaxy z fold",
+  "samsung galaxy pliable": "samsung galaxy z fold",
 };

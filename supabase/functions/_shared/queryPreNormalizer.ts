@@ -112,7 +112,17 @@ const BEAUTY_SYNONYMS: Record<string, string[]> = {
   "shea butter": ["raw shea butter", "african shea butter", "body butter"],
 };
 
+const PHONES_SYNONYMS: Record<string, string[]> = {
+  "galaxy foldable": ["samsung galaxy z fold", "samsung galaxy z flip", "galaxy z fold", "galaxy z flip"],
+  "samsung galaxy z fold": ["samsung galaxy z fold 5", "samsung galaxy z fold 4", "galaxy z fold"],
+  "samsung galaxy z flip": ["samsung galaxy z flip 5", "samsung galaxy z flip 4", "galaxy z flip"],
+  "foldable phone": ["samsung galaxy z fold", "samsung galaxy z flip", "motorola razr"],
+  "galaxy fold": ["samsung galaxy z fold 5", "samsung galaxy z fold 4", "galaxy z fold"],
+  "galaxy flip": ["samsung galaxy z flip 5", "samsung galaxy z flip 4", "galaxy z flip"],
+};
+
 const CATEGORY_SYNONYM_MAP: Record<string, Record<string, string[]>> = {
+  phones: PHONES_SYNONYMS,
   clothing: CLOTHING_SYNONYMS,
   electronics: ELECTRONICS_SYNONYMS,
   home_garden: HOME_GARDEN_SYNONYMS,

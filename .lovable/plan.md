@@ -1,40 +1,46 @@
-## Edge Function Consolidation Refactor — Phase 3 Complete
 
-### Phase 3: Orphan Deletion — 10 Functions Deleted
-- **`create-referrer`** — routed via auth-service
-- **`execute-ai-action`** — routed via admin-service
-- **`get-ai-actions-for-review`** — routed via admin-service
-- **`predict-customer-ltv`** — routed via admin-service
-- **`ai-order-assistant`** — routed via admin-service
-- **`catalog-categories`** — inlined into catalog-service
-- **`catalog-tabs`** — inlined into catalog-service
-- **`catalog-nav`** — inlined into catalog-service
-- **`catalog-providers`** — inlined into catalog-service
-- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
-- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
-- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
-- **`auth-service`** — added `create_referrer`
-- **`email-service`** — added `saved_cart_reminders`
+## Root Cause
 
-### Batches 1–10: Inlined — 32 Functions Deleted
-- **Batch 10**: auth-service (8 functions)
-- **Batch 9**: mobile-cart (7), mobile-orders (4)
-- **Batch 8**: admin-service (10), support-service (3)
-- **Batch 7**: catalog-service (5 metadata endpoints)
+"galaxy pliable" returns no results because:
 
-**Total reduction: 42 Edge Functions deleted**
+1. **"pliable" is not in FR_EN_MAP** — The French word "pliable" (meaning "foldable") has no entry in `supabase/functions/_shared/frenchEnglishMap.ts`, so the static translation layer passes it through untranslated.
 
-### Kept as Proxy (by decision)
-- **`payments-core`** — proxies 9 functions (complex payment logic)
-- **`payments-provider`** — proxies 10 functions (payment provider logic)
-- **`email-service`** — proxies 25 send-* functions (HTML template code)
+2. **PreNormalizer detects "galaxy" as a phone brand** (`PHONE_BRANDS` set) and sets `keepQuery: true`, which means the query stays as-is: "galaxy pliable". This bypasses phrase map matching entirely.
 
-### Remaining Standalone (active, not orphaned)
-- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
-- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
-- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
-- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
-- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
-- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment
+3. **OpenAI translation fallback may not trigger** — Since "galaxy" is English and "pliable" exists as an English word (meaning flexible/bendable), the system may not detect the query as French-likely (`isFrenchLikely` requires accented chars or `lang=fr`).
+
+4. **Even if translated to "galaxy foldable"**, there are no synonym expansions to map that to the actual product names: "Samsung Galaxy Z Fold" and "Samsung Galaxy Z Flip".
+
+## Plan — Two targeted changes
+
+### 1. Add "pliable" → "foldable" to `frenchEnglishMap.ts`
+
+Add entries for "pliable" and related terms:
+- `"pliable"` → `"foldable"`
+- `"telephone pliable"` → `"foldable phone"`
+- `"galaxy pliable"` → `"samsung galaxy z fold"`
+- `"samsung pliable"` → `"samsung galaxy z fold"`
+
+### 2. Add phone synonym expansions to `queryPreNormalizer.ts`
+
+Create a `PHONES_SYNONYMS` map and register it in `CATEGORY_SYNONYM_MAP`:
+
+```
+"galaxy foldable": ["samsung galaxy z fold", "samsung galaxy z flip", "galaxy z fold", "galaxy z flip"]
+"foldable phone": ["samsung galaxy z fold", "samsung galaxy z flip", "motorola razr"]
+"galaxy fold": ["samsung galaxy z fold 5", "samsung galaxy z fold 4", "galaxy z fold"]
+"galaxy flip": ["samsung galaxy z flip 5", "samsung galaxy z flip 4", "galaxy z flip"]
+```
+
+This ensures that even after translation, the synonym fallback generates queries matching actual product listings.
+
+### Files to change
+
+| File | Change |
+|------|--------|
+| `supabase/functions/_shared/frenchEnglishMap.ts` | Add "pliable"/"galaxy pliable"/etc. entries |
+| `supabase/functions/_shared/queryPreNormalizer.ts` | Add `PHONES_SYNONYMS` map with foldable expansions, register in `CATEGORY_SYNONYM_MAP` |
+
+Both are backend functions that auto-deploy. No frontend changes needed. Search and other features remain unaffected.
+

@@ -1,0 +1,1 @@
+SELECT cron.alter_job(61, schedule := '*/30 * * * *', command := $$SELECT net.http_post(url:='https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/catalog-shein-scraper', headers:='{"Content-Type": "application/json", "x-cron-secret": "afrishop-internal-cron-2026"}'::jsonb, body:='{"categories_per_run": 4}'::jsonb) as request_id;$$);

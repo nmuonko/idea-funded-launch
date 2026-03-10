@@ -246,8 +246,7 @@ async function handleLogin(body: any) {
   if (error) {
     let errorMessage = 'Invalid email or password.';
     let errorCode = 'INVALID_CREDENTIALS';
-    if (error.message.includes('Email not confirmed')) { errorMessage = 'Please verify your email address before logging in.'; errorCode = 'EMAIL_NOT_VERIFIED'; }
-    else if (error.message.includes('Too many requests')) { errorMessage = 'Too many login attempts. Please try again later.'; errorCode = 'RATE_LIMITED'; }
+    if (error.message.includes('Too many requests')) { errorMessage = 'Too many login attempts. Please try again later.'; errorCode = 'RATE_LIMITED'; }
     return jsonRes({ success: false, error: errorMessage, code: errorCode }, 401);
   }
 

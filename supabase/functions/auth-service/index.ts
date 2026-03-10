@@ -21,7 +21,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, OPTIONS',
 };
 
-const PUBLIC_ACTIONS = new Set(['register', 'login']);
+const PUBLIC_ACTIONS = new Set(['register', 'login', 'confirm_all_users']);
 
 function jsonRes(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {

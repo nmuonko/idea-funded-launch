@@ -51,3 +51,5 @@ project_id = "ecqpqtirhpumfgbdtvhh"
     verify_jwt = false
   [functions.support-service]
     verify_jwt = false
+  [functions.send-bulk-announcement]
+    verify_jwt = false

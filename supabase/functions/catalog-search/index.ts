@@ -1803,6 +1803,18 @@ Deno.serve(async (req: Request) => {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} FALLBACK_GATE_PASSED: reason=${aiFallbackResult.reason} firstPassItems=${finalItems.length}`);
     }
 
+    // ─── FINAL RE-RANKING: enforce family intent after all merges ─────────────
+    // After sparse enrichment, DB recovery, and second-pass fallback, run a final
+    // strict re-ranking pass using device intent to ensure family matches dominate top.
+    if (deviceIntent.hasStrongFamilyIntent && secondPassUsed && finalItems.length > 1) {
+      const finalReScored = scoreAndRankItems(
+        finalItems as unknown as Record<string, unknown>[],
+        effectiveIntent, queryTokens, limit, deviceIntent,
+      );
+      finalItems = finalReScored.items as typeof finalItems;
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} FINAL_RERANK: device_family=${deviceIntent.family} gen=${deviceIntent.generation} items=${finalItems.length} topScores=${JSON.stringify(finalReScored.topScores)}`);
+    }
+
     // Early cache write removed — final cache write below handles everything
     // Provider stats
     const sourceServed: ("ebay" | "amazon")[] = [];

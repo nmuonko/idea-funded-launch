@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail, CalendarIcon, X, Trash2, Play, Truck, CheckCircle2, MoreHorizontal, Printer } from 'lucide-react';
+import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail, CalendarIcon, X, Trash2, Play, Truck, CheckCircle2, MoreHorizontal, Printer, Bell } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,

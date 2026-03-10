@@ -280,6 +280,20 @@ const BEAUTY_PHRASES: Record<string, string> = {
   "lait corporel": "body lotion", "lait corps": "body lotion",
 };
 
+// ─── Phone phrases (FR → EN for foldable/specific queries) ──────────────────
+
+const PHONE_PHRASES: Record<string, string> = {
+  "galaxy pliable": "samsung galaxy z fold",
+  "samsung pliable": "samsung galaxy z fold",
+  "samsung galaxy pliable": "samsung galaxy z fold",
+  "telephone pliable": "foldable phone",
+  "pliable": "foldable phone",
+  "galaxy fold": "samsung galaxy z fold",
+  "galaxy flip": "samsung galaxy z flip",
+  "galaxy z fold": "samsung galaxy z fold",
+  "galaxy z flip": "samsung galaxy z flip",
+};
+
 // ─── Token detection sets (for fallback when no phrase matches) ──────────────
 
 const PHONE_BRANDS = new Set([

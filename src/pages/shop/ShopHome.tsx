@@ -1100,7 +1100,7 @@ export default function ShopHome() {
   // Re-fetch on language change
   useEffect(() => {
     if (!fetchedRef.current) return;
-    fetchAccueilFeed();
+    fetchAccueilFeed(true);
     fetchCategoryItems(ALL_HOMEPAGE_CATEGORIES);
   }, [language]);
 

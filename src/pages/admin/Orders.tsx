@@ -130,7 +130,15 @@ export default function AdminOrders() {
       const { data, error } = await query;
 
       if (error) throw error;
-      setOrders(data || []);
+      
+      // Filter out empty DRAFT orders (no items, $0 total) — these are abandoned cart shells
+      const filtered = (data || []).filter((order: any) => {
+        if (order.status === 'DRAFT' && (!order.order_items || order.order_items.length === 0) && Number(order.total_usd || 0) === 0) {
+          return false;
+        }
+        return true;
+      });
+      setOrders(filtered);
     } catch (error) {
       console.error('Error loading orders:', error);
     } finally {

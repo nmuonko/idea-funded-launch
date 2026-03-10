@@ -1,0 +1,1 @@
+UPDATE cars_settings SET value = '0'::jsonb WHERE key = 'scraper_rotation_shein';

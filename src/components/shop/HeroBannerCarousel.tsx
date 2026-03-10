@@ -111,9 +111,10 @@ export function HeroBannerCarousel() {
 
   useEffect(() => {
     if (paused) return;
-    const timer = setInterval(next, 10000);
-    return () => clearInterval(timer);
-  }, [paused, next]);
+    const delay = SLIDES[current]?.duration || 10000;
+    const timer = setTimeout(next, delay);
+    return () => clearTimeout(timer);
+  }, [paused, next, current]);
 
   
 

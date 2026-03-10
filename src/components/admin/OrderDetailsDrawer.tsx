@@ -154,6 +154,7 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
             id,
             title,
             product_url,
+            product_image_url,
             quantity,
             unit_price_usd,
             subtotal_usd,

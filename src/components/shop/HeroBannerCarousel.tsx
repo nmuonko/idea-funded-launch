@@ -20,18 +20,7 @@ interface Slide {
   image?: string;
 }
 
-const SLIDES: Slide[] = [
-  {
-    titleFr: 'Offres Gaming',
-    titleEn: 'Gaming Deals',
-    subtitleFr: 'PS5, Xbox, Nintendo Switch — livrés chez vous en RDC',
-    subtitleEn: 'PS5, Xbox, Nintendo Switch — delivered to DRC',
-    ctaFr: 'Voir les offres',
-    ctaEn: 'See deals',
-    ctaLink: '/category/gaming',
-    gradient: 'from-violet-950/95 via-indigo-900/80 to-transparent',
-    image: heroGaming,
-  },
+const SLIDES: (Slide & { duration?: number })[] = [
   {
     titleFr: 'Livraison en 2-4 Semaines',
     titleEn: 'Delivery in 2-4 Weeks',
@@ -42,6 +31,18 @@ const SLIDES: Slide[] = [
     ctaLink: '/shop',
     gradient: 'from-slate-950/90 via-blue-950/70 to-transparent',
     image: '/hero-airplane.jpg',
+    duration: 45000,
+  },
+  {
+    titleFr: 'Offres Gaming',
+    titleEn: 'Gaming Deals',
+    subtitleFr: 'PS5, Xbox, Nintendo Switch — livrés chez vous en RDC',
+    subtitleEn: 'PS5, Xbox, Nintendo Switch — delivered to DRC',
+    ctaFr: 'Voir les offres',
+    ctaEn: 'See deals',
+    ctaLink: '/category/gaming',
+    gradient: 'from-violet-950/95 via-indigo-900/80 to-transparent',
+    image: heroGaming,
   },
   {
     titleFr: 'Smartphones Premium',
@@ -110,9 +111,10 @@ export function HeroBannerCarousel() {
 
   useEffect(() => {
     if (paused) return;
-    const timer = setInterval(next, 10000);
-    return () => clearInterval(timer);
-  }, [paused, next]);
+    const delay = SLIDES[current]?.duration || 10000;
+    const timer = setTimeout(next, delay);
+    return () => clearTimeout(timer);
+  }, [paused, next, current]);
 
   
 

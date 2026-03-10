@@ -360,12 +360,16 @@ Deno.serve(async (req: Request) => {
     // If rewrite table didn't match, apply shared FR→EN map
     const FR_EN_FALLBACK = FR_EN_MAP;
 
-    // Detect if query might be French: accented chars, lang=fr, or matches FR terms
+    // Detect if query might be French using enhanced language detector
     const qNormLower = qNorm.toLowerCase().replace(/\s+/g, " ").trim();
     const removeAccentsFn = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const qNoAccents = removeAccentsFn(qNormLower);
     const hasAccents = qNormLower !== qNoAccents;
-    const isFrenchLikely = lang === "fr" || hasAccents;
+    const langDetection: LanguageDetectionResult = detectQueryLanguage(qOriginal);
+    const isFrenchLikely = lang === "fr" || hasAccents || langDetection.hasFrenchSignal;
+    let dynamicNormResult: DynamicNormalizationResult | null = null;
+    let dynamicFallbackUsed = false;
+    let aiTranslationUsed = false;
 
     // ─── FR STOP-WORD REMOVAL for better static map matching ────────────────
     // "jupes pour dames" → "jupes dames", "robe de soirée" → "robe soirée"

@@ -101,6 +101,24 @@ const CATEGORY_URLS: { url: string; category: string; label: string }[] = [
   { url: "https://us.shein.com/Bedding-c-2066.html", category: "home", label: "bedding" },
 ];
 
+const WOMEN_PRIORITY_HINTS = [
+  "women_",
+  "plus_",
+  "bodycon",
+  "aline",
+  "maxi",
+  "sports_",
+  "yoga_",
+];
+
+const WOMEN_CATEGORIES = CATEGORY_URLS.filter((c) =>
+  WOMEN_PRIORITY_HINTS.some((hint) => c.label.includes(hint))
+);
+
+const OTHER_CATEGORIES = CATEGORY_URLS.filter(
+  (c) => !WOMEN_CATEGORIES.some((w) => w.label === c.label)
+);
+
 // ── HELPERS ────────────────────────────────────────────────────────────────
 
 function extractSheinProductId(url: string): string | null {

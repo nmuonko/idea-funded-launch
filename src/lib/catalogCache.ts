@@ -306,6 +306,11 @@ export async function cachedCatalogFetch<T>(
       url.searchParams.set(key, String(value));
     }
   });
+
+  // When skipCache is set, add a cache-bust param to defeat CDN/proxy caches
+  if (options.skipCache) {
+    url.searchParams.set('_cb', String(Date.now()));
+  }
   
   const response = await fetch(url.toString(), {
     method: 'GET',
@@ -313,7 +318,8 @@ export async function cachedCatalogFetch<T>(
       'apikey': SUPABASE_ANON_KEY,
       'Content-Type': 'application/json',
     },
-    cache: 'default',
+    // Bypass browser HTTP cache entirely when skipCache is set
+    cache: options.skipCache ? 'no-store' : 'default',
   });
   
   if (!response.ok) {
@@ -365,7 +371,7 @@ export async function cachedCatalogFetchWithSwr<T>(
       const staleData = cached.data;
       
       // Fire background refresh (non-blocking)
-      fetchFromNetwork<T>(endpoint, params, options.signal)
+      fetchFromNetwork<T>(endpoint, params, options.signal, options.skipCache)
         .then(freshData => {
           const ttl = parseTtlFromNetworkResponse(freshData);
           setCache(cacheKey, freshData, ttl);
@@ -380,7 +386,7 @@ export async function cachedCatalogFetchWithSwr<T>(
   }
   
   // 2. Cache miss — fetch from network
-  const data = await fetchFromNetwork<T>(endpoint, params, options.signal);
+  const data = await fetchFromNetwork<T>(endpoint, params, options.signal, options.skipCache);
   const ttl = parseTtlFromNetworkResponse(data);
   setCache(cacheKey, data, ttl);
   
@@ -393,7 +399,8 @@ export async function cachedCatalogFetchWithSwr<T>(
 async function fetchFromNetwork<T>(
   endpoint: string,
   params: Record<string, any>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  skipBrowserCache?: boolean
 ): Promise<T> {
   const url = new URL(`${SUPABASE_URL}/functions/v1/${endpoint}`);
   Object.entries(params).forEach(([key, value]) => {
@@ -401,6 +408,10 @@ async function fetchFromNetwork<T>(
       url.searchParams.set(key, String(value));
     }
   });
+
+  if (skipBrowserCache) {
+    url.searchParams.set('_cb', String(Date.now()));
+  }
   
   const response = await fetch(url.toString(), {
     method: 'GET',
@@ -408,7 +419,7 @@ async function fetchFromNetwork<T>(
       'apikey': SUPABASE_ANON_KEY,
       'Content-Type': 'application/json',
     },
-    cache: 'default',
+    cache: skipBrowserCache ? 'no-store' : 'default',
     signal,
   });
   
@@ -441,6 +452,26 @@ export function clearCatalogHomeCache(): number {
   }
   keysToRemove.forEach(key => localStorage.removeItem(key));
   memoryCache.clear();
+  return keysToRemove.length;
+}
+
+/**
+ * Clear ALL catalog cache entries from localStorage AND in-memory LRU.
+ * Used for automatic recovery when startup network errors are detected.
+ */
+export function clearAllCatalogCache(): number {
+  const prefixes = ['afrishop_cache:', 'afrishop_curated:', 'afrishop_curated_v2:'];
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    if (prefixes.some(p => key.startsWith(p))) {
+      keysToRemove.push(key);
+    }
+  }
+  keysToRemove.forEach(key => localStorage.removeItem(key));
+  memoryCache.clear();
+  console.log(`[CatalogCache] Cleared ${keysToRemove.length} cache entries`);
   return keysToRemove.length;
 }
 

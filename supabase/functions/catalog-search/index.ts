@@ -31,7 +31,7 @@ import {
   isHeavyEquipmentQuery, classifySearchIntent,
 } from "../_shared/vehicleDetection.ts";
 import type { SearchIntent } from "../_shared/vehicleDetection.ts";
-import { scoreAndRankItems } from "../_shared/searchIntentScorer.ts";
+import { scoreAndRankItems, parseDeviceIntent, type DeviceIntent } from "../_shared/searchIntentScorer.ts";
 import { refineQueryWithAi, AiRefineResult } from "../_shared/searchAiExpand.ts";
 import { aiQueryRewrite, AiRewriteResult } from "../_shared/aiQueryRewrite.ts";
 import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";

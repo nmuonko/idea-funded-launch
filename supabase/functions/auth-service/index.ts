@@ -593,20 +593,17 @@ serve(async (req) => {
       case 'update_profile_web': return handleUpdateProfileWeb(payload, req);
       case 'create_referrer': return proxyAuthToFunction('create-referrer', req, body);
       case 'confirm_all_users': {
-        const admin = createClient(
-          Deno.env.get('SUPABASE_URL')!,
-          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-          { auth: { autoRefreshToken: false, persistSession: false } }
-        );
+        const adminClient = createServiceClient();
         let confirmed = 0;
         let page = 1;
         while (true) {
-          const { data: { users }, error } = await admin.auth.admin.listUsers({ page, perPage: 100 });
+          const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 100 });
           if (error) return jsonRes({ ok: false, error: error.message }, 500);
-          if (!users || users.length === 0) break;
+          const users = data?.users || [];
+          if (users.length === 0) break;
           for (const u of users) {
             if (!u.email_confirmed_at) {
-              await admin.auth.admin.updateUserById(u.id, { email_confirm: true });
+              await adminClient.auth.admin.updateUserById(u.id, { email_confirm: true });
               confirmed++;
             }
           }

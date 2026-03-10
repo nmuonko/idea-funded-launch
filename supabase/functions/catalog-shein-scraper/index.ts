@@ -21,7 +21,7 @@ const corsHeaders = {
 
 const HARD_FUNCTION_CAP_MS = 240000;
 const DAILY_CREDIT_CAP = 5000;
-const DEFAULT_CATEGORIES_PER_RUN = 4;
+const DEFAULT_CATEGORIES_PER_RUN = 8;
 
 // ── SHEIN CATEGORY URLs ────────────────────────────────────────────────────
 // These are real SHEIN category page URLs that list products
@@ -100,6 +100,24 @@ const CATEGORY_URLS: { url: string; category: string; label: string }[] = [
   { url: "https://us.shein.com/Home-Decor-c-2087.html", category: "home", label: "home_decor" },
   { url: "https://us.shein.com/Bedding-c-2066.html", category: "home", label: "bedding" },
 ];
+
+const WOMEN_PRIORITY_HINTS = [
+  "women_",
+  "plus_",
+  "bodycon",
+  "aline",
+  "maxi",
+  "sports_",
+  "yoga_",
+];
+
+const WOMEN_CATEGORIES = CATEGORY_URLS.filter((c) =>
+  WOMEN_PRIORITY_HINTS.some((hint) => c.label.includes(hint))
+);
+
+const OTHER_CATEGORIES = CATEGORY_URLS.filter(
+  (c) => !WOMEN_CATEGORIES.some((w) => w.label === c.label)
+);
 
 // ── HELPERS ────────────────────────────────────────────────────────────────
 
@@ -280,7 +298,7 @@ async function scrapeCategoryPage(
       body: JSON.stringify({
         url,
         formats: ["markdown", "html", "links"],
-        waitFor: 5000,
+        waitFor: 2500,
         onlyMainContent: false,
       }),
     });
@@ -426,11 +444,22 @@ Deno.serve(async (req: Request) => {
     if (customUrl) {
       categoriesToScrape = [{ url: customUrl, category: "clothing_shoes", label: "custom" }];
     } else {
-      categoriesToScrape = [];
-      for (let i = 0; i < categoriesPerRun; i++) {
-        const idx = (offset + i) % CATEGORY_URLS.length;
-        categoriesToScrape.push(CATEGORY_URLS[idx]);
+      const womenTarget = Math.max(1, Math.ceil(categoriesPerRun * 0.8));
+      const otherTarget = Math.max(0, categoriesPerRun - womenTarget);
+
+      const womenSelection: typeof CATEGORY_URLS = [];
+      for (let i = 0; i < womenTarget; i++) {
+        const idx = (offset + i) % WOMEN_CATEGORIES.length;
+        womenSelection.push(WOMEN_CATEGORIES[idx]);
       }
+
+      const otherSelection: typeof CATEGORY_URLS = [];
+      for (let i = 0; i < otherTarget; i++) {
+        const idx = (offset + i) % OTHER_CATEGORIES.length;
+        otherSelection.push(OTHER_CATEGORIES[idx]);
+      }
+
+      categoriesToScrape = [...womenSelection, ...otherSelection];
     }
 
     console.log(`[SHEIN_SCRAPER] START categories=${categoriesToScrape.length} offset=${offset} dryRun=${dryRun} budget=${budgetData?.count || 0}/${DAILY_CREDIT_CAP}`);

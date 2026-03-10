@@ -444,11 +444,22 @@ Deno.serve(async (req: Request) => {
     if (customUrl) {
       categoriesToScrape = [{ url: customUrl, category: "clothing_shoes", label: "custom" }];
     } else {
-      categoriesToScrape = [];
-      for (let i = 0; i < categoriesPerRun; i++) {
-        const idx = (offset + i) % CATEGORY_URLS.length;
-        categoriesToScrape.push(CATEGORY_URLS[idx]);
+      const womenTarget = Math.max(1, Math.ceil(categoriesPerRun * 0.8));
+      const otherTarget = Math.max(0, categoriesPerRun - womenTarget);
+
+      const womenSelection: typeof CATEGORY_URLS = [];
+      for (let i = 0; i < womenTarget; i++) {
+        const idx = (offset + i) % WOMEN_CATEGORIES.length;
+        womenSelection.push(WOMEN_CATEGORIES[idx]);
       }
+
+      const otherSelection: typeof CATEGORY_URLS = [];
+      for (let i = 0; i < otherTarget; i++) {
+        const idx = (offset + i) % OTHER_CATEGORIES.length;
+        otherSelection.push(OTHER_CATEGORIES[idx]);
+      }
+
+      categoriesToScrape = [...womenSelection, ...otherSelection];
     }
 
     console.log(`[SHEIN_SCRAPER] START categories=${categoriesToScrape.length} offset=${offset} dryRun=${dryRun} budget=${budgetData?.count || 0}/${DAILY_CREDIT_CAP}`);

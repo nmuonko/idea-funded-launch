@@ -154,7 +154,7 @@ export default function PaymentCallback() {
     }
 
     const abortController = new AbortController();
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout>;
     
     const startPolling = async () => {
       // Initial delay

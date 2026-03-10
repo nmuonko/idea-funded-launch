@@ -193,7 +193,7 @@ export default function CatalogSourcesSettings() {
   // Prewarm job polling state
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<PrewarmJob | null>(null);
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { data: rawSettings, isLoading, refetch } = useQuery({
     queryKey: ['admin-catalog-settings'],
     queryFn: async () => {

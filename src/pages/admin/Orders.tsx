@@ -33,6 +33,7 @@ import {
 import { OrderDetailsDrawer } from '@/components/admin/OrderDetailsDrawer';
 import { SendOrderEmailDialog } from '@/components/admin/SendOrderEmailDialog';
 import { ResetSectionDialog } from '@/components/admin/ResetSectionDialog';
+import { CartRecoveryDialog } from '@/components/admin/CartRecoveryDialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { cn } from '@/lib/utils';

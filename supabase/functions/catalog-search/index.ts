@@ -442,6 +442,28 @@ Deno.serve(async (req: Request) => {
           }
         }
 
+        // [Step 2.5] DYNAMIC NORMALIZER — entity-preserving token-level FR→EN
+        // Runs when static map didn't fully match. Faster than OpenAI (~5ms cached, ~20ms fresh).
+        if (!frFallbackApplied && langDetection.hasFrenchSignal) {
+          try {
+            const dynStart = Date.now();
+            dynamicNormResult = await dynamicNormalizeQuery(qNormLower, requestId);
+            const dynMs = Date.now() - dynStart;
+            if (dynamicNormResult.wasNormalized) {
+              qNorm = dynamicNormResult.normalizedQuery;
+              searchMeta.rewrittenQuery = dynamicNormResult.normalizedQuery;
+              searchMeta.rewriteApplied = true;
+              frFallbackApplied = true;
+              dynamicFallbackUsed = true;
+              translateStatus = "DYNAMIC";
+              translateProvider = "dynamic";
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} dynamic_norm: "${qNormLower}" → "${dynamicNormResult.normalizedQuery}" (${dynamicNormResult.translatedTokens.length} tokens, ${dynMs}ms, cached=${dynamicNormResult.fromCache})`);
+            }
+          } catch (e) {
+            console.warn(`[CATALOG_SEARCH] requestId=${requestId} dynamic_norm_error: ${(e as Error).message}`);
+          }
+        }
+
         // [Step 3] OpenAI translation if still French-likely and no translation yet
         // On page 0: race with AI_TIMEOUT_P0 to avoid blocking
         if (isFrenchLikely && !frFallbackApplied) {
@@ -457,6 +479,7 @@ Deno.serve(async (req: Request) => {
               searchMeta.rewrittenQuery = aiResult.translated_query;
               searchMeta.rewriteApplied = true;
               frFallbackApplied = true;
+              aiTranslationUsed = true;
               translateStatus = "MISS";
               translateProvider = "openai:gpt-4o-mini:v1";
               writeTranslationCache(qNormLower, aiResult.translated_query, aiResult.source_lang, "openai:gpt-4o-mini:v1", requestId);

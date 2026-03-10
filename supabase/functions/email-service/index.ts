@@ -523,6 +523,9 @@ serve(async (req) => {
     if (emailType === 'order_assistance' && authUserId) {
       return handleOrderAssistance(body, authUserId);
     }
+    if (emailType === 'abandoned_cart_recovery') {
+      return handleCartRecovery(body, authUserId);
+    }
 
     // Forward to separate function
     const { type: _t, ...payload } = body;

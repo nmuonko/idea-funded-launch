@@ -5872,6 +5872,10 @@ export type Database = {
       }
       cleanup_invitation_attempts: { Args: never; Returns: Json }
       cleanup_search_query_log: { Args: { p_days?: number }; Returns: Json }
+      clear_search_cache_by_pattern: {
+        Args: { pattern: string }
+        Returns: number
+      }
       crosstab: { Args: { "": string }; Returns: Record<string, unknown>[] }
       crosstab2: {
         Args: { "": string }

@@ -1265,7 +1265,7 @@ export default function ShopHome() {
           ) : error ? (
             <div className="text-center py-20">
               <p className="text-red-400 mb-4">{error}</p>
-              <Button onClick={() => fetchAccueilFeed()} variant="outline" className="border-white/20 text-white/90 hover:bg-white/10">
+              <Button onClick={() => fetchAccueilFeed(true)} variant="outline" className="border-white/20 text-white/90 hover:bg-white/10">
                 {shop.tryAgain}
               </Button>
             </div>

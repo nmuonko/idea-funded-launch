@@ -298,7 +298,7 @@ async function scrapeCategoryPage(
       body: JSON.stringify({
         url,
         formats: ["markdown", "html", "links"],
-        waitFor: 5000,
+        waitFor: 2500,
         onlyMainContent: false,
       }),
     });

@@ -987,24 +987,26 @@ Deno.serve(async (req: Request) => {
         .catch(() => {});
       const item = mapDbItemToResponse(dbItem);
       
-      // Merge media gallery images: prefer media gallery when available and at least as large, or when main image is low-res
+      // Merge media gallery images: always prefer media gallery when it has more/equal images
       const mediaData = mediaResult?.data;
       if (mediaData?.image_urls && Array.isArray(mediaData.image_urls)) {
         const mediaImages = (mediaData.image_urls as string[]).filter((url: string) => typeof url === "string" && url.length > 0);
-        const mainImg0 = item.images[0] || '';
-        const mainIsLowRes = mainImg0 ? /s-l(64|96|140|225|300)\b/i.test(mainImg0) || /thumb|thumbnail|small/i.test(mainImg0) || /_(SS|SX|SY)\d{2,3}\./i.test(mainImg0) : false;
-        if (mediaImages.length > 0 && (mediaImages.length >= item.images.length || mainIsLowRes)) {
-          console.log(`[CATALOG_PRODUCT] merging ${mediaImages.length} media images (was ${item.images.length}) for ${fullProductId}`);
-          // Media gallery is source of truth — do NOT prepend old mainImg thumbnail
-          const mainImg = item.images[0];
-          let merged = [...mediaImages];
-          // Only append mainImg at the END if not already present and not a low-res thumbnail
-          const isLowRes = mainImg ? /s-l(64|96|140|225|300)\b/i.test(mainImg) || /thumb|thumbnail|small/i.test(mainImg) || /_(SS|SX|SY)\d{2,3}\./i.test(mainImg) : true;
-          if (mainImg && !mediaImages.includes(mainImg) && !isLowRes) {
-            merged.push(mainImg);
+        // Always merge if media has images — it's the enriched gallery source of truth
+        if (mediaImages.length > 0) {
+          const upgradedMedia = upgradeGalleryImages(mediaImages, provider || "amazon");
+          console.log(`[CATALOG_PRODUCT] merging ${upgradedMedia.length} media images (was ${item.images.length}) for ${fullProductId}`);
+          // Start with media gallery, then append any unique non-thumbnail DB images
+          const seen = new Set(upgradedMedia);
+          const merged = [...upgradedMedia];
+          for (const img of item.images) {
+            if (!img || seen.has(img)) continue;
+            // Skip known low-res thumbnails
+            const isLowRes = /s-l(64|96|140|225|300)\b/i.test(img) || /thumb|thumbnail|small/i.test(img) || /_(SS|SX|SY)\d{2,3}\./i.test(img);
+            if (!isLowRes) {
+              merged.push(img);
+              seen.add(img);
+            }
           }
-          // Deduplicate
-          merged = [...new Set(merged)];
           item.images = merged;
           item.imageUrls = merged;
           item.mainImageUrl = merged[0] || null;

@@ -31,7 +31,7 @@ import {
   isHeavyEquipmentQuery, classifySearchIntent,
 } from "../_shared/vehicleDetection.ts";
 import type { SearchIntent } from "../_shared/vehicleDetection.ts";
-import { scoreAndRankItems } from "../_shared/searchIntentScorer.ts";
+import { scoreAndRankItems, parseDeviceIntent, type DeviceIntent } from "../_shared/searchIntentScorer.ts";
 import { refineQueryWithAi, AiRefineResult } from "../_shared/searchAiExpand.ts";
 import { aiQueryRewrite, AiRewriteResult } from "../_shared/aiQueryRewrite.ts";
 import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";
@@ -581,6 +581,11 @@ Deno.serve(async (req: Request) => {
     isHeavyEquipment = isHeavyEquipmentQuery(qNormForIntent);
 
     earlyIntent = classifySearchIntent(qNormForIntent);
+    // ─── DEVICE INTENT PARSING (for family-aware scoring) ──────────────────
+    const deviceIntent: DeviceIntent = parseDeviceIntent(qNormForIntent);
+    if (deviceIntent.hasStrongFamilyIntent) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} DEVICE_INTENT: brand=${deviceIntent.brand} line=${deviceIntent.line} family=${deviceIntent.family} gen=${deviceIntent.generation} normalized="${deviceIntent.normalizedIntent}"`);
+    }
     console.log(`[CATALOG_SEARCH] requestId=${requestId} intent=${earlyIntent.intentKey} (post-translate)`);
 
     if (qCanonicalized !== qNorm) {
@@ -903,7 +908,7 @@ Deno.serve(async (req: Request) => {
             // Always apply intent scoring to filter irrelevant items
             // Use DB-anchored tokens (canonical query) to avoid over-strict drops from AI suffixes.
             const dbQueryTokens = dbQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
-            const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, Math.max(limit, 400));
+            const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, Math.max(limit, 400), deviceIntent);
             dbItems = dbScoreResult.items as any[];
             console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_scored: before=${dbResult.items.length} after=${dbItems.length} dropped=${dbScoreResult.dropped}`);
             if (dbItems.length === 0) {
@@ -944,7 +949,7 @@ Deno.serve(async (req: Request) => {
 
       // Apply intent-based scoring and ranking (same as main path)
       const scoringTokens = (providerQuery || qNorm).toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
-      const scoreResult = scoreAndRankItems(dbFiltered, effectiveIntent, scoringTokens, limit);
+      const scoreResult = scoreAndRankItems(dbFiltered, effectiveIntent, scoringTokens, limit, deviceIntent);
       console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH scoring: input=${dbFiltered.length} output=${scoreResult.items.length} dropped=${scoreResult.dropped} topScores=${JSON.stringify(scoreResult.topScores)}`);
 
       // Quality gate: only use fast path if top results are actually relevant
@@ -1422,6 +1427,7 @@ Deno.serve(async (req: Request) => {
           effectiveIntent,
           dbQueryTokens,
           Math.max(limit, 400),
+          deviceIntent,
         );
         if (lateScoreResult.items.length > 0) {
           dbFallbackItems = lateScoreResult.items as any[];
@@ -1474,7 +1480,7 @@ Deno.serve(async (req: Request) => {
     // Replaces old vehicle post-filter with unified scoring that handles all intents
     const queryTokens = providerQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
     const beforeScoring = finalItems.length;
-    const scoreResult = scoreAndRankItems(finalItems as unknown as Record<string, unknown>[], effectiveIntent, queryTokens, limit);
+    const scoreResult = scoreAndRankItems(finalItems as unknown as Record<string, unknown>[], effectiveIntent, queryTokens, limit, deviceIntent);
     finalItems = scoreResult.items as typeof finalItems;
     console.log(`[CATALOG_SEARCH][INTENT] requestId=${requestId} q="${qOriginal}" intentKey=${effectiveIntent.intentKey} beforeScoring=${beforeScoring} afterScoring=${finalItems.length} dropped=${scoreResult.dropped} topScores=${JSON.stringify(scoreResult.topScores)}`);
 
@@ -1539,23 +1545,25 @@ Deno.serve(async (req: Request) => {
     }
     timings.postProcess = Date.now() - postProcessStart;
 
-    // ─── SPARSE RESULTS LIVE EBAY ENRICHMENT ─────────────────────────────────
-    // Non-negotiable rule: no search should feel empty when live eBay can fill the gap.
-    // When scored results are below threshold, do a direct live eBay fetch for the
-    // user's exact query with relaxed filters. This bypasses AI gating entirely.
-    const SPARSE_ENRICHMENT_THRESHOLD = 30;
-    const SPARSE_ENRICHMENT_TARGET = 100;
-    if (finalItems.length < SPARSE_ENRICHMENT_THRESHOLD && !providerTimedOut) {
+    // ─── NON-BLOCKING BACKGROUND ENRICHMENT (threshold: 200) ────────────────
+    // When scored results are below 200, return them immediately to the user
+    // AND fire a background eBay fetch to cache more items for future queries.
+    // Below 30, still do the blocking enrichment to avoid empty-feeling results.
+    const BG_ENRICHMENT_THRESHOLD = 200;
+    const BLOCKING_ENRICHMENT_THRESHOLD = 30;
+    const SPARSE_ENRICHMENT_TARGET = 200;
+
+    if (finalItems.length < BLOCKING_ENRICHMENT_THRESHOLD && !providerTimedOut) {
+      // BLOCKING: too few results, user needs more NOW
       const sparseElapsed = Date.now() - startTime;
       const sparseBudget = isFirstPage
         ? Math.min(4000, PAGE0_DEADLINE_MS - sparseElapsed - 200)
         : Math.min(5000, TOTAL_BUDGET_MS - sparseElapsed - 200);
 
       if (sparseBudget > 500) {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: finalItems=${finalItems.length} < ${SPARSE_ENRICHMENT_THRESHOLD}, triggering live eBay fetch budget=${sparseBudget}ms`);
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT_BLOCKING: finalItems=${finalItems.length} < ${BLOCKING_ENRICHMENT_THRESHOLD}, triggering live eBay fetch budget=${sparseBudget}ms`);
 
         const sparseExistingIds = new Set(finalItems.map((i: any) => i.id));
-        // Try multiple query variants for maximum recall
         const sparseQueries: string[] = [];
         const sparseSeen = new Set<string>();
         const addSparseQ = (q: string | null | undefined) => {
@@ -1597,10 +1605,7 @@ Deno.serve(async (req: Request) => {
               newItems.forEach((i: any) => sparseExistingIds.add(i.id));
               sparseNewItems.push(...(newItems as CatalogItem[]));
               console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: q="${sq}" returned=${sparseResult.items.length} new=${newItems.length} totalNew=${sparseNewItems.length}`);
-
-              // Auto-cache these live results (fire-and-forget)
               autoCacheLiveResults(supabase, sparseResult.items as any[], categoryKey, requestId + "-sparse").catch(() => {});
-
               if (finalItems.length + sparseNewItems.length >= SPARSE_ENRICHMENT_TARGET) break;
             }
           } catch (sparseErr) {
@@ -1608,30 +1613,56 @@ Deno.serve(async (req: Request) => {
           }
         }
 
-        // Score and merge sparse items
+        // Score and merge sparse items with device intent
         if (sparseNewItems.length > 0) {
           const sparseScored = scoreAndRankItems(
             sparseNewItems as unknown as Record<string, unknown>[],
-            effectiveIntent,
-            queryTokens,
-            Math.max(limit, 200),
+            effectiveIntent, queryTokens, Math.max(limit, 200), deviceIntent,
           );
           finalItems = [...finalItems, ...(sparseScored.items as typeof finalItems)];
-          // Re-sort after merge if relevance sort
           if (sort === "relevance") {
             const reScored = scoreAndRankItems(
               finalItems as unknown as Record<string, unknown>[],
-              effectiveIntent,
-              queryTokens,
-              limit,
+              effectiveIntent, queryTokens, limit, deviceIntent,
             );
             finalItems = reScored.items as typeof finalItems;
           }
           console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT_MERGED: added=${sparseScored.items.length} total=${finalItems.length}`);
         }
-      } else {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT_SKIPPED: budget too low (${sparseBudget}ms)`);
       }
+    } else if (finalItems.length < BG_ENRICHMENT_THRESHOLD && !providerTimedOut) {
+      // NON-BLOCKING: we have enough to show, but cache more in background
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} BG_ENRICHMENT: finalItems=${finalItems.length} < ${BG_ENRICHMENT_THRESHOLD}, triggering background eBay fetch (non-blocking)`);
+
+      // Fire-and-forget background enrichment
+      (async () => {
+        try {
+          const bgId = requestId + "-bg-enrich";
+          const bgQueries = [providerQuery, qCanonicalized, qOriginal].filter((q, i, arr) =>
+            q && arr.indexOf(q) === i
+          );
+          for (const bgQ of bgQueries) {
+            try {
+              const bgResult = await fetchEbayItems({
+                supabase, query: bgQ, effectiveMode, isVehicle: false,
+                hasBuyingIntent, isHeavyEquipment: false,
+                categoryKey: undefined, page: 1, limit: 200,
+                catalogFilters: {}, requestId: bgId,
+                relaxFilters: true,
+              });
+              if (bgResult?.items?.length) {
+                await autoCacheLiveResults(supabase, bgResult.items as any[], categoryKey, bgId);
+                console.log(`[CATALOG_SEARCH] requestId=${requestId} BG_ENRICHMENT_DONE: q="${bgQ}" cached=${bgResult.items.length} items`);
+                break; // One successful fetch is enough
+              }
+            } catch (e) {
+              console.warn(`[CATALOG_SEARCH] requestId=${requestId} BG_ENRICHMENT error q="${bgQ}": ${(e as Error).message}`);
+            }
+          }
+        } catch (e) {
+          console.warn(`[CATALOG_SEARCH] requestId=${requestId} BG_ENRICHMENT outer error: ${(e as Error).message}`);
+        }
+      })();
     }
 
     // ─── POST-SEARCH AI FALLBACK (second-pass for weak results) ──────────────
@@ -1748,6 +1779,7 @@ Deno.serve(async (req: Request) => {
                   effectiveIntent,
                   queryTokens,
                   Math.max(limit, 200),
+                  deviceIntent,
                 );
                 const scoredSpItems = spScored.items as typeof finalItems;
 
@@ -1769,6 +1801,18 @@ Deno.serve(async (req: Request) => {
       }
     } else {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} FALLBACK_GATE_PASSED: reason=${aiFallbackResult.reason} firstPassItems=${finalItems.length}`);
+    }
+
+    // ─── FINAL RE-RANKING: enforce family intent after all merges ─────────────
+    // After sparse enrichment, DB recovery, and second-pass fallback, run a final
+    // strict re-ranking pass using device intent to ensure family matches dominate top.
+    if (deviceIntent.hasStrongFamilyIntent && secondPassUsed && finalItems.length > 1) {
+      const finalReScored = scoreAndRankItems(
+        finalItems as unknown as Record<string, unknown>[],
+        effectiveIntent, queryTokens, limit, deviceIntent,
+      );
+      finalItems = finalReScored.items as typeof finalItems;
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} FINAL_RERANK: device_family=${deviceIntent.family} gen=${deviceIntent.generation} items=${finalItems.length} topScores=${JSON.stringify(finalReScored.topScores)}`);
     }
 
     // Early cache write removed — final cache write below handles everything

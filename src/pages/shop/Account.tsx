@@ -43,7 +43,7 @@ export default function Account() {
   };
 
   return (
-    <div className="min-h-screen bg-black pb-20">
+    <div className="min-h-screen bg-black pb-safe-nav">
       <ShopHeader />
       
       <main className="pt-20 px-4">

@@ -266,7 +266,7 @@ export default function CategoryResultsPage() {
   const hasMore = !exhaustedRef.current;
 
   return (
-    <div className="min-h-screen bg-[#0f1115] pb-20 md:pb-0">
+    <div className="min-h-screen bg-[#0f1115] pb-safe-nav">
       <ShopHeader />
       <div className="pt-16 md:pt-20" />
 

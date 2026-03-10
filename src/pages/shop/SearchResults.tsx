@@ -598,7 +598,7 @@ export default function SearchResults() {
   const showEmpty = hasSearched && !loading && !loadingMore && !prefetchingNext && !isRevalidating && !incomplete && !isBroadening && products.length === 0;
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-black pb-safe-nav">
       <ShopHeader />
 
       {/* Category Tabs */}

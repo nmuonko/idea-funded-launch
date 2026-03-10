@@ -427,7 +427,7 @@ export default function Checkout() {
     <div className="min-h-screen bg-black">
       <ShopHeader />
 
-      <main className="pt-24 px-4 pb-20">
+      <main className="pt-24 px-4 pb-safe-nav">
         <div className="container mx-auto max-w-4xl">
           {/* Header */}
           <Link 

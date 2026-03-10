@@ -143,128 +143,118 @@ interface SheinProduct {
 
 // ── EXTRACT PRODUCTS FROM SCRAPED CONTENT ──────────────────────────────────
 
-function extractProductsFromMarkdown(markdown: string, html: string, baseUrl: string): SheinProduct[] {
+function extractProductsFromContent(markdown: string, html: string, links: string[], baseUrl: string): SheinProduct[] {
   const products: SheinProduct[] = [];
   const seenIds = new Set<string>();
-
-  // Strategy 1: Extract from markdown links/images
-  // SHEIN category pages list products with links like [Product Name](url) and prices
-  const linkRegex = /\[([^\]]{10,200})\]\((https?:\/\/[^\s)]*shein\.com[^\s)]*-p-\d+[^\s)]*)\)/gi;
-  let linkMatch;
-  while ((linkMatch = linkRegex.exec(markdown)) !== null) {
-    const title = linkMatch[1].trim();
-    const url = linkMatch[2];
-    const pid = extractSheinProductId(url);
-    if (!pid || seenIds.has(pid)) continue;
-    seenIds.add(pid);
-    products.push({
-      title, price_usd: 0, image_url: "", product_url: url,
-      provider_product_id: pid, brand: "SHEIN", images: [],
-    });
-  }
-
-  // Strategy 2: Extract product URLs from HTML href attributes
-  const hrefRegex = /href="(https?:\/\/[^"]*shein\.com[^"]*-p-\d+[^"]*)"/gi;
-  let hrefMatch;
-  while ((hrefMatch = hrefRegex.exec(html)) !== null) {
-    const url = hrefMatch[1].replace(/&amp;/g, "&");
-    const pid = extractSheinProductId(url);
-    if (!pid || seenIds.has(pid)) continue;
-    seenIds.add(pid);
-    products.push({
-      title: "", price_usd: 0, image_url: "", product_url: url,
-      provider_product_id: pid, brand: "SHEIN", images: [],
-    });
-  }
-
-  // Strategy 3: Also look for relative product links
-  const relativeRegex = /href="(\/[^"]*-p-\d+[^"]*)"/gi;
-  let relMatch;
   const baseOrigin = new URL(baseUrl).origin;
-  while ((relMatch = relativeRegex.exec(html)) !== null) {
-    const url = baseOrigin + relMatch[1].replace(/&amp;/g, "&");
+
+  // Collect ALL product URLs from multiple sources
+  const productUrls = new Set<string>();
+
+  // From markdown links
+  const mdLinkRegex = /\((https?:\/\/[^\s)]*shein\.com[^\s)]*-p-\d+[^\s)]*)\)/gi;
+  let m;
+  while ((m = mdLinkRegex.exec(markdown)) !== null) productUrls.add(m[1]);
+
+  // From HTML href
+  const hrefRegex = /href="([^"]*-p-\d+[^"]*)"/gi;
+  while ((m = hrefRegex.exec(html)) !== null) {
+    let url = m[1].replace(/&amp;/g, "&");
+    if (url.startsWith("/")) url = baseOrigin + url;
+    if (url.includes("shein.com")) productUrls.add(url);
+  }
+
+  // From links array
+  for (const link of links) {
+    if (typeof link === "string" && link.includes("shein.com") && /-p-\d+/.test(link)) {
+      productUrls.add(link);
+    }
+  }
+
+  console.log(`[SHEIN_SCRAPER] found ${productUrls.size} product URLs from content`);
+
+  // Build a map of product-id to surrounding context for metadata extraction
+  const allContent = markdown + " " + html;
+
+  for (const url of productUrls) {
     const pid = extractSheinProductId(url);
     if (!pid || seenIds.has(pid)) continue;
     seenIds.add(pid);
+
+    const pidNum = pid.replace('p', '');
+    
+    // Extract title: look for text near the product link
+    let title = "";
+    // Try markdown: [Title](url)
+    const titleRegex = new RegExp(`\\[([^\\]]{5,200})\\]\\([^)]*${pidNum}[^)]*\\)`, 'i');
+    const titleMatch = markdown.match(titleRegex);
+    if (titleMatch) {
+      title = titleMatch[1].replace(/^[-\d%\s\\n]+/, '').trim();
+    }
+    // Fallback: extract from URL slug
+    if (!title) {
+      try {
+        const slug = new URL(url).pathname.split('/').pop()?.replace(/-p-\d+.*$/, '').replace(/-/g, ' ') || '';
+        if (slug.length > 5) title = slug.substring(0, 200);
+      } catch {}
+    }
+
+    // Extract price from nearby context
+    let price = 0;
+    const pidIdx = allContent.indexOf(pidNum);
+    if (pidIdx >= 0) {
+      const context = allContent.substring(Math.max(0, pidIdx - 500), Math.min(allContent.length, pidIdx + 500));
+      const prices = context.match(/\$[\d,]+(?:\.\d{2})?/g);
+      if (prices) {
+        for (const pm of prices) {
+          const p = parseUsd(pm);
+          if (p && p > 0.5 && p < 5000) { price = p; break; }
+        }
+      }
+    }
+
+    // Extract images: look for SHEIN CDN URLs near product ID
+    const imgUrls: string[] = [];
+    if (pidIdx >= 0) {
+      const imgContext = allContent.substring(Math.max(0, pidIdx - 2000), Math.min(allContent.length, pidIdx + 2000));
+      const imgMatches = [...imgContext.matchAll(/(https?:\/\/img\.ltwebstatic\.com\/[^\s"')]+\.(?:jpg|jpeg|png|webp)[^\s"')]*)/gi)];
+      for (const im of imgMatches) {
+        const imgUrl = im[1];
+        if (!isSwatchUrl(imgUrl) && !/_thumbnail_(?:12[0-6]|60)x/i.test(imgUrl) && !/banner/i.test(imgUrl)) {
+          imgUrls.push(imgUrl);
+        }
+      }
+    }
+
+    // Also look for data-src or lazy-load images in HTML near product
+    const htmlPidIdx = html.indexOf(pidNum);
+    if (htmlPidIdx >= 0) {
+      const htmlContext = html.substring(Math.max(0, htmlPidIdx - 3000), Math.min(html.length, htmlPidIdx + 3000));
+      const dataSrcMatches = [...htmlContext.matchAll(/(?:data-src|src|data-lazy-img)="(https?:\/\/img\.ltwebstatic\.com\/[^"]+)"/gi)];
+      for (const ds of dataSrcMatches) {
+        if (!isSwatchUrl(ds[1]) && !/banner/i.test(ds[1])) {
+          imgUrls.push(ds[1]);
+        }
+      }
+    }
+
+    const uniqueImages = [...new Set(imgUrls)].slice(0, 8);
+    
+    // Construct a fallback image URL from product ID if we have no images
+    // SHEIN image CDN pattern: images3_pi/{date}/{hash}.webp — not predictable
+    // So we'll just skip if no image found
+
+    const imageUrl = uniqueImages[0] || "";
+
     products.push({
-      title: "", price_usd: 0, image_url: "", product_url: url,
-      provider_product_id: pid, brand: "SHEIN", images: [],
+      title: title || `SHEIN Product ${pidNum}`,
+      price_usd: price,
+      image_url: imageUrl,
+      product_url: url,
+      provider_product_id: pid,
+      brand: "SHEIN",
+      images: uniqueImages,
     });
-  }
-
-  // Now extract prices and images for each product from surrounding content
-  for (const product of products) {
-    // Try to find title if missing
-    if (!product.title) {
-      const titleRegex = new RegExp(`${product.provider_product_id.replace('p', '')}[^>]*>([^<]{10,200})<`, 'i');
-      const titleMatch = html.match(titleRegex);
-      if (titleMatch) product.title = titleMatch[1].trim();
-    }
-
-    // Extract price near product references
-    const pidNum = product.provider_product_id.replace('p', '');
-    const priceContext = html.substring(
-      Math.max(0, html.indexOf(pidNum) - 500),
-      Math.min(html.length, html.indexOf(pidNum) + 500)
-    );
-    const priceMatches = priceContext.match(/\$[\d,]+(?:\.\d{2})?/g);
-    if (priceMatches) {
-      for (const pm of priceMatches) {
-        const p = parseUsd(pm);
-        if (p && p > 0.5 && p < 5000) { product.price_usd = p; break; }
-      }
-    }
-
-    // Extract images
-    const imgContext = html.substring(
-      Math.max(0, html.indexOf(pidNum) - 1000),
-      Math.min(html.length, html.indexOf(pidNum) + 1000)
-    );
-    const imgMatches = [...imgContext.matchAll(/(https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^\s"')]+)/gi)];
-    const validImages = imgMatches
-      .map(m => m[1])
-      .filter(u => !isSwatchUrl(u) && !/_thumbnail_(?:12[0-6]|60)x/i.test(u));
-    product.images = [...new Set(validImages)].slice(0, 8);
-    product.image_url = product.images[0] || "";
-  }
-
-  // Also do a global image extraction for products without images
-  const globalImgMap = new Map<string, string[]>();
-  const allImgs = [...html.matchAll(/(https?:\/\/img\.ltwebstatic\.com\/images\d*\/(?:items|product|pi)\/[^\s"')]+)/gi)];
-  for (const img of allImgs) {
-    const imgUrl = img[1];
-    if (isSwatchUrl(imgUrl)) continue;
-    // Try to find nearby product ID
-    const pos = img.index || 0;
-    const nearby = html.substring(Math.max(0, pos - 300), Math.min(html.length, pos + 300));
-    const nearbyPid = nearby.match(/-p-(\d{5,})/);
-    if (nearbyPid) {
-      const key = `p${nearbyPid[1]}`;
-      if (!globalImgMap.has(key)) globalImgMap.set(key, []);
-      globalImgMap.get(key)!.push(imgUrl);
-    }
-  }
-  for (const product of products) {
-    if (!product.image_url && globalImgMap.has(product.provider_product_id)) {
-      const imgs = globalImgMap.get(product.provider_product_id)!;
-      product.images = [...new Set(imgs)].slice(0, 8);
-      product.image_url = product.images[0] || "";
-    }
-  }
-
-  // Also try extracting prices from markdown
-  for (const product of products) {
-    if (product.price_usd > 0) continue;
-    const pidNum = product.provider_product_id.replace('p', '');
-    const mdIdx = markdown.indexOf(pidNum);
-    if (mdIdx >= 0) {
-      const mdContext = markdown.substring(Math.max(0, mdIdx - 300), Math.min(markdown.length, mdIdx + 300));
-      const priceMatch = mdContext.match(/\$[\d,]+(?:\.\d{2})?/);
-      if (priceMatch) {
-        const p = parseUsd(priceMatch[0]);
-        if (p && p > 0.5 && p < 5000) product.price_usd = p;
-      }
-    }
   }
 
   return products;

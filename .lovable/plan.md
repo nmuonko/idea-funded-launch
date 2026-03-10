@@ -1,45 +1,40 @@
+## Edge Function Consolidation Refactor — Phase 3 Complete
 
+### Phase 3: Orphan Deletion — 10 Functions Deleted
+- **`create-referrer`** — routed via auth-service
+- **`execute-ai-action`** — routed via admin-service
+- **`get-ai-actions-for-review`** — routed via admin-service
+- **`predict-customer-ltv`** — routed via admin-service
+- **`ai-order-assistant`** — routed via admin-service
+- **`catalog-categories`** — inlined into catalog-service
+- **`catalog-tabs`** — inlined into catalog-service
+- **`catalog-nav`** — inlined into catalog-service
+- **`catalog-providers`** — inlined into catalog-service
+- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-## Plan: Payment Flow Audit and Fixes
+### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
+- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
+- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
+- **`auth-service`** — added `create_referrer`
+- **`email-service`** — added `saved_cart_reminders`
 
-### Issues Found
+### Batches 1–10: Inlined — 32 Functions Deleted
+- **Batch 10**: auth-service (8 functions)
+- **Batch 9**: mobile-cart (7), mobile-orders (4)
+- **Batch 8**: admin-service (10), support-service (3)
+- **Batch 7**: catalog-service (5 metadata endpoints)
 
-**1. Broken redirect in CardPayment (line 144)**
-`navigate('/shop/orders/${orderId}')` — No route exists for `/shop/orders/:id`. Only `/shop/orders` (without ID) has a redirect to `/my-orders`. This causes a 404 when Stripe returns an unexpected payment status (e.g. `requires_capture`).
+**Total reduction: 42 Edge Functions deleted**
 
-**Fix:** Change to `navigate('/orders/${orderId}')` which matches the existing route.
+### Kept as Proxy (by decision)
+- **`payments-core`** — proxies 9 functions (complex payment logic)
+- **`payments-provider`** — proxies 10 functions (payment provider logic)
+- **`email-service`** — proxies 25 send-* functions (HTML template code)
 
-**2. Missing CORS headers on `payments-provider` and `payments-core`**
-Both functions use incomplete CORS headers missing `x-supabase-client-platform`, `x-supabase-client-platform-version`, `x-supabase-client-runtime`, `x-supabase-client-runtime-version`. The Supabase JS client sends these headers by default, and missing them in `Access-Control-Allow-Headers` can cause preflight failures on certain browsers/mobile WebViews.
-
-**Fix:** Update both functions to include the full required CORS header set.
-
-**3. `PaymentResult.tsx` links to `/shop/orders` instead of `/my-orders`**
-The "View Order" button on the payment result component links to `/shop/orders` which redirects to `/my-orders` — this works via redirect but adds an unnecessary hop.
-
-**Fix:** Change to `/my-orders` directly.
-
-**4. `PaymentPending` retry calls `payments-core` with `action: 'retry'`**
-This forwards to `mobile-retry-payment`. Need to verify this function exists.
-
-### No Issues Found (Confirmed Working)
-
-- **Idempotency:** `select-payment-provider` checks `payment_attempts` for existing active statuses before creating new ones
-- **Stripe flow:** `CardPayment` → `confirmPayment` → redirects to `/payment-success-shop` on success — correct
-- **PawaPay flow:** `Checkout` → `payments-provider/select` → `/payment-pending` → polls order status → shows success/fail — correct
-- **PaymentCallback:** Polls `payments-core/verify`, redirects to `/payment-success-shop` on `paid` — correct
-- **PaymentSuccess (shop):** Clears cart, polls for `PAID` status, handles missing sessions for WebViews — correct
-- **Route configuration:** `/payment-pending`, `/payment-success-shop` are outside `ShopProtectedRoute` — correct for mobile WebView stability
-- **DRAFT timeout:** 60-second grace period in PaymentPending — correct
-
-### Files to Edit
-
-| File | Change |
-|---|---|
-| `src/pages/shop/CardPayment.tsx` | Fix broken `/shop/orders/` redirect → `/orders/` |
-| `supabase/functions/payments-provider/index.ts` | Fix CORS headers |
-| `supabase/functions/payments-core/index.ts` | Fix CORS headers |
-| `src/components/shop/PaymentResult.tsx` | Fix `/shop/orders` → `/my-orders` |
-
-All changes are small, targeted fixes. No architectural changes needed — the payment flow is well-structured.
-
+### Remaining Standalone (active, not orphaned)
+- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
+- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
+- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
+- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
+- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
+- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment

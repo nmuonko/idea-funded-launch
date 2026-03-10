@@ -176,6 +176,46 @@ function generateBroadenedQueries(query: string): string[] {
   return results.slice(0, 3);
 }
 
+function generateDeviceFamilyVariants(deviceIntent: DeviceIntent): string[] {
+  const variants: string[] = [];
+  const seen = new Set<string>();
+  const add = (q: string) => {
+    const n = q.toLowerCase().trim();
+    if (n && !seen.has(n)) { seen.add(n); variants.push(q.trim()); }
+  };
+
+  if (deviceIntent.family === "fold") {
+    const gen = deviceIntent.generation || "";
+    add(`samsung galaxy z fold ${gen}`.trim());
+    add(`samsung galaxy fold ${gen}`.trim());
+    add(`samsung z fold ${gen}`.trim());
+    add(`galaxy z fold ${gen}`.trim());
+    add(`samsung fold ${gen}`.trim());
+    add(`z fold${gen}`);
+    // Close generations for broader recall
+    if (gen) {
+      const genNum = parseInt(gen);
+      if (!isNaN(genNum)) {
+        for (const nearby of [genNum - 1, genNum + 1, genNum + 2]) {
+          if (nearby >= 1 && nearby <= 6) add(`samsung galaxy z fold ${nearby}`);
+        }
+      }
+    }
+    add("samsung foldable phone");
+  } else if (deviceIntent.family === "flip") {
+    const gen = deviceIntent.generation || "";
+    add(`samsung galaxy z flip ${gen}`.trim());
+    add(`samsung z flip ${gen}`.trim());
+    add(`galaxy z flip ${gen}`.trim());
+    add(`z flip${gen}`);
+  } else if (deviceIntent.family && deviceIntent.brand) {
+    const gen = deviceIntent.generation || "";
+    add(`${deviceIntent.brand} ${deviceIntent.line || ""} ${deviceIntent.family} ${gen}`.replace(/\s+/g, " ").trim());
+  }
+
+  return variants.slice(0, 8);
+}
+
 function generateRequestId(): string {
   return crypto.randomUUID().slice(0, 8);
 }

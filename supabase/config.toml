@@ -23,6 +23,8 @@ project_id = "ecqpqtirhpumfgbdtvhh"
     verify_jwt = false
   [functions.catalog-category]
     verify_jwt = false
+  [functions.catalog]
+    verify_jwt = false
   [functions.mobile-public-config]
     verify_jwt = false
   [functions.catalog-prewarm-home]

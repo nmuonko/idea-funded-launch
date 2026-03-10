@@ -697,8 +697,9 @@ async function handleSync(req: Request, body: any): Promise<Response> {
     const pricing = calculateItemPricing(item.unitPrice, item.quantity, markupPercent, exchangeRate, isVehicle, vehicleMarkupPercent);
     const { imageUrl: resolvedImageUrl } = coalesceImageUrl(item);
 
+    const cleanProductUrl = canonicalizeProductUrl(item.productUrl);
     const itemData: Record<string, any> = {
-      order_id: cartId, product_url: item.productUrl, title: item.title || null,
+      order_id: cartId, product_url: cleanProductUrl, title: item.title || null,
       product_image_url: resolvedImageUrl, store, base_price_usd: pricing.basePriceUsd,
       unit_price_usd: pricing.basePriceUsd, quantity: pricing.quantity,
       subtotal_usd: pricing.itemBaseTotalUsd, markup_fee_usd: pricing.itemMarginUsd,

@@ -1525,6 +1525,143 @@ Deno.serve(async (req: Request) => {
     }
     timings.postProcess = Date.now() - postProcessStart;
 
+    // ─── POST-SEARCH AI FALLBACK (second-pass for weak results) ──────────────
+    // Evaluate first-pass quality. If weak + gate triggers → call AI interpreter
+    // → run second-pass search using AI's normalized/expanded queries → merge.
+    let aiFallbackResult: FallbackGateResult | null = null;
+    let aiInterpretation: AiInterpretation | null = null;
+    let secondPassItems: CatalogItem[] = [];
+    let secondPassUsed = false;
+
+    const gateInput = {
+      firstPassResultCount: finalItems.length,
+      langDetection,
+      translationApplied: frFallbackApplied || dynamicFallbackUsed,
+      aiRewriteApplied: !!aiRewriteResult,
+      preNormMatched: preNorm.matched,
+      rawQuery: qOriginal,
+      normalizedQuery: qNorm,
+      isFirstPage,
+      isDirectQuery: isDirectQuery(qNorm),
+    };
+    aiFallbackResult = evaluateFallbackGate(gateInput);
+
+    if (aiFallbackResult.shouldFallback) {
+      const fallbackStartMs = Date.now();
+      const fallbackBudgetMs = isFirstPage ? 2000 : 3000;
+      const elapsedTotal = Date.now() - startTime;
+      const remainingBudget = (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - elapsedTotal;
+
+      if (remainingBudget > 500) {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} FALLBACK_GATE_TRIGGERED: reason=${aiFallbackResult.reason} signals=[${aiFallbackResult.signals.join(",")}] benefit=${aiFallbackResult.expectedBenefit.toFixed(2)} firstPassItems=${finalItems.length} budgetRemaining=${remainingBudget}ms`);
+
+        try {
+          // Call AI interpreter with timeout
+          const interpTimeout = Math.min(fallbackBudgetMs, remainingBudget - 300);
+          const interpPromise = interpretQuery(qOriginal, lang, categoryKey, requestId);
+          aiInterpretation = await Promise.race([
+            interpPromise,
+            new Promise<null>((r) => setTimeout(() => r(null), interpTimeout)),
+          ]);
+
+          if (aiInterpretation) {
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} AI_INTERP: normalized="${aiInterpretation.normalized_query}" intent=${aiInterpretation.intent} strategy=${aiInterpretation.search_strategy} expansions=${aiInterpretation.expanded_queries.length} cached=${aiInterpretation.cached}`);
+
+            // Build second-pass search queries from AI interpretation
+            const secondPassQueries: string[] = [];
+            const seenQ = new Set<string>([qNorm.toLowerCase(), providerQuery.toLowerCase()]);
+
+            // Add normalized query first
+            if (aiInterpretation.normalized_query && !seenQ.has(aiInterpretation.normalized_query.toLowerCase())) {
+              secondPassQueries.push(aiInterpretation.normalized_query);
+              seenQ.add(aiInterpretation.normalized_query.toLowerCase());
+            }
+
+            // Add expanded queries (max 2 for latency)
+            for (const eq of aiInterpretation.expanded_queries.slice(0, 2)) {
+              if (!seenQ.has(eq.toLowerCase())) {
+                secondPassQueries.push(eq);
+                seenQ.add(eq.toLowerCase());
+              }
+            }
+
+            if (secondPassQueries.length > 0) {
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} SECOND_PASS: queries=${JSON.stringify(secondPassQueries)}`);
+              const existingIds = new Set(finalItems.map((i: any) => i.id));
+
+              // Run second-pass searches (sequential for budget control)
+              for (const spQ of secondPassQueries) {
+                if (Date.now() - startTime > (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - 200) break;
+                if (secondPassItems.length >= 30) break;
+
+                try {
+                  const spTimeout = Math.min(2000, (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - (Date.now() - startTime) - 100);
+                  if (spTimeout <= 300) break;
+
+                  // Try DB first for speed
+                  const spDb = await Promise.race([
+                    searchDbFirst({ supabase, qNorm: spQ, aiExpandedTerms: null, limit: 40, offset: 0, categoryKey, requestId: requestId + "-sp" }),
+                    new Promise<null>((r) => setTimeout(() => r(null), Math.min(800, spTimeout))),
+                  ]);
+
+                  if (spDb?.items?.length) {
+                    const newItems = spDb.items.filter((i: any) => !existingIds.has(i.id));
+                    newItems.forEach((i: any) => existingIds.add(i.id));
+                    secondPassItems.push(...(newItems as CatalogItem[]));
+                    console.log(`[CATALOG_SEARCH] requestId=${requestId} SECOND_PASS_DB: q="${spQ}" new=${newItems.length}`);
+                  }
+
+                  // If DB didn't yield enough, try eBay
+                  if (secondPassItems.length < 15 && spTimeout > 500) {
+                    const spEbay = await Promise.race([
+                      fetchEbayItems({ supabase, query: spQ, effectiveMode, isVehicle: false, hasBuyingIntent, isHeavyEquipment: false, categoryKey: categoryKey || undefined, page: 1, limit: 30, catalogFilters, requestId: requestId + "-sp" }),
+                      new Promise<null>((r) => setTimeout(() => r(null), Math.min(1500, spTimeout - 200))),
+                    ]);
+
+                    if (spEbay?.items?.length) {
+                      const newItems = spEbay.items.filter((i: any) => !existingIds.has(i.id));
+                      newItems.forEach((i: any) => existingIds.add(i.id));
+                      secondPassItems.push(...(newItems as CatalogItem[]));
+                      console.log(`[CATALOG_SEARCH] requestId=${requestId} SECOND_PASS_EBAY: q="${spQ}" new=${newItems.length}`);
+                    }
+                  }
+                } catch (spErr) {
+                  console.warn(`[CATALOG_SEARCH] requestId=${requestId} SECOND_PASS_ERR: q="${spQ}" ${(spErr as Error).message}`);
+                }
+              }
+
+              // Merge second-pass items into final results
+              if (secondPassItems.length > 0) {
+                secondPassUsed = true;
+                // Score second-pass items
+                const spScored = scoreAndRankItems(
+                  secondPassItems as unknown as Record<string, unknown>[],
+                  effectiveIntent,
+                  queryTokens,
+                  Math.max(limit, 200),
+                );
+                const scoredSpItems = spScored.items as typeof finalItems;
+
+                // Merge: append second-pass items after first-pass items
+                finalItems = [...finalItems, ...scoredSpItems];
+                console.log(`[CATALOG_SEARCH] requestId=${requestId} SECOND_PASS_MERGED: secondPass=${scoredSpItems.length} total=${finalItems.length} latency=${Date.now() - fallbackStartMs}ms`);
+              }
+            }
+          } else {
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} AI_INTERP_TIMEOUT or null result`);
+          }
+        } catch (fbErr) {
+          console.warn(`[CATALOG_SEARCH] requestId=${requestId} FALLBACK_ERROR: ${(fbErr as Error).message}`);
+        }
+
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} FALLBACK_COMPLETE: secondPassUsed=${secondPassUsed} secondPassItems=${secondPassItems.length} totalLatency=${Date.now() - fallbackStartMs}ms`);
+      } else {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} FALLBACK_GATE_SKIPPED: budget too low (${remainingBudget}ms remaining)`);
+      }
+    } else {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} FALLBACK_GATE_PASSED: reason=${aiFallbackResult.reason} firstPassItems=${finalItems.length}`);
+    }
+
     // Early cache write removed — final cache write below handles everything
     // Provider stats
     const sourceServed: ("ebay" | "amazon")[] = [];

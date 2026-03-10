@@ -447,10 +447,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch { /* ignore parse errors */ }
       
-      // Call the auth-register edge function which handles:
-      // 1. User creation with email_confirm: false
-      // 2. Verification email via Resend
-      // 3. Profile creation
+      // Call the auth-service edge function which handles:
+      // 1. User creation with email_confirm: true (auto-confirmed)
+      // 2. Profile creation
+      // 3. Session token generation
       const response = await supabase.functions.invoke('auth-service', {
         body: {
           action: 'register',

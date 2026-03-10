@@ -14,6 +14,7 @@ const ROUTE_MAP: Record<string, string> = {
   "/search": "catalog-search",
   "/product": "catalog-product",
   "/category": "catalog-category",
+  "/categories": "catalog-categories",
 };
 
 function jsonResponse(payload: unknown, status = 200): Response {

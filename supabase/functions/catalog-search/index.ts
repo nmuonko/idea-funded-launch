@@ -42,6 +42,10 @@ import { lookupTranslationCache, callOpenAiTranslation, writeTranslationCache } 
 import { findNearMatch, assertGlobalCacheKey, removeStopwords } from "../_shared/searchCacheSimilarity.ts";
 import { FR_EN_MAP } from "../_shared/frenchEnglishMap.ts";
 import { preNormalizeQuery, getSynonymFallbackQueries } from "../_shared/queryPreNormalizer.ts";
+import { detectQueryLanguage, type LanguageDetectionResult } from "../_shared/languageDetector.ts";
+import { dynamicNormalizeQuery, type DynamicNormalizationResult } from "../_shared/dynamicQueryNormalizer.ts";
+import { expandQueryIntent } from "../_shared/intentExpander.ts";
+import { logSearchNormalization } from "../_shared/searchTelemetry.ts";
 
 // Extracted modules
 import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";

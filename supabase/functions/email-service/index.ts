@@ -57,7 +57,7 @@ function hasCronSecret(req: Request): boolean {
 const CRON_TYPES = new Set(['cart_reminder', 'abandoned_cart', 'abandoned_cart_recovery', 'saved_cart_reminders']);
 
 // Types handled inline (not forwarded)
-const INLINE_TYPES = new Set(['order_assistance']);
+const INLINE_TYPES = new Set(['order_assistance', 'abandoned_cart_recovery']);
 
 const TYPE_TO_FUNCTION: Record<string, string> = {
   // Order lifecycle

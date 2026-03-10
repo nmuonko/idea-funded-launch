@@ -212,19 +212,18 @@ async function handleRegister(body: any, req: Request) {
 
   if (signInError || !sessionData?.session) {
     return jsonRes({
-      success: true, needsEmailConfirmation: true, ok: true, requiresEmailConfirmation: true,
-      emailVerificationRequired: true, status: 'email_verification_required', action: 'verify_email',
-      userId, message: 'Account created successfully. Please check your email to verify your account.',
-      message_fr: 'Compte créé avec succès. Veuillez vérifier votre email pour confirmer votre compte.',
+      success: true, ok: true, userId,
+      message: 'Account created successfully.',
+      message_fr: 'Compte créé avec succès.',
       email: email.trim(), user: { id: userId, email: email.trim(), fullName: fullName.trim() },
     });
   }
 
   return jsonRes({
-    success: true, needsEmailConfirmation: true, ok: true, requiresEmailConfirmation: true,
-    emailVerificationRequired: true, status: 'email_verification_required', action: 'verify_email',
-    userId: sessionData.user.id, message: 'Account created successfully. Please check your email to verify your account.',
-    message_fr: 'Compte créé avec succès. Veuillez vérifier votre email pour confirmer votre compte.',
+    success: true, ok: true,
+    userId: sessionData.user.id,
+    message: 'Account created successfully.',
+    message_fr: 'Compte créé avec succès.',
     email: sessionData.user.email,
     user: {
       id: sessionData.user.id, email: sessionData.user.email, fullName: fullName.trim(),

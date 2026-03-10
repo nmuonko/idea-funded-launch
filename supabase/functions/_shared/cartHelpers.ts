@@ -87,6 +87,48 @@ export function isCarStoreEnum(store: string): boolean {
 }
 
 /**
+ * Extract Amazon ASIN from any Amazon URL format
+ * Handles /dp/ASIN, /gp/product/ASIN, /gp/aw/d/ASIN, etc.
+ */
+export function extractAmazonAsin(url: string): string | null {
+  const match = url.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/|\/product\/)([A-Z0-9]{10})/i);
+  return match ? match[1].toUpperCase() : null;
+}
+
+/**
+ * Canonicalize a product URL for storage.
+ * Amazon: strips tracking params, rebuilds as clean /dp/ASIN link
+ * SHEIN: strips tracking params
+ * Others: returns as-is
+ */
+export function canonicalizeProductUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+
+    // Amazon: extract ASIN and build clean canonical URL
+    if (host.includes('amazon.com') || host.includes('amazon.co') || host.includes('amzn.')) {
+      const asin = extractAmazonAsin(url);
+      if (asin) return `https://www.amazon.com/dp/${asin}`;
+    }
+
+    // SHEIN: strip tracking params but keep path
+    if (host.includes('shein.com')) {
+      return `${u.origin}${u.pathname}`;
+    }
+
+    // eBay: strip tracking params but keep /itm/ path
+    if (host.includes('ebay.com')) {
+      return `${u.origin}${u.pathname}`;
+    }
+
+    return url;
+  } catch {
+    return url;
+  }
+}
+
+/**
  * Normalize URL for duplicate detection
  * Removes query params, trailing slashes, and normalizes host
  * CRITICAL: This ensures Tesla URLs with ?PaymentType=lease match base URLs

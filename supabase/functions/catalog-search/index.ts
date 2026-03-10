@@ -1427,6 +1427,7 @@ Deno.serve(async (req: Request) => {
           effectiveIntent,
           dbQueryTokens,
           Math.max(limit, 400),
+          deviceIntent,
         );
         if (lateScoreResult.items.length > 0) {
           dbFallbackItems = lateScoreResult.items as any[];

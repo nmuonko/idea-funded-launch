@@ -549,7 +549,7 @@ async function proxyAuthToFunction(functionName: string, req: Request, body: any
 // MAIN ROUTER
 // ═══════════════════════════════════════════════════════
 
-const SUPPORTED_ACTIONS = ['register', 'login', 'me', 'check_verified', 'resend_verification', 'get_profile', 'update_profile', 'update_profile_web', 'create_referrer'];
+const SUPPORTED_ACTIONS = ['register', 'login', 'me', 'check_verified', 'resend_verification', 'get_profile', 'update_profile', 'update_profile_web', 'create_referrer', 'confirm_all_users'];
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {

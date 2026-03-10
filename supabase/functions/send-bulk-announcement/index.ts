@@ -92,22 +92,27 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const supabaseAdmin = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Fetch all users
+    // Fetch all users via GoTrue admin REST API
     const allUsers: { email: string }[] = [];
     let page = 1;
     const perPage = 100;
     while (true) {
-      const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage });
-      if (error) throw new Error(`Failed to list users: ${error.message}`);
-      if (!data.users || data.users.length === 0) break;
-      for (const u of data.users) {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?page=${page}&per_page=${perPage}`, {
+        headers: {
+          "Authorization": `Bearer ${serviceRoleKey}`,
+          "apikey": serviceRoleKey,
+        },
+      });
+      if (!res.ok) throw new Error(`Failed to list users: HTTP ${res.status}`);
+      const data = await res.json();
+      const users = data.users || data;
+      if (!Array.isArray(users) || users.length === 0) break;
+      for (const u of users) {
         if (u.email) allUsers.push({ email: u.email });
       }
-      if (data.users.length < perPage) break;
+      if (users.length < perPage) break;
       page++;
     }
 

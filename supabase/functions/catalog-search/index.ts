@@ -1021,7 +1021,7 @@ Deno.serve(async (req: Request) => {
           headers: dbFpHeaders,
         });
       } else {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH SKIPPED: topScore=${topScore} < ${DB_QUALITY_MIN_TOP_SCORE} or items=${scoreResult.items.length} < 20 — proceeding to live providers for better results`);
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH SKIPPED: topScore=${topScore} < ${DB_QUALITY_MIN_TOP_SCORE} or items=${scoreResult.items.length} < ${MIN_TARGET_RESULTS} — proceeding to live providers for better results`);
         // Keep dbFallbackItems for merge later, but don't return early
       }
     }

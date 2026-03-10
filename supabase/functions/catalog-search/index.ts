@@ -536,6 +536,17 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // ─── INTENT EXPANSION (dynamic synonym generation) ──────────────────────
+    // Generates alternative search queries based on detected product intent.
+    let intentExpansions: string[] = [];
+    if (qNorm !== qOriginal || frFallbackApplied || dynamicFallbackUsed) {
+      const intentResult = expandQueryIntent(qNorm);
+      if (intentResult.hasExpansions) {
+        intentExpansions = intentResult.expansions;
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} intent_expansion: "${qNorm}" → [${intentExpansions.join(", ")}] (intent=${intentResult.matchedIntent})`);
+      }
+    }
+
     // ─── CANONICALIZATION + INTENT DETECTION (post-translation) ──────────────
     // Runs AFTER translation so French tokens are already English.
     // Prevents fuzzy corruption like "talon" → "tahoe" before translation.

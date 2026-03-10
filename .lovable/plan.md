@@ -1,72 +1,40 @@
+## Edge Function Consolidation Refactor — Phase 3 Complete
 
+### Phase 3: Orphan Deletion — 10 Functions Deleted
+- **`create-referrer`** — routed via auth-service
+- **`execute-ai-action`** — routed via admin-service
+- **`get-ai-actions-for-review`** — routed via admin-service
+- **`predict-customer-ltv`** — routed via admin-service
+- **`ai-order-assistant`** — routed via admin-service
+- **`catalog-categories`** — inlined into catalog-service
+- **`catalog-tabs`** — inlined into catalog-service
+- **`catalog-nav`** — inlined into catalog-service
+- **`catalog-providers`** — inlined into catalog-service
+- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-## Diagnosis Summary
+### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
+- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
+- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
+- **`auth-service`** — added `create_referrer`
+- **`email-service`** — added `saved_cart_reminders`
 
-### Server-Side Status: Both endpoints are LIVE and HEALTHY
-- `catalog-home` → 200 OK, valid data, `Cache-Control: no-store` headers confirmed
-- `mobile-public-config` → 200 OK, correct `catalogApiBaseUrl`, `no-store` headers confirmed
-- **Zero 404 errors** in `catalog-home` server logs — the 404 never reaches the backend
+### Batches 1–10: Inlined — 32 Functions Deleted
+- **Batch 10**: auth-service (8 functions)
+- **Batch 9**: mobile-cart (7), mobile-orders (4)
+- **Batch 8**: admin-service (10), support-service (3)
+- **Batch 7**: catalog-service (5 metadata endpoints)
 
-### Root Cause: Likely a combination of two factors
+**Total reduction: 42 Edge Functions deleted**
 
-**Factor 1: OkHttp disk cache on affected devices**
-Devices that cached a 404 during the "Bundle generation timed out" deployment window still serve that cached error. The `no-store` headers only affect NEW responses and cannot retroactively invalidate existing cached 404s.
+### Kept as Proxy (by decision)
+- **`payments-core`** — proxies 9 functions (complex payment logic)
+- **`payments-provider`** — proxies 10 functions (payment provider logic)
+- **`email-service`** — proxies 25 send-* functions (HTML template code)
 
-**Factor 2: `catalog-home` is missing from `config.toml`**
-The `config.toml` does NOT include a `[functions.catalog-home]` entry with `verify_jwt = false`. While the function is currently deployed and responding (likely because it was deployed via the CLI which ignores config.toml), this missing entry could cause issues during redeployment or gateway routing in certain edge regions. Adding it ensures the Supabase gateway consistently routes to the function without JWT enforcement.
-
-### Why "fresh installs are more likely to hit it"
-The "Bundle generation timed out" errors from the recent deployment attempts may have left the function in an inconsistent deployment state across Deno Deploy edge regions. Users in regions where the function didn't fully propagate would get a gateway-level 404. Old users with cached successful responses from before the failed deployment would continue working from OkHttp cache.
-
----
-
-## Plan: Minimal Production Hotfix
-
-### 1. Add `catalog-home` (and other missing catalog functions) to `config.toml`
-
-**File**: `supabase/config.toml`
-
-Add entries for all catalog functions that are currently missing but actively called by the mobile app:
-```toml
-[functions.catalog-home]
-  verify_jwt = false
-[functions.catalog-search]
-  verify_jwt = false
-[functions.catalog-product]
-  verify_jwt = false
-[functions.catalog-category]
-  verify_jwt = false
-[functions.mobile-public-config]
-  verify_jwt = false
-[functions.catalog-prewarm-home]
-  verify_jwt = false
-```
-
-This ensures the Supabase gateway always routes to these functions without JWT enforcement, regardless of deployment state.
-
-### 2. Force-redeploy `catalog-home`
-
-Redeploy the function to ensure full global propagation across all Deno Deploy edge nodes. This clears any stale deployment state from the previous "Bundle generation timed out" failures.
-
-### 3. Verify post-deployment
-
-- Curl test `catalog-home` with mobile headers
-- Confirm 200 OK with valid sections data
-- Confirm `Cache-Control: no-store` headers are present
-
-### No other changes needed
-- `catalog-home` code is correct (already has no-store headers, mobile detection, fallback logic)
-- `mobile-public-config` code is correct (already has no-store headers, correct `catalogApiBaseUrl`)
-- Search and other endpoints are unaffected
-
-### User-side recovery for devices with cached 404s
-After the redeploy, affected users need to **clear app cache once** (Settings → Apps → AfriShop → Clear Cache on Android). After that, the `no-store` headers prevent any future caching issues.
-
-### Files to change
-| File | Change |
-|------|--------|
-| `supabase/config.toml` | Add 6 missing function entries with `verify_jwt = false` |
-
-### Post-deploy verification
-Force-redeploy `catalog-home` and test with curl to confirm global availability.
-
+### Remaining Standalone (active, not orphaned)
+- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
+- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
+- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
+- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
+- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
+- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment

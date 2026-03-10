@@ -15,6 +15,18 @@ project_id = "ecqpqtirhpumfgbdtvhh"
     verify_jwt = false
   [functions.catalog-shein-scraper]
     verify_jwt = false
+  [functions.catalog-home]
+    verify_jwt = false
+  [functions.catalog-search]
+    verify_jwt = false
+  [functions.catalog-product]
+    verify_jwt = false
+  [functions.catalog-category]
+    verify_jwt = false
+  [functions.mobile-public-config]
+    verify_jwt = false
+  [functions.catalog-prewarm-home]
+    verify_jwt = false
   [functions.email-service]
     verify_jwt = false
   [functions.mobile-cart]

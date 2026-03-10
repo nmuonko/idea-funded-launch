@@ -455,6 +455,26 @@ export function clearCatalogHomeCache(): number {
   return keysToRemove.length;
 }
 
+/**
+ * Clear ALL catalog cache entries from localStorage AND in-memory LRU.
+ * Used for automatic recovery when startup network errors are detected.
+ */
+export function clearAllCatalogCache(): number {
+  const prefixes = ['afrishop_cache:', 'afrishop_curated:', 'afrishop_curated_v2:'];
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    if (prefixes.some(p => key.startsWith(p))) {
+      keysToRemove.push(key);
+    }
+  }
+  keysToRemove.forEach(key => localStorage.removeItem(key));
+  memoryCache.clear();
+  console.log(`[CatalogCache] Cleared ${keysToRemove.length} cache entries`);
+  return keysToRemove.length;
+}
+
 // ─── PREFETCH HELPER ──────────────────────────────────────────────────────────
 
 const prefetchedKeys = new Set<string>();

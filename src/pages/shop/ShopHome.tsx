@@ -456,15 +456,21 @@ export default function ShopHome() {
   }, [filterByProvider, filterByCategory]);
 
   // ====== ACCUEIL (trending only) ======
-  const fetchAccueilFeed = useCallback(async () => {
+  const fetchAccueilFeed = useCallback(async (forceRefresh = false) => {
     setAccueilLoading(true);
     setError(null);
+
+    // On retry, clear all local caches so we get a truly fresh request
+    if (forceRefresh) {
+      clearAllCatalogCache();
+    }
+
     try {
       const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
         page: 1,
         pageSize: 100,
         client: 'web',
-      });
+      }, { skipCache: forceRefresh });
       if (data?.sections?.length) {
         const all = data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0);
         setAccueilProducts(all);

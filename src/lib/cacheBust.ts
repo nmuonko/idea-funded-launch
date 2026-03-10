@@ -5,6 +5,7 @@ const BUILD_KEY = 'afrishop_build_version';
 export function bustStaleCache(): void {
   try {
     const stored = localStorage.getItem(BUILD_KEY);
+    // Always clear on fresh install (stored === null) OR version mismatch
     if (stored === __BUILD_VERSION__) return;
 
     const prefixes = ['afrishop_cache:', 'afrishop_curated:', 'afrishop_curated_v2:'];

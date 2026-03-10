@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { prefetchCatalogCategory } from '@/lib/catalogCache';
+import { prefetchCatalogCategory, clearAllCatalogCache } from '@/lib/catalogCache';
 import { Clock, Loader2, Link2, ArrowRight } from 'lucide-react';
 import { LazySection } from '@/components/shop/LazySection';
 import { ShopHeader } from '@/components/shop/ShopHeader';

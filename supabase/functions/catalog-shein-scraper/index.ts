@@ -145,8 +145,19 @@ const WOMEN_PRIORITY_HINTS = [
   "bodycon",
   "aline",
   "maxi",
+  "mini_",
+  "midi_",
   "sports_",
   "yoga_",
+  "crop_",
+  "graphic_",
+  "wide_leg",
+  "coverups",
+  "pajamas",
+  "cardigans",
+  "twopiece",
+  "jumpsuits",
+  "rompers",
 ];
 
 const WOMEN_CATEGORIES = CATEGORY_URLS.filter((c) =>

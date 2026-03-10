@@ -957,7 +957,8 @@ Deno.serve(async (req: Request) => {
       const topScore = scoreResult.topScores.length > 0 ? scoreResult.topScores[0] : 0;
       const qualitySufficient = topScore >= DB_QUALITY_MIN_TOP_SCORE;
 
-      if (qualitySufficient && scoreResult.items.length >= 20) {
+      // Only use DB fast path if we have enough results (200+) to avoid sparse result sets
+      if (qualitySufficient && scoreResult.items.length >= MIN_TARGET_RESULTS) {
         console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH: ${scoreResult.items.length} items, topScore=${topScore} >= ${DB_QUALITY_MIN_TOP_SCORE} — using fast path`);
 
         const dbFinal = postSortItems(postFilterItems(scoreResult.items, catalogFilters), sort);

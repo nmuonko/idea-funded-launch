@@ -860,8 +860,9 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
     const subtotalUsd = Math.round((baseTotalUsd + marginUsd) * 100) / 100;
     const subtotalCdf = Math.round(subtotalUsd * exchangeRate);
 
+    const cleanGuestUrl = canonicalizeProductUrl(guestItem.productUrl);
     const itemData = {
-      order_id: draftOrder!.id, product_url: guestItem.productUrl, title: guestItem.title || null,
+      order_id: draftOrder!.id, product_url: cleanGuestUrl, title: guestItem.title || null,
       product_image_url: guestItem.imageUrl || null, store, base_price_usd: basePrice, unit_price_usd: basePrice,
       quantity, subtotal_usd: baseTotalUsd, markup_fee_usd: marginUsd,
       total_price_usd: subtotalUsd, total_price_cdf: subtotalCdf,

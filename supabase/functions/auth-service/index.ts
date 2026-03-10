@@ -174,7 +174,7 @@ async function handleRegister(body: any, req: Request) {
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email: email.trim(),
     password,
-    email_confirm: false,
+    email_confirm: true,
     user_metadata: { full_name: fullName.trim(), phone: phoneNumber?.trim() || null },
   });
 

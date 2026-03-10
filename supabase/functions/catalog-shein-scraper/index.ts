@@ -297,22 +297,8 @@ async function scrapeCategoryPage(
     const html = data?.data?.html || data?.html || "";
     const links: string[] = data?.data?.links || data?.links || [];
 
-    // Extract products from HTML/markdown
-    const products = extractProductsFromMarkdown(markdown, html, url);
-
-    // Also extract from links array
-    const seenIds = new Set(products.map(p => p.provider_product_id));
-    for (const link of links) {
-      if (typeof link !== "string") continue;
-      const pid = extractSheinProductId(link);
-      if (pid && !seenIds.has(pid)) {
-        seenIds.add(pid);
-        products.push({
-          title: "", price_usd: 0, image_url: "", product_url: link,
-          provider_product_id: pid, brand: "SHEIN", images: [],
-        });
-      }
-    }
+    // Extract products from HTML/markdown/links
+    const products = extractProductsFromContent(markdown, html, links, url);
 
     return { products };
   } catch (err) {

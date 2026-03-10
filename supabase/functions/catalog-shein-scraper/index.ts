@@ -21,7 +21,7 @@ const corsHeaders = {
 
 const HARD_FUNCTION_CAP_MS = 240000;
 const DAILY_CREDIT_CAP = 5000;
-const DEFAULT_CATEGORIES_PER_RUN = 8;
+const DEFAULT_CATEGORIES_PER_RUN = 4;
 
 // ── SHEIN CATEGORY URLs ────────────────────────────────────────────────────
 // These are real SHEIN category page URLs that list products

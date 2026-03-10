@@ -1121,7 +1121,7 @@ export default function ShopHome() {
       await Promise.allSettled([accueilPromise, categoryPromise, recentPromise]);
       fetchedRef.current = true;
     })();
-  }, []);
+  }, [retryCount]);
 
   // Re-fetch on language change
   useEffect(() => {

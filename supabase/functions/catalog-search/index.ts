@@ -1550,20 +1550,20 @@ Deno.serve(async (req: Request) => {
     // ─── NON-BLOCKING BACKGROUND ENRICHMENT (threshold: 200) ────────────────
     // When scored results are below 200, return them immediately to the user
     // AND fire a background eBay fetch to cache more items for future queries.
-    // Below 30, still do the blocking enrichment to avoid empty-feeling results.
-    const BG_ENRICHMENT_THRESHOLD = 200;
-    const BLOCKING_ENRICHMENT_THRESHOLD = 30;
-    const SPARSE_ENRICHMENT_TARGET = 200;
+    // Below 200, do BLOCKING multi-variant enrichment to reach target.
+    const BG_ENRICHMENT_THRESHOLD = MIN_TARGET_RESULTS;
+    const BLOCKING_ENRICHMENT_THRESHOLD = MIN_TARGET_RESULTS;
+    const SPARSE_ENRICHMENT_TARGET = MIN_TARGET_RESULTS;
 
     if (finalItems.length < BLOCKING_ENRICHMENT_THRESHOLD && !providerTimedOut) {
-      // BLOCKING: too few results, user needs more NOW
+      // BLOCKING: not enough results, try multi-variant fetching to reach target
       const sparseElapsed = Date.now() - startTime;
       const sparseBudget = isFirstPage
-        ? Math.min(4000, PAGE0_DEADLINE_MS - sparseElapsed - 200)
-        : Math.min(5000, TOTAL_BUDGET_MS - sparseElapsed - 200);
+        ? Math.min(5000, PAGE0_DEADLINE_MS - sparseElapsed - 200)
+        : Math.min(6000, TOTAL_BUDGET_MS - sparseElapsed - 200);
 
       if (sparseBudget > 500) {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT_BLOCKING: finalItems=${finalItems.length} < ${BLOCKING_ENRICHMENT_THRESHOLD}, triggering live eBay fetch budget=${sparseBudget}ms`);
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT_BLOCKING: finalItems=${finalItems.length} < ${BLOCKING_ENRICHMENT_THRESHOLD}, triggering multi-variant eBay fetch budget=${sparseBudget}ms`);
 
         const sparseExistingIds = new Set(finalItems.map((i: any) => i.id));
         const sparseQueries: string[] = [];
@@ -1576,42 +1576,93 @@ Deno.serve(async (req: Request) => {
         addSparseQ(providerQuery);
         addSparseQ(qCanonicalized);
         addSparseQ(qOriginal);
+        
+        // Add device-family query variants for better recall
+        if (deviceIntent.hasStrongFamilyIntent) {
+          const variants = generateDeviceFamilyVariants(deviceIntent);
+          for (const v of variants) addSparseQ(v);
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: added ${variants.length} device-family variants: ${JSON.stringify(variants)}`);
+        }
+
+        // Add broadened queries for additional recall
+        const broadened = generateBroadenedQueries(providerQuery);
+        for (const bq of broadened) addSparseQ(bq);
 
         let sparseNewItems: CatalogItem[] = [];
+        let sparsePagesFetched = 0;
         for (const sq of sparseQueries) {
           if (finalItems.length + sparseNewItems.length >= SPARSE_ENRICHMENT_TARGET) break;
           if (Date.now() - startTime > (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - 200) break;
 
-          const sqTimeout = Math.min(3500, (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - (Date.now() - startTime) - 100);
-          if (sqTimeout <= 300) break;
+          // Multi-page fetching: fetch up to 3 pages per query variant
+          const MAX_PAGES_PER_VARIANT = 3;
+          for (let sparsePageNum = 1; sparsePageNum <= MAX_PAGES_PER_VARIANT; sparsePageNum++) {
+            if (finalItems.length + sparseNewItems.length >= SPARSE_ENRICHMENT_TARGET) break;
+            if (Date.now() - startTime > (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - 200) break;
 
-          try {
-            console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: fetching q="${sq}" timeout=${sqTimeout}ms`);
-            const sparseEbayPromise = fetchEbayItems({
-              supabase, query: sq, effectiveMode, isVehicle: false,
-              hasBuyingIntent, isHeavyEquipment: false,
-              categoryKey: undefined, page: 1, limit: Math.min(200, SPARSE_ENRICHMENT_TARGET),
-              catalogFilters: {}, requestId: requestId + "-sparse",
-              relaxFilters: true,
-            });
-            const sparseTimer = new Promise<null>(r => setTimeout(() => r(null), sqTimeout));
-            const sparseResult = await Promise.race([sparseEbayPromise, sparseTimer]);
+            const sqTimeout = Math.min(3500, (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - (Date.now() - startTime) - 100);
+            if (sqTimeout <= 300) break;
 
-            if (sparseResult?.rateLimited) {
-              console.warn(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: eBay rate-limited, stopping`);
+            try {
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: fetching q="${sq}" page=${sparsePageNum} timeout=${sqTimeout}ms`);
+              const sparseEbayPromise = fetchEbayItems({
+                supabase, query: sq, effectiveMode, isVehicle: false,
+                hasBuyingIntent, isHeavyEquipment: false,
+                categoryKey: undefined, page: sparsePageNum, limit: Math.min(200, SPARSE_ENRICHMENT_TARGET),
+                catalogFilters: {}, requestId: requestId + "-sparse",
+                relaxFilters: true,
+              });
+              const sparseTimer = new Promise<null>(r => setTimeout(() => r(null), sqTimeout));
+              const sparseResult = await Promise.race([sparseEbayPromise, sparseTimer]);
+
+              if (sparseResult?.rateLimited) {
+                console.warn(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: eBay rate-limited on q="${sq}" page=${sparsePageNum}, trying next variant`);
+                break; // Try next query variant instead of stopping entirely
+              }
+
+              sparsePagesFetched++;
+              if (sparseResult?.items?.length) {
+                const newItems = sparseResult.items.filter((i: any) => !sparseExistingIds.has(i.id));
+                newItems.forEach((i: any) => sparseExistingIds.add(i.id));
+                sparseNewItems.push(...(newItems as CatalogItem[]));
+                console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: q="${sq}" page=${sparsePageNum} returned=${sparseResult.items.length} new=${newItems.length} totalNew=${sparseNewItems.length}`);
+                autoCacheLiveResults(supabase, sparseResult.items as any[], categoryKey, requestId + "-sparse").catch(() => {});
+                
+                // If this page returned few results, no point fetching more pages for this variant
+                if (sparseResult.items.length < 20 || !sparseResult.hasMore) break;
+              } else {
+                break; // No results on this page, try next variant
+              }
+            } catch (sparseErr) {
+              console.warn(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT error q="${sq}" page=${sparsePageNum}: ${(sparseErr as Error).message}`);
               break;
             }
+          }
+        }
+        
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT_SUMMARY: variants_tried=${sparseQueries.length} pages_fetched=${sparsePagesFetched} new_items=${sparseNewItems.length}`);
 
-            if (sparseResult?.items?.length) {
-              const newItems = sparseResult.items.filter((i: any) => !sparseExistingIds.has(i.id));
-              newItems.forEach((i: any) => sparseExistingIds.add(i.id));
-              sparseNewItems.push(...(newItems as CatalogItem[]));
-              console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: q="${sq}" returned=${sparseResult.items.length} new=${newItems.length} totalNew=${sparseNewItems.length}`);
-              autoCacheLiveResults(supabase, sparseResult.items as any[], categoryKey, requestId + "-sparse").catch(() => {});
-              if (finalItems.length + sparseNewItems.length >= SPARSE_ENRICHMENT_TARGET) break;
+        // Also try DB expansion with device-family variants
+        if (sparseNewItems.length + finalItems.length < SPARSE_ENRICHMENT_TARGET && deviceIntent.hasStrongFamilyIntent) {
+          try {
+            const dbVariants = generateDeviceFamilyVariants(deviceIntent);
+            const dbExistingIds = new Set([...sparseExistingIds, ...finalItems.map((i: any) => i.id)]);
+            for (const dbV of dbVariants) {
+              if (sparseNewItems.length + finalItems.length >= SPARSE_ENRICHMENT_TARGET) break;
+              if (Date.now() - startTime > (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - 200) break;
+              const dbExpansion = await Promise.race([
+                searchDbFirst({ supabase, qNorm: dbV, aiExpandedTerms: null, limit: 200, offset: 0, categoryKey: null, requestId: requestId + "-dbexp" }),
+                new Promise<null>(r => setTimeout(() => r(null), 800)),
+              ]);
+              if (dbExpansion?.items?.length) {
+                const newDbItems = dbExpansion.items.filter((i: any) => !dbExistingIds.has(i.id));
+                newDbItems.forEach((i: any) => dbExistingIds.add(i.id));
+                sparseNewItems.push(...(newDbItems as CatalogItem[]));
+                console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_VARIANT_EXPANSION: q="${dbV}" new=${newDbItems.length} totalNew=${sparseNewItems.length}`);
+              }
             }
-          } catch (sparseErr) {
-            console.warn(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT error q="${sq}": ${(sparseErr as Error).message}`);
+          } catch (e) {
+            console.warn(`[CATALOG_SEARCH] requestId=${requestId} DB_VARIANT_EXPANSION error: ${(e as Error).message}`);
           }
         }
 
@@ -1619,7 +1670,7 @@ Deno.serve(async (req: Request) => {
         if (sparseNewItems.length > 0) {
           const sparseScored = scoreAndRankItems(
             sparseNewItems as unknown as Record<string, unknown>[],
-            effectiveIntent, queryTokens, Math.max(limit, 200), deviceIntent,
+            effectiveIntent, queryTokens, Math.max(limit, 400), deviceIntent,
           );
           finalItems = [...finalItems, ...(sparseScored.items as typeof finalItems)];
           if (sort === "relevance") {
@@ -1632,39 +1683,6 @@ Deno.serve(async (req: Request) => {
           console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT_MERGED: added=${sparseScored.items.length} total=${finalItems.length}`);
         }
       }
-    } else if (finalItems.length < BG_ENRICHMENT_THRESHOLD && !providerTimedOut) {
-      // NON-BLOCKING: we have enough to show, but cache more in background
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} BG_ENRICHMENT: finalItems=${finalItems.length} < ${BG_ENRICHMENT_THRESHOLD}, triggering background eBay fetch (non-blocking)`);
-
-      // Fire-and-forget background enrichment
-      (async () => {
-        try {
-          const bgId = requestId + "-bg-enrich";
-          const bgQueries = [providerQuery, qCanonicalized, qOriginal].filter((q, i, arr) =>
-            q && arr.indexOf(q) === i
-          );
-          for (const bgQ of bgQueries) {
-            try {
-              const bgResult = await fetchEbayItems({
-                supabase, query: bgQ, effectiveMode, isVehicle: false,
-                hasBuyingIntent, isHeavyEquipment: false,
-                categoryKey: undefined, page: 1, limit: 200,
-                catalogFilters: {}, requestId: bgId,
-                relaxFilters: true,
-              });
-              if (bgResult?.items?.length) {
-                await autoCacheLiveResults(supabase, bgResult.items as any[], categoryKey, bgId);
-                console.log(`[CATALOG_SEARCH] requestId=${requestId} BG_ENRICHMENT_DONE: q="${bgQ}" cached=${bgResult.items.length} items`);
-                break; // One successful fetch is enough
-              }
-            } catch (e) {
-              console.warn(`[CATALOG_SEARCH] requestId=${requestId} BG_ENRICHMENT error q="${bgQ}": ${(e as Error).message}`);
-            }
-          }
-        } catch (e) {
-          console.warn(`[CATALOG_SEARCH] requestId=${requestId} BG_ENRICHMENT outer error: ${(e as Error).message}`);
-        }
-      })();
     }
 
     // ─── POST-SEARCH AI FALLBACK (second-pass for weak results) ──────────────

@@ -202,14 +202,20 @@ export default function ShopAuth() {
 
     setLoading(true);
     try {
-      await signUp(email, password, fullName, phone, {
+      const result = await signUp(email, password, fullName, phone, {
         country,
         city,
         province,
         address_line1: addressLine1,
       });
       
-      setMode('verify');
+      if (!result.error) {
+        // Auto-confirmed — user is now signed in
+        toast({
+          title: auth.signUpSuccess || 'Account created successfully!',
+        });
+        navigate(redirect || '/', { replace: true });
+      }
     } catch (error: any) {
       console.error('Sign up error:', error);
       toast({

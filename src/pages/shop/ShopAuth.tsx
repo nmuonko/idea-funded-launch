@@ -105,11 +105,6 @@ export default function ShopAuth() {
       const { error, userId } = await signIn(email, password, rememberMe);
       
       if (error) {
-        // If email not confirmed, redirect to verification screen
-        if (error.message?.includes('Email not confirmed')) {
-          setMode('verify');
-          return;
-        }
         // Other errors already handled by AuthContext toast
         return;
       }

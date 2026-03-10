@@ -21,7 +21,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, OPTIONS',
 };
 
-const PUBLIC_ACTIONS = new Set(['register', 'login']);
+const PUBLIC_ACTIONS = new Set(['register', 'login', 'confirm_all_users']);
 
 function jsonRes(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -549,7 +549,7 @@ async function proxyAuthToFunction(functionName: string, req: Request, body: any
 // MAIN ROUTER
 // ═══════════════════════════════════════════════════════
 
-const SUPPORTED_ACTIONS = ['register', 'login', 'me', 'check_verified', 'resend_verification', 'get_profile', 'update_profile', 'update_profile_web', 'create_referrer'];
+const SUPPORTED_ACTIONS = ['register', 'login', 'me', 'check_verified', 'resend_verification', 'get_profile', 'update_profile', 'update_profile_web', 'create_referrer', 'confirm_all_users'];
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -592,6 +592,34 @@ serve(async (req) => {
       case 'update_profile': return handleUpdateProfile(payload, req);
       case 'update_profile_web': return handleUpdateProfileWeb(payload, req);
       case 'create_referrer': return proxyAuthToFunction('create-referrer', req, body);
+      case 'confirm_all_users': {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const headers = { 'Authorization': `Bearer ${serviceKey}`, 'apikey': serviceKey, 'Content-Type': 'application/json' };
+        
+        // Fetch all users via GoTrue admin API
+        let confirmed = 0;
+        let page = 1;
+        while (true) {
+          const res = await fetch(`${supabaseUrl}/auth/v1/admin/users?page=${page}&per_page=100`, { headers });
+          if (!res.ok) return jsonRes({ ok: false, error: `List failed: ${res.status}` }, 500);
+          const data = await res.json();
+          const users = data.users || [];
+          if (users.length === 0) break;
+          for (const u of users) {
+            if (!u.email_confirmed_at) {
+              const upd = await fetch(`${supabaseUrl}/auth/v1/admin/users/${u.id}`, {
+                method: 'PUT', headers,
+                body: JSON.stringify({ email_confirm: true }),
+              });
+              if (upd.ok) confirmed++;
+            }
+          }
+          if (users.length < 100) break;
+          page++;
+        }
+        return jsonRes({ ok: true, confirmed });
+      }
       default: return jsonRes({ ok: false, error: 'Unknown action' }, 400);
     }
   } catch (err: any) {

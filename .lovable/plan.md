@@ -1,32 +1,40 @@
+## Edge Function Consolidation Refactor — Phase 3 Complete
 
+### Phase 3: Orphan Deletion — 10 Functions Deleted
+- **`create-referrer`** — routed via auth-service
+- **`execute-ai-action`** — routed via admin-service
+- **`get-ai-actions-for-review`** — routed via admin-service
+- **`predict-customer-ltv`** — routed via admin-service
+- **`ai-order-assistant`** — routed via admin-service
+- **`catalog-categories`** — inlined into catalog-service
+- **`catalog-tabs`** — inlined into catalog-service
+- **`catalog-nav`** — inlined into catalog-service
+- **`catalog-providers`** — inlined into catalog-service
+- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-# Plan: Fix "Email Not Confirmed" — Users Still Blocked
+### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
+- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
+- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
+- **`auth-service`** — added `create_referrer`
+- **`email-service`** — added `saved_cart_reminders`
 
-## Problem
-The auth logs show users are **still getting `email_not_confirmed` errors** right now. There are **181 existing users** in the database with `email_confirmed_at = NULL` who cannot log in. The edge function code is correct (`email_confirm: true`) and deployed, but existing users created before this change remain unconfirmed.
+### Batches 1–10: Inlined — 32 Functions Deleted
+- **Batch 10**: auth-service (8 functions)
+- **Batch 9**: mobile-cart (7), mobile-orders (4)
+- **Batch 8**: admin-service (10), support-service (3)
+- **Batch 7**: catalog-service (5 metadata endpoints)
 
-## Changes Required
+**Total reduction: 42 Edge Functions deleted**
 
-### 1. Add temporary `confirm_all_users` action to auth-service
-In `supabase/functions/auth-service/index.ts`:
-- Add `'confirm_all_users'` to `SUPPORTED_ACTIONS` array (line 552)
-- Add a case in the switch (after line 594) that uses `admin.auth.admin.listUsers()` to find all users with `email_confirmed_at = null` and calls `admin.auth.admin.updateUserById(id, { email_confirm: true })` on each
-- This is a one-time operation to backfill the 181 unconfirmed users
+### Kept as Proxy (by decision)
+- **`payments-core`** — proxies 9 functions (complex payment logic)
+- **`payments-provider`** — proxies 10 functions (payment provider logic)
+- **`email-service`** — proxies 25 send-* functions (HTML template code)
 
-### 2. Deploy and call the bulk confirm
-- Deploy auth-service
-- Call `confirm_all_users` action via curl to confirm all 181 users
-- Then remove the action from the code (or leave it — it's idempotent)
-
-### 3. Fix frontend error message in AuthContext
-In `src/contexts/AuthContext.tsx` line 343-344:
-- Change the "Email not confirmed" error message from "Your email is not yet verified. Please verify your email to sign in." to a generic "Unable to sign in. Please try again or contact support." — since verification is no longer required, this error should never appear, but if it does, users shouldn't see a confusing verification message
-
-### 4. Remove leftover verification UI translations (optional cleanup)
-The `verifyEmail`, `verifyEmailSubtitle`, `verifyEmailNote` translations in `src/lib/i18n/translations.ts` (lines ~949-952) are no longer needed but harmless.
-
-## What This Fixes
-- All 181 existing unconfirmed users will be able to log in immediately
-- All new users are already auto-confirmed via `email_confirm: true` in the edge function
-- The French message "Veuillez vérifier votre boîte de réception..." will no longer appear
-
+### Remaining Standalone (active, not orphaned)
+- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
+- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
+- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
+- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
+- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
+- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment

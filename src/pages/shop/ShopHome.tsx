@@ -188,6 +188,7 @@ export default function ShopHome() {
   const [accueilProducts, setAccueilProducts] = useState<Product[]>([]);
   const [accueilLoading, setAccueilLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   const [pinnedByCategory, setPinnedByCategory] = useState<Record<string, Product[]>>({});
   const pinnedFetchedRef = useRef(false);

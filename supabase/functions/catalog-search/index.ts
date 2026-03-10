@@ -278,6 +278,24 @@ Deno.serve(async (req: Request) => {
     console.log(`[CATALOG_SEARCH] requestId=${requestId} preNorm_matched: "${qOriginal}" → "${preNorm.effectiveQuery}" rule=${preNorm.matchRule} skipAI=${preNorm.skipAI}`);
   }
 
+  // When preNorm matched via token (keepQuery=true), French tokens may remain.
+  // Run dynamic normalizer to translate remaining FR tokens while preserving brands.
+  if (preNorm.matched && preNorm.matchRule?.includes(":token:")) {
+    const langCheck = detectQueryLanguage(preNorm.effectiveQuery);
+    if (langCheck.hasFrenchSignal && langCheck.frenchTokens.length > 0) {
+      try {
+        const dynResult = await dynamicNormalizeQuery(preNorm.effectiveQuery, requestId);
+        if (dynResult.wasNormalized) {
+          qCanonicalized = dynResult.normalizedQuery;
+          searchMeta.rewrittenQuery = dynResult.normalizedQuery;
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} preNorm_token_dynamic: "${preNorm.effectiveQuery}" → "${dynResult.normalizedQuery}"`);
+        }
+      } catch (e) {
+        console.warn(`[CATALOG_SEARCH] requestId=${requestId} preNorm_token_dynamic_error: ${(e as Error).message}`);
+      }
+    }
+  }
+
   try {
     const supabase = createAdminPostgrestClient();
     const perfLog = { rewrite_ms: 0, settings_ms: 0, cache_ms: 0, flags_ms: 0 };

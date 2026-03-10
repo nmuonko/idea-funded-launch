@@ -1,27 +1,83 @@
 
 
-# Plan: Fix Email Verification Still Blocking Users
+# Plan: Send Bulk Email to All 234 Users — Login Update Announcement
 
-## Root Cause
+## What We're Building
 
-The auth logs confirm that as recently as 22:19:46 UTC today, GoTrue is still returning `email_not_confirmed` errors on `/token` (login). Even though the edge function code has `email_confirm: true` in `admin.createUser()`, this parameter is being **overridden by the GoTrue server-level setting** which still has email confirmation **enabled**.
+A new edge function `send-bulk-announcement` that:
+1. Fetches all user emails from `auth.users`
+2. Sends each one a branded, bilingual (French-first) email announcing they can now log in without email verification
+3. Uses the existing Resend infrastructure and verified `afrishop-usa.com` domain
+4. Includes the AfriShop logo hosted via public storage
+5. Follows email best practices to avoid spam filters
 
-The `email_confirm: true` parameter in `createUser` tells GoTrue "mark this user as confirmed," but if the server's `autoconfirm` setting is OFF, GoTrue may still enforce confirmation on `signInWithPassword`. This is the gap.
+## Spam/Junk Prevention Strategy
 
-## Changes
+- **Verified sender domain**: `afrishop-usa.com` is already DNS-verified with Resend
+- **Proper `from` address**: Using `nkadimisha@afrishop-usa.com` (already configured)
+- **Plain text fallback**: Auto-generated from HTML (already in `sendEmail` helper)
+- **No spammy language**: No ALL CAPS, no excessive exclamation marks, no "FREE" or "ACT NOW"
+- **Proper HTML structure**: Clean, simple HTML with inline styles
+- **Unsubscribe-friendly tone**: Informational, not promotional
+- **Rate limiting**: Send one at a time with a small delay between sends to avoid Resend rate limits
 
-### 1. Enable auto-confirm at the auth server level
-Use `cloud--configure_auth` to set `auto_confirm_email = true`. This is the **critical missing step** — without this, GoTrue blocks login for unconfirmed users regardless of what the edge function does.
+## Logo
 
-### 2. Redeploy the auth-service edge function
-The deployed version may be stale. Redeploy to ensure `email_confirm: true` and the `confirm_all_users` action are live.
+The logo file is at `src/assets/afrishop-logo.png`. Since this is a build-time asset (not publicly accessible via URL), we'll upload it to a public storage bucket and reference it via the public URL in the email.
 
-### 3. Bulk-confirm all existing unconfirmed users
-Call the `confirm_all_users` action on the auth-service edge function to confirm users like `kadimisha@gmail.com` and `valeriekanam@gmail.com` who were created before/during this transition.
+## Email Content (French-first, English below)
 
-### 4. Verify the fix
-Test registration and login via curl to the edge function to confirm no `email_not_confirmed` errors.
+**Subject**: AfriShop — Connexion simplifiée / Simplified Login
 
-## No frontend code changes needed
-The frontend code is already correct — it handles auto-confirm flow properly.
+**Body** (preview):
+
+```
+[AfriShop Logo]
+
+Bonjour,
+
+Bonne nouvelle ! Vous pouvez maintenant vous connecter à AfriShop 
+directement avec votre email et mot de passe — sans avoir besoin 
+de vérifier votre email au préalable.
+
+Si vous aviez des difficultés à vous connecter, essayez à nouveau 
+maintenant. Tout devrait fonctionner parfaitement.
+
+---
+
+Hello,
+
+Great news! You can now log into AfriShop directly with your email 
+and password — no email verification needed.
+
+If you had trouble logging in before, please try again now. 
+Everything should work smoothly.
+
+— L'équipe AfriShop / The AfriShop Team
+```
+
+## Implementation
+
+### 1. Upload logo to storage bucket
+- Create `email-assets` public bucket if it doesn't exist
+- Upload `afrishop-logo.png` to the bucket
+- Use the public URL in the email HTML
+
+### 2. Create `send-bulk-announcement` edge function
+- Uses `SUPABASE_SERVICE_ROLE_KEY` to list all users from `auth.users` via the admin API
+- Iterates through all users, sends the branded email via the existing `sendEmail` helper
+- Adds a 200ms delay between sends to respect rate limits
+- Secured by `CRON_SECRET` header (no public access)
+- Logs results: total sent, failed count
+
+### 3. Deploy and invoke
+- Deploy the function
+- Call it once to send to all 234 users
+
+## Files Created
+- `supabase/functions/send-bulk-announcement/index.ts`
+
+## No Breaking Changes
+- No existing functionality is modified
+- One-time use function that can be removed after sending
 

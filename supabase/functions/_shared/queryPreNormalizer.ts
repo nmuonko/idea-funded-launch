@@ -314,7 +314,7 @@ interface CategoryDef {
 
 const CATEGORY_DEFS: CategoryDef[] = [
   // Priority order: phones first (brand detection), then specifics, clothing last
-  { key: "phones", phrases: {}, tokens: PHONE_BRANDS, keepQuery: true },
+  { key: "phones", phrases: PHONE_PHRASES, tokens: PHONE_BRANDS, keepQuery: true },
   { key: "vehicles", phrases: VEHICLE_PHRASES, tokens: VEHICLE_BRANDS, keepQuery: true },
   { key: "gaming", phrases: GAMING_PHRASES, tokens: GAMING_TOKENS },
   { key: "electronics", phrases: ELECTRONICS_PHRASES, tokens: ELECTRONICS_TOKENS, keepQuery: true },

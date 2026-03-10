@@ -4799,6 +4799,48 @@ export type Database = {
         }
         Relationships: []
       }
+      search_normalization_logs: {
+        Row: {
+          ai_translation_used: boolean
+          created_at: string
+          detected_language: string
+          dynamic_fallback_used: boolean
+          expansions: string[]
+          id: string
+          normalized_query: string
+          raw_query: string
+          request_id: string | null
+          result_count: number
+          static_map_matched: boolean
+        }
+        Insert: {
+          ai_translation_used?: boolean
+          created_at?: string
+          detected_language?: string
+          dynamic_fallback_used?: boolean
+          expansions?: string[]
+          id?: string
+          normalized_query: string
+          raw_query: string
+          request_id?: string | null
+          result_count?: number
+          static_map_matched?: boolean
+        }
+        Update: {
+          ai_translation_used?: boolean
+          created_at?: string
+          detected_language?: string
+          dynamic_fallback_used?: boolean
+          expansions?: string[]
+          id?: string
+          normalized_query?: string
+          raw_query?: string
+          request_id?: string | null
+          result_count?: number
+          static_map_matched?: boolean
+        }
+        Relationships: []
+      }
       search_proxy_cache: {
         Row: {
           cache_key: string

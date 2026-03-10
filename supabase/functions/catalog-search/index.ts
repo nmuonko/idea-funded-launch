@@ -42,6 +42,10 @@ import { lookupTranslationCache, callOpenAiTranslation, writeTranslationCache } 
 import { findNearMatch, assertGlobalCacheKey, removeStopwords } from "../_shared/searchCacheSimilarity.ts";
 import { FR_EN_MAP } from "../_shared/frenchEnglishMap.ts";
 import { preNormalizeQuery, getSynonymFallbackQueries } from "../_shared/queryPreNormalizer.ts";
+import { detectQueryLanguage, type LanguageDetectionResult } from "../_shared/languageDetector.ts";
+import { dynamicNormalizeQuery, type DynamicNormalizationResult } from "../_shared/dynamicQueryNormalizer.ts";
+import { expandQueryIntent } from "../_shared/intentExpander.ts";
+import { logSearchNormalization } from "../_shared/searchTelemetry.ts";
 
 // Extracted modules
 import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";
@@ -274,6 +278,24 @@ Deno.serve(async (req: Request) => {
     console.log(`[CATALOG_SEARCH] requestId=${requestId} preNorm_matched: "${qOriginal}" → "${preNorm.effectiveQuery}" rule=${preNorm.matchRule} skipAI=${preNorm.skipAI}`);
   }
 
+  // When preNorm matched via token (keepQuery=true), French tokens may remain.
+  // Run dynamic normalizer to translate remaining FR tokens while preserving brands.
+  if (preNorm.matched && preNorm.matchRule?.includes(":token:")) {
+    const langCheck = detectQueryLanguage(preNorm.effectiveQuery);
+    if (langCheck.hasFrenchSignal && langCheck.frenchTokens.length > 0) {
+      try {
+        const dynResult = await dynamicNormalizeQuery(preNorm.effectiveQuery, requestId);
+        if (dynResult.wasNormalized) {
+          qCanonicalized = dynResult.normalizedQuery;
+          searchMeta.rewrittenQuery = dynResult.normalizedQuery;
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} preNorm_token_dynamic: "${preNorm.effectiveQuery}" → "${dynResult.normalizedQuery}"`);
+        }
+      } catch (e) {
+        console.warn(`[CATALOG_SEARCH] requestId=${requestId} preNorm_token_dynamic_error: ${(e as Error).message}`);
+      }
+    }
+  }
+
   try {
     const supabase = createAdminPostgrestClient();
     const perfLog = { rewrite_ms: 0, settings_ms: 0, cache_ms: 0, flags_ms: 0 };
@@ -342,9 +364,11 @@ Deno.serve(async (req: Request) => {
     let qNorm = searchMeta.rewrittenQuery;
 
     // If preNormalizer already matched, use its effectiveQuery as qNorm and skip translation
+    // BUT: if dynamic normalizer already improved it (token+keepQuery case), use that instead
     if (preNorm.matched) {
-      qNorm = preNorm.effectiveQuery;
-      searchMeta.rewrittenQuery = preNorm.effectiveQuery;
+      const dynamicAlreadyApplied = searchMeta.rewrittenQuery !== preNorm.effectiveQuery && preNorm.matchRule?.includes(":token:");
+      qNorm = dynamicAlreadyApplied ? searchMeta.rewrittenQuery : preNorm.effectiveQuery;
+      searchMeta.rewrittenQuery = qNorm;
       searchMeta.rewriteApplied = true;
     }
 
@@ -356,12 +380,16 @@ Deno.serve(async (req: Request) => {
     // If rewrite table didn't match, apply shared FR→EN map
     const FR_EN_FALLBACK = FR_EN_MAP;
 
-    // Detect if query might be French: accented chars, lang=fr, or matches FR terms
+    // Detect if query might be French using enhanced language detector
     const qNormLower = qNorm.toLowerCase().replace(/\s+/g, " ").trim();
     const removeAccentsFn = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const qNoAccents = removeAccentsFn(qNormLower);
     const hasAccents = qNormLower !== qNoAccents;
-    const isFrenchLikely = lang === "fr" || hasAccents;
+    const langDetection: LanguageDetectionResult = detectQueryLanguage(qOriginal);
+    const isFrenchLikely = lang === "fr" || hasAccents || langDetection.hasFrenchSignal;
+    let dynamicNormResult: DynamicNormalizationResult | null = null;
+    let dynamicFallbackUsed = false;
+    let aiTranslationUsed = false;
 
     // ─── FR STOP-WORD REMOVAL for better static map matching ────────────────
     // "jupes pour dames" → "jupes dames", "robe de soirée" → "robe soirée"
@@ -434,6 +462,28 @@ Deno.serve(async (req: Request) => {
           }
         }
 
+        // [Step 2.5] DYNAMIC NORMALIZER — entity-preserving token-level FR→EN
+        // Runs when static map didn't fully match. Faster than OpenAI (~5ms cached, ~20ms fresh).
+        if (!frFallbackApplied && langDetection.hasFrenchSignal) {
+          try {
+            const dynStart = Date.now();
+            dynamicNormResult = await dynamicNormalizeQuery(qNormLower, requestId);
+            const dynMs = Date.now() - dynStart;
+            if (dynamicNormResult.wasNormalized) {
+              qNorm = dynamicNormResult.normalizedQuery;
+              searchMeta.rewrittenQuery = dynamicNormResult.normalizedQuery;
+              searchMeta.rewriteApplied = true;
+              frFallbackApplied = true;
+              dynamicFallbackUsed = true;
+              translateStatus = "DYNAMIC";
+              translateProvider = "dynamic";
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} dynamic_norm: "${qNormLower}" → "${dynamicNormResult.normalizedQuery}" (${dynamicNormResult.translatedTokens.length} tokens, ${dynMs}ms, cached=${dynamicNormResult.fromCache})`);
+            }
+          } catch (e) {
+            console.warn(`[CATALOG_SEARCH] requestId=${requestId} dynamic_norm_error: ${(e as Error).message}`);
+          }
+        }
+
         // [Step 3] OpenAI translation if still French-likely and no translation yet
         // On page 0: race with AI_TIMEOUT_P0 to avoid blocking
         if (isFrenchLikely && !frFallbackApplied) {
@@ -449,6 +499,7 @@ Deno.serve(async (req: Request) => {
               searchMeta.rewrittenQuery = aiResult.translated_query;
               searchMeta.rewriteApplied = true;
               frFallbackApplied = true;
+              aiTranslationUsed = true;
               translateStatus = "MISS";
               translateProvider = "openai:gpt-4o-mini:v1";
               writeTranslationCache(qNormLower, aiResult.translated_query, aiResult.source_lang, "openai:gpt-4o-mini:v1", requestId);
@@ -502,6 +553,17 @@ Deno.serve(async (req: Request) => {
         }
       } catch (e) {
         console.warn(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_error: ${(e as Error).message}`);
+      }
+    }
+
+    // ─── INTENT EXPANSION (dynamic synonym generation) ──────────────────────
+    // Generates alternative search queries based on detected product intent.
+    let intentExpansions: string[] = [];
+    if (qNorm !== qOriginal || frFallbackApplied || dynamicFallbackUsed) {
+      const intentResult = expandQueryIntent(qNorm);
+      if (intentResult.hasExpansions) {
+        intentExpansions = intentResult.expansions;
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} intent_expansion: "${qNorm}" → [${intentExpansions.join(", ")}] (intent=${intentResult.matchedIntent})`);
       }
     }
 
@@ -1928,6 +1990,19 @@ Deno.serve(async (req: Request) => {
     const topTitles = finalItems.slice(0, 3).map((i: any) => ((i.title || "") as string).slice(0, 60));
     console.log(`[CATALOG_SEARCH][TIMING] requestId=${requestId} q="${qOriginal}" directQuery=${directQuery} total=${timings.total}ms rewrite=${timings.rewrite}ms ai=${timings.aiRefine}ms db=${timings.dbFirst}ms providers=${timings.providers}ms alt=${timings.altQueries}ms post=${timings.postProcess}ms items=${finalItems.length}`);
     console.log(`[CATALOG_SEARCH][INTENT] q="${qOriginal}" intentKey=${effectiveIntent.intentKey} providers=${finalCount} db=${dbCount} returned=${finalItems.length} topTitles=${JSON.stringify(topTitles)}`);
+
+    // ─── SEARCH TELEMETRY (fire-and-forget) ─────────────────────────────────
+    logSearchNormalization({
+      raw_query: qOriginal,
+      normalized_query: qNorm,
+      detected_language: langDetection.detectedLang,
+      static_map_matched: translateStatus === "STATIC" || translateStatus === "PRE_NORM",
+      dynamic_fallback_used: dynamicFallbackUsed,
+      ai_translation_used: aiTranslationUsed,
+      expansions: intentExpansions,
+      result_count: finalItems.length,
+      request_id: requestId,
+    });
 
     // Debug header + timing headers
     const debugObj = { providerQuery, intentKey: effectiveIntent.intentKey, dbCount, ebayStatus: ebayDebug.ok ? "ok" : ebayDebug.error, amazonStatus: amazonDebug.ok ? "ok" : amazonDebug.error, finalCount, source: searchSource, dropped: scoreResult.dropped, directQuery };

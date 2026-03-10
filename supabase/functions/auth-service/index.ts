@@ -185,25 +185,7 @@ async function handleRegister(body: any, req: Request) {
     return jsonRes({ ok: false, message: 'We could not create your account. Please check your information and try again.' }, 400);
   }
 
-  // Send verification email (non-blocking)
-  if (authData?.user) {
-    try {
-      const { data: linkData, error: emailError } = await supabaseAdmin.auth.admin.generateLink({
-        type: 'magiclink', email: email.trim(),
-        options: { redirectTo: `${frontendBaseUrl}/email-confirmed` },
-      });
-      if (!emailError && linkData?.properties?.action_link) {
-        const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
-        const link = linkData.properties.action_link;
-        const isFr = req.headers.get('Accept-Language')?.includes('fr');
-        const subject = isFr ? 'Vérifiez votre compte AfriShop USA' : 'Verify your AfriShop USA account';
-        const html = isFr
-          ? `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px"><h1 style="color:#2563eb">Bienvenue chez AfriShop USA!</h1><p>Bonjour ${fullName.trim()},</p><p>Merci d'avoir créé un compte. Veuillez vérifier votre adresse e-mail en cliquant sur le bouton ci-dessous :</p><a href="${link}" style="display:inline-block;background-color:#2563eb;color:white;padding:12px 24px;text-decoration:none;border-radius:6px;margin:20px 0">Vérifier l'adresse e-mail</a><p style="color:#6b7280;font-size:14px">Si le bouton ne fonctionne pas, copiez et collez ce lien :<br/><a href="${link}" style="color:#2563eb">${link}</a></p><p>Ce lien expirera dans 24 heures.</p><p>Cordialement,<br/>L'équipe AfriShop USA</p></div>`
-          : `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px"><h1 style="color:#2563eb">Welcome to AfriShop USA!</h1><p>Hello ${fullName.trim()},</p><p>Thank you for creating an account. Please verify your email address by clicking the button below:</p><a href="${link}" style="display:inline-block;background-color:#2563eb;color:white;padding:12px 24px;text-decoration:none;border-radius:6px;margin:20px 0">Verify Email Address</a><p style="color:#6b7280;font-size:14px">If the button doesn't work, copy and paste this link:<br/><a href="${link}" style="color:#2563eb">${link}</a></p><p>This link will expire in 24 hours.</p><p>Best regards,<br/>The AfriShop USA Team</p></div>`;
-        await resend.emails.send({ from: 'AfriShop USA <nkadimisha@afrishop-usa.com>', to: [email.trim()], subject, html });
-      }
-    } catch (e: any) { console.error('[auth-service:register] Verification email error (non-blocking):', e.message); }
-  }
+  // Verification email skipped — auto-confirm is enabled
 
   const userId = authData.user.id;
 

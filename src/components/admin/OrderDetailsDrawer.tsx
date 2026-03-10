@@ -298,13 +298,21 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                 <div className="space-y-3">
                   {order.order_items?.map((item: any) => (
                     <div key={item.id} className="border rounded-lg p-3 space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{item.title || 'Product'}</p>
+                      <div className="flex gap-3 items-start">
+                        {item.product_image_url && (
+                          <img
+                            src={item.product_image_url}
+                            alt={item.title || 'Product'}
+                            className="w-16 h-16 rounded-md object-cover border flex-shrink-0"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm line-clamp-2">{item.title || 'Product'}</p>
                           <p className="text-xs text-muted-foreground">Store: {item.store}</p>
-                          <p className="text-xs text-muted-foreground">Quantity: {item.quantity}</p>
+                          <p className="text-xs text-muted-foreground">Qty: {item.quantity}</p>
                         </div>
-                      <div className="text-right">
+                        <div className="text-right flex-shrink-0">
                           <p className="font-semibold">{formatUSD(item.subtotal_usd)}</p>
                           <p className="text-xs text-muted-foreground">{formatUSD(item.unit_price_usd)} each</p>
                         </div>

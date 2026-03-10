@@ -593,19 +593,32 @@ serve(async (req) => {
       case 'update_profile_web': return handleUpdateProfileWeb(payload, req);
       case 'create_referrer': return proxyAuthToFunction('create-referrer', req, body);
       case 'confirm_all_users': {
-        const svc = createServiceClient();
-        // List all users (no pagination params for compatibility)
-        const { data: userData, error: listErr } = await svc.auth.admin.listUsers();
-        if (listErr) return jsonRes({ ok: false, error: listErr.message }, 500);
-        const allUsers = userData?.users || [];
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const headers = { 'Authorization': `Bearer ${serviceKey}`, 'apikey': serviceKey, 'Content-Type': 'application/json' };
+        
+        // Fetch all users via GoTrue admin API
         let confirmed = 0;
-        for (const u of allUsers) {
-          if (!u.email_confirmed_at) {
-            const { error: updErr } = await svc.auth.admin.updateUserById(u.id, { email_confirm: true });
-            if (!updErr) confirmed++;
+        let page = 1;
+        while (true) {
+          const res = await fetch(`${supabaseUrl}/auth/v1/admin/users?page=${page}&per_page=100`, { headers });
+          if (!res.ok) return jsonRes({ ok: false, error: `List failed: ${res.status}` }, 500);
+          const data = await res.json();
+          const users = data.users || [];
+          if (users.length === 0) break;
+          for (const u of users) {
+            if (!u.email_confirmed_at) {
+              const upd = await fetch(`${supabaseUrl}/auth/v1/admin/users/${u.id}`, {
+                method: 'PUT', headers,
+                body: JSON.stringify({ email_confirm: true }),
+              });
+              if (upd.ok) confirmed++;
+            }
           }
+          if (users.length < 100) break;
+          page++;
         }
-        return jsonRes({ ok: true, confirmed, total: allUsers.length });
+        return jsonRes({ ok: true, confirmed });
       }
       default: return jsonRes({ ok: false, error: 'Unknown action' }, 400);
     }

@@ -112,7 +112,17 @@ const BEAUTY_SYNONYMS: Record<string, string[]> = {
   "shea butter": ["raw shea butter", "african shea butter", "body butter"],
 };
 
+const PHONES_SYNONYMS: Record<string, string[]> = {
+  "galaxy foldable": ["samsung galaxy z fold", "samsung galaxy z flip", "galaxy z fold", "galaxy z flip"],
+  "samsung galaxy z fold": ["samsung galaxy z fold 5", "samsung galaxy z fold 4", "galaxy z fold"],
+  "samsung galaxy z flip": ["samsung galaxy z flip 5", "samsung galaxy z flip 4", "galaxy z flip"],
+  "foldable phone": ["samsung galaxy z fold", "samsung galaxy z flip", "motorola razr"],
+  "galaxy fold": ["samsung galaxy z fold 5", "samsung galaxy z fold 4", "galaxy z fold"],
+  "galaxy flip": ["samsung galaxy z flip 5", "samsung galaxy z flip 4", "galaxy z flip"],
+};
+
 const CATEGORY_SYNONYM_MAP: Record<string, Record<string, string[]>> = {
+  phones: PHONES_SYNONYMS,
   clothing: CLOTHING_SYNONYMS,
   electronics: ELECTRONICS_SYNONYMS,
   home_garden: HOME_GARDEN_SYNONYMS,
@@ -270,6 +280,20 @@ const BEAUTY_PHRASES: Record<string, string> = {
   "lait corporel": "body lotion", "lait corps": "body lotion",
 };
 
+// ─── Phone phrases (FR → EN for foldable/specific queries) ──────────────────
+
+const PHONE_PHRASES: Record<string, string> = {
+  "galaxy pliable": "samsung galaxy z fold",
+  "samsung pliable": "samsung galaxy z fold",
+  "samsung galaxy pliable": "samsung galaxy z fold",
+  "telephone pliable": "foldable phone",
+  "pliable": "foldable phone",
+  "galaxy fold": "samsung galaxy z fold",
+  "galaxy flip": "samsung galaxy z flip",
+  "galaxy z fold": "samsung galaxy z fold",
+  "galaxy z flip": "samsung galaxy z flip",
+};
+
 // ─── Token detection sets (for fallback when no phrase matches) ──────────────
 
 const PHONE_BRANDS = new Set([
@@ -304,7 +328,7 @@ interface CategoryDef {
 
 const CATEGORY_DEFS: CategoryDef[] = [
   // Priority order: phones first (brand detection), then specifics, clothing last
-  { key: "phones", phrases: {}, tokens: PHONE_BRANDS, keepQuery: true },
+  { key: "phones", phrases: PHONE_PHRASES, tokens: PHONE_BRANDS, keepQuery: true },
   { key: "vehicles", phrases: VEHICLE_PHRASES, tokens: VEHICLE_BRANDS, keepQuery: true },
   { key: "gaming", phrases: GAMING_PHRASES, tokens: GAMING_TOKENS },
   { key: "electronics", phrases: ELECTRONICS_PHRASES, tokens: ELECTRONICS_TOKENS, keepQuery: true },

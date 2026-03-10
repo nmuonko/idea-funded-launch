@@ -371,7 +371,7 @@ export async function cachedCatalogFetchWithSwr<T>(
       const staleData = cached.data;
       
       // Fire background refresh (non-blocking)
-      fetchFromNetwork<T>(endpoint, params, options.signal)
+      fetchFromNetwork<T>(endpoint, params, options.signal, options.skipCache)
         .then(freshData => {
           const ttl = parseTtlFromNetworkResponse(freshData);
           setCache(cacheKey, freshData, ttl);

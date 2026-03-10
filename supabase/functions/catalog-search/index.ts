@@ -1539,6 +1539,101 @@ Deno.serve(async (req: Request) => {
     }
     timings.postProcess = Date.now() - postProcessStart;
 
+    // ─── SPARSE RESULTS LIVE EBAY ENRICHMENT ─────────────────────────────────
+    // Non-negotiable rule: no search should feel empty when live eBay can fill the gap.
+    // When scored results are below threshold, do a direct live eBay fetch for the
+    // user's exact query with relaxed filters. This bypasses AI gating entirely.
+    const SPARSE_ENRICHMENT_THRESHOLD = 30;
+    const SPARSE_ENRICHMENT_TARGET = 100;
+    if (finalItems.length < SPARSE_ENRICHMENT_THRESHOLD && !providerTimedOut) {
+      const sparseElapsed = Date.now() - startTime;
+      const sparseBudget = isFirstPage
+        ? Math.min(4000, PAGE0_DEADLINE_MS - sparseElapsed - 200)
+        : Math.min(5000, TOTAL_BUDGET_MS - sparseElapsed - 200);
+
+      if (sparseBudget > 500) {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: finalItems=${finalItems.length} < ${SPARSE_ENRICHMENT_THRESHOLD}, triggering live eBay fetch budget=${sparseBudget}ms`);
+
+        const sparseExistingIds = new Set(finalItems.map((i: any) => i.id));
+        // Try multiple query variants for maximum recall
+        const sparseQueries: string[] = [];
+        const sparseSeen = new Set<string>();
+        const addSparseQ = (q: string | null | undefined) => {
+          if (!q) return;
+          const n = q.toLowerCase().trim();
+          if (n && !sparseSeen.has(n)) { sparseSeen.add(n); sparseQueries.push(q.trim()); }
+        };
+        addSparseQ(providerQuery);
+        addSparseQ(qCanonicalized);
+        addSparseQ(qOriginal);
+
+        let sparseNewItems: CatalogItem[] = [];
+        for (const sq of sparseQueries) {
+          if (finalItems.length + sparseNewItems.length >= SPARSE_ENRICHMENT_TARGET) break;
+          if (Date.now() - startTime > (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - 200) break;
+
+          const sqTimeout = Math.min(3500, (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - (Date.now() - startTime) - 100);
+          if (sqTimeout <= 300) break;
+
+          try {
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: fetching q="${sq}" timeout=${sqTimeout}ms`);
+            const sparseEbayPromise = fetchEbayItems({
+              supabase, query: sq, effectiveMode, isVehicle: false,
+              hasBuyingIntent, isHeavyEquipment: false,
+              categoryKey: undefined, page: 1, limit: Math.min(200, SPARSE_ENRICHMENT_TARGET),
+              catalogFilters: {}, requestId: requestId + "-sparse",
+              relaxFilters: true,
+            });
+            const sparseTimer = new Promise<null>(r => setTimeout(() => r(null), sqTimeout));
+            const sparseResult = await Promise.race([sparseEbayPromise, sparseTimer]);
+
+            if (sparseResult?.rateLimited) {
+              console.warn(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: eBay rate-limited, stopping`);
+              break;
+            }
+
+            if (sparseResult?.items?.length) {
+              const newItems = sparseResult.items.filter((i: any) => !sparseExistingIds.has(i.id));
+              newItems.forEach((i: any) => sparseExistingIds.add(i.id));
+              sparseNewItems.push(...(newItems as CatalogItem[]));
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: q="${sq}" returned=${sparseResult.items.length} new=${newItems.length} totalNew=${sparseNewItems.length}`);
+
+              // Auto-cache these live results (fire-and-forget)
+              autoCacheLiveResults(supabase, sparseResult.items as any[], categoryKey, requestId + "-sparse").catch(() => {});
+
+              if (finalItems.length + sparseNewItems.length >= SPARSE_ENRICHMENT_TARGET) break;
+            }
+          } catch (sparseErr) {
+            console.warn(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT error q="${sq}": ${(sparseErr as Error).message}`);
+          }
+        }
+
+        // Score and merge sparse items
+        if (sparseNewItems.length > 0) {
+          const sparseScored = scoreAndRankItems(
+            sparseNewItems as unknown as Record<string, unknown>[],
+            effectiveIntent,
+            queryTokens,
+            Math.max(limit, 200),
+          );
+          finalItems = [...finalItems, ...(sparseScored.items as typeof finalItems)];
+          // Re-sort after merge if relevance sort
+          if (sort === "relevance") {
+            const reScored = scoreAndRankItems(
+              finalItems as unknown as Record<string, unknown>[],
+              effectiveIntent,
+              queryTokens,
+              limit,
+            );
+            finalItems = reScored.items as typeof finalItems;
+          }
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT_MERGED: added=${sparseScored.items.length} total=${finalItems.length}`);
+        }
+      } else {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT_SKIPPED: budget too low (${sparseBudget}ms)`);
+      }
+    }
+
     // ─── POST-SEARCH AI FALLBACK (second-pass for weak results) ──────────────
     // Evaluate first-pass quality. If weak + gate triggers → call AI interpreter
     // → run second-pass search using AI's normalized/expanded queries → merge.

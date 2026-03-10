@@ -299,7 +299,14 @@ async function firecrawlSearch(
       }
 
       const pid = extractSheinProductId(url);
-      if (!pid) { dropReasons["no_product_id"] = (dropReasons["no_product_id"] || 0) + 1; continue; }
+      if (!pid) { 
+        dropReasons["no_product_id"] = (dropReasons["no_product_id"] || 0) + 1;
+        // Debug: log the first few URLs that fail ID extraction
+        if ((dropReasons["no_product_id"] || 0) <= 5) {
+          console.log(`[SHEIN_SCRAPER] no_product_id URL: ${url}`);
+        }
+        continue; 
+      }
       if (seenIds.has(pid)) { dropReasons["duplicate_in_run"] = (dropReasons["duplicate_in_run"] || 0) + 1; continue; }
       if (SOLD_KEYWORDS.test(title) || SOLD_KEYWORDS.test(description)) { dropReasons["sold_out"] = (dropReasons["sold_out"] || 0) + 1; continue; }
       if (DISALLOWED_KEYWORDS.test(title)) { dropReasons["disallowed_category"] = (dropReasons["disallowed_category"] || 0) + 1; continue; }

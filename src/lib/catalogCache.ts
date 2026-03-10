@@ -306,6 +306,11 @@ export async function cachedCatalogFetch<T>(
       url.searchParams.set(key, String(value));
     }
   });
+
+  // When skipCache is set, add a cache-bust param to defeat CDN/proxy caches
+  if (options.skipCache) {
+    url.searchParams.set('_cb', String(Date.now()));
+  }
   
   const response = await fetch(url.toString(), {
     method: 'GET',
@@ -313,7 +318,8 @@ export async function cachedCatalogFetch<T>(
       'apikey': SUPABASE_ANON_KEY,
       'Content-Type': 'application/json',
     },
-    cache: 'default',
+    // Bypass browser HTTP cache entirely when skipCache is set
+    cache: options.skipCache ? 'no-store' : 'default',
   });
   
   if (!response.ok) {

@@ -57,7 +57,7 @@ function hasCronSecret(req: Request): boolean {
 const CRON_TYPES = new Set(['cart_reminder', 'abandoned_cart', 'abandoned_cart_recovery', 'saved_cart_reminders']);
 
 // Types handled inline (not forwarded)
-const INLINE_TYPES = new Set(['order_assistance']);
+const INLINE_TYPES = new Set(['order_assistance', 'abandoned_cart_recovery']);
 
 const TYPE_TO_FUNCTION: Record<string, string> = {
   // Order lifecycle
@@ -219,6 +219,230 @@ async function handleOrderAssistance(body: any, userId: string): Promise<Respons
   });
 }
 
+// ==================== Cart Recovery Inline Handler ====================
+
+type CartRecoveryLang = 'fr' | 'en' | 'sw' | 'ln';
+
+const CART_RECOVERY_STRINGS: Record<CartRecoveryLang, {
+  subject: string; greeting: string; body: string; cta: string;
+  helpTitle: string; whatsappBtn: string; emailBtn: string; footer: string;
+}> = {
+  fr: {
+    subject: 'Votre panier vous attend! 🛒',
+    greeting: 'Bonjour {name},',
+    body: 'Vous avez {count} article(s) dans votre panier pour un total de ${total} USD. Finalisez votre commande dès maintenant!',
+    cta: 'Finaliser ma commande',
+    helpTitle: 'Besoin d\'aide?',
+    whatsappBtn: '💬 Contactez-nous sur WhatsApp',
+    emailBtn: '📧 Envoyez-nous un email',
+    footer: 'Merci de faire confiance à AfriShop! Si vous ne souhaitez plus recevoir ces rappels, ignorez cet email.',
+  },
+  en: {
+    subject: 'Your cart is waiting! 🛒',
+    greeting: 'Hi {name},',
+    body: 'You have {count} item(s) in your cart totaling ${total} USD. Complete your order now!',
+    cta: 'Complete My Order',
+    helpTitle: 'Need help?',
+    whatsappBtn: '💬 Contact us on WhatsApp',
+    emailBtn: '📧 Send us an email',
+    footer: 'Thank you for shopping with AfriShop! If you no longer wish to receive these reminders, simply ignore this email.',
+  },
+  sw: {
+    subject: 'Kikapu chako kinakungoja! 🛒',
+    greeting: 'Habari {name},',
+    body: 'Una bidhaa {count} katika kikapu chako kwa jumla ya ${total} USD. Kamilisha oda yako sasa!',
+    cta: 'Kamilisha Oda Yangu',
+    helpTitle: 'Unahitaji msaada?',
+    whatsappBtn: '💬 Wasiliana nasi WhatsApp',
+    emailBtn: '📧 Tutumie barua pepe',
+    footer: 'Asante kwa kununua na AfriShop!',
+  },
+  ln: {
+    subject: 'Panier na yo ezali kozela yo! 🛒',
+    greeting: 'Mbote {name},',
+    body: 'Ozali na biloko {count} na panier na yo ya ${total} USD. Sukisa commande na yo sikoyo!',
+    cta: 'Sukisa commande na ngai',
+    helpTitle: 'Osengeli na lisalisi?',
+    whatsappBtn: '💬 Solola na biso na WhatsApp',
+    emailBtn: '📧 Tindela biso email',
+    footer: 'Merci ndenge osombi na AfriShop!',
+  },
+};
+
+function buildCartRecoveryHtml(opts: {
+  strings: typeof CART_RECOVERY_STRINGS['fr'];
+  customerName: string;
+  itemCount: number;
+  totalUsd: number;
+  items: Array<{ title: string; image_url?: string; quantity: number }>;
+  cartUrl: string;
+  whatsappUrl: string;
+  supportEmail: string;
+}): string {
+  const { strings: s, customerName, itemCount, totalUsd, items, cartUrl, whatsappUrl, supportEmail } = opts;
+
+  const itemsHtml = items.slice(0, 3).map(item => `
+    <tr>
+      <td style="padding:8px;border-bottom:1px solid #eee;">
+        ${item.image_url ? `<img src="${item.image_url}" width="50" height="50" style="border-radius:6px;object-fit:cover;" alt="" />` : ''}
+      </td>
+      <td style="padding:8px;border-bottom:1px solid #eee;font-size:14px;">${item.title || 'Product'}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;font-size:14px;text-align:center;">x${item.quantity}</td>
+    </tr>
+  `).join('');
+
+  const bodyText = s.body
+    .replace('{count}', String(itemCount))
+    .replace('{total}', totalUsd.toFixed(2));
+
+  return `
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;margin-top:20px;margin-bottom:20px;">
+  <div style="background:linear-gradient(135deg,#f59e0b,#d97706);padding:30px;text-align:center;">
+    <h1 style="color:#fff;margin:0;font-size:24px;">🛒 AfriShop</h1>
+  </div>
+  <div style="padding:30px;">
+    <p style="font-size:16px;color:#333;">${s.greeting.replace('{name}', customerName)}</p>
+    <p style="font-size:15px;color:#555;line-height:1.6;">${bodyText}</p>
+    ${itemsHtml ? `<table style="width:100%;border-collapse:collapse;margin:20px 0;">${itemsHtml}</table>` : ''}
+    ${itemCount > 3 ? `<p style="font-size:13px;color:#888;text-align:center;">+${itemCount - 3} more item(s)</p>` : ''}
+    <div style="text-align:center;margin:30px 0;">
+      <a href="${cartUrl}" style="display:inline-block;background:#f59e0b;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:600;">${s.cta}</a>
+    </div>
+    <hr style="border:none;border-top:1px solid #eee;margin:30px 0;" />
+    <h3 style="color:#333;margin-bottom:15px;">${s.helpTitle}</h3>
+    <div style="text-align:center;">
+      <a href="${whatsappUrl}" style="display:inline-block;background:#25D366;color:#fff;text-decoration:none;padding:10px 24px;border-radius:6px;font-size:14px;margin:5px;">${s.whatsappBtn}</a>
+      <a href="mailto:${supportEmail}?subject=Help%20with%20my%20order" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:10px 24px;border-radius:6px;font-size:14px;margin:5px;">${s.emailBtn}</a>
+    </div>
+  </div>
+  <div style="background:#f9fafb;padding:20px;text-align:center;font-size:12px;color:#999;">
+    ${s.footer}
+  </div>
+</div>
+</body></html>`;
+}
+
+async function handleCartRecovery(body: any, _userId: string | undefined): Promise<Response> {
+  const { hoursThreshold = 48, language = 'fr', preview = false } = body;
+
+  const lang: CartRecoveryLang = ['fr', 'en', 'sw', 'ln'].includes(language) ? language : 'fr';
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const sc = createClient(supabaseUrl, serviceKey);
+
+  const cutoff = new Date(Date.now() - hoursThreshold * 60 * 60 * 1000).toISOString();
+
+  // Find eligible orders
+  const { data: eligibleOrders, error: qErr } = await sc
+    .from('orders')
+    .select('id, status, total_usd, user_id, cart_reminder_sent_at, created_at, profiles(name, full_name, email)')
+    .in('status', ['DRAFT', 'PENDING_PAYMENT'])
+    .is('cart_reminder_sent_at', null)
+    .lt('created_at', cutoff);
+
+  if (qErr) {
+    console.error('[cart_recovery] Query error:', qErr.message);
+    return jsonRes({ ok: false, error: qErr.message }, 500);
+  }
+
+  // Filter orders that have at least 1 item
+  const ordersWithItems: typeof eligibleOrders = [];
+  for (const order of (eligibleOrders || [])) {
+    const { data: items } = await sc
+      .from('order_items')
+      .select('id')
+      .eq('order_id', order.id)
+      .eq('is_saved_for_later', false)
+      .limit(1);
+    if (items && items.length > 0) {
+      ordersWithItems.push(order);
+    }
+  }
+
+  if (preview) {
+    return jsonRes({ ok: true, count: ordersWithItems.length });
+  }
+
+  // Fetch support contact info dynamically
+  const { data: settings } = await sc
+    .from('settings')
+    .select('support_whatsapp, support_email')
+    .limit(1)
+    .maybeSingle();
+
+  const whatsappNumber = (settings?.support_whatsapp || '+243973141627').replace(/[^0-9]/g, '');
+  const supportEmailAddr = settings?.support_email || 'nkadimisha@afrishop-usa.com';
+  const frontendBase = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+  const cartUrl = `${frontendBase}/cart`;
+  const strings = CART_RECOVERY_STRINGS[lang];
+
+  let sent = 0;
+  let skipped = 0;
+
+  for (const order of ordersWithItems) {
+    const profile = order.profiles as any;
+    const customerEmail = profile?.email;
+    if (!customerEmail) { skipped++; continue; }
+
+    const customerName = profile?.full_name || profile?.name || 'Customer';
+
+    // Get items for this order (up to 3 for preview)
+    const { data: orderItems } = await sc
+      .from('order_items')
+      .select('title, product_image_url, quantity')
+      .eq('order_id', order.id)
+      .eq('is_saved_for_later', false)
+      .limit(4);
+
+    const itemCount = orderItems?.length || 0;
+    const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(`Hi, I need help with my order ${order.id}`)}`;
+
+    const html = buildCartRecoveryHtml({
+      strings,
+      customerName,
+      itemCount,
+      totalUsd: Number(order.total_usd || 0),
+      items: (orderItems || []).map((i: any) => ({ title: i.title, image_url: i.product_image_url, quantity: i.quantity })),
+      cartUrl,
+      whatsappUrl,
+      supportEmail: supportEmailAddr,
+    });
+
+    const emailResult = await sendEmail({
+      to: customerEmail,
+      subject: strings.subject,
+      html,
+      category: 'cart_recovery',
+      replyTo: supportEmailAddr,
+    });
+
+    if (emailResult.success) {
+      sent++;
+      // Mark order as reminded
+      await sc.from('orders').update({ cart_reminder_sent_at: new Date().toISOString() } as any).eq('id', order.id);
+      // Log
+      await sc.from('customer_email_logs').insert({
+        customer_id: order.user_id,
+        customer_email: customerEmail,
+        subject: strings.subject,
+        body: html,
+        sent_by: _userId || 'system',
+        status: 'sent',
+      });
+    } else {
+      skipped++;
+      console.error(`[cart_recovery] Failed for ${customerEmail}:`, emailResult.error);
+    }
+  }
+
+  console.log(`[cart_recovery] Done: sent=${sent}, skipped=${skipped}`);
+  return jsonRes({ ok: true, sent, skipped });
+}
+
 // ==================== Forwarding ====================
 
 async function forwardToFunction(functionName: string, req: Request, overrideBody?: unknown): Promise<Response> {
@@ -298,6 +522,9 @@ serve(async (req) => {
     // Handle inline types
     if (emailType === 'order_assistance' && authUserId) {
       return handleOrderAssistance(body, authUserId);
+    }
+    if (emailType === 'abandoned_cart_recovery') {
+      return handleCartRecovery(body, authUserId);
     }
 
     // Forward to separate function

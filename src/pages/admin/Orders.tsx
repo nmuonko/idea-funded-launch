@@ -33,6 +33,7 @@ import {
 import { OrderDetailsDrawer } from '@/components/admin/OrderDetailsDrawer';
 import { SendOrderEmailDialog } from '@/components/admin/SendOrderEmailDialog';
 import { ResetSectionDialog } from '@/components/admin/ResetSectionDialog';
+import { CartRecoveryDialog } from '@/components/admin/CartRecoveryDialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { cn } from '@/lib/utils';
@@ -63,7 +64,7 @@ export default function AdminOrders() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
-  const [sendingCartRecovery, setSendingCartRecovery] = useState(false);
+  const [cartRecoveryOpen, setCartRecoveryOpen] = useState(false);
 
   // Filter orders based on search query and date range
   const filteredOrders = useMemo(() => {
@@ -699,30 +700,6 @@ export default function AdminOrders() {
     selectedOrders.has(o.id) && paidStatuses.includes(o.status)
   ).length;
 
-  const handleSendCartRecovery = async () => {
-    try {
-      setSendingCartRecovery(true);
-      const { data, error } = await supabase.functions.invoke('email-service', {
-        body: { type: 'abandoned_cart_recovery' },
-      });
-      if (error) throw error;
-      const result = data as { sent?: number; skipped?: number } | null;
-      toast({
-        title: language === 'fr' ? 'Rappels envoyés' : 'Recovery emails sent',
-        description: language === 'fr'
-          ? `${result?.sent || 0} email(s) envoyé(s), ${result?.skipped || 0} ignoré(s)`
-          : `${result?.sent || 0} email(s) sent, ${result?.skipped || 0} skipped`,
-      });
-    } catch (error: any) {
-      toast({
-        title: language === 'fr' ? 'Erreur' : 'Error',
-        description: error.message || 'Failed to send cart recovery emails',
-        variant: 'destructive',
-      });
-    } finally {
-      setSendingCartRecovery(false);
-    }
-  };
 
   return (
     <>
@@ -743,15 +720,10 @@ export default function AdminOrders() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleSendCartRecovery}
-                disabled={sendingCartRecovery}
+                onClick={() => setCartRecoveryOpen(true)}
                 className="gap-2 border-amber-500 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950"
               >
-                {sendingCartRecovery ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Bell className="h-4 w-4" />
-                )}
+                <Bell className="h-4 w-4" />
                 {language === 'fr' ? 'Rappels paniers' : 'Cart Recovery'}
               </Button>
               {/* Super Admin Reset Button */}
@@ -1213,6 +1185,7 @@ export default function AdminOrders() {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    <CartRecoveryDialog open={cartRecoveryOpen} onOpenChange={setCartRecoveryOpen} />
     </>
   );
 }

@@ -1,50 +1,40 @@
+## Edge Function Consolidation Refactor — Phase 3 Complete
 
+### Phase 3: Orphan Deletion — 10 Functions Deleted
+- **`create-referrer`** — routed via auth-service
+- **`execute-ai-action`** — routed via admin-service
+- **`get-ai-actions-for-review`** — routed via admin-service
+- **`predict-customer-ltv`** — routed via admin-service
+- **`ai-order-assistant`** — routed via admin-service
+- **`catalog-categories`** — inlined into catalog-service
+- **`catalog-tabs`** — inlined into catalog-service
+- **`catalog-nav`** — inlined into catalog-service
+- **`catalog-providers`** — inlined into catalog-service
+- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-## Problem
+### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
+- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
+- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
+- **`auth-service`** — added `create_referrer`
+- **`email-service`** — added `saved_cart_reminders`
 
-The mobile app (frozen .aab build) calls `catalog-home` directly via native HTTP (OkHttp on Android). The mobile responses from `serveMobileSections` in `mobileSectionsCache.ts` are returned **without any `Cache-Control` header**. This means:
+### Batches 1–10: Inlined — 32 Functions Deleted
+- **Batch 10**: auth-service (8 functions)
+- **Batch 9**: mobile-cart (7), mobile-orders (4)
+- **Batch 8**: admin-service (10), support-service (3)
+- **Batch 7**: catalog-service (5 metadata endpoints)
 
-1. During the migration, the old 404 error response had no cache directives
-2. Android's OkHttp/system HTTP cache applied **heuristic caching** (can cache for hours or days)
-3. The cached 404 is being served from the device's native HTTP cache on every request
-4. The user cannot clear this — uninstalling and reinstalling may not clear the HTTP cache on some Android versions
+**Total reduction: 42 Edge Functions deleted**
 
-The web frontend fixes (skipCache, no-store) are irrelevant here because the **mobile app uses its own native fetch**, not the web's `catalogCache.ts`.
+### Kept as Proxy (by decision)
+- **`payments-core`** — proxies 9 functions (complex payment logic)
+- **`payments-provider`** — proxies 10 functions (payment provider logic)
+- **`email-service`** — proxies 25 send-* functions (HTML template code)
 
-## Fix (Backend-Only — No Mobile Rebuild Needed)
-
-### 1. Add `Cache-Control` and `Vary` headers to ALL mobile responses in `mobileSectionsCache.ts`
-
-Every `new Response(...)` in `serveMobileSections` and `emptyMobileSectionsResponse` (4 response sites) currently has:
-```
-headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
-```
-
-Change to:
-```
-headers: {
-  ...corsHeaders,
-  "Content-Type": "application/json; charset=utf-8",
-  "Cache-Control": "no-store, no-cache, must-revalidate",
-  "Pragma": "no-cache",
-}
-```
-
-This forces OkHttp to **never use a cached response** — every request hits the server. This is safe because:
-- The edge function has its own server-side cache (mobile_sections_cache table) so responses are fast (~100-200ms)
-- Mobile data usage is negligible (single JSON response)
-
-### 2. Also add same headers to the `jsonResponse` helper in `catalog-home/index.ts`
-
-Update the `jsonResponse` function to add `no-store` for ALL responses (not just errors), ensuring no HTTP-level caching occurs at any layer. The `max-age=300` currently set for successful responses is what allows OkHttp to cache them.
-
-Specifically, change the cache logic (lines 220-232) to always set `no-store` for mobile requests. Since `jsonResponse` doesn't know the client type, we'll add an optional parameter.
-
-### 3. Redeploy `catalog-home`
-
-After the code changes, redeploy the edge function. The next time any mobile user opens the app, OkHttp will see `no-store` and fetch fresh data from the server, bypassing any cached 404.
-
-### Files to Edit
-- `supabase/functions/_shared/mobileSectionsCache.ts` — Add `Cache-Control: no-store` to all 4 response sites
-- `supabase/functions/catalog-home/index.ts` — Ensure `jsonResponse` uses `no-store` for mobile client responses
-
+### Remaining Standalone (active, not orphaned)
+- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
+- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
+- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
+- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
+- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
+- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment

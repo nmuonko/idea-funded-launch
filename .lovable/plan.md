@@ -1,40 +1,66 @@
-## Edge Function Consolidation Refactor — Phase 3 Complete
 
-### Phase 3: Orphan Deletion — 10 Functions Deleted
-- **`create-referrer`** — routed via auth-service
-- **`execute-ai-action`** — routed via admin-service
-- **`get-ai-actions-for-review`** — routed via admin-service
-- **`predict-customer-ltv`** — routed via admin-service
-- **`ai-order-assistant`** — routed via admin-service
-- **`catalog-categories`** — inlined into catalog-service
-- **`catalog-tabs`** — inlined into catalog-service
-- **`catalog-nav`** — inlined into catalog-service
-- **`catalog-providers`** — inlined into catalog-service
-- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
-- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
-- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
-- **`auth-service`** — added `create_referrer`
-- **`email-service`** — added `saved_cart_reminders`
+## Payment Flow Audit Results
 
-### Batches 1–10: Inlined — 32 Functions Deleted
-- **Batch 10**: auth-service (8 functions)
-- **Batch 9**: mobile-cart (7), mobile-orders (4)
-- **Batch 8**: admin-service (10), support-service (3)
-- **Batch 7**: catalog-service (5 metadata endpoints)
+After reviewing all payment flow files end-to-end, the current implementation is **stable and correct**. Here is the detailed verification:
 
-**Total reduction: 42 Edge Functions deleted**
+### Routes Verified
 
-### Kept as Proxy (by decision)
-- **`payments-core`** — proxies 9 functions (complex payment logic)
-- **`payments-provider`** — proxies 10 functions (payment provider logic)
-- **`email-service`** — proxies 25 send-* functions (HTML template code)
+| Route | Component | Protected? | Status |
+|---|---|---|---|
+| `/checkout` | Checkout | ShopProtectedRoute | Correct |
+| `/card-payment` | CardPayment | ShopProtectedRoute | Correct |
+| `/payment-pending` | PaymentPending | Public (for WebView) | Correct |
+| `/payment-success-shop` | ShopPaymentSuccess | Public (for WebView) | Correct |
+| `/payment-callback` | PaymentCallback | Public | Correct |
+| `/orders/:id` | OrderDetail | ProtectedRoute | Correct |
 
-### Remaining Standalone (active, not orphaned)
-- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
-- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
-- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
-- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
-- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
-- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment
+### Flow Verification
+
+**Stripe (Card) Flow:**
+1. `Checkout.tsx` → creates order via `mobile-orders` → calls `payments-provider` with `action: 'select'` → receives `clientSecret` → navigates to `/card-payment` with query params
+2. `CardPayment.tsx` → loads Stripe via `app-bootstrap` config → renders `PaymentElement` → `confirmPayment` with `return_url` to `/payment-success-shop` → on `succeeded` navigates to `/payment-success-shop` → on unexpected status navigates to `/my-orders`
+3. `PaymentSuccess.tsx` → polls order status → clears cart on `PAID` → shows success UI
+
+**PawaPay (Mobile Money) Flow:**
+1. `Checkout.tsx` → same order creation → `payments-provider` with `action: 'select'` + phone/operator → navigates to `/payment-pending`
+2. `PaymentPending.tsx` → polls order status every 5s (max 24 polls = 2min) → on `PAID` clears cart, shows success → on `CANCELLED` shows failure → on `DRAFT` has 60s grace period before timeout
+3. Retry button calls `payments-core` with `action: 'retry'` → `mobile-retry-payment` (exists)
+
+**PaymentCallback Flow (legacy/webhook return):**
+1. Polls `payments-core` with `action: 'verify'` → forwards to `mobile-verify-payment` (exists)
+2. On success, redirects to `/payment-success-shop` via `window.location.href`
+3. Max 60 polls at 5s intervals (5 minutes)
+
+### Edge Functions Verified
+
+All forwarded function targets exist:
+- `select-payment-provider` ✓
+- `mobile-verify-payment` ✓
+- `mobile-retry-payment` ✓
+- `payment-status` ✓
+- `verify-payment` ✓
+- `get-payment-providers` ✓
+
+### CORS Headers Verified
+
+Both `payments-core` and `payments-provider` include the full required header set including `x-supabase-client-platform`, `x-supabase-client-runtime`, etc.
+
+### Idempotency Verified
+
+- `select-payment-provider` checks `payment_attempts` for existing active records
+- `PaymentPending` uses `cartClearedRef` to prevent double cart clearing
+- `PaymentSuccess` uses `cartClearedRef` similarly
+- Terminal status checks are case-insensitive in webhook handler
+
+### Previous Fixes Verified (Already Applied)
+
+- `CardPayment.tsx` line 144: navigates to `/my-orders` (not `/shop/orders/`) ✓
+- `PaymentResult.tsx` line 67: links to `/my-orders` (not `/shop/orders`) ✓
+
+### Conclusion
+
+**No new bugs or issues found.** The payment flow is correctly wired for both Stripe and PawaPay on web and mobile. All routes resolve correctly, all edge functions exist and are reachable, CORS headers are complete, idempotency guards are in place, and cart clearing happens exactly once per successful payment.
+
+No code changes are needed.
+

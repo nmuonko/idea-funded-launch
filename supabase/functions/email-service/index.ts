@@ -326,9 +326,29 @@ function buildCartRecoveryHtml(opts: {
 }
 
 async function handleCartRecovery(body: any, _userId: string | undefined): Promise<Response> {
-  const { hoursThreshold = 48, language = 'fr', preview = false } = body;
+  const { hoursThreshold = 48, language = 'fr', preview = false, preview_html = false } = body;
 
   const lang: CartRecoveryLang = ['fr', 'en', 'sw', 'ln'].includes(language) ? language : 'fr';
+
+  // If preview_html is requested, return a sample email without querying real orders
+  if (preview_html) {
+    const strings = CART_RECOVERY_STRINGS[lang];
+    const sampleHtml = buildCartRecoveryHtml({
+      strings,
+      customerName: 'Jean Dupont',
+      itemCount: 3,
+      totalUsd: 245.99,
+      items: [
+        { title: 'Wax Print Fabric (6 yards)', image_url: undefined, quantity: 2 },
+        { title: 'Shea Butter - 500g', image_url: undefined, quantity: 1 },
+        { title: 'Palm Oil - 1L', image_url: undefined, quantity: 1 },
+      ],
+      cartUrl: 'https://afrishop-usa.com/cart',
+      whatsappUrl: 'https://wa.me/243973141627?text=Hi',
+      supportEmail: 'nkadimisha@afrishop-usa.com',
+    });
+    return jsonRes({ ok: true, html: sampleHtml, subject: strings.subject });
+  }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;

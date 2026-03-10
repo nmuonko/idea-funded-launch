@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Send, Eye, Bell, Users } from 'lucide-react';
+import { Loader2, Send, Eye, Bell, Users, ExternalLink } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -43,23 +43,41 @@ export function CartRecoveryDialog({ open, onOpenChange }: CartRecoveryDialogPro
   const [hoursThreshold, setHoursThreshold] = useState('48');
   const [emailLanguage, setEmailLanguage] = useState('fr');
   const [previewCount, setPreviewCount] = useState<number | null>(null);
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [sending, setSending] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const handlePreview = async () => {
     try {
       setPreviewing(true);
       setPreviewCount(null);
-      const { data, error } = await supabase.functions.invoke('email-service', {
-        body: {
-          type: 'abandoned_cart_recovery',
-          hoursThreshold: Number(hoursThreshold),
-          language: emailLanguage,
-          preview: true,
-        },
-      });
-      if (error) throw error;
-      setPreviewCount(data?.count ?? 0);
+      setPreviewHtml(null);
+
+      // Fetch count and sample HTML in parallel
+      const [countRes, htmlRes] = await Promise.all([
+        supabase.functions.invoke('email-service', {
+          body: {
+            type: 'abandoned_cart_recovery',
+            hoursThreshold: Number(hoursThreshold),
+            language: emailLanguage,
+            preview: true,
+          },
+        }),
+        supabase.functions.invoke('email-service', {
+          body: {
+            type: 'abandoned_cart_recovery',
+            language: emailLanguage,
+            preview_html: true,
+          },
+        }),
+      ]);
+
+      if (countRes.error) throw countRes.error;
+      if (htmlRes.error) throw htmlRes.error;
+
+      setPreviewCount(countRes.data?.count ?? 0);
+      setPreviewHtml(htmlRes.data?.html || null);
     } catch (err: any) {
       toast({
         title: appLang === 'fr' ? 'Erreur' : 'Error',
@@ -69,6 +87,14 @@ export function CartRecoveryDialog({ open, onOpenChange }: CartRecoveryDialogPro
     } finally {
       setPreviewing(false);
     }
+  };
+
+  const handleOpenInNewTab = () => {
+    if (!previewHtml) return;
+    const blob = new Blob([previewHtml], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
 
   const handleSend = async () => {
@@ -103,7 +129,7 @@ export function CartRecoveryDialog({ open, onOpenChange }: CartRecoveryDialogPro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Bell className="h-5 w-5 text-amber-500" />
@@ -122,7 +148,7 @@ export function CartRecoveryDialog({ open, onOpenChange }: CartRecoveryDialogPro
             <Label>
               {appLang === 'fr' ? 'Commandes inactives depuis' : 'Orders inactive for'}
             </Label>
-            <Select value={hoursThreshold} onValueChange={(v) => { setHoursThreshold(v); setPreviewCount(null); }}>
+            <Select value={hoursThreshold} onValueChange={(v) => { setHoursThreshold(v); setPreviewCount(null); setPreviewHtml(null); }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -139,7 +165,7 @@ export function CartRecoveryDialog({ open, onOpenChange }: CartRecoveryDialogPro
             <Label>
               {appLang === 'fr' ? 'Langue de l\'email' : 'Email language'}
             </Label>
-            <Select value={emailLanguage} onValueChange={setEmailLanguage}>
+            <Select value={emailLanguage} onValueChange={(v) => { setEmailLanguage(v); setPreviewHtml(null); }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -151,7 +177,7 @@ export function CartRecoveryDialog({ open, onOpenChange }: CartRecoveryDialogPro
             </Select>
           </div>
 
-          {/* Preview result */}
+          {/* Preview result - count */}
           {previewCount !== null && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3">
               <Users className="h-5 w-5 text-amber-600" />
@@ -161,6 +187,35 @@ export function CartRecoveryDialog({ open, onOpenChange }: CartRecoveryDialogPro
                   ? `client(s) éligible(s) recevront un rappel`
                   : `eligible customer(s) will receive a reminder`}
               </span>
+            </div>
+          )}
+
+          {/* Email HTML preview */}
+          {previewHtml && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">
+                  {appLang === 'fr' ? 'Aperçu de l\'email' : 'Email Preview'}
+                </Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleOpenInNewTab}
+                  className="gap-1 text-xs h-7"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {appLang === 'fr' ? 'Ouvrir dans un nouvel onglet' : 'Open in new tab'}
+                </Button>
+              </div>
+              <div className="border rounded-lg overflow-hidden bg-white">
+                <iframe
+                  ref={iframeRef}
+                  srcDoc={previewHtml}
+                  className="w-full h-[400px] border-0"
+                  sandbox="allow-same-origin"
+                  title="Email preview"
+                />
+              </div>
             </div>
           )}
         </div>

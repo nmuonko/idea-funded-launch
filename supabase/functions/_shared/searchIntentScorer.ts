@@ -110,6 +110,12 @@ function scoreOne(
     return null; // Drop shoes, clothing, jewelry etc. from phone/gaming searches
   }
 
+  // ── MODEL TOKENS: single chars that are model identifiers (z, x, s, 3, 5, etc.) ──
+  // These should participate in bigram/phrase matching even though they're short
+  const MODEL_SINGLE_CHARS = new Set(["z","x","s","3","4","5","6","7","8","9","2","1","a","e"]);
+  const isModelToken = (t: string) => t.length >= 2 || (t.length === 1 && MODEL_SINGLE_CHARS.has(t.toLowerCase()));
+  const allScoringTokens = qTokens.filter(t => isModelToken(t) && !SCORING_STOPLIST.has(t));
+
   // ── BASE SCORE: query-token match (word-boundary) ────────────────────────
   let score = 0;
   const meaningfulQTokens = qTokens.filter(t => t.length >= 2 && !SCORING_STOPLIST.has(t));
@@ -120,27 +126,30 @@ function scoreOne(
       matchedTokenCount++;
     }
   }
+  // Also check single-char model tokens
+  for (const tok of allScoringTokens) {
+    if (tok.length === 1 && tokenMatchesBoundary(title, tok)) {
+      score += 2; // Slightly less for single chars
+      matchedTokenCount++;
+    }
+  }
 
   // ── EXACT FULL-QUERY MATCH ──────────────────────────────────────────────
-  // If the entire query appears as a substring in the title, massive boost
-  const fullQuery = qTokens.filter(t => t.length >= 2).join(" ");
+  const fullQuery = allScoringTokens.join(" ");
   if (fullQuery.length >= 5 && title.includes(fullQuery)) {
     score += 40;
   }
 
-  // ── PHRASE / MULTI-TOKEN BOOST ──────────────────────────────────────────
-  // Consecutive query tokens appearing together in the title get a big boost.
-  // This ensures "galaxy fold 3" ranks "Galaxy Z Fold 3" much higher than "Galaxy S25".
-  for (let i = 0; i < qTokens.length - 1; i++) {
-    const a = qTokens[i], b = qTokens[i + 1];
-    if (a.length < 2 || b.length < 2) continue;
+  // ── PHRASE / MULTI-TOKEN BOOST (includes model chars like z, 3) ──────────
+  for (let i = 0; i < allScoringTokens.length - 1; i++) {
+    const a = allScoringTokens[i], b = allScoringTokens[i + 1];
     if (SCORING_STOPLIST.has(a) || SCORING_STOPLIST.has(b)) continue;
     const bigram = `${a} ${b}`;
     if (title.includes(bigram)) score += 10;
     // Trigram
-    if (i < qTokens.length - 2) {
-      const c = qTokens[i + 2];
-      if (c.length >= 2 && !SCORING_STOPLIST.has(c)) {
+    if (i < allScoringTokens.length - 2) {
+      const c = allScoringTokens[i + 2];
+      if (!SCORING_STOPLIST.has(c)) {
         const trigram = `${a} ${b} ${c}`;
         if (title.includes(trigram)) score += 15;
       }
@@ -148,29 +157,27 @@ function scoreOne(
   }
 
   // ── GAP-AWARE PHRASE MATCHING ───────────────────────────────────────────
-  // Matches "fold 3" in "Z Fold 3" even when tokens aren't consecutive in the query.
-  // Also matches "galaxy fold" in "Galaxy Z Fold" (with 1-word gap in title).
-  for (let i = 0; i < meaningfulQTokens.length - 1; i++) {
-    for (let j = i + 1; j < meaningfulQTokens.length && j <= i + 3; j++) {
-      const a = meaningfulQTokens[i], b = meaningfulQTokens[j];
-      // Check if a and b appear within 3 words of each other in title
+  // Matches "galaxy fold" in "Galaxy Z Fold" (with gap) and "fold 3" in "Fold 3"
+  for (let i = 0; i < allScoringTokens.length - 1; i++) {
+    for (let j = i + 1; j < allScoringTokens.length && j <= i + 3; j++) {
+      const a = allScoringTokens[i], b = allScoringTokens[j];
+      if (a === b) continue;
+      // Direct adjacency or 1-2 word gap in title
       const gapRe = new RegExp(`\\b${escapeRe(a)}\\b(?:\\s+\\S+){0,2}\\s+\\b${escapeRe(b)}\\b`, 'i');
       if (gapRe.test(title)) {
-        score += 6; // Gap-aware proximity bonus
+        score += 8; // Gap-aware proximity bonus
       }
     }
   }
 
   // ── TOKEN COVERAGE BONUS ────────────────────────────────────────────────
-  // Items matching ALL query tokens get a massive relevance boost
-  if (meaningfulQTokens.length >= 2 && matchedTokenCount === meaningfulQTokens.length) {
+  if (meaningfulQTokens.length >= 2 && matchedTokenCount >= allScoringTokens.length) {
     score += 25; // Perfect match — all tokens present
   } else if (meaningfulQTokens.length >= 3 && matchedTokenCount >= meaningfulQTokens.length - 1) {
     score += 12; // Near-perfect — missing only 1 token
   }
 
   // ── COVERAGE RATIO PENALTY ──────────────────────────────────────────────
-  // If the query has many specific tokens but the item only matches a few, penalize
   if (meaningfulQTokens.length >= 3 && matchedTokenCount <= 1) {
     score -= 15; // Weak match — likely irrelevant
   }

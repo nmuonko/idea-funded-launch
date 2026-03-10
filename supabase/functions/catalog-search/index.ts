@@ -364,9 +364,11 @@ Deno.serve(async (req: Request) => {
     let qNorm = searchMeta.rewrittenQuery;
 
     // If preNormalizer already matched, use its effectiveQuery as qNorm and skip translation
+    // BUT: if dynamic normalizer already improved it (token+keepQuery case), use that instead
     if (preNorm.matched) {
-      qNorm = preNorm.effectiveQuery;
-      searchMeta.rewrittenQuery = preNorm.effectiveQuery;
+      const dynamicAlreadyApplied = searchMeta.rewrittenQuery !== preNorm.effectiveQuery && preNorm.matchRule?.includes(":token:");
+      qNorm = dynamicAlreadyApplied ? searchMeta.rewrittenQuery : preNorm.effectiveQuery;
+      searchMeta.rewrittenQuery = qNorm;
       searchMeta.rewriteApplied = true;
     }
 

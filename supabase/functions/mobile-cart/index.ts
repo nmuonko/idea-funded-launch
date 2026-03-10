@@ -41,6 +41,7 @@ import {
   detectStore as cartDetectStore,
   isVehicleItem,
   normalizeProductUrl,
+  canonicalizeProductUrl,
   getOrCreateSingleDraftOrder,
 } from "../_shared/cartHelpers.ts";
 import {

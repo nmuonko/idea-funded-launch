@@ -116,9 +116,16 @@ function scoreOne(
   let matchedTokenCount = 0;
   for (const tok of meaningfulQTokens) {
     if (tokenMatchesBoundary(title, tok)) {
-      score += 2;
+      score += 3;
       matchedTokenCount++;
     }
+  }
+
+  // ── EXACT FULL-QUERY MATCH ──────────────────────────────────────────────
+  // If the entire query appears as a substring in the title, massive boost
+  const fullQuery = qTokens.filter(t => t.length >= 2).join(" ");
+  if (fullQuery.length >= 5 && title.includes(fullQuery)) {
+    score += 40;
   }
 
   // ── PHRASE / MULTI-TOKEN BOOST ──────────────────────────────────────────
@@ -129,24 +136,43 @@ function scoreOne(
     if (a.length < 2 || b.length < 2) continue;
     if (SCORING_STOPLIST.has(a) || SCORING_STOPLIST.has(b)) continue;
     const bigram = `${a} ${b}`;
-    if (title.includes(bigram)) score += 8;
-    // Also check with gap (e.g. "galaxy z fold" matches "galaxy" + "fold")
+    if (title.includes(bigram)) score += 10;
+    // Trigram
     if (i < qTokens.length - 2) {
       const c = qTokens[i + 2];
       if (c.length >= 2 && !SCORING_STOPLIST.has(c)) {
         const trigram = `${a} ${b} ${c}`;
-        if (title.includes(trigram)) score += 12;
-        // Gap trigram: a + ? + c (e.g. "galaxy z fold" for tokens ["galaxy","fold"])
+        if (title.includes(trigram)) score += 15;
+      }
+    }
+  }
+
+  // ── GAP-AWARE PHRASE MATCHING ───────────────────────────────────────────
+  // Matches "fold 3" in "Z Fold 3" even when tokens aren't consecutive in the query.
+  // Also matches "galaxy fold" in "Galaxy Z Fold" (with 1-word gap in title).
+  for (let i = 0; i < meaningfulQTokens.length - 1; i++) {
+    for (let j = i + 1; j < meaningfulQTokens.length && j <= i + 3; j++) {
+      const a = meaningfulQTokens[i], b = meaningfulQTokens[j];
+      // Check if a and b appear within 3 words of each other in title
+      const gapRe = new RegExp(`\\b${escapeRe(a)}\\b(?:\\s+\\S+){0,2}\\s+\\b${escapeRe(b)}\\b`, 'i');
+      if (gapRe.test(title)) {
+        score += 6; // Gap-aware proximity bonus
       }
     }
   }
 
   // ── TOKEN COVERAGE BONUS ────────────────────────────────────────────────
   // Items matching ALL query tokens get a massive relevance boost
-  if (meaningfulQTokens.length >= 3 && matchedTokenCount === meaningfulQTokens.length) {
-    score += 20; // Perfect match — all tokens present
+  if (meaningfulQTokens.length >= 2 && matchedTokenCount === meaningfulQTokens.length) {
+    score += 25; // Perfect match — all tokens present
   } else if (meaningfulQTokens.length >= 3 && matchedTokenCount >= meaningfulQTokens.length - 1) {
-    score += 10; // Near-perfect — missing only 1 token
+    score += 12; // Near-perfect — missing only 1 token
+  }
+
+  // ── COVERAGE RATIO PENALTY ──────────────────────────────────────────────
+  // If the query has many specific tokens but the item only matches a few, penalize
+  if (meaningfulQTokens.length >= 3 && matchedTokenCount <= 1) {
+    score -= 15; // Weak match — likely irrelevant
   }
 
   // ── INTENT-SPECIFIC SCORING ─────────────────────────────────────────

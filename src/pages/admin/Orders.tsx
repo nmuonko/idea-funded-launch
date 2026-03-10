@@ -64,7 +64,7 @@ export default function AdminOrders() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
-  const [sendingCartRecovery, setSendingCartRecovery] = useState(false);
+  const [cartRecoveryOpen, setCartRecoveryOpen] = useState(false);
 
   // Filter orders based on search query and date range
   const filteredOrders = useMemo(() => {

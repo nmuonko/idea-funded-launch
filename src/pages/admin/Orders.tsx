@@ -1185,6 +1185,7 @@ export default function AdminOrders() {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    <CartRecoveryDialog open={cartRecoveryOpen} onOpenChange={setCartRecoveryOpen} />
     </>
   );
 }

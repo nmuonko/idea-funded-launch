@@ -141,7 +141,7 @@ async function getStripePromise(forceReload = false): Promise<Stripe | null> {
            title: 'Payment Processing',
            description: 'Your payment is being processed. Check your orders for status.',
          });
-         navigate(`/shop/orders/${orderId}`);
+         navigate(`/my-orders`);
        }
      } catch (err: any) {
        console.error('Payment error:', err);

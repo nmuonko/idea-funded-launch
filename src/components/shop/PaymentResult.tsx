@@ -64,7 +64,7 @@ export function PaymentResult({ success, orderId, errorMessage, onRetry }: Payme
           transition={{ delay: 0.5 }}
           className="flex flex-col sm:flex-row gap-3 w-full max-w-sm"
         >
-          <Link to={`/shop/orders`} className="flex-1">
+          <Link to="/my-orders" className="flex-1">
             <Button className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full">
               {shop.viewOrder || 'View Order'}
               <ArrowRight className="h-4 w-4 ml-2" />

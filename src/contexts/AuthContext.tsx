@@ -515,7 +515,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       toast({
         title: 'Success',
-        description: 'Account created! Please check your email to verify your account.',
+        description: 'Account created successfully! You are now signed in.',
       });
       
       return { error: null };

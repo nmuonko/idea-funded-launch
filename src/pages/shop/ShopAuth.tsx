@@ -762,48 +762,6 @@ export default function ShopAuth() {
             </motion.form>
           )}
 
-          {/* Email Verification Screen */}
-          {mode === 'verify' && (
-            <motion.div
-              key="verify"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="w-full max-w-sm text-center space-y-6"
-            >
-              <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto">
-                <Mail className="h-8 w-8 text-blue-400" />
-              </div>
-
-              <div className="space-y-2">
-                <h2 className="text-2xl font-bold text-white">{auth.verifyEmail || 'Check your email'}</h2>
-                <p className="text-white/60">
-                  {auth.verifyEmailSent || 'We sent a verification link to'}{' '}
-                  <span className="text-white">{email}</span>
-                </p>
-              </div>
-
-              <Button
-                onClick={handleResendVerification}
-                disabled={loading}
-                variant="outline"
-                className="w-full h-12 border-white/20 text-white hover:bg-white/10 rounded-full"
-              >
-                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : auth.resendVerification || 'Resend Verification'}
-              </Button>
-
-              <p className="text-sm text-white/50">
-                {auth.checkSpam || "Check your spam folder if you don't see it"}
-              </p>
-
-              <button
-                onClick={() => setMode('signin')}
-                className="text-white/60 hover:text-white text-sm"
-              >
-                ← {auth.backToSignIn || 'Back to Sign In'}
-              </button>
-            </motion.div>
-          )}
         </AnimatePresence>
       </main>
     </div>

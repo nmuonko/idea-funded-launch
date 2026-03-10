@@ -231,36 +231,6 @@ export default function Profile() {
           <ArrowLeft className="h-4 w-4" />
           Retour au menu principal
         </Link>
-        {/* Email Verification Banner */}
-        {user && !user.email_confirmed_at && (
-          <Alert className="mb-6 border-amber-500 bg-amber-50 dark:bg-amber-950">
-            <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-            <AlertDescription className="flex items-center justify-between">
-              <span className="text-amber-800 dark:text-amber-200">
-                Please verify your email address to access all features.
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleResendVerification}
-                disabled={sendingVerification}
-                className="ml-4 border-amber-600 text-amber-700 hover:bg-amber-100 dark:border-amber-400 dark:text-amber-300"
-              >
-                {sendingVerification ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  <>
-                    <Mail className="mr-2 h-4 w-4" />
-                    Resend Email
-                  </>
-                )}
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
 
         <Card>
           <CardHeader>

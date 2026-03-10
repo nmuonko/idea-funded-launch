@@ -593,24 +593,19 @@ serve(async (req) => {
       case 'update_profile_web': return handleUpdateProfileWeb(payload, req);
       case 'create_referrer': return proxyAuthToFunction('create-referrer', req, body);
       case 'confirm_all_users': {
-        const adminClient = createServiceClient();
+        const svc = createServiceClient();
+        // List all users (no pagination params for compatibility)
+        const { data: userData, error: listErr } = await svc.auth.admin.listUsers();
+        if (listErr) return jsonRes({ ok: false, error: listErr.message }, 500);
+        const allUsers = userData?.users || [];
         let confirmed = 0;
-        let page = 1;
-        while (true) {
-          const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 100 });
-          if (error) return jsonRes({ ok: false, error: error.message }, 500);
-          const users = data?.users || [];
-          if (users.length === 0) break;
-          for (const u of users) {
-            if (!u.email_confirmed_at) {
-              await adminClient.auth.admin.updateUserById(u.id, { email_confirm: true });
-              confirmed++;
-            }
+        for (const u of allUsers) {
+          if (!u.email_confirmed_at) {
+            const { error: updErr } = await svc.auth.admin.updateUserById(u.id, { email_confirm: true });
+            if (!updErr) confirmed++;
           }
-          if (users.length < 100) break;
-          page++;
         }
-        return jsonRes({ ok: true, confirmed });
+        return jsonRes({ ok: true, confirmed, total: allUsers.length });
       }
       default: return jsonRes({ ok: false, error: 'Unknown action' }, 400);
     }

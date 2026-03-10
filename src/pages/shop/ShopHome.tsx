@@ -482,6 +482,31 @@ export default function ShopHome() {
     }
   }, []);
 
+  // Full retry: clears all caches, resets state, re-fetches everything
+  const handleFullRetry = useCallback(() => {
+    // 1. Clear ALL caches (localStorage + memory)
+    clearAllCatalogCache();
+
+    // 2. Reset all state
+    setAccueilProducts([]);
+    setCategoryItems({});
+    setPinnedByCategory({});
+    setRecentlyViewed([]);
+    setError(null);
+    setCategoryLoadingMap(() => {
+      const init: Record<string, boolean> = {};
+      ALL_HOMEPAGE_CATEGORIES.forEach(k => { init[k] = true; });
+      return init;
+    });
+
+    // 3. Allow the main useEffect to re-run
+    pinnedFetchedRef.current = false;
+    fetchedRef.current = false;
+
+    // 4. Force re-mount by toggling a key (triggers useEffect)
+    setRetryCount(c => c + 1);
+  }, []);
+
   // ====== CURATED CATEGORY HELPERS ======
   const JUNK_TERMS = ['cheap', 'lot', 'bundle', 'broken', 'for repair', 'as is', 'not working'];
   const AUTO_PARTS_JUNK_TERMS = ['for parts', 'parts only', 'not working', 'broken', 'as-is', 'as is', 'read description', 'repair', 'damaged'];

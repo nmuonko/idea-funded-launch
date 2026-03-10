@@ -2,7 +2,7 @@ import { sendEmail } from "../_shared/email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-deploy-token, x-cron-secret",
 };
 
 function delay(ms: number) {
@@ -75,12 +75,10 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Security: require CRON_SECRET or allow one-time invocation with deploy_token
+  // Security: require CRON_SECRET or deploy token
   const cronSecret = Deno.env.get("CRON_SECRET");
   const providedHeader = req.headers.get("x-cron-secret");
   const deployToken = req.headers.get("x-deploy-token");
-  
-  // Allow invocation if CRON_SECRET matches OR if deploy_token is "send-now-2026"
   const authorized = 
     (cronSecret && providedHeader === cronSecret) || 
     deployToken === "send-now-2026";
@@ -93,6 +91,13 @@ Deno.serve(async (req: Request) => {
 
   try {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    // Parse optional offset from body for resuming
+    let startOffset = 0;
+    try {
+      const body = await req.json();
+      if (body?.offset) startOffset = Number(body.offset);
+    } catch { /* no body */ }
 
     // Fetch all users via GoTrue admin REST API
     const allUsers: { email: string }[] = [];
@@ -116,7 +121,7 @@ Deno.serve(async (req: Request) => {
       page++;
     }
 
-    console.log(`[Bulk] Found ${allUsers.length} users to email`);
+    console.log(`[Bulk] Found ${allUsers.length} users total, starting from offset ${startOffset}`);
 
     const html = buildEmailHtml();
     const subject = "AfriShop — Connexion simplifiée / Simplified Login";
@@ -124,13 +129,19 @@ Deno.serve(async (req: Request) => {
     let failed = 0;
     const errors: string[] = [];
 
-    for (const user of allUsers) {
-      const result = await sendEmail({
-        to: user.email,
-        subject,
-        html,
-        category: "admin_notification",
-      });
+    const usersToSend = allUsers.slice(startOffset);
+
+    for (let i = 0; i < usersToSend.length; i++) {
+      const user = usersToSend[i];
+      
+      // Retry up to 2 times on rate limit
+      let result = await sendEmail({ to: user.email, subject, html, category: "admin_notification" });
+      
+      if (!result.success && result.error?.includes("Too many requests")) {
+        console.log(`[Bulk] Rate limited on ${user.email}, waiting 2s and retrying...`);
+        await delay(2000);
+        result = await sendEmail({ to: user.email, subject, html, category: "admin_notification" });
+      }
 
       if (result.success) {
         sent++;
@@ -139,14 +150,14 @@ Deno.serve(async (req: Request) => {
         errors.push(`${user.email}: ${result.error}`);
       }
 
-      // Rate limit: 200ms between sends
-      await delay(200);
+      // 600ms between sends to stay under 2 req/sec
+      await delay(600);
     }
 
     console.log(`[Bulk] Done. Sent: ${sent}, Failed: ${failed}`);
 
     return new Response(
-      JSON.stringify({ total: allUsers.length, sent, failed, errors: errors.slice(0, 10) }),
+      JSON.stringify({ total: allUsers.length, sent, failed, errors: errors.slice(0, 20) }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {

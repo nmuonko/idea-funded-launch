@@ -112,10 +112,41 @@ function scoreOne(
 
   // ── BASE SCORE: query-token match (word-boundary) ────────────────────────
   let score = 0;
-  for (const tok of qTokens) {
-    if (tok.length < 2) continue;
-    if (SCORING_STOPLIST.has(tok)) continue;
-    if (tokenMatchesBoundary(title, tok)) score += 2;
+  const meaningfulQTokens = qTokens.filter(t => t.length >= 2 && !SCORING_STOPLIST.has(t));
+  let matchedTokenCount = 0;
+  for (const tok of meaningfulQTokens) {
+    if (tokenMatchesBoundary(title, tok)) {
+      score += 2;
+      matchedTokenCount++;
+    }
+  }
+
+  // ── PHRASE / MULTI-TOKEN BOOST ──────────────────────────────────────────
+  // Consecutive query tokens appearing together in the title get a big boost.
+  // This ensures "galaxy fold 3" ranks "Galaxy Z Fold 3" much higher than "Galaxy S25".
+  for (let i = 0; i < qTokens.length - 1; i++) {
+    const a = qTokens[i], b = qTokens[i + 1];
+    if (a.length < 2 || b.length < 2) continue;
+    if (SCORING_STOPLIST.has(a) || SCORING_STOPLIST.has(b)) continue;
+    const bigram = `${a} ${b}`;
+    if (title.includes(bigram)) score += 8;
+    // Also check with gap (e.g. "galaxy z fold" matches "galaxy" + "fold")
+    if (i < qTokens.length - 2) {
+      const c = qTokens[i + 2];
+      if (c.length >= 2 && !SCORING_STOPLIST.has(c)) {
+        const trigram = `${a} ${b} ${c}`;
+        if (title.includes(trigram)) score += 12;
+        // Gap trigram: a + ? + c (e.g. "galaxy z fold" for tokens ["galaxy","fold"])
+      }
+    }
+  }
+
+  // ── TOKEN COVERAGE BONUS ────────────────────────────────────────────────
+  // Items matching ALL query tokens get a massive relevance boost
+  if (meaningfulQTokens.length >= 3 && matchedTokenCount === meaningfulQTokens.length) {
+    score += 20; // Perfect match — all tokens present
+  } else if (meaningfulQTokens.length >= 3 && matchedTokenCount >= meaningfulQTokens.length - 1) {
+    score += 10; // Near-perfect — missing only 1 token
   }
 
   // ── INTENT-SPECIFIC SCORING ─────────────────────────────────────────

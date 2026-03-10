@@ -937,12 +937,18 @@ Deno.serve(async (req: Request) => {
     if (dbFallbackItems && dbFallbackItems.length >= DB_SUFFICIENT_THRESHOLD) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH: ${dbFallbackItems.length} items >= ${DB_SUFFICIENT_THRESHOLD} threshold — skipping providers`);
 
-      // Apply content filter + sort
+      // Apply content filter + intent scoring + sort
       const { allowed: dbFiltered } = filterDisallowedItems(
         dbFallbackItems.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
         `[DB_FAST_PATH] ${requestId}`
       );
-      const dbFinal = postSortItems(postFilterItems(dbFiltered, catalogFilters), sort);
+
+      // Apply intent-based scoring and ranking (same as main path)
+      const scoringTokens = (providerQuery || qNorm).toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
+      const scoreResult = scoreAndRankItems(dbFiltered, effectiveIntent, scoringTokens, limit);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH scoring: input=${dbFiltered.length} output=${scoreResult.items.length} dropped=${scoreResult.dropped} topScores=${JSON.stringify(scoreResult.topScores)}`);
+
+      const dbFinal = postSortItems(postFilterItems(scoreResult.items, catalogFilters), sort);
 
       // Build response
       const dbFastResponse = {

@@ -499,10 +499,9 @@ export default function ShopHome() {
     pinnedFetchedRef.current = false;
     fetchedRef.current = false;
 
-    // 4. Directly call fetchAccueilFeed with forceRefresh — this sets loading, clears errors, and uses cache-busting
+    // 4. Directly call fetchAccueilFeed with forceRefresh
     fetchAccueilFeed(true);
-    fetchCategoryItems(ALL_HOMEPAGE_CATEGORIES);
-  }, [fetchAccueilFeed, fetchCategoryItems]);
+  }, [fetchAccueilFeed]);
 
   // ====== CURATED CATEGORY HELPERS ======
   const JUNK_TERMS = ['cheap', 'lot', 'bundle', 'broken', 'for repair', 'as is', 'not working'];

@@ -222,13 +222,11 @@ function jsonResponse(data: unknown, status = 200, extraHeaders: Record<string, 
     finalHeaders["Cache-Control"] = "no-store, no-cache, must-revalidate";
     finalHeaders["Surrogate-Control"] = "no-store";
     finalHeaders["Pragma"] = "no-cache";
-  } else if (typeof data === "object" && data !== null && "ttlSeconds" in (data as Record<string, unknown>)) {
-    const ttl = (data as Record<string, unknown>).ttlSeconds;
-    // Cap cache at 5 minutes to prevent stale 404s from being cached long-term
-    const cappedTtl = typeof ttl === "number" && ttl > 0 ? Math.min(ttl, 300) : 0;
-    if (cappedTtl > 0 && !finalHeaders["Cache-Control"]) {
-      finalHeaders["Cache-Control"] = `public, max-age=${cappedTtl}`;
-    }
+  } else {
+    // Force no-store for all success responses too — prevents OkHttp/native HTTP caches
+    // from serving stale data. Server-side caching (DB) handles performance.
+    finalHeaders["Cache-Control"] = "no-store, no-cache, must-revalidate";
+    finalHeaders["Pragma"] = "no-cache";
   }
 
   return new Response(JSON.stringify(data), {

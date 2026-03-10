@@ -700,30 +700,6 @@ export default function AdminOrders() {
     selectedOrders.has(o.id) && paidStatuses.includes(o.status)
   ).length;
 
-  const handleSendCartRecovery = async () => {
-    try {
-      setSendingCartRecovery(true);
-      const { data, error } = await supabase.functions.invoke('email-service', {
-        body: { type: 'abandoned_cart_recovery' },
-      });
-      if (error) throw error;
-      const result = data as { sent?: number; skipped?: number } | null;
-      toast({
-        title: language === 'fr' ? 'Rappels envoyés' : 'Recovery emails sent',
-        description: language === 'fr'
-          ? `${result?.sent || 0} email(s) envoyé(s), ${result?.skipped || 0} ignoré(s)`
-          : `${result?.sent || 0} email(s) sent, ${result?.skipped || 0} skipped`,
-      });
-    } catch (error: any) {
-      toast({
-        title: language === 'fr' ? 'Erreur' : 'Error',
-        description: error.message || 'Failed to send cart recovery emails',
-        variant: 'destructive',
-      });
-    } finally {
-      setSendingCartRecovery(false);
-    }
-  };
 
   return (
     <>

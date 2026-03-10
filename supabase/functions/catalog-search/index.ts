@@ -908,7 +908,7 @@ Deno.serve(async (req: Request) => {
             // Always apply intent scoring to filter irrelevant items
             // Use DB-anchored tokens (canonical query) to avoid over-strict drops from AI suffixes.
             const dbQueryTokens = dbQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
-            const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, Math.max(limit, 400));
+            const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, Math.max(limit, 400), deviceIntent);
             dbItems = dbScoreResult.items as any[];
             console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_scored: before=${dbResult.items.length} after=${dbItems.length} dropped=${dbScoreResult.dropped}`);
             if (dbItems.length === 0) {

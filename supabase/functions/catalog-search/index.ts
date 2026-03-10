@@ -46,6 +46,8 @@ import { detectQueryLanguage, type LanguageDetectionResult } from "../_shared/la
 import { dynamicNormalizeQuery, type DynamicNormalizationResult } from "../_shared/dynamicQueryNormalizer.ts";
 import { expandQueryIntent } from "../_shared/intentExpander.ts";
 import { logSearchNormalization } from "../_shared/searchTelemetry.ts";
+import { evaluateFallbackGate, shouldAttemptEagerAiRewrite, type FallbackGateResult } from "../_shared/searchFallbackGate.ts";
+import { interpretQuery, type AiInterpretation } from "../_shared/aiQueryInterpreter.ts";
 
 // Extracted modules
 import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";

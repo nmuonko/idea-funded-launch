@@ -559,9 +559,10 @@ Deno.serve(async (req: Request) => {
       } catch (e) {
         console.warn(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_error: ${(e as Error).message}`);
       }
+    } else {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_GATED: skipping eager AI rewrite (directQuery=${isDirectQuery(qNorm)} preNormMatched=${preNorm.matched} lang=${langDetection.detectedLang})`);
     }
 
-    // ─── INTENT EXPANSION (dynamic synonym generation) ──────────────────────
     // Generates alternative search queries based on detected product intent.
     let intentExpansions: string[] = [];
     if (qNorm !== qOriginal || frFallbackApplied || dynamicFallbackUsed) {

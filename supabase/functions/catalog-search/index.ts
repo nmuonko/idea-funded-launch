@@ -1823,10 +1823,10 @@ Deno.serve(async (req: Request) => {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} FALLBACK_GATE_PASSED: reason=${aiFallbackResult.reason} firstPassItems=${finalItems.length}`);
     }
 
-    // ─── FINAL RE-RANKING: enforce family intent after all merges ─────────────
+    // ─── FINAL RE-RANKING: ALWAYS enforce family intent after all merges ─────
     // After sparse enrichment, DB recovery, and second-pass fallback, run a final
     // strict re-ranking pass using device intent to ensure family matches dominate top.
-    if (deviceIntent.hasStrongFamilyIntent && secondPassUsed && finalItems.length > 1) {
+    if (deviceIntent.hasStrongFamilyIntent && finalItems.length > 1) {
       const finalReScored = scoreAndRankItems(
         finalItems as unknown as Record<string, unknown>[],
         effectiveIntent, queryTokens, limit, deviceIntent,

@@ -466,12 +466,27 @@ export default function ShopHome() {
       clearAllCatalogCache();
     }
 
+    const params = {
+      page: 1,
+      pageSize: 100,
+      client: 'web',
+    };
+
     try {
-      const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
-        page: 1,
-        pageSize: 100,
-        client: 'web',
-      }, { skipCache: forceRefresh });
+      let data: HomeFeedResponse | null = null;
+
+      try {
+        data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', params, { skipCache: forceRefresh });
+      } catch (primaryErr: any) {
+        const primaryMessage = String(primaryErr?.message || '');
+        const is404 = primaryMessage.includes('404');
+
+        if (!is404) throw primaryErr;
+
+        console.warn('[ShopHome] catalog-home returned 404, retrying compatibility route /catalog/home');
+        data = await cachedCatalogFetch<HomeFeedResponse>('catalog/home', params, { skipCache: true });
+      }
+
       if (data?.sections?.length) {
         const all = data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0);
         setAccueilProducts(all);
@@ -494,6 +509,7 @@ export default function ShopHome() {
     setPinnedByCategory({});
     setRecentlyViewed([]);
     setError(null);
+    setAccueilLoading(true);
 
     // 3. Allow refs to re-run
     pinnedFetchedRef.current = false;

@@ -1971,6 +1971,19 @@ Deno.serve(async (req: Request) => {
     console.log(`[CATALOG_SEARCH][TIMING] requestId=${requestId} q="${qOriginal}" directQuery=${directQuery} total=${timings.total}ms rewrite=${timings.rewrite}ms ai=${timings.aiRefine}ms db=${timings.dbFirst}ms providers=${timings.providers}ms alt=${timings.altQueries}ms post=${timings.postProcess}ms items=${finalItems.length}`);
     console.log(`[CATALOG_SEARCH][INTENT] q="${qOriginal}" intentKey=${effectiveIntent.intentKey} providers=${finalCount} db=${dbCount} returned=${finalItems.length} topTitles=${JSON.stringify(topTitles)}`);
 
+    // ─── SEARCH TELEMETRY (fire-and-forget) ─────────────────────────────────
+    logSearchNormalization({
+      raw_query: qOriginal,
+      normalized_query: qNorm,
+      detected_language: langDetection.detectedLang,
+      static_map_matched: translateStatus === "STATIC" || translateStatus === "PRE_NORM",
+      dynamic_fallback_used: dynamicFallbackUsed,
+      ai_translation_used: aiTranslationUsed,
+      expansions: intentExpansions,
+      result_count: finalItems.length,
+      request_id: requestId,
+    });
+
     // Debug header + timing headers
     const debugObj = { providerQuery, intentKey: effectiveIntent.intentKey, dbCount, ebayStatus: ebayDebug.ok ? "ok" : ebayDebug.error, amazonStatus: amazonDebug.ok ? "ok" : amazonDebug.error, finalCount, source: searchSource, dropped: scoreResult.dropped, directQuery };
     const responseHeaders = buildResponseHeaders(finalItems.length, cacheTtlSeconds, { cacheStatus: "MISS", responseTimeMs: timings.total, timings });

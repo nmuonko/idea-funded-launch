@@ -2,19 +2,23 @@
  * AI Query Interpreter — Structured fallback for weak/ambiguous search queries.
  *
  * Called ONLY when the fallback gate determines first-pass results are insufficient.
- * Uses Lovable AI (gemini-2.5-flash-lite) with tool calling for structured output.
+ * Uses DUAL AI providers (Lovable AI + OpenAI) in a race pattern:
+ *  - Both fire simultaneously via Promise.any()
+ *  - Whichever responds first wins — zero added latency
+ *  - If one fails/times out, the other is the automatic fallback
+ *  - If both fail, returns null (graceful degradation)
  *
  * Key design:
  *  - Cache-first (search_rewrite_cache, 14-day TTL)
- *  - 1.5s hard timeout
+ *  - 1.5s hard timeout per provider
  *  - Preserves protected entities (brands, models, product codes)
  *  - Returns structured interpretation, NOT final search results
- *  - Graceful degradation: returns null on any failure
  */
 
 import { createAdminPostgrestClient } from "./postgrest.ts";
 
 const LOVABLE_AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 const INTERPRETER_TIMEOUT_MS = 1500;
 
 export interface AiInterpretation {
@@ -40,6 +44,7 @@ export interface AiInterpretation {
   search_strategy: string;
   confidence: number;
   cached: boolean;
+  ai_provider?: string;
 }
 
 const SYSTEM_PROMPT = `You are an e-commerce search query interpreter for an African marketplace (sources: Amazon, eBay).
@@ -70,9 +75,140 @@ EXAMPLES:
 - "television samsung" → intent: product_search, normalized: "samsung tv", brand: "Samsung", expanded: ["samsung tv", "samsung smart tv", "samsung television"]
 - "pc gamer asus" → intent: product_search, normalized: "asus gaming pc", brand: "Asus", expanded: ["asus gaming laptop", "asus gaming pc", "asus rog gaming"]`;
 
+const TOOL_DEFINITION = {
+  type: "function" as const,
+  function: {
+    name: "interpret_search_query",
+    description: "Return a structured interpretation of a search query for e-commerce product search.",
+    parameters: {
+      type: "object",
+      properties: {
+        language: { type: "string", enum: ["fr", "en", "mixed", "unknown"] },
+        intent: {
+          type: "string",
+          enum: ["product_search", "category_search", "brand_search", "vehicle_search", "parts_search", "unknown"],
+        },
+        normalized_query: { type: "string", description: "Clean English normalized search string (2-8 words)" },
+        protected_entities: {
+          type: "array",
+          items: { type: "string" },
+          description: "Brand names, model numbers, product codes that must be preserved exactly",
+        },
+        attributes: {
+          type: "object",
+          properties: {
+            brand: { type: "string" },
+            category: { type: "string" },
+            subcategory: { type: "string" },
+            condition: { type: "string" },
+            color: { type: "string" },
+            gender: { type: "string" },
+            vehicle_make: { type: "string" },
+            vehicle_model: { type: "string" },
+            year: { type: "string" },
+            price_intent: { type: "string" },
+            storage: { type: "string" },
+            size: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+        expanded_queries: {
+          type: "array",
+          items: { type: "string" },
+          description: "2-5 alternative search queries in English, ordered by confidence (most precise first)",
+        },
+        search_strategy: {
+          type: "string",
+          enum: ["exact_first", "broadened", "category_boost", "brand_boost", "semantic_fallback"],
+        },
+        confidence: { type: "number", description: "Confidence score 0-1" },
+      },
+      required: ["language", "intent", "normalized_query", "expanded_queries", "confidence"],
+      additionalProperties: false,
+    },
+  },
+};
+
+/** Parse tool-call response from either provider into AiInterpretation */
+function parseToolCallResponse(aiData: any, qNorm: string, provider: string): AiInterpretation {
+  const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
+  if (!toolCall?.function?.arguments) {
+    throw new Error(`No tool call in ${provider} response`);
+  }
+
+  const args = JSON.parse(toolCall.function.arguments);
+
+  return {
+    language: args.language || "unknown",
+    intent: args.intent || "product_search",
+    normalized_query: (args.normalized_query || qNorm).trim().toLowerCase(),
+    protected_entities: Array.isArray(args.protected_entities)
+      ? args.protected_entities.map((e: string) => e.trim()).filter((e: string) => e.length > 0)
+      : [],
+    attributes: args.attributes || {},
+    expanded_queries: Array.isArray(args.expanded_queries)
+      ? args.expanded_queries
+          .map((q: string) => q.trim().toLowerCase())
+          .filter((q: string) => q.length >= 2)
+          .slice(0, 5)
+      : [args.normalized_query || qNorm],
+    search_strategy: args.search_strategy || "exact_first",
+    confidence: typeof args.confidence === "number" ? args.confidence : 0.5,
+    cached: false,
+    ai_provider: provider,
+  };
+}
+
+/** Fire a single AI provider request with its own abort timeout */
+async function callProvider(
+  url: string,
+  apiKey: string,
+  model: string,
+  providerName: string,
+  userContent: string,
+  qNorm: string,
+  requestId: string,
+): Promise<AiInterpretation> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), INTERPRETER_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userContent },
+        ],
+        tools: [TOOL_DEFINITION],
+        tool_choice: { type: "function", function: { name: "interpret_search_query" } },
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`${providerName} HTTP ${response.status}: ${errText.substring(0, 200)}`);
+    }
+
+    const aiData = await response.json();
+    return parseToolCallResponse(aiData, qNorm, providerName);
+  } catch (err) {
+    clearTimeout(timeout);
+    throw err;
+  }
+}
+
 /**
  * Interpret a search query using AI. Returns structured interpretation or null on failure.
- * Always checks cache first. Caches results for 14 days.
+ * Uses dual-provider race: Lovable AI + OpenAI fire simultaneously via Promise.any().
+ * Whichever responds first wins. Zero added latency. Full failover.
  */
 export async function interpretQuery(
   rawQuery: string,
@@ -84,7 +220,7 @@ export async function interpretQuery(
   if (qNorm.length < 2) return null;
 
   try {
-    // ─── Cache check (reuse search_rewrite_cache with different cache key pattern) ──
+    // ─── Cache check ─────────────────────────────────────────────────────────
     const client = createAdminPostgrestClient();
     const cacheKey = `interp:${qNorm}:${lang}`;
 
@@ -102,130 +238,51 @@ export async function interpretQuery(
       return { ...cached[0].payload, cached: true } as AiInterpretation;
     }
 
-    // ─── Call Lovable AI ──────────────────────────────────────────────────────
+    // ─── Build provider list ─────────────────────────────────────────────────
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      console.warn(`[AI_INTERP] requestId=${requestId} LOVABLE_API_KEY not configured`);
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+
+    if (!LOVABLE_API_KEY && !OPENAI_API_KEY) {
+      console.warn(`[AI_INTERP] requestId=${requestId} NO AI keys configured`);
       return null;
     }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), INTERPRETER_TIMEOUT_MS);
 
     const userContent = categoryHint
       ? `Query: "${rawQuery}"\nUser language: "${lang}"\nCategory context: "${categoryHint}"\nFirst-pass search returned insufficient results. Interpret this query for a second-pass search.`
       : `Query: "${rawQuery}"\nUser language: "${lang}"\nFirst-pass search returned insufficient results. Interpret this query for a second-pass search.`;
 
-    const aiResponse = await fetch(LOVABLE_AI_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userContent },
-        ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "interpret_search_query",
-              description: "Return a structured interpretation of a search query for e-commerce product search.",
-              parameters: {
-                type: "object",
-                properties: {
-                  language: { type: "string", enum: ["fr", "en", "mixed", "unknown"] },
-                  intent: {
-                    type: "string",
-                    enum: ["product_search", "category_search", "brand_search", "vehicle_search", "parts_search", "unknown"],
-                  },
-                  normalized_query: { type: "string", description: "Clean English normalized search string (2-8 words)" },
-                  protected_entities: {
-                    type: "array",
-                    items: { type: "string" },
-                    description: "Brand names, model numbers, product codes that must be preserved exactly",
-                  },
-                  attributes: {
-                    type: "object",
-                    properties: {
-                      brand: { type: "string" },
-                      category: { type: "string" },
-                      subcategory: { type: "string" },
-                      condition: { type: "string" },
-                      color: { type: "string" },
-                      gender: { type: "string" },
-                      vehicle_make: { type: "string" },
-                      vehicle_model: { type: "string" },
-                      year: { type: "string" },
-                      price_intent: { type: "string" },
-                      storage: { type: "string" },
-                      size: { type: "string" },
-                    },
-                    additionalProperties: false,
-                  },
-                  expanded_queries: {
-                    type: "array",
-                    items: { type: "string" },
-                    description: "2-5 alternative search queries in English, ordered by confidence (most precise first)",
-                  },
-                  search_strategy: {
-                    type: "string",
-                    enum: ["exact_first", "broadened", "category_boost", "brand_boost", "semantic_fallback"],
-                  },
-                  confidence: { type: "number", description: "Confidence score 0-1" },
-                },
-                required: ["language", "intent", "normalized_query", "expanded_queries", "confidence"],
-                additionalProperties: false,
-              },
-            },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "interpret_search_query" } },
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
+    const providers: Promise<AiInterpretation>[] = [];
 
-    if (!aiResponse.ok) {
-      const status = aiResponse.status;
-      const errText = await aiResponse.text();
-      console.error(`[AI_INTERP] requestId=${requestId} AI error status=${status} body=${errText.substring(0, 200)}`);
+    if (LOVABLE_API_KEY) {
+      providers.push(
+        callProvider(LOVABLE_AI_URL, LOVABLE_API_KEY, "google/gemini-2.5-flash-lite", "lovable", userContent, qNorm, requestId)
+      );
+    }
+    if (OPENAI_API_KEY) {
+      providers.push(
+        callProvider(OPENAI_URL, OPENAI_API_KEY, "gpt-4o-mini", "openai", userContent, qNorm, requestId)
+      );
+    }
+
+    // ─── Race: first successful response wins ────────────────────────────────
+    let result: AiInterpretation;
+    try {
+      result = await Promise.any(providers);
+    } catch (aggErr) {
+      // All providers failed
+      const errors = (aggErr as AggregateError).errors || [];
+      for (const e of errors) {
+        const errName = (e as Error).name;
+        if (errName === "AbortError") {
+          console.warn(`[AI_INTERP] requestId=${requestId} provider timeout after ${INTERPRETER_TIMEOUT_MS}ms`);
+        } else {
+          console.warn(`[AI_INTERP] requestId=${requestId} provider error: ${(e as Error).message}`);
+        }
+      }
       return null;
     }
 
-    const aiData = await aiResponse.json();
-    const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
-
-    if (!toolCall?.function?.arguments) {
-      console.warn(`[AI_INTERP] requestId=${requestId} no tool call in response`);
-      return null;
-    }
-
-    const args = JSON.parse(toolCall.function.arguments);
-
-    const result: AiInterpretation = {
-      language: args.language || "unknown",
-      intent: args.intent || "product_search",
-      normalized_query: (args.normalized_query || qNorm).trim().toLowerCase(),
-      protected_entities: Array.isArray(args.protected_entities)
-        ? args.protected_entities.map((e: string) => e.trim()).filter((e: string) => e.length > 0)
-        : [],
-      attributes: args.attributes || {},
-      expanded_queries: Array.isArray(args.expanded_queries)
-        ? args.expanded_queries
-            .map((q: string) => q.trim().toLowerCase())
-            .filter((q: string) => q.length >= 2)
-            .slice(0, 5)
-        : [args.normalized_query || qNorm],
-      search_strategy: args.search_strategy || "exact_first",
-      confidence: typeof args.confidence === "number" ? args.confidence : 0.5,
-      cached: false,
-    };
-
-    console.log(`[AI_INTERP] requestId=${requestId} q="${rawQuery}" → normalized="${result.normalized_query}" intent=${result.intent} strategy=${result.search_strategy} expansions=${result.expanded_queries.length} conf=${result.confidence}`);
+    console.log(`[AI_INTERP] requestId=${requestId} q="${rawQuery}" → normalized="${result.normalized_query}" intent=${result.intent} strategy=${result.search_strategy} expansions=${result.expanded_queries.length} conf=${result.confidence} provider=${result.ai_provider}`);
 
     // ─── Cache result (fire-and-forget, 14-day TTL) ──────────────────────────
     const cachePayload = { ...result };
@@ -246,12 +303,7 @@ export async function interpretQuery(
 
     return result;
   } catch (err) {
-    const errName = (err as Error).name;
-    if (errName === "AbortError") {
-      console.warn(`[AI_INTERP] requestId=${requestId} timeout after ${INTERPRETER_TIMEOUT_MS}ms`);
-    } else {
-      console.warn(`[AI_INTERP] requestId=${requestId} error: ${(err as Error).message}`);
-    }
+    console.warn(`[AI_INTERP] requestId=${requestId} unexpected error: ${(err as Error).message}`);
     return null;
   }
 }

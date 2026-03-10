@@ -24,54 +24,50 @@ const DAILY_CREDIT_CAP = 5000;
 const DEFAULT_CATEGORIES_PER_RUN = 15;
 
 // ── SHEIN CATEGORY URLs ────────────────────────────────────────────────────
-// These are real SHEIN category page URLs that list products
-// Includes paginated URLs to maximize yield per category
-
-function buildPagedUrls(baseUrl: string, category: string, label: string, pages: number = 3): { url: string; category: string; label: string }[] {
-  const results = [{ url: baseUrl, category, label }];
-  for (let p = 2; p <= pages; p++) {
-    const separator = baseUrl.includes("?") ? "&" : "?";
-    results.push({ url: `${baseUrl}${separator}page=${p}`, category, label: `${label}_p${p}` });
-  }
-  return results;
-}
+// Each category page yields ~20 unique products per scrape
 
 const CATEGORY_URLS: { url: string; category: string; label: string }[] = [
-  // Women's Dresses (high-yield categories with pagination)
-  ...buildPagedUrls("https://us.shein.com/Women-Dresses-c-1727.html", "clothing_shoes", "women_dresses", 5),
-  ...buildPagedUrls("https://us.shein.com/Women-Bodycon-Dresses-c-4464.html", "clothing_shoes", "bodycon_dresses", 3),
-  ...buildPagedUrls("https://us.shein.com/Women-A-Line-Dresses-c-4465.html", "clothing_shoes", "aline_dresses", 3),
-  ...buildPagedUrls("https://us.shein.com/Women-Maxi-Dresses-c-2340.html", "clothing_shoes", "maxi_dresses", 3),
+  // Women's Dresses
+  { url: "https://us.shein.com/Women-Dresses-c-1727.html", category: "clothing_shoes", label: "women_dresses" },
+  { url: "https://us.shein.com/Women-Bodycon-Dresses-c-4464.html", category: "clothing_shoes", label: "bodycon_dresses" },
+  { url: "https://us.shein.com/Women-A-Line-Dresses-c-4465.html", category: "clothing_shoes", label: "aline_dresses" },
+  { url: "https://us.shein.com/Women-Maxi-Dresses-c-2340.html", category: "clothing_shoes", label: "maxi_dresses" },
   { url: "https://us.shein.com/Women-Mini-Dresses-c-4463.html", category: "clothing_shoes", label: "mini_dresses" },
   { url: "https://us.shein.com/Women-Midi-Dresses-c-4462.html", category: "clothing_shoes", label: "midi_dresses" },
+  { url: "https://us.shein.com/Women-Shirt-Dresses-c-4466.html", category: "clothing_shoes", label: "shirt_dresses" },
+  { url: "https://us.shein.com/Women-Wrap-Dresses-c-14752.html", category: "clothing_shoes", label: "wrap_dresses" },
 
-  // Women's Tops (with pagination)
-  ...buildPagedUrls("https://us.shein.com/Women-Blouses-c-1733.html", "clothing_shoes", "women_blouses", 4),
-  ...buildPagedUrls("https://us.shein.com/Women-T-Shirts-c-1738.html", "clothing_shoes", "women_tshirts", 4),
-  ...buildPagedUrls("https://us.shein.com/Women-Tank-Tops-Camis-c-2223.html", "clothing_shoes", "women_tanks", 3),
+  // Women's Tops
+  { url: "https://us.shein.com/Women-Blouses-c-1733.html", category: "clothing_shoes", label: "women_blouses" },
+  { url: "https://us.shein.com/Women-T-Shirts-c-1738.html", category: "clothing_shoes", label: "women_tshirts" },
+  { url: "https://us.shein.com/Women-Tank-Tops-Camis-c-2223.html", category: "clothing_shoes", label: "women_tanks" },
   { url: "https://us.shein.com/Women-Bodysuits-c-5765.html", category: "clothing_shoes", label: "women_bodysuits" },
   { url: "https://us.shein.com/Women-Crop-Tops-c-4606.html", category: "clothing_shoes", label: "women_crop_tops" },
   { url: "https://us.shein.com/Women-Graphic-Tees-c-12204.html", category: "clothing_shoes", label: "women_graphic_tees" },
+  { url: "https://us.shein.com/Women-Tube-Tops-c-12235.html", category: "clothing_shoes", label: "women_tube_tops" },
 
-  // Women's Bottoms (with pagination)
-  ...buildPagedUrls("https://us.shein.com/Women-Jeans-c-1888.html", "clothing_shoes", "women_jeans", 3),
-  ...buildPagedUrls("https://us.shein.com/Women-Skirts-c-1732.html", "clothing_shoes", "women_skirts", 3),
-  ...buildPagedUrls("https://us.shein.com/Women-Pants-c-1740.html", "clothing_shoes", "women_pants", 3),
+  // Women's Bottoms
+  { url: "https://us.shein.com/Women-Jeans-c-1888.html", category: "clothing_shoes", label: "women_jeans" },
+  { url: "https://us.shein.com/Women-Skirts-c-1732.html", category: "clothing_shoes", label: "women_skirts" },
+  { url: "https://us.shein.com/Women-Pants-c-1740.html", category: "clothing_shoes", label: "women_pants" },
   { url: "https://us.shein.com/Women-Shorts-c-1912.html", category: "clothing_shoes", label: "women_shorts" },
   { url: "https://us.shein.com/Women-Leggings-c-1741.html", category: "clothing_shoes", label: "women_leggings" },
   { url: "https://us.shein.com/Women-Wide-Leg-Pants-c-11766.html", category: "clothing_shoes", label: "women_wide_leg" },
+  { url: "https://us.shein.com/Women-Cargo-Pants-c-12208.html", category: "clothing_shoes", label: "women_cargo" },
 
   // Women's Outerwear
-  ...buildPagedUrls("https://us.shein.com/Women-Jackets-Coats-c-1735.html", "clothing_shoes", "women_jackets", 3),
+  { url: "https://us.shein.com/Women-Jackets-Coats-c-1735.html", category: "clothing_shoes", label: "women_jackets" },
   { url: "https://us.shein.com/Women-Sweaters-c-1734.html", category: "clothing_shoes", label: "women_sweaters" },
   { url: "https://us.shein.com/Women-Hoodies-Sweatshirts-c-2219.html", category: "clothing_shoes", label: "women_hoodies" },
   { url: "https://us.shein.com/Women-Cardigans-c-2217.html", category: "clothing_shoes", label: "women_cardigans" },
+  { url: "https://us.shein.com/Women-Blazers-c-2218.html", category: "clothing_shoes", label: "women_blazers" },
 
   // Women's Lingerie & Sleepwear
   { url: "https://us.shein.com/Women-Lingerie-Sleep-Lounge-c-1862.html", category: "clothing_shoes", label: "women_lingerie" },
   { url: "https://us.shein.com/Women-Bras-c-2370.html", category: "clothing_shoes", label: "women_bras" },
   { url: "https://us.shein.com/Women-Panties-c-2371.html", category: "clothing_shoes", label: "women_panties" },
   { url: "https://us.shein.com/Women-Pajama-Sets-c-2373.html", category: "clothing_shoes", label: "women_pajamas" },
+  { url: "https://us.shein.com/Women-Robes-c-5768.html", category: "clothing_shoes", label: "women_robes" },
 
   // Women's Swimwear
   { url: "https://us.shein.com/Women-Bikinis-c-2193.html", category: "clothing_shoes", label: "women_bikinis" },
@@ -82,61 +78,81 @@ const CATEGORY_URLS: { url: string; category: string; label: string }[] = [
   { url: "https://us.shein.com/Women-Sports-Bras-c-2310.html", category: "clothing_shoes", label: "sports_bras" },
   { url: "https://us.shein.com/Women-Yoga-c-5787.html", category: "clothing_shoes", label: "yoga_wear" },
   { url: "https://us.shein.com/Women-Sports-Leggings-c-11786.html", category: "clothing_shoes", label: "sports_leggings" },
+  { url: "https://us.shein.com/Women-Sports-Tops-c-11785.html", category: "clothing_shoes", label: "sports_tops" },
 
-  // Shoes (with pagination)
-  ...buildPagedUrls("https://us.shein.com/Women-Heels-c-1750.html", "clothing_shoes", "women_heels", 3),
-  ...buildPagedUrls("https://us.shein.com/Women-Sandals-c-1751.html", "clothing_shoes", "women_sandals", 3),
-  ...buildPagedUrls("https://us.shein.com/Women-Sneakers-c-2150.html", "clothing_shoes", "women_sneakers", 3),
+  // Sets & Jumpsuits
+  { url: "https://us.shein.com/Women-Two-Piece-Outfits-c-2207.html", category: "clothing_shoes", label: "women_twopiece" },
+  { url: "https://us.shein.com/Women-Jumpsuits-c-1860.html", category: "clothing_shoes", label: "women_jumpsuits" },
+  { url: "https://us.shein.com/Women-Rompers-c-6042.html", category: "clothing_shoes", label: "women_rompers" },
+
+  // Shoes
+  { url: "https://us.shein.com/Women-Heels-c-1750.html", category: "clothing_shoes", label: "women_heels" },
+  { url: "https://us.shein.com/Women-Sandals-c-1751.html", category: "clothing_shoes", label: "women_sandals" },
+  { url: "https://us.shein.com/Women-Sneakers-c-2150.html", category: "clothing_shoes", label: "women_sneakers" },
   { url: "https://us.shein.com/Women-Boots-c-1748.html", category: "clothing_shoes", label: "women_boots" },
   { url: "https://us.shein.com/Women-Flats-c-1749.html", category: "clothing_shoes", label: "women_flats" },
   { url: "https://us.shein.com/Women-Slippers-c-2151.html", category: "clothing_shoes", label: "women_slippers" },
+  { url: "https://us.shein.com/Women-Pumps-c-5789.html", category: "clothing_shoes", label: "women_pumps" },
 
-  // Bags (with pagination)
-  ...buildPagedUrls("https://us.shein.com/Women-Crossbody-Bags-c-2155.html", "clothing_shoes", "crossbody_bags", 3),
-  ...buildPagedUrls("https://us.shein.com/Women-Tote-Bags-c-2154.html", "clothing_shoes", "tote_bags", 3),
+  // Bags
+  { url: "https://us.shein.com/Women-Crossbody-Bags-c-2155.html", category: "clothing_shoes", label: "crossbody_bags" },
+  { url: "https://us.shein.com/Women-Tote-Bags-c-2154.html", category: "clothing_shoes", label: "tote_bags" },
   { url: "https://us.shein.com/Women-Backpacks-c-2158.html", category: "clothing_shoes", label: "backpacks" },
   { url: "https://us.shein.com/Women-Clutches-c-2156.html", category: "clothing_shoes", label: "clutches" },
   { url: "https://us.shein.com/Women-Wallets-c-2160.html", category: "clothing_shoes", label: "wallets" },
+  { url: "https://us.shein.com/Women-Shoulder-Bags-c-2153.html", category: "clothing_shoes", label: "shoulder_bags" },
 
   // Accessories
-  ...buildPagedUrls("https://us.shein.com/Women-Jewelry-c-1761.html", "clothing_shoes", "women_jewelry", 3),
+  { url: "https://us.shein.com/Women-Jewelry-c-1761.html", category: "clothing_shoes", label: "women_jewelry" },
   { url: "https://us.shein.com/Women-Hair-Accessories-c-1874.html", category: "clothing_shoes", label: "hair_accessories" },
   { url: "https://us.shein.com/Women-Sunglasses-c-1770.html", category: "clothing_shoes", label: "sunglasses" },
   { url: "https://us.shein.com/Women-Watches-c-1773.html", category: "clothing_shoes", label: "watches" },
   { url: "https://us.shein.com/Women-Scarves-c-1872.html", category: "clothing_shoes", label: "scarves" },
   { url: "https://us.shein.com/Women-Belts-c-1875.html", category: "clothing_shoes", label: "belts" },
   { url: "https://us.shein.com/Women-Hats-c-1871.html", category: "clothing_shoes", label: "hats" },
+  { url: "https://us.shein.com/Women-Necklaces-c-1762.html", category: "clothing_shoes", label: "necklaces" },
+  { url: "https://us.shein.com/Women-Earrings-c-1763.html", category: "clothing_shoes", label: "earrings" },
+  { url: "https://us.shein.com/Women-Rings-c-1764.html", category: "clothing_shoes", label: "rings" },
+  { url: "https://us.shein.com/Women-Bracelets-c-1765.html", category: "clothing_shoes", label: "bracelets" },
 
-  // Plus Size (with pagination)
-  ...buildPagedUrls("https://us.shein.com/Plus-Size-Dresses-c-3680.html", "clothing_shoes", "plus_dresses", 3),
-  ...buildPagedUrls("https://us.shein.com/Plus-Size-Tops-c-3681.html", "clothing_shoes", "plus_tops", 3),
+  // Plus Size
+  { url: "https://us.shein.com/Plus-Size-Dresses-c-3680.html", category: "clothing_shoes", label: "plus_dresses" },
+  { url: "https://us.shein.com/Plus-Size-Tops-c-3681.html", category: "clothing_shoes", label: "plus_tops" },
   { url: "https://us.shein.com/Plus-Size-Bottoms-c-3682.html", category: "clothing_shoes", label: "plus_bottoms" },
-
-  // Co-ords & Sets
-  { url: "https://us.shein.com/Women-Two-Piece-Outfits-c-2207.html", category: "clothing_shoes", label: "women_twopiece" },
-  { url: "https://us.shein.com/Women-Jumpsuits-c-1860.html", category: "clothing_shoes", label: "women_jumpsuits" },
-  { url: "https://us.shein.com/Women-Rompers-c-6042.html", category: "clothing_shoes", label: "women_rompers" },
+  { url: "https://us.shein.com/Plus-Size-Outerwear-c-3683.html", category: "clothing_shoes", label: "plus_outerwear" },
 
   // Beauty
   { url: "https://us.shein.com/Beauty-Tools-Accessories-c-2040.html", category: "beauty", label: "beauty_tools" },
   { url: "https://us.shein.com/Makeup-c-2036.html", category: "beauty", label: "makeup" },
   { url: "https://us.shein.com/Skin-Care-c-2035.html", category: "beauty", label: "skincare" },
+  { url: "https://us.shein.com/Nail-Art-c-2039.html", category: "beauty", label: "nail_art" },
 
-  // Men's (with pagination)
-  ...buildPagedUrls("https://us.shein.com/Men-T-Shirts-c-1980.html", "clothing_shoes", "men_tshirts", 3),
-  ...buildPagedUrls("https://us.shein.com/Men-Jackets-Coats-c-1981.html", "clothing_shoes", "men_jackets", 3),
+  // Men's
+  { url: "https://us.shein.com/Men-T-Shirts-c-1980.html", category: "clothing_shoes", label: "men_tshirts" },
+  { url: "https://us.shein.com/Men-Jackets-Coats-c-1981.html", category: "clothing_shoes", label: "men_jackets" },
   { url: "https://us.shein.com/Men-Pants-c-1982.html", category: "clothing_shoes", label: "men_pants" },
   { url: "https://us.shein.com/Men-Jeans-c-1986.html", category: "clothing_shoes", label: "men_jeans" },
   { url: "https://us.shein.com/Men-Shorts-c-1984.html", category: "clothing_shoes", label: "men_shorts" },
   { url: "https://us.shein.com/Men-Hoodies-Sweatshirts-c-1989.html", category: "clothing_shoes", label: "men_hoodies" },
   { url: "https://us.shein.com/Men-Polo-Shirts-c-1979.html", category: "clothing_shoes", label: "men_polos" },
   { url: "https://us.shein.com/Men-Shoes-c-1993.html", category: "clothing_shoes", label: "men_shoes" },
+  { url: "https://us.shein.com/Men-Shirts-c-1978.html", category: "clothing_shoes", label: "men_shirts" },
+  { url: "https://us.shein.com/Men-Suits-Blazers-c-5803.html", category: "clothing_shoes", label: "men_suits" },
+  { url: "https://us.shein.com/Men-Swimwear-c-1995.html", category: "clothing_shoes", label: "men_swimwear" },
 
-  // Home
+  // Home & Living
   { url: "https://us.shein.com/Home-Decor-c-2087.html", category: "home", label: "home_decor" },
   { url: "https://us.shein.com/Bedding-c-2066.html", category: "home", label: "bedding" },
   { url: "https://us.shein.com/Kitchen-Dining-c-2093.html", category: "home", label: "kitchen" },
   { url: "https://us.shein.com/Bath-c-2082.html", category: "home", label: "bath" },
+  { url: "https://us.shein.com/Storage-Organization-c-2074.html", category: "home", label: "storage" },
+  { url: "https://us.shein.com/Lighting-c-2088.html", category: "home", label: "lighting" },
+
+  // Kids
+  { url: "https://us.shein.com/Girls-Dresses-c-2059.html", category: "clothing_shoes", label: "girls_dresses" },
+  { url: "https://us.shein.com/Boys-Tops-c-2022.html", category: "clothing_shoes", label: "boys_tops" },
+  { url: "https://us.shein.com/Baby-Boy-Clothing-c-2072.html", category: "clothing_shoes", label: "baby_boy" },
+  { url: "https://us.shein.com/Baby-Girl-Clothing-c-2073.html", category: "clothing_shoes", label: "baby_girl" },
 ];
 
 const WOMEN_PRIORITY_HINTS = [

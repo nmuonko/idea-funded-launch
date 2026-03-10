@@ -63,6 +63,7 @@ import type { SearchTimings } from "../_shared/searchResponseBuilder.ts";
 
 const DEFAULT_LIMIT = 500;   // Default page size
 const MAX_LIMIT = 500;       // Max page size
+const MIN_TARGET_RESULTS = 200; // Minimum results target for strong commercial queries
 const SESSION_LIMIT = 1000;  // Max items per search session
 const MAX_PAGES = 5;         // Maximum number of pages per search session
 

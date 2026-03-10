@@ -20,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-type AuthMode = 'welcome' | 'signin' | 'signup' | 'forgot' | 'verify';
+type AuthMode = 'welcome' | 'signin' | 'signup' | 'forgot';
 
 export default function ShopAuth() {
   const navigate = useNavigate();

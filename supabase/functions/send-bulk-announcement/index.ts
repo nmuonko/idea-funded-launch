@@ -1,4 +1,3 @@
-import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "../_shared/email.ts";
 
 const corsHeaders = {

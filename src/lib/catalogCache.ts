@@ -386,7 +386,7 @@ export async function cachedCatalogFetchWithSwr<T>(
   }
   
   // 2. Cache miss — fetch from network
-  const data = await fetchFromNetwork<T>(endpoint, params, options.signal);
+  const data = await fetchFromNetwork<T>(endpoint, params, options.signal, options.skipCache);
   const ttl = parseTtlFromNetworkResponse(data);
   setCache(cacheKey, data, ttl);
   

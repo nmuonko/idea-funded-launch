@@ -1630,73 +1630,22 @@ Deno.serve(async (req: Request) => {
 
         let sparseNewItems: CatalogItem[] = [];
         let sparsePagesFetched = 0;
-        for (const sq of sparseQueries) {
-          if (finalItems.length + sparseNewItems.length >= SPARSE_ENRICHMENT_TARGET) break;
-          if (Date.now() - startTime > (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - 200) break;
 
-          // Multi-page fetching: fetch up to 3 pages per query variant
-          const MAX_PAGES_PER_VARIANT = 3;
-          for (let sparsePageNum = 1; sparsePageNum <= MAX_PAGES_PER_VARIANT; sparsePageNum++) {
-            if (finalItems.length + sparseNewItems.length >= SPARSE_ENRICHMENT_TARGET) break;
-            if (Date.now() - startTime > (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - 200) break;
-
-            const sqTimeout = Math.min(3500, (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - (Date.now() - startTime) - 100);
-            if (sqTimeout <= 300) break;
-
-            try {
-              console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: fetching q="${sq}" page=${sparsePageNum} timeout=${sqTimeout}ms`);
-              const sparseEbayPromise = fetchEbayItems({
-                supabase, query: sq, effectiveMode, isVehicle: false,
-                hasBuyingIntent, isHeavyEquipment: false,
-                categoryKey: undefined, page: sparsePageNum, limit: Math.min(200, SPARSE_ENRICHMENT_TARGET),
-                catalogFilters: {}, requestId: requestId + "-sparse",
-                relaxFilters: true,
-              });
-              const sparseTimer = new Promise<null>(r => setTimeout(() => r(null), sqTimeout));
-              const sparseResult = await Promise.race([sparseEbayPromise, sparseTimer]);
-
-              if (sparseResult?.rateLimited) {
-                console.warn(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: eBay rate-limited on q="${sq}" page=${sparsePageNum}, trying next variant`);
-                break; // Try next query variant instead of stopping entirely
-              }
-
-              sparsePagesFetched++;
-              if (sparseResult?.items?.length) {
-                const newItems = sparseResult.items.filter((i: any) => !sparseExistingIds.has(i.id));
-                newItems.forEach((i: any) => sparseExistingIds.add(i.id));
-                sparseNewItems.push(...(newItems as CatalogItem[]));
-                console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: q="${sq}" page=${sparsePageNum} returned=${sparseResult.items.length} new=${newItems.length} totalNew=${sparseNewItems.length}`);
-                autoCacheLiveResults(supabase, sparseResult.items as any[], categoryKey, requestId + "-sparse").catch(() => {});
-                
-                // If this page returned few results, no point fetching more pages for this variant
-                if (sparseResult.items.length < 20 || !sparseResult.hasMore) break;
-              } else {
-                break; // No results on this page, try next variant
-              }
-            } catch (sparseErr) {
-              console.warn(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT error q="${sq}" page=${sparsePageNum}: ${(sparseErr as Error).message}`);
-              break;
-            }
-          }
-        }
-        
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT_SUMMARY: variants_tried=${sparseQueries.length} pages_fetched=${sparsePagesFetched} new_items=${sparseNewItems.length}`);
-
-        // Also try DB expansion with device-family variants
-        if (sparseNewItems.length + finalItems.length < SPARSE_ENRICHMENT_TARGET && deviceIntent.hasStrongFamilyIntent) {
+        // ── PHASE 1: DB expansion FIRST (free, no rate-limit risk) ──
+        if (deviceIntent.hasStrongFamilyIntent) {
           try {
             const dbVariants = generateDeviceFamilyVariants(deviceIntent);
             const dbExistingIds = new Set([...sparseExistingIds, ...finalItems.map((i: any) => i.id)]);
             for (const dbV of dbVariants) {
               if (sparseNewItems.length + finalItems.length >= SPARSE_ENRICHMENT_TARGET) break;
-              if (Date.now() - startTime > (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - 200) break;
+              if (Date.now() - startTime > (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - 400) break;
               const dbExpansion = await Promise.race([
                 searchDbFirst({ supabase, qNorm: dbV, aiExpandedTerms: null, limit: 200, offset: 0, categoryKey: null, requestId: requestId + "-dbexp" }),
                 new Promise<null>(r => setTimeout(() => r(null), 800)),
               ]);
               if (dbExpansion?.items?.length) {
                 const newDbItems = dbExpansion.items.filter((i: any) => !dbExistingIds.has(i.id));
-                newDbItems.forEach((i: any) => dbExistingIds.add(i.id));
+                newDbItems.forEach((i: any) => { dbExistingIds.add(i.id); sparseExistingIds.add(i.id); });
                 sparseNewItems.push(...(newDbItems as CatalogItem[]));
                 console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_VARIANT_EXPANSION: q="${dbV}" new=${newDbItems.length} totalNew=${sparseNewItems.length}`);
               }
@@ -1704,7 +1653,66 @@ Deno.serve(async (req: Request) => {
           } catch (e) {
             console.warn(`[CATALOG_SEARCH] requestId=${requestId} DB_VARIANT_EXPANSION error: ${(e as Error).message}`);
           }
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_EXPANSION_DONE: items_from_db=${sparseNewItems.length} total_with_existing=${sparseNewItems.length + finalItems.length}`);
         }
+
+        // ── PHASE 2: Throttled live eBay fetch (max 5 API calls total to stay under burst limit) ──
+        const MAX_EBAY_CALLS_PER_SEARCH = 5;
+        const THROTTLE_DELAY_MS = 250; // 250ms between calls = max ~4 calls/sec
+        let ebayCallCount = 0;
+        let ebayRateLimited = false;
+
+        for (const sq of sparseQueries) {
+          if (finalItems.length + sparseNewItems.length >= SPARSE_ENRICHMENT_TARGET) break;
+          if (Date.now() - startTime > (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - 400) break;
+          if (ebayCallCount >= MAX_EBAY_CALLS_PER_SEARCH) {
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: hit max eBay call limit (${MAX_EBAY_CALLS_PER_SEARCH}), stopping live fetch`);
+            break;
+          }
+          if (ebayRateLimited) break;
+
+          // Only fetch page 1 per variant (no multi-page) to conserve API budget
+          const sqTimeout = Math.min(3500, (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS) - (Date.now() - startTime) - 200);
+          if (sqTimeout <= 400) break;
+
+          // Throttle: wait between calls to avoid burst
+          if (ebayCallCount > 0) {
+            await new Promise(r => setTimeout(r, THROTTLE_DELAY_MS));
+          }
+
+          try {
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: fetching q="${sq}" page=1 timeout=${sqTimeout}ms call=${ebayCallCount + 1}/${MAX_EBAY_CALLS_PER_SEARCH}`);
+            const sparseEbayPromise = fetchEbayItems({
+              supabase, query: sq, effectiveMode, isVehicle: false,
+              hasBuyingIntent, isHeavyEquipment: false,
+              categoryKey: undefined, page: 1, limit: Math.min(200, SPARSE_ENRICHMENT_TARGET),
+              catalogFilters: {}, requestId: requestId + "-sparse",
+              relaxFilters: true,
+            });
+            const sparseTimer = new Promise<null>(r => setTimeout(() => r(null), sqTimeout));
+            const sparseResult = await Promise.race([sparseEbayPromise, sparseTimer]);
+            ebayCallCount++;
+
+            if (sparseResult?.rateLimited) {
+              console.warn(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: eBay rate-limited on q="${sq}", stopping all live fetches`);
+              ebayRateLimited = true;
+              break;
+            }
+
+            sparsePagesFetched++;
+            if (sparseResult?.items?.length) {
+              const newItems = sparseResult.items.filter((i: any) => !sparseExistingIds.has(i.id));
+              newItems.forEach((i: any) => sparseExistingIds.add(i.id));
+              sparseNewItems.push(...(newItems as CatalogItem[]));
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT: q="${sq}" returned=${sparseResult.items.length} new=${newItems.length} totalNew=${sparseNewItems.length}`);
+              autoCacheLiveResults(supabase, sparseResult.items as any[], categoryKey, requestId + "-sparse").catch(() => {});
+            }
+          } catch (sparseErr) {
+            console.warn(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT error q="${sq}": ${(sparseErr as Error).message}`);
+          }
+        }
+        
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} SPARSE_ENRICHMENT_SUMMARY: variants_tried=${sparseQueries.length} ebay_calls=${ebayCallCount} pages_fetched=${sparsePagesFetched} new_items=${sparseNewItems.length} rate_limited=${ebayRateLimited}`);
 
         // Score and merge sparse items with device intent
         if (sparseNewItems.length > 0) {

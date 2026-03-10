@@ -1779,6 +1779,7 @@ Deno.serve(async (req: Request) => {
                   effectiveIntent,
                   queryTokens,
                   Math.max(limit, 200),
+                  deviceIntent,
                 );
                 const scoredSpItems = spScored.items as typeof finalItems;
 

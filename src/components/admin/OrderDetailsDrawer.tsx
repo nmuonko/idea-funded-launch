@@ -97,7 +97,14 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
         body: { type: 'order_assistance', orderId, language },
       });
 
-      if (error) throw error;
+      if (error) {
+        // Try to extract detailed error from response
+        const detail = data?.error || error.message || 'Edge Function error';
+        throw new Error(detail);
+      }
+      if (data && !data.ok && !data.success) {
+        throw new Error(data.error || 'Unknown error from email service');
+      }
 
       const languageNames: Record<string, string> = {
         en: 'English',

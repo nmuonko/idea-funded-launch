@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail, CalendarIcon, X, Trash2, Play, Truck, CheckCircle2, MoreHorizontal, Printer } from 'lucide-react';
+import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail, CalendarIcon, X, Trash2, Play, Truck, CheckCircle2, MoreHorizontal, Printer, Bell } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,6 +63,7 @@ export default function AdminOrders() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+  const [sendingCartRecovery, setSendingCartRecovery] = useState(false);
 
   // Filter orders based on search query and date range
   const filteredOrders = useMemo(() => {
@@ -690,6 +691,31 @@ export default function AdminOrders() {
     selectedOrders.has(o.id) && paidStatuses.includes(o.status)
   ).length;
 
+  const handleSendCartRecovery = async () => {
+    try {
+      setSendingCartRecovery(true);
+      const { data, error } = await supabase.functions.invoke('email-service', {
+        body: { type: 'abandoned_cart_recovery' },
+      });
+      if (error) throw error;
+      const result = data as { sent?: number; skipped?: number } | null;
+      toast({
+        title: language === 'fr' ? 'Rappels envoyés' : 'Recovery emails sent',
+        description: language === 'fr'
+          ? `${result?.sent || 0} email(s) envoyé(s), ${result?.skipped || 0} ignoré(s)`
+          : `${result?.sent || 0} email(s) sent, ${result?.skipped || 0} skipped`,
+      });
+    } catch (error: any) {
+      toast({
+        title: language === 'fr' ? 'Erreur' : 'Error',
+        description: error.message || 'Failed to send cart recovery emails',
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingCartRecovery(false);
+    }
+  };
+
   return (
     <>
       <Card>
@@ -705,6 +731,21 @@ export default function AdminOrders() {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
+              {/* Cart Recovery Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSendCartRecovery}
+                disabled={sendingCartRecovery}
+                className="gap-2 border-amber-500 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950"
+              >
+                {sendingCartRecovery ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Bell className="h-4 w-4" />
+                )}
+                {language === 'fr' ? 'Rappels paniers' : 'Cart Recovery'}
+              </Button>
               {/* Super Admin Reset Button */}
               {permissions?.isSuperAdmin && (
                 <Button

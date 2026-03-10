@@ -1058,7 +1058,7 @@ export default function ShopHome() {
             page: 1,
             pageSize: 100,
             client: 'web',
-          });
+          }, { skipCache: true });
           if (data?.sections?.length) {
             const all = data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0);
             setAccueilProducts(all);
@@ -1100,7 +1100,7 @@ export default function ShopHome() {
   // Re-fetch on language change
   useEffect(() => {
     if (!fetchedRef.current) return;
-    fetchAccueilFeed();
+    fetchAccueilFeed(true);
     fetchCategoryItems(ALL_HOMEPAGE_CATEGORIES);
   }, [language]);
 

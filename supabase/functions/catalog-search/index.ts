@@ -2131,7 +2131,7 @@ Deno.serve(async (req: Request) => {
 
     // Summary log with timings
     const topTitles = finalItems.slice(0, 3).map((i: any) => ((i.title || "") as string).slice(0, 60));
-    console.log(`[CATALOG_SEARCH][TIMING] requestId=${requestId} q="${qOriginal}" directQuery=${directQuery} total=${timings.total}ms rewrite=${timings.rewrite}ms ai=${timings.aiRefine}ms db=${timings.dbFirst}ms providers=${timings.providers}ms alt=${timings.altQueries}ms post=${timings.postProcess}ms items=${finalItems.length}`);
+    console.log(`[CATALOG_SEARCH][TIMING] requestId=${requestId} q="${qOriginal}" directQuery=${directQuery} total=${timings.total}ms rewrite=${timings.rewrite}ms ai=${timings.aiRefine}ms db=${timings.dbFirst}ms providers=${timings.providers}ms alt=${timings.altQueries}ms post=${timings.postProcess}ms items=${finalItems.length} secondPass=${secondPassUsed}`);
     console.log(`[CATALOG_SEARCH][INTENT] q="${qOriginal}" intentKey=${effectiveIntent.intentKey} providers=${finalCount} db=${dbCount} returned=${finalItems.length} topTitles=${JSON.stringify(topTitles)}`);
 
     // ─── SEARCH TELEMETRY (fire-and-forget) ─────────────────────────────────
@@ -2140,9 +2140,11 @@ Deno.serve(async (req: Request) => {
       normalized_query: qNorm,
       detected_language: langDetection.detectedLang,
       static_map_matched: translateStatus === "STATIC" || translateStatus === "PRE_NORM",
-      dynamic_fallback_used: dynamicFallbackUsed,
-      ai_translation_used: aiTranslationUsed,
-      expansions: intentExpansions,
+      dynamic_fallback_used: dynamicFallbackUsed || secondPassUsed,
+      ai_translation_used: aiTranslationUsed || secondPassUsed,
+      expansions: secondPassUsed && aiInterpretation
+        ? aiInterpretation.expanded_queries
+        : intentExpansions,
       result_count: finalItems.length,
       request_id: requestId,
     });

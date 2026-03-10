@@ -720,15 +720,10 @@ export default function AdminOrders() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleSendCartRecovery}
-                disabled={sendingCartRecovery}
+                onClick={() => setCartRecoveryOpen(true)}
                 className="gap-2 border-amber-500 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950"
               >
-                {sendingCartRecovery ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Bell className="h-4 w-4" />
-                )}
+                <Bell className="h-4 w-4" />
                 {language === 'fr' ? 'Rappels paniers' : 'Cart Recovery'}
               </Button>
               {/* Super Admin Reset Button */}

@@ -803,6 +803,22 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
   let { data: draftOrder } = await supabase.from('orders').select('id, cart_version').eq('user_id', user.id).eq('status', 'DRAFT')
     .order('created_at', { ascending: false }).limit(1).single();
 
+  // RACE CONDITION FIX: If no DRAFT exists, check for a recent PENDING_PAYMENT order
+  // before creating a new one. This prevents duplicates when cart sync runs right after
+  // checkout converts the DRAFT → PENDING_PAYMENT.
+  if (!draftOrder) {
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const { data: pendingOrder } = await supabase.from('orders').select('id, cart_version')
+      .eq('user_id', user.id).eq('status', 'PENDING_PAYMENT')
+      .gte('updated_at', thirtyMinutesAgo)
+      .order('updated_at', { ascending: false }).limit(1).single();
+    
+    if (pendingOrder) {
+      console.log(`[MERGE_GUEST] Reusing recent PENDING_PAYMENT order: ${pendingOrder.id}`);
+      draftOrder = pendingOrder;
+    }
+  }
+
   if (!draftOrder) {
     const { data: newOrder, error: createError } = await supabase.from('orders').insert({ user_id: user.id, status: 'DRAFT', cart_version: 1, exchange_rate_used: exchangeRate })
       .select('id, cart_version').single();

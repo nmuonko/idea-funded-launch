@@ -645,10 +645,10 @@ export default function ProductDetailsPage() {
   const safeRating = typeof product.rating === 'number' ? product.rating : null;
 
   return (
-    <div className="min-h-screen bg-black overflow-x-hidden">
+    <div className="min-h-screen bg-black">
       <ShopHeader />
 
-      <main className="pt-24 px-4 pb-20">
+      <main className="pt-24 px-4 pb-safe-nav">
         <div className="container mx-auto max-w-6xl">
           <Link
             to="/"

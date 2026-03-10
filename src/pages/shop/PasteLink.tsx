@@ -137,7 +137,7 @@ export default function PasteLink() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0f1115] pb-24">
+    <div className="min-h-screen bg-[#0f1115] pb-safe-nav">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-[#0f1115]/95 backdrop-blur-xl border-b border-white/[0.06]">
         <div className="flex items-center gap-3 px-4 py-3 max-w-2xl mx-auto">

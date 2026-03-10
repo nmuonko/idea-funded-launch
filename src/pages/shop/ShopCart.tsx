@@ -81,7 +81,7 @@ export default function ShopCart() {
   };
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-black pb-safe-nav">
       <ShopHeader />
 
       <main className="pt-24 px-3 sm:px-4 pb-36">

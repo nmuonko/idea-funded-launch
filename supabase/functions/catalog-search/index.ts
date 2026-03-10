@@ -521,10 +521,13 @@ Deno.serve(async (req: Request) => {
     }
 
     // ─── AI QUERY REWRITE (French-first: typo fix + translation + intent) ────
-    // Skip if preNormalizer already matched OR if query is a known direct query
-    // Race with tight timeout to never block page 0
+    // GATED: Only call AI rewrite when there's language ambiguity or the query
+    // is not a clear English product search. Healthy English queries skip this entirely.
     const qBeforeAiRewrite = qNorm;
-    if (!preNorm.matched && !isDirectQuery(qNorm)) {
+    const _shouldEagerRewrite = !preNorm.matched && !isDirectQuery(qNorm) &&
+      shouldAttemptEagerAiRewrite(langDetection, isDirectQuery(qNorm), preNorm.matched, isFrenchLikely);
+
+    if (_shouldEagerRewrite) {
       try {
         const aiRewriteTimeout = isFirstPage ? 800 : 1200;
         const aiRewritePromise = aiQueryRewrite(supabase, qOriginal, lang, categoryKey, requestId);

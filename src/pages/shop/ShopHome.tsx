@@ -494,19 +494,15 @@ export default function ShopHome() {
     setPinnedByCategory({});
     setRecentlyViewed([]);
     setError(null);
-    setCategoryLoadingMap(() => {
-      const init: Record<string, boolean> = {};
-      ALL_HOMEPAGE_CATEGORIES.forEach(k => { init[k] = true; });
-      return init;
-    });
 
-    // 3. Allow the main useEffect to re-run
+    // 3. Allow refs to re-run
     pinnedFetchedRef.current = false;
     fetchedRef.current = false;
 
-    // 4. Force re-mount by toggling a key (triggers useEffect)
-    setRetryCount(c => c + 1);
-  }, []);
+    // 4. Directly call fetchAccueilFeed with forceRefresh — this sets loading, clears errors, and uses cache-busting
+    fetchAccueilFeed(true);
+    fetchCategoryItems(ALL_HOMEPAGE_CATEGORIES);
+  }, [fetchAccueilFeed, fetchCategoryItems]);
 
   // ====== CURATED CATEGORY HELPERS ======
   const JUNK_TERMS = ['cheap', 'lot', 'bundle', 'broken', 'for repair', 'as is', 'not working'];

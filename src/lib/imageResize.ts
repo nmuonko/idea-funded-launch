@@ -4,7 +4,7 @@
  */
 
 export const IMAGE_SIZE_THUMB = 480;
-export const IMAGE_SIZE_HERO = 800;
+export const IMAGE_SIZE_HERO = 1500;
 export const IMAGE_SIZE_FULL = 1500;
 
 /**

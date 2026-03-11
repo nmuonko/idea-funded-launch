@@ -186,18 +186,6 @@ const handler = async (req: Request): Promise<Response> => {
     const stats = { reminder1_sent: 0, reminder2_sent: 0, cancelled: 0, errors: [] as string[] };
     let emailsSent = 0;
 
-    // Helper to get order with profile + items
-    async function fetchOrders(filters: (q: any) => any) {
-      const q = supabase
-        .from("orders")
-        .select(`id, total_usd, user_id, created_at, status,
-                 profiles(email, name, full_name),
-                 order_items(title, quantity)`)
-        .in("status", ["PENDING_PAYMENT", "DRAFT"])
-        .limit(MAX_EMAILS_PER_RUN);
-      return filters(q);
-    }
-
     // Helper: check no paid payment attempts
     async function filterNoPaidAttempts(orders: any[]) {
       if (!orders.length) return orders;
@@ -211,25 +199,19 @@ const handler = async (req: Request): Promise<Response> => {
       return orders.filter((o: any) => !paidIds.has(o.id));
     }
 
-    // Helper: send + throttle
-    async function sendThrottled(to: string, subject: string, html: string, orderId: string, label: string) {
-      if (emailsSent >= MAX_EMAILS_PER_RUN) return false;
-      const result = await sendEmail({ to, subject, html, category: "cart_recovery" });
-      emailsSent++;
-      if (!result.success) {
-        stats.errors.push(`${label} ${orderId}: ${result.error}`);
-        return false;
-      }
-      if (emailsSent < MAX_EMAILS_PER_RUN) {
-        await new Promise(r => setTimeout(r, THROTTLE_MS));
-      }
-      return true;
-    }
+    const orderSelect = `id, total_usd, user_id, created_at, status,
+                 profiles(email, name, full_name),
+                 order_items(title, quantity)`;
 
     // ── ACTION A: Reminder 1 (2+ hours old, no reminder 1 sent) ──
-    const { data: r1Orders } = await fetchOrders((q: any) =>
-      q.lt("created_at", twoHoursAgo).is("cart_reminder_sent_at", null)
-    );
+    const { data: r1Orders } = await supabase
+      .from("orders")
+      .select(orderSelect)
+      .in("status", ["PENDING_PAYMENT", "DRAFT"])
+      .lt("created_at", twoHoursAgo)
+      .is("cart_reminder_sent_at", null)
+      .limit(MAX_EMAILS_PER_RUN);
+
     const eligible1 = await filterNoPaidAttempts(
       (r1Orders || []).filter((o: any) => (o.order_items || []).length > 0)
     );
@@ -249,11 +231,14 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // ── ACTION B: Reminder 2 (14+ hours old, R1 sent, R2 not sent) ──
-    const { data: r2Orders } = await fetchOrders((q: any) =>
-      q.lt("created_at", fourteenHoursAgo)
-        .not("cart_reminder_sent_at", "is", null)
-        .is("cart_reminder_2_sent_at", null)
-    );
+    const { data: r2Orders } = await supabase
+      .from("orders")
+      .select(orderSelect)
+      .in("status", ["PENDING_PAYMENT", "DRAFT"])
+      .lt("created_at", fourteenHoursAgo)
+      .not("cart_reminder_sent_at", "is", null)
+      .is("cart_reminder_2_sent_at", null)
+      .limit(MAX_EMAILS_PER_RUN);
     const eligible2 = await filterNoPaidAttempts(
       (r2Orders || []).filter((o: any) => (o.order_items || []).length > 0)
     );

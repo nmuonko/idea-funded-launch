@@ -520,7 +520,7 @@ export function prefetchCatalogSearch(query: string, language: string): void {
   }).catch(() => {});
 }
 
-const PAGE_SIZE_SEARCH = 100;
+const PAGE_SIZE_SEARCH = 500;
 
 // Clear expired cache on module load
 clearExpiredCache();

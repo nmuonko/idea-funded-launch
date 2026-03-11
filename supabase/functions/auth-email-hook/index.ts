@@ -227,6 +227,14 @@ async function handleWebhook(req: Request): Promise<Response> {
   const emailType = payload.data.action_type
   console.log('Received auth event', { emailType, email: payload.data.email, run_id })
 
+  // AUTO-CONFIRM: When GoTrue sends a signup confirmation email, it means the user
+  // is unconfirmed. Force-confirm them immediately so the mobile app can log in
+  // without waiting for email click. This is resilient against GoTrue config resets.
+  if (emailType === 'signup' && payload.data.email) {
+    console.log('[auth-email-hook] Signup email triggered — auto-confirming user:', payload.data.email);
+    await autoConfirmUser(payload.data.email);
+  }
+
   const EmailTemplate = EMAIL_TEMPLATES[emailType]
   if (!EmailTemplate) {
     console.error('Unknown email type', { emailType, run_id })

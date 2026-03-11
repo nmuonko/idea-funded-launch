@@ -759,7 +759,7 @@ export default function ProductDetailsPage() {
             </div>
 
             {/* Product Info */}
-            <div className="space-y-6">
+            <div className="space-y-5 sm:space-y-6 min-w-0">
               {product.brand && (
                 <p className="text-sm text-white/60 uppercase tracking-wider">
                   {product.brand}

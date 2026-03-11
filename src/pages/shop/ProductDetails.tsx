@@ -658,7 +658,7 @@ export default function ProductDetailsPage() {
             Back to Shop
           </Link>
 
-          <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-12">
             {/* Image Gallery */}
             <div className="space-y-4">
               <div

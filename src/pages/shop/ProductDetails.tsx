@@ -838,7 +838,7 @@ export default function ProductDetailsPage() {
               )}
 
               {/* Price Breakdown */}
-              <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
+              <div className="bg-white/5 rounded-2xl p-4 sm:p-6 border border-white/10 min-w-0">
                 <PriceBreakdown
                   itemPriceUsd={displayPrice}
                   quantity={quantity}

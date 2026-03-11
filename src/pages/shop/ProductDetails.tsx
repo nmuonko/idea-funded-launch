@@ -663,8 +663,28 @@ export default function ProductDetailsPage() {
             <div className="space-y-4">
               <div
                 data-product-hero="true"
-                className="relative w-full aspect-square sm:aspect-[4/3] bg-white rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center"
+                className="relative w-full aspect-square sm:aspect-[4/3] bg-white rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center touch-pan-y"
                 onClick={() => setLightboxOpen(true)}
+                onTouchStart={(e) => {
+                  const touch = e.touches[0];
+                  (e.currentTarget as any)._swipeStartX = touch.clientX;
+                  (e.currentTarget as any)._swipeStartY = touch.clientY;
+                }}
+                onTouchEnd={(e) => {
+                  const startX = (e.currentTarget as any)._swipeStartX;
+                  const startY = (e.currentTarget as any)._swipeStartY;
+                  if (startX == null) return;
+                  const touch = e.changedTouches[0];
+                  const dx = touch.clientX - startX;
+                  const dy = touch.clientY - startY;
+                  // Only trigger if horizontal swipe > 40px and more horizontal than vertical
+                  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                    e.preventDefault();
+                    userInteractedRef.current = true;
+                    if (dx < 0) nextImage();
+                    else prevImage();
+                  }
+                }}
               >
                 <img
                     key={safeImages[safeImageIndex]}
@@ -673,7 +693,7 @@ export default function ProductDetailsPage() {
                     loading="eager"
                     fetchPriority="high"
                     decoding="async"
-                    className="max-w-full max-h-full object-contain p-4 sm:p-8"
+                    className="max-w-full max-h-full object-contain p-4 sm:p-8 pointer-events-none select-none"
                   />
 
                 {safeImages.length > 1 && (
@@ -682,7 +702,7 @@ export default function ProductDetailsPage() {
                       variant="ghost"
                       size="sm"
                       onClick={(e) => { e.stopPropagation(); prevImage(); }}
-                      className="absolute left-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/50 text-white hover:bg-black/70"
+                      className="absolute left-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/50 text-white hover:bg-black/70 hidden sm:flex"
                     >
                       <ChevronLeft className="h-5 w-5" />
                     </Button>
@@ -690,10 +710,22 @@ export default function ProductDetailsPage() {
                       variant="ghost"
                       size="sm"
                       onClick={(e) => { e.stopPropagation(); nextImage(); }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/50 text-white hover:bg-black/70"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/50 text-white hover:bg-black/70 hidden sm:flex"
                     >
                       <ChevronRight className="h-5 w-5" />
                     </Button>
+
+                    {/* Dot indicators for swipe */}
+                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 sm:hidden">
+                      {safeImages.map((_, i) => (
+                        <div
+                          key={i}
+                          className={`w-2 h-2 rounded-full transition-colors ${
+                            i === safeImageIndex ? 'bg-primary' : 'bg-black/30'
+                          }`}
+                        />
+                      ))}
+                    </div>
                   </>
                 )}
 

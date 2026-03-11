@@ -19,6 +19,8 @@ export interface Product {
   rating?: number;
   inStock?: boolean;
   productUrl?: string;
+  images?: string[];
+  imageUrls?: string[];
 }
 
 interface ProductCardProps {

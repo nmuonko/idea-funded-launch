@@ -477,10 +477,21 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       const ebayMatch = productUrl.match(/\/itm\/(\d+)/);
       providerProductId = ebayMatch ? ebayMatch[1] : null;
     }
-    // Build canonical URL
-    const canonicalUrl = (store === 'AMAZON' && providerProductId)
-      ? `https://www.amazon.com/dp/${providerProductId}`
-      : productUrl;
+    // Build canonical URL — prefer slugged detail URL for Amazon stability
+    let canonicalUrl = productUrl;
+    if (store === 'AMAZON' && providerProductId) {
+      // Check if productUrl already has a slug (e.g. /Product-Name/dp/ASIN)
+      const hasSlugged = /\/[^/]+\/dp\/[A-Z0-9]{10}/i.test(productUrl);
+      if (hasSlugged) {
+        canonicalUrl = productUrl;
+      } else {
+        // Build slugged URL from title if available
+        const titleStr = (productTitle || '').replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '-').substring(0, 120);
+        canonicalUrl = (titleStr.length > 2)
+          ? `https://www.amazon.com/${titleStr}/dp/${providerProductId}`
+          : `https://www.amazon.com/dp/${providerProductId}`;
+      }
+    }
 
     const newItem = {
       order_id: draft.id, product_url: productUrl, title: productTitle, product_image_url: productImageUrl,
@@ -723,9 +734,18 @@ async function handleSync(req: Request, body: any): Promise<Response> {
       const ebayMatch = item.productUrl.match(/\/itm\/(\d+)/);
       syncProviderProductId = ebayMatch ? ebayMatch[1] : null;
     }
-    const syncCanonicalUrl = (store === 'AMAZON' && syncProviderProductId)
-      ? `https://www.amazon.com/dp/${syncProviderProductId}`
-      : cleanProductUrl;
+    let syncCanonicalUrl = cleanProductUrl;
+    if (store === 'AMAZON' && syncProviderProductId) {
+      const hasSlugged = /\/[^/]+\/dp\/[A-Z0-9]{10}/i.test(cleanProductUrl);
+      if (hasSlugged) {
+        syncCanonicalUrl = cleanProductUrl;
+      } else {
+        const titleStr = (item.title || '').replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '-').substring(0, 120);
+        syncCanonicalUrl = (titleStr.length > 2)
+          ? `https://www.amazon.com/${titleStr}/dp/${syncProviderProductId}`
+          : `https://www.amazon.com/dp/${syncProviderProductId}`;
+      }
+    }
 
     const itemData: Record<string, any> = {
       order_id: cartId, product_url: cleanProductUrl, title: item.title || null,
@@ -901,9 +921,18 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
       const ebayMatch = guestItem.productUrl.match(/\/itm\/(\d+)/);
       guestProviderProductId = ebayMatch ? ebayMatch[1] : null;
     }
-    const guestCanonicalUrl = (store === 'AMAZON' && guestProviderProductId)
-      ? `https://www.amazon.com/dp/${guestProviderProductId}`
-      : cleanGuestUrl;
+    let guestCanonicalUrl = cleanGuestUrl;
+    if (store === 'AMAZON' && guestProviderProductId) {
+      const hasSlugged = /\/[^/]+\/dp\/[A-Z0-9]{10}/i.test(cleanGuestUrl);
+      if (hasSlugged) {
+        guestCanonicalUrl = cleanGuestUrl;
+      } else {
+        const titleStr = (guestItem.title || '').replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '-').substring(0, 120);
+        guestCanonicalUrl = (titleStr.length > 2)
+          ? `https://www.amazon.com/${titleStr}/dp/${guestProviderProductId}`
+          : `https://www.amazon.com/dp/${guestProviderProductId}`;
+      }
+    }
 
     const itemData = {
       order_id: draftOrder!.id, product_url: cleanGuestUrl, title: guestItem.title || null,

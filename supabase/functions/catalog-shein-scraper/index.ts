@@ -615,7 +615,7 @@ Deno.serve(async (req: Request) => {
       const pageUrl = currentPage > 1 ? `${cat.url}${separator}page=${currentPage}` : cat.url;
 
       console.log(`[SHEIN_SCRAPER] scraping ${cat.label} page=${currentPage}: ${pageUrl}`);
-      const { products, error, strategy } = await scrapeCategoryPageLLM(pageUrl, firecrawlKey);
+      const { products, error, strategy } = await scrapeCategoryPageLLM(pageUrl, firecrawlKey, cat.catId, cat.label, currentPage);
 
       // Track credits
       await supabase.rpc("increment_provider_budget", {

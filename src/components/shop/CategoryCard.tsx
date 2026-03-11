@@ -104,6 +104,14 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
                 alt={product.title}
                 className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105"
                 loading="lazy"
+                onLoad={(e) => {
+                  const img = e.currentTarget;
+                  const ratio = img.naturalWidth / Math.max(img.naturalHeight, 1);
+                  if (ratio > 3 || ratio < 0.33 || (img.naturalWidth < 50 && img.naturalHeight < 50)) {
+                    img.src = '/placeholder.svg';
+                  }
+                }}
+                onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }}
               />
             </div>
             <p className="mt-1 text-[11px] text-white/70 line-clamp-2 leading-tight">

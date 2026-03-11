@@ -22,6 +22,7 @@ const corsHeaders = {
 const HARD_FUNCTION_CAP_MS = 240000;
 const DAILY_CREDIT_CAP = 5000;
 const DEFAULT_CATEGORIES_PER_RUN = 15;
+const MAX_PAGES_PER_CATEGORY = 10; // SHEIN categories have many pages
 
 // ── SHEIN CATEGORY URLs ────────────────────────────────────────────────────
 // Each category page yields ~20 unique products per scrape
@@ -407,7 +408,7 @@ async function scrapeCategoryPage(
       body: JSON.stringify({
         url,
         formats: ["markdown", "html", "links"],
-        waitFor: 2500,
+        waitFor: 4000,
         onlyMainContent: false,
       }),
     });
@@ -435,24 +436,27 @@ async function scrapeCategoryPage(
 
 // ── STATEFUL ROTATION ─────────────────────────────────────────────────────
 
-async function getRotationOffset(supabase: any): Promise<number> {
+async function getRotationState(supabase: any): Promise<{ offset: number; page: number }> {
   try {
     const { data } = await supabase
       .from("cars_settings")
       .select("value")
       .eq("key", "scraper_rotation_shein")
       .single();
-    return (data?.value as any)?.offset || 0;
-  } catch { return 0; }
+    return {
+      offset: (data?.value as any)?.offset || 0,
+      page: (data?.value as any)?.page || 1,
+    };
+  } catch { return { offset: 0, page: 1 }; }
 }
 
-async function setRotationOffset(supabase: any, offset: number): Promise<void> {
+async function setRotationState(supabase: any, offset: number, page: number): Promise<void> {
   try {
     await supabase
       .from("cars_settings")
       .upsert({
         key: "scraper_rotation_shein",
-        value: { offset, updated_at: new Date().toISOString() },
+        value: { offset, page, updated_at: new Date().toISOString() },
         updated_at: new Date().toISOString(),
       }, { onConflict: "key" });
   } catch (e) {
@@ -545,8 +549,9 @@ Deno.serve(async (req: Request) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Get rotation offset for category rotation
-    const offset = customUrl ? 0 : await getRotationOffset(supabase);
+    // Get rotation state (category offset + page number)
+    const rotationState = customUrl ? { offset: 0, page: 1 } : await getRotationState(supabase);
+    let { offset, page: currentPage } = rotationState;
     
     // Select categories to scrape
     let categoriesToScrape: typeof CATEGORY_URLS;
@@ -571,7 +576,7 @@ Deno.serve(async (req: Request) => {
       categoriesToScrape = [...womenSelection, ...otherSelection];
     }
 
-    console.log(`[SHEIN_SCRAPER] START categories=${categoriesToScrape.length} offset=${offset} dryRun=${dryRun} budget=${budgetData?.count || 0}/${DAILY_CREDIT_CAP}`);
+    console.log(`[SHEIN_SCRAPER] START categories=${categoriesToScrape.length} offset=${offset} page=${currentPage} dryRun=${dryRun} budget=${budgetData?.count || 0}/${DAILY_CREDIT_CAP}`);
 
     const allProducts: SheinProduct[] = [];
     const globalSeenIds = new Set<string>();
@@ -584,8 +589,12 @@ Deno.serve(async (req: Request) => {
         break;
       }
 
-      console.log(`[SHEIN_SCRAPER] scraping ${cat.label}: ${cat.url}`);
-      const { products, error } = await scrapeCategoryPage(cat.url, firecrawlKey);
+      // Append page parameter for pagination (SHEIN uses ?page=N)
+      const separator = cat.url.includes('?') ? '&' : '?';
+      const pageUrl = currentPage > 1 ? `${cat.url}${separator}page=${currentPage}` : cat.url;
+
+      console.log(`[SHEIN_SCRAPER] scraping ${cat.label} page=${currentPage}: ${pageUrl}`);
+      const { products, error } = await scrapeCategoryPage(pageUrl, firecrawlKey);
 
       // Track credits
       await supabase.rpc("increment_provider_budget", {
@@ -607,7 +616,7 @@ Deno.serve(async (req: Request) => {
           }
         }
         categoryResults[cat.label] = added;
-        console.log(`[SHEIN_SCRAPER] ${cat.label}: ${products.length} extracted, ${added} new unique`);
+        console.log(`[SHEIN_SCRAPER] ${cat.label} page=${currentPage}: ${products.length} extracted, ${added} new unique`);
       }
 
       categoriesProcessed++;
@@ -616,10 +625,18 @@ Deno.serve(async (req: Request) => {
       await new Promise((r) => setTimeout(r, 500));
     }
 
-    // Update rotation offset
+    // Advance rotation: cycle through pages, then advance category offset
+    let nextPage = currentPage + 1;
+    let nextOffset = offset;
+    if (nextPage > MAX_PAGES_PER_CATEGORY) {
+      // Done with all pages for these categories, advance to next batch
+      nextPage = 1;
+      nextOffset = (offset + categoriesProcessed) % CATEGORY_URLS.length;
+    }
+
+    // Update rotation state
     if (!customUrl) {
-      const newOffset = (offset + categoriesProcessed) % CATEGORY_URLS.length;
-      await setRotationOffset(supabase, newOffset);
+      await setRotationState(supabase, nextOffset, nextPage);
     }
 
     // Upsert
@@ -633,7 +650,9 @@ Deno.serve(async (req: Request) => {
       categories_processed: categoriesProcessed,
       category_pool_size: CATEGORY_URLS.length,
       rotation_offset: offset,
-      next_offset: (offset + categoriesProcessed) % CATEGORY_URLS.length,
+      current_page: currentPage,
+      next_offset: nextOffset,
+      next_page: nextPage,
       products_found: allProducts.length,
       products_with_images: allProducts.filter(p => p.image_url).length,
       products_with_prices: allProducts.filter(p => p.price_usd > 0).length,

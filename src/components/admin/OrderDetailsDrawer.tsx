@@ -8,6 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { formatUSD, formatCDF } from '@/lib/formatCurrency';
 import { formatOrderId } from '@/lib/formatOrderId';
+import { getAdminOrderProductLink } from '@/lib/orderProductLinks';
 import { 
   Loader2, 
   Package, 
@@ -299,7 +300,7 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                 </h3>
                 <div className="space-y-3">
                   {order.order_items?.map((item: any) => {
-                    const productLink = item.canonical_url || item.product_url;
+                    const productLink = getAdminOrderProductLink(item);
                     const isAmazon = item.store === 'AMAZON';
                     return (
                     <div key={item.id} className="border rounded-lg p-3 space-y-2">

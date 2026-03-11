@@ -1,59 +1,40 @@
+## Edge Function Consolidation Refactor — Phase 3 Complete
 
+### Phase 3: Orphan Deletion — 10 Functions Deleted
+- **`create-referrer`** — routed via auth-service
+- **`execute-ai-action`** — routed via admin-service
+- **`get-ai-actions-for-review`** — routed via admin-service
+- **`predict-customer-ltv`** — routed via admin-service
+- **`ai-order-assistant`** — routed via admin-service
+- **`catalog-categories`** — inlined into catalog-service
+- **`catalog-tabs`** — inlined into catalog-service
+- **`catalog-nav`** — inlined into catalog-service
+- **`catalog-providers`** — inlined into catalog-service
+- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-## Problem Analysis
+### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
+- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
+- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
+- **`auth-service`** — added `create_referrer`
+- **`email-service`** — added `saved_cart_reminders`
 
-Three distinct issues found by inspecting the database and filtering logic:
+### Batches 1–10: Inlined — 32 Functions Deleted
+- **Batch 10**: auth-service (8 functions)
+- **Batch 9**: mobile-cart (7), mobile-orders (4)
+- **Batch 8**: admin-service (10), support-service (3)
+- **Batch 7**: catalog-service (5 metadata endpoints)
 
-### 1. Blurry Phone Images — Amazon Thumbnail URLs Not Upgraded
-**Root cause**: The database stores Amazon image URLs with `_AC_UY218_` pattern (218px thumbnail). The `upgradeToHighRes()` function in `imageValidator.ts` only handles `_SL`, `_SS`, and `_AC_SL` patterns — it completely misses `_AC_UY###_` and `_AC_US###_` variants. 13 out of 15 phone images in the DB are blurry 218px thumbnails.
+**Total reduction: 42 Edge Functions deleted**
 
-### 2. Phones Section Shows Accessories Instead of Actual Phones
-**Root cause**: PHONE_WORDS includes generic terms like `"cell phone"`, `"mobile phone"` which match titles like "Cell Phone Holder for Car", "Phone Mount", "FM Transmitter for Car". The section has no excludeAny rules for accessories. Out of 20 phone-matching items sampled, ~15 are phone holders/mounts/chargers, not phones.
+### Kept as Proxy (by decision)
+- **`payments-core`** — proxies 9 functions (complex payment logic)
+- **`payments-provider`** — proxies 10 functions (payment provider logic)
+- **`email-service`** — proxies 25 send-* functions (HTML template code)
 
-### 3. Electronics Section Shows Unrelated Items
-**Root cause**: ELECTRONICS_WORDS includes broad terms like `"bluetooth"`, `"tablet"` without excluding phone accessories, car accessories, or unrelated items. The excludeAny list only blocks vehicles/parts/gaming/phones but not home goods, clothing, or generic accessories.
-
----
-
-## Plan
-
-### File 1: `supabase/functions/_shared/imageValidator.ts`
-- **Fix `upgradeToHighRes()`** to handle `_AC_UY###_` and `_AC_US###_` Amazon patterns (replace with `_AC_SL1500_`)
-- **Add `_AC_UY` and `_AC_US` small-size patterns** to the dimension-hint extraction so images under 150px are blocked at validation time
-- **Add ad banner URL patterns**: block Amazon "image unavailable" placeholders and sponsored content image patterns
-
-### File 2: `supabase/functions/_shared/sectionProfiles.ts`
-- **Phones section — tighten filtering**:
-  - Add phone accessory excludes: `"phone holder"`, `"phone mount"`, `"car mount"`, `"phone stand"`, `"fm transmitter"`, `"car adapter"`, `"car charger"`, `"bluetooth adapter"`, `"phone case"`, `"screen protector"`, `"car phone"`, `"phone grip"`
-  - Move PHONE_ACCESSORIES out of phones includeAny (they're currently in electronics only, which is correct)
-- **Electronics section — tighten filtering**:
-  - Add excludes for accessories that aren't standalone electronics: `"phone holder"`, `"car mount"`, `"phone stand"`, `"fm transmitter"`, `"car adapter"`, `"seat cover"`, `"floor mat"`
-  - Add more relevant electronics keywords: `"camera"`, `"webcam"`, `"drone"`, `"projector"`, `"smart home"`, `"printer"`
-
-### File 3: `supabase/functions/_shared/mobileSectionsCache.ts`
-- **Bump `MOBILE_SECTIONS_SCHEMA_VERSION`** to 8 to force cache rebuild with fixed image URLs and tighter filtering
-
-### Database: Bulk upgrade stored thumbnail URLs
-- Run a SQL update to upgrade all `_AC_UY218_` Amazon images in `catalog_items` to `_AC_SL1500_` so cached/stored images are high-res going forward
-
-### Deploy
-- Redeploy `catalog-home` to pick up all shared module changes and rebuild cache
-
----
-
-## Technical Details
-
-**Amazon URL pattern fix** (imageValidator.ts `upgradeToHighRes`):
-```
-// Current: only handles _SL, _SS, _AC_SL
-// Missing: _AC_UY218_, _AC_US218_, _UY218_, _US40_
-
-// Add these replacements:
-upgraded.replace(/_AC_UY\d+_/g, "_AC_SL1500_")
-upgraded.replace(/_AC_US\d+_/g, "_AC_SL1500_")  
-upgraded.replace(/_UY\d+_/g, "_SL1500_")
-```
-
-**Phone section accessory exclusion** (sectionProfiles.ts):
-Add to phones `excludeAny`: `"phone holder"`, `"phone mount"`, `"phone stand"`, `"car mount"`, `"car charger"`, `"car adapter"`, `"fm transmitter"`, `"bluetooth adapter"`, `"phone grip"`, `"phone case"`, `"screen protector"`, `"tempered glass"`, `"charging cable"`, `"power bank"`
-
+### Remaining Standalone (active, not orphaned)
+- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
+- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
+- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
+- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
+- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
+- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment

@@ -660,10 +660,10 @@ export default function ProductDetailsPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-12">
             {/* Image Gallery */}
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4 min-w-0">
               <div
                 data-product-hero="true"
-                className="relative w-full aspect-square sm:aspect-[4/3] bg-white rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center touch-pan-y"
+                className="relative w-full aspect-square sm:aspect-[4/3] bg-white rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center touch-pan-y max-w-full">
                 onClick={() => setLightboxOpen(true)}
                 onTouchStart={(e) => {
                   const touch = e.touches[0];

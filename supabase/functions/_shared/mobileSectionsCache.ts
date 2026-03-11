@@ -30,6 +30,7 @@ interface CachedSectionsPayload {
     title: string;
     title_en: string;
     title_fr: string;
+    see_all_category?: string;
     items: SectionItem[];
   }>;
   builtAt: number;

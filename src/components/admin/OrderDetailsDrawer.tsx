@@ -298,7 +298,10 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                   Order Items
                 </h3>
                 <div className="space-y-3">
-                  {order.order_items?.map((item: any) => (
+                  {order.order_items?.map((item: any) => {
+                    const productLink = item.canonical_url || item.product_url;
+                    const isAmazon = item.store === 'AMAZON';
+                    return (
                     <div key={item.id} className="border rounded-lg p-3 space-y-2">
                       <div className="flex gap-3 items-start">
                         {item.product_image_url && (
@@ -311,7 +314,18 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                         )}
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-sm line-clamp-2">{item.title || 'Product'}</p>
-                          <p className="text-xs text-muted-foreground">Store: {item.store}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-xs text-muted-foreground">Store: {item.store}</p>
+                            {isAmazon && item.provider_product_id && (
+                              <button
+                                onClick={() => navigator.clipboard.writeText(item.provider_product_id)}
+                                className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded cursor-pointer hover:bg-accent"
+                                title="Click to copy ASIN"
+                              >
+                                ASIN: {item.provider_product_id}
+                              </button>
+                            )}
+                          </div>
                           <p className="text-xs text-muted-foreground">Qty: {item.quantity}</p>
                         </div>
                         <div className="text-right flex-shrink-0">
@@ -319,9 +333,9 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                           <p className="text-xs text-muted-foreground">{formatUSD(item.unit_price_usd)} each</p>
                         </div>
                       </div>
-                      {item.product_url && (
+                      {productLink && (
                         <a 
-                          href={item.product_url} 
+                          href={productLink} 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="text-xs text-primary hover:underline flex items-center gap-1"
@@ -333,7 +347,8 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                         <p className="text-xs bg-muted p-2 rounded">{item.notes}</p>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 

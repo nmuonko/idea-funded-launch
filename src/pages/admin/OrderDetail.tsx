@@ -725,12 +725,23 @@ export default function AdminOrderDetail() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge>{item.store}</Badge>
+                    <div className="flex flex-col gap-1">
+                      <Badge>{item.store}</Badge>
+                      {item.provider_product_id && (
+                        <button
+                          onClick={() => navigator.clipboard.writeText(item.provider_product_id)}
+                          className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded cursor-pointer hover:bg-accent w-fit"
+                          title={`Click to copy ${item.store === 'AMAZON' ? 'ASIN' : 'ID'}`}
+                        >
+                          {item.store === 'AMAZON' ? 'ASIN' : 'ID'}: {item.provider_product_id}
+                        </button>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
-                    {item.product_url ? (
+                    {(item.canonical_url || item.product_url) ? (
                       <a 
-                        href={item.product_url} 
+                        href={item.canonical_url || item.product_url} 
                         target="_blank" 
                         rel="noopener noreferrer" 
                         className="text-primary hover:underline inline-flex items-center gap-1 text-sm"

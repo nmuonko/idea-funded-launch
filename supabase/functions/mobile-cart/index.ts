@@ -469,22 +469,18 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     itemId = existingItem.id; merged = true;
   } else {
     // Extract provider product ID (ASIN for Amazon, item ID for eBay)
-    const providerProductId = (() => {
-      if (store === 'AMAZON') {
-        const { extractAmazonAsin } = await import("../_shared/cartHelpers.ts");
-        return extractAmazonAsin(productUrl);
-      }
-      if (store === 'EBAY') {
-        const match = productUrl.match(/\/itm\/(\d+)/);
-        return match ? match[1] : null;
-      }
-      return null;
-    })();
+    let providerProductId: string | null = null;
+    if (store === 'AMAZON') {
+      const asinMatch = productUrl.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/)([A-Z0-9]{10})/i);
+      providerProductId = asinMatch ? asinMatch[1].toUpperCase() : null;
+    } else if (store === 'EBAY') {
+      const ebayMatch = productUrl.match(/\/itm\/(\d+)/);
+      providerProductId = ebayMatch ? ebayMatch[1] : null;
+    }
     // Build canonical URL
-    const canonicalUrl = (() => {
-      if (store === 'AMAZON' && providerProductId) return `https://www.amazon.com/dp/${providerProductId}`;
-      return productUrl;
-    })();
+    const canonicalUrl = (store === 'AMAZON' && providerProductId)
+      ? `https://www.amazon.com/dp/${providerProductId}`
+      : productUrl;
 
     const newItem = {
       order_id: draft.id, product_url: productUrl, title: productTitle, product_image_url: productImageUrl,

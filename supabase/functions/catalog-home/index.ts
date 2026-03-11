@@ -1026,6 +1026,7 @@ serve(async (req) => {
     let page = 1;
     let pageSize = clientType === "mobile" ? 20 : DEFAULT_PAGE_SIZE;
     let category = "";
+    let section = "";
     let amazonDomain = "amazon.com";
     let forceLive = false;
     let locale = lang;
@@ -1035,6 +1036,7 @@ serve(async (req) => {
         const body = await req.json();
         page = parseInt(body.page) || 1;
         category = body.category || "";
+        section = body.section || body.sectionKey || "";
         amazonDomain = body.amazon_domain || "amazon.com";
         locale = body.locale || body.lang || lang;
         if (body.env) {
@@ -1048,9 +1050,36 @@ serve(async (req) => {
     } else {
       page = parseInt(url.searchParams.get("page") || "1") || 1;
       category = url.searchParams.get("category") || "";
+      section = url.searchParams.get("section") || url.searchParams.get("sectionKey") || "";
       amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
       locale = url.searchParams.get("locale") || url.searchParams.get("lang") || lang;
       forceLive = url.searchParams.get("live") === "1" || url.searchParams.get("source") === "live";
+    }
+
+    // If section is specified, redirect to catalog-category for "Voir Tout" browsing
+    const sectionKey = section || "";
+    if (sectionKey && clientType === "mobile") {
+      console.log(`[CATALOG_HOME] section_browse correlationId=${correlationId} section=${sectionKey} page=${page} — delegating to catalog-category`);
+      const supabaseUrl = Deno.env.get("SUPABASE_URL");
+      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY") || "";
+      if (supabaseUrl) {
+        try {
+          const catUrl = `${supabaseUrl}/functions/v1/catalog-category?category=${encodeURIComponent(sectionKey)}&limit=200&sort=relevance`;
+          const catRes = await fetch(catUrl, {
+            headers: {
+              apikey: serviceRoleKey,
+              Authorization: `Bearer ${serviceRoleKey}`,
+              "x-afrishop-environment": env,
+            },
+          });
+          if (catRes.ok) {
+            const catBody = await catRes.json();
+            return jsonResponse(catBody);
+          }
+        } catch (err) {
+          console.warn(`[CATALOG_HOME] section_browse delegation error: ${err}`);
+        }
+      }
     }
 
     console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} detectedBy=${detectedBy} lang=${lang} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);

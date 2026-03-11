@@ -422,7 +422,31 @@ export function isDisallowedItem(input: ContentFilterInput): DisallowedResult {
     }
   }
 
-  // 8. Check HOME & GARDEN exclusions (seeds, vegetables, plants)
+  // 8. Check ADULT / INAPPROPRIATE content
+  const isAdultAllowlisted = ADULT_ALLOWLIST.some(pattern => titleLower.includes(pattern));
+  if (!isAdultAllowlisted) {
+    for (const keyword of ADULT_BLOCKED_KEYWORDS) {
+      let matches = false;
+      if (keyword.length <= 5) {
+        const regex = new RegExp(`\\b${escapeRegex(keyword)}\\b`, "i");
+        matches = regex.test(titleLower);
+      } else {
+        matches = titleLower.includes(keyword);
+      }
+      if (matches) {
+        return { isDisallowed: true, reason: "adult_content", matchedPattern: keyword };
+      }
+    }
+    // Also check URL for adult patterns
+    const adultUrlPatterns = ["sex-toy", "adult-toy", "vibrator", "lingerie-sexy", "breast-form", "crossdress"];
+    for (const pattern of adultUrlPatterns) {
+      if (urlLower.includes(pattern)) {
+        return { isDisallowed: true, reason: "adult_url", matchedPattern: pattern };
+      }
+    }
+  }
+
+  // 9. Check HOME & GARDEN exclusions (seeds, vegetables, plants)
   // First check allowlist to avoid blocking legitimate garden equipment
   const isHomeGardenAllowlisted = HOME_GARDEN_ALLOWLIST.some(pattern => 
     titleLower.includes(pattern)

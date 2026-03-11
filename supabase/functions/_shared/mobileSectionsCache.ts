@@ -521,7 +521,8 @@ export function emptyMobileSectionsResponse(
     title: lang === "fr" ? p.title.fr : p.title.en,
     title_en: p.title.en,
     title_fr: p.title.fr,
-    items: [],
+    see_all_category: p.key,
+    items: [] as SectionItem[],
   }));
   const normalized = normalizeSectionTitles(sections, lang) as typeof sections;
   const totalItems = calculateTotalItems(normalized);

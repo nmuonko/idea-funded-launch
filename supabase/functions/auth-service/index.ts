@@ -285,6 +285,11 @@ async function handleLogin(body: any) {
   }
 
   if (error) {
+    let errorMessage = 'Invalid email or password.';
+    let errorCode = 'INVALID_CREDENTIALS';
+    if (error.message?.includes('Too many requests')) { errorMessage = 'Too many login attempts. Please try again later.'; errorCode = 'RATE_LIMITED'; }
+    return jsonRes({ success: false, error: errorMessage, code: errorCode }, 401);
+  }
 
   const { data: profile } = await supabase.from('profiles').select('name, phone, full_name').eq('user_id', data.user.id).maybeSingle();
 

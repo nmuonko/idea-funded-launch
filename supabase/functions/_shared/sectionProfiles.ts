@@ -153,14 +153,13 @@ export const SECTION_PROFILES: SectionProfile[] = [
     title: { en: "Phones", fr: "Téléphones" },
     includeAny: PHONE_WORDS,
     excludeAny: VEHICLE_CORE.concat(PARTS_WORDS, GAMING_WORDS),
-    preferProviders: ["amazon", "ebay"],
-    minItems: 20,
+    preferProviders: ["amazon", "rainforest"],
+    minItems: 30,
   },
   {
     key: "electronics",
     title: { en: "Electronics", fr: "Électronique" },
     includeAny: ELECTRONICS_WORDS.concat(PHONE_ACCESSORIES),
-    // Exclude phones so iPhones don't appear here
     excludeAny: VEHICLE_CORE.concat(PARTS_WORDS, GAMING_WORDS, PHONE_WORDS),
     preferProviders: ["amazon", "ebay"],
     minItems: 20,
@@ -196,8 +195,8 @@ export const SECTION_PROFILES: SectionProfile[] = [
     title: { en: "Clothing & Fashion", fr: "Vêtements et Mode" },
     includeAny: CLOTHING_WORDS,
     excludeAny: VEHICLE_EXCLUDE.concat(PARTS_EXCLUDE, PHONE_EXCLUDE, GAMING_EXCLUDE),
-    preferProviders: ["amazon", "ebay"],
-    minItems: 12,
+    preferProviders: ["shein"],
+    minItems: 30,
   },
   {
     key: "home_garden",

@@ -4,7 +4,7 @@
  */
 
 import type { NormalizedItem } from "./ebayBrowseSearch.ts";
-import { upgradeEbayImage, upgradeAmazonImage } from "./imageUpgrade.ts";
+import { upgradeEbayImage, upgradeAmazonImage, isPromotionalImage } from "./imageUpgrade.ts";
 
 export interface CatalogItem {
   id: string;
@@ -29,14 +29,22 @@ export interface CatalogItem {
 }
 
 /**
+ * Filter an array of image URLs, removing promotional/banner images
+ */
+function filterImages(urls: string[]): string[] {
+  if (!urls || !Array.isArray(urls)) return [];
+  return urls.filter(u => typeof u === 'string' && u.startsWith('http') && !isPromotionalImage(u));
+}
+
+/**
  * Map eBay normalized item to response format
  */
 export function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
   const metadata = item.metadata || {};
-  // Upgrade eBay images to high-res
   const rawMainImage = item.image_url || (item.image_urls?.length > 0 ? item.image_urls[0] : null);
   const mainImage = upgradeEbayImage(rawMainImage);
-  const imagesArray = item.images || item.image_urls || [];
+  const rawImages = item.images || item.image_urls || [];
+  const imagesArray = filterImages(rawImages);
   
   return {
     id: item.id,
@@ -46,7 +54,7 @@ export function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
     priceUsd: item.price_usd,
     currency: item.currency,
     mainImageUrl: mainImage,
-    imageUrl: mainImage,  // Backward compat
+    imageUrl: mainImage,
     images: imagesArray,
     imageUrls: imagesArray,
     imageCount: item.image_count || imagesArray.length || 1,
@@ -65,13 +73,19 @@ export function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
 export function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
   const provider = (item.provider as string) || "amazon";
   
-  // For list views, only return single main image
   let rawImageUrl = item.image_url as string | null;
+  const rawImagesArray = Array.isArray(item.images) ? item.images as string[] : [];
   
-  // Get full images array
-  const imagesArray = Array.isArray(item.images) ? item.images as string[] : [];
+  // Filter promotional images from array
+  const imagesArray = filterImages(rawImagesArray);
+  
   if (!rawImageUrl && imagesArray.length > 0) {
     rawImageUrl = imagesArray[0] as string;
+  }
+  
+  // Check if main image is promotional
+  if (rawImageUrl && isPromotionalImage(rawImageUrl)) {
+    rawImageUrl = imagesArray.length > 0 ? imagesArray[0] : null;
   }
   
   // Upgrade to high-res based on provider
@@ -82,13 +96,11 @@ export function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem 
     } else if (provider === "ebay") {
       mainImage = upgradeEbayImage(rawImageUrl);
     } else if (provider === "shein") {
-      // SHEIN images from img.ltwebstatic.com are already high-res
       mainImage = rawImageUrl;
     }
   }
   
-  // Compute image count from stored images array or default to 1
-  const imageCount = imagesArray.length > 0 ? imagesArray.length : 1;
+  const imageCount = imagesArray.length > 0 ? imagesArray.length : (mainImage ? 1 : 0);
   
   return {
     id: item.id as string,
@@ -98,10 +110,10 @@ export function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem 
     priceUsd: item.price_usd as number | null,
     currency: "USD",
     mainImageUrl: mainImage,
-    imageUrl: mainImage,  // Backward compat
+    imageUrl: mainImage,
     images: imagesArray,
     imageUrls: imagesArray,
-    imageCount,           // Total images available
+    imageCount,
     productUrl: item.product_url as string | null,
     inStock: item.in_stock as boolean | null,
     rating: item.rating as number | null,
@@ -128,9 +140,10 @@ export function mapRainforestProduct(
   categoryKey?: string
 ): CatalogItem {
   const mainImage = upgradeAmazonImage(product.imageUrl);
-  const images = (product.images && Array.isArray(product.images) && product.images.length > 0) 
+  const rawImages = (product.images && Array.isArray(product.images) && product.images.length > 0) 
     ? product.images 
     : (product.imageUrl ? [product.imageUrl] : []);
+  const images = filterImages(rawImages);
   
   return {
     id: `amazon_${product.providerProductId}`,

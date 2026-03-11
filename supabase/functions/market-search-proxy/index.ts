@@ -20,7 +20,7 @@ const CORS_HEADERS = {
 const RATE_LIMIT_WINDOW_MINUTES = 5;
 const RATE_LIMIT_IP = 60;
 const RATE_LIMIT_USER = 120;
-const DEFAULT_LIMIT = 200;
+const DEFAULT_LIMIT = 500;
 const MAX_LIMIT = 500;
 
 // ─── Types ───────────────────────────────────────────────────────────────────

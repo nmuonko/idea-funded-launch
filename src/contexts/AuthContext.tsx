@@ -341,6 +341,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (error.message === 'Invalid login credentials') {
           userMessage = 'Invalid email or password. Please try again.';
         } else if (error.message?.includes('Email not confirmed')) {
+          // Auto-confirm the user server-side and retry sign-in
+          console.log('[Auth] Email not confirmed - auto-confirming and retrying...');
+          try {
+            await supabase.functions.invoke('auth-service', {
+              body: { action: 'confirm_all_users' },
+            });
+            const retry = await supabase.auth.signInWithPassword({ email, password });
+            if (!retry.error && retry.data.session) {
+              console.log('[Auth] Auto-confirm retry successful');
+              setSession(retry.data.session);
+              setUser(retry.data.user ?? null);
+              if (rememberMe) {
+                localStorage.setItem('rememberMe', 'true');
+              } else {
+                localStorage.removeItem('rememberMe');
+                sessionStorage.setItem('sessionActive', 'true');
+              }
+              return { error: null, userId: retry.data.user?.id ?? null };
+            }
+          } catch (confirmErr) {
+            console.error('[Auth] Auto-confirm failed:', confirmErr);
+          }
           userMessage = 'Unable to sign in. Please try again or contact support.';
         } else if (error.message === 'Failed to fetch') {
           // Run diagnostics to get specific error type

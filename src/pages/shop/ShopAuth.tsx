@@ -261,34 +261,6 @@ export default function ShopAuth() {
     }
   };
 
-   const handleResendVerification = async () => {
-    setLoading(true);
-    try {
-      const response = await supabase.functions.invoke('auth-service', {
-        body: {
-          action: 'resend_verification',
-          email,
-          redirectBaseUrl: window.location.origin,
-        },
-      });
-      
-      if (response.error) throw response.error;
-      const result = response.data;
-      if (result && !result.ok) throw new Error(result.message);
-      
-      toast({
-        title: auth.verificationResent || 'Verification email resent!',
-      });
-    } catch (error: any) {
-      console.error('Resend verification error:', error);
-      toast({
-        title: error.message || auth.errors?.genericError || 'Something went wrong',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-black flex flex-col">

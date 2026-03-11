@@ -468,6 +468,20 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     if (updateResult.error || !updateResult.data) return errorResponse("Failed to update cart item", 500);
     itemId = existingItem.id; merged = true;
   } else {
+    // Extract provider product ID (ASIN for Amazon, item ID for eBay)
+    let providerProductId: string | null = null;
+    if (store === 'AMAZON') {
+      const asinMatch = productUrl.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/)([A-Z0-9]{10})/i);
+      providerProductId = asinMatch ? asinMatch[1].toUpperCase() : null;
+    } else if (store === 'EBAY') {
+      const ebayMatch = productUrl.match(/\/itm\/(\d+)/);
+      providerProductId = ebayMatch ? ebayMatch[1] : null;
+    }
+    // Build canonical URL
+    const canonicalUrl = (store === 'AMAZON' && providerProductId)
+      ? `https://www.amazon.com/dp/${providerProductId}`
+      : productUrl;
+
     const newItem = {
       order_id: draft.id, product_url: productUrl, title: productTitle, product_image_url: productImageUrl,
       store, quantity, base_price_usd: productPrice, shipping_item_type_id: finalShippingTypeId,
@@ -475,6 +489,8 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       is_saved_for_later: false, price_source: userEdited ? "manual_user" : "auto",
       price_confirmation_status: userEdited ? "pending" : null,
       captured_price: userEdited ? (addBody.capturedPrice ?? addBody.captured_price ?? null) : null,
+      provider_product_id: providerProductId,
+      canonical_url: canonicalUrl,
     };
     const insertResult = await insertCartItem(db, newItem, correlationId);
     if (insertResult.error || !insertResult.data) return errorResponse("Failed to add item to cart", 500);

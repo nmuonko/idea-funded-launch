@@ -3090,6 +3090,7 @@ export type Database = {
         Row: {
           admin_adjusted_price: number | null
           base_price_usd: number | null
+          canonical_url: string | null
           captured_price: number | null
           created_at: string
           device_id: string | null
@@ -3106,6 +3107,7 @@ export type Database = {
           price_source: string | null
           product_image_url: string | null
           product_url: string
+          provider_product_id: string | null
           quantity: number
           reminder_count: number | null
           requires_manual_quote: boolean | null
@@ -3125,6 +3127,7 @@ export type Database = {
         Insert: {
           admin_adjusted_price?: number | null
           base_price_usd?: number | null
+          canonical_url?: string | null
           captured_price?: number | null
           created_at?: string
           device_id?: string | null
@@ -3141,6 +3144,7 @@ export type Database = {
           price_source?: string | null
           product_image_url?: string | null
           product_url: string
+          provider_product_id?: string | null
           quantity?: number
           reminder_count?: number | null
           requires_manual_quote?: boolean | null
@@ -3160,6 +3164,7 @@ export type Database = {
         Update: {
           admin_adjusted_price?: number | null
           base_price_usd?: number | null
+          canonical_url?: string | null
           captured_price?: number | null
           created_at?: string
           device_id?: string | null
@@ -3176,6 +3181,7 @@ export type Database = {
           price_source?: string | null
           product_image_url?: string | null
           product_url?: string
+          provider_product_id?: string | null
           quantity?: number
           reminder_count?: number | null
           requires_manual_quote?: boolean | null

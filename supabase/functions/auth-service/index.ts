@@ -207,26 +207,32 @@ async function handleRegister(body: any, req: Request) {
   }
 
   // Try sign in for session
+  console.log('[auth-service:register] START signIn for email:', email.trim(), 'userId:', userId);
   const supabase = createAnonClient();
   let { data: sessionData, error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+  console.log('[auth-service:register] signIn result — error:', signInError?.message || 'none', 'hasSession:', !!sessionData?.session);
 
   // Auto-confirm retry: if GoTrue rejects with "Email not confirmed", force-confirm and retry
   if (signInError?.message?.includes('Email not confirmed') || signInError?.message?.includes('email_not_confirmed')) {
-    console.log('[auth-service:register] Email not confirmed after createUser, force-confirming userId:', userId);
-    await supabaseAdmin.auth.admin.updateUserById(userId, { email_confirm: true });
+    console.log('[auth-service:register] DETECTED "Email not confirmed" — force-confirming userId:', userId);
+    const confirmResult = await supabaseAdmin.auth.admin.updateUserById(userId, { email_confirm: true });
+    console.log('[auth-service:register] force-confirm result — error:', confirmResult.error?.message || 'none');
     const retry = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    console.log('[auth-service:register] retry signIn result — error:', retry.error?.message || 'none', 'hasSession:', !!retry.data?.session);
     sessionData = retry.data;
     signInError = retry.error;
   }
 
   if (signInError || !sessionData?.session) {
-    console.warn('[auth-service:register] signIn failed after create:', signInError?.message);
+    // NEVER return success:true without a real session — mobile app depends on token
+    console.error('[auth-service:register] FINAL FAILURE — no session obtained. Error:', signInError?.message || 'no session');
     return jsonRes({
-      success: true, ok: true, userId,
-      message: 'Account created successfully.',
-      message_fr: 'Compte créé avec succès.',
-      email: email.trim(), user: { id: userId, email: email.trim(), fullName: fullName.trim() },
-    });
+      success: false, ok: false,
+      error: signInError?.message || 'Account created but session could not be established. Please try logging in.',
+      error_fr: 'Compte créé mais la session n\'a pas pu être établie. Veuillez essayer de vous connecter.',
+      code: 'SESSION_FAILED',
+      userId,
+    }, 500);
   }
 
   return jsonRes({
@@ -250,34 +256,38 @@ async function handleLogin(body: any) {
   const password = body.password || '';
   if (!email || !password) return jsonRes({ success: false, error: 'Email and password are required', code: 'MISSING_FIELDS' }, 400);
 
+  console.log('[auth-service:login] START signIn for email:', email);
   const supabase = createAnonClient();
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  let { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  console.log('[auth-service:login] signIn result — error:', error?.message || 'none', 'hasSession:', !!data?.session);
 
   if (error) {
     // Auto-confirm retry: if user exists but email not confirmed, force-confirm and retry
     if (error.message?.includes('Email not confirmed') || error.message?.includes('email_not_confirmed')) {
-      console.log('[auth-service:login] Email not confirmed for:', email, '— auto-confirming');
+      console.log('[auth-service:login] DETECTED "Email not confirmed" for:', email, '— looking up user to force-confirm');
       const admin = createServiceClient();
       const { data: { users } } = await admin.auth.admin.listUsers({ perPage: 1000 });
       const target = users?.find((u: any) => u.email?.toLowerCase() === email);
+      console.log('[auth-service:login] user lookup — found:', !!target, 'userId:', target?.id || 'N/A');
       if (target) {
-        await admin.auth.admin.updateUserById(target.id, { email_confirm: true });
+        const confirmResult = await admin.auth.admin.updateUserById(target.id, { email_confirm: true });
+        console.log('[auth-service:login] force-confirm result — error:', confirmResult.error?.message || 'none');
         const retry = await supabase.auth.signInWithPassword({ email, password });
+        console.log('[auth-service:login] retry signIn result — error:', retry.error?.message || 'none', 'hasSession:', !!retry.data?.session);
         if (!retry.error && retry.data?.session) {
-          const { data: profile } = await supabase.from('profiles').select('name, phone, full_name').eq('user_id', retry.data.user.id).maybeSingle();
-          return jsonRes({
-            success: true,
-            user: { id: retry.data.user.id, email: retry.data.user.email, name: profile?.name || profile?.full_name || null, phone: profile?.phone || null },
-            token: retry.data.session.access_token,
-            session: { access_token: retry.data.session.access_token, refresh_token: retry.data.session.refresh_token, expires_at: retry.data.session.expires_at, expires_in: retry.data.session.expires_in },
-          });
+          data = retry.data;
+          error = null as any;
+        } else {
+          console.error('[auth-service:login] retry FAILED even after force-confirm:', retry.error?.message);
         }
       }
     }
+  }
 
+  if (error) {
     let errorMessage = 'Invalid email or password.';
     let errorCode = 'INVALID_CREDENTIALS';
-    if (error.message.includes('Too many requests')) { errorMessage = 'Too many login attempts. Please try again later.'; errorCode = 'RATE_LIMITED'; }
+    if (error.message?.includes('Too many requests')) { errorMessage = 'Too many login attempts. Please try again later.'; errorCode = 'RATE_LIMITED'; }
     return jsonRes({ success: false, error: errorMessage, code: errorCode }, 401);
   }
 

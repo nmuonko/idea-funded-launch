@@ -388,12 +388,131 @@ function extractProductsFromContent(markdown: string, html: string, links: strin
   return products;
 }
 
-// ── FIRECRAWL SCRAPE ──────────────────────────────────────────────────────
+// ── FIRECRAWL JSON/LLM EXTRACTION (PRIMARY) ──────────────────────────────
 
-async function scrapeCategoryPage(
+const SHEIN_PRODUCT_SCHEMA = {
+  type: "object",
+  properties: {
+    products: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Product name/title" },
+          price: { type: "number", description: "Price in USD" },
+          image_url: { type: "string", description: "Main product image URL (full https URL from img.ltwebstatic.com CDN)" },
+          product_url: { type: "string", description: "Full product page URL on shein.com" },
+          product_id: { type: "string", description: "SHEIN product ID (numeric, from the URL -p-NNNNN pattern)" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  required: ["products"],
+};
+
+async function scrapeCategoryPageLLM(
   url: string,
   apiKey: string,
-): Promise<{ products: SheinProduct[]; error?: string }> {
+): Promise<{ products: SheinProduct[]; error?: string; strategy: string }> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+    // Strategy 1: JSON/LLM extraction (most reliable against anti-bot)
+    const resp = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        formats: [
+          { type: "json", schema: SHEIN_PRODUCT_SCHEMA, prompt: "Extract ALL product listings from this SHEIN category page. For each product, get the name, price in USD, main product image URL (from img.ltwebstatic.com CDN, not color swatches), the full product page URL, and the numeric product ID from the URL." },
+        ],
+        waitFor: 8000,
+        onlyMainContent: false,
+        actions: [
+          { type: "wait", milliseconds: 3000 },
+          { type: "scroll", direction: "down", amount: 3 },
+          { type: "wait", milliseconds: 2000 },
+        ],
+      }),
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.warn(`[SHEIN_SCRAPER] LLM extraction HTTP ${resp.status}: ${errText.substring(0, 200)}`);
+      // Fall back to HTML strategy
+      return scrapeCategoryPageHTML(url, apiKey);
+    }
+
+    const data = await resp.json();
+    const jsonData = data?.data?.json || data?.json;
+
+    if (!jsonData?.products || !Array.isArray(jsonData.products) || jsonData.products.length === 0) {
+      console.warn(`[SHEIN_SCRAPER] LLM returned 0 products, falling back to HTML strategy`);
+      return scrapeCategoryPageHTML(url, apiKey);
+    }
+
+    const products: SheinProduct[] = [];
+    const baseOrigin = new URL(url).origin;
+
+    for (const p of jsonData.products) {
+      if (!p.name || p.name.length < 3) continue;
+
+      let pid = p.product_id || "";
+      let productUrl = p.product_url || "";
+
+      // Normalize product URL
+      if (productUrl && productUrl.startsWith("/")) productUrl = baseOrigin + productUrl;
+      
+      // Extract PID from URL if not provided
+      if (!pid && productUrl) {
+        const extracted = extractSheinProductId(productUrl);
+        if (extracted) pid = extracted;
+      }
+      if (!pid) continue; // Skip if we can't identify the product
+
+      // Normalize PID format
+      if (/^\d+$/.test(pid)) pid = `p${pid}`;
+      if (!pid.startsWith("p")) pid = `p${pid}`;
+
+      let imageUrl = p.image_url || "";
+      // Reject swatch URLs
+      if (isSwatchUrl(imageUrl)) imageUrl = "";
+
+      const price = typeof p.price === "number" && p.price > 0 && p.price < 10000 ? Math.round(p.price * 100) / 100 : 0;
+
+      products.push({
+        title: p.name.substring(0, 200),
+        price_usd: price,
+        image_url: imageUrl,
+        product_url: productUrl || `${baseOrigin}/-p-${pid.replace("p", "")}.html`,
+        provider_product_id: pid,
+        brand: "SHEIN",
+        images: imageUrl ? [imageUrl] : [],
+      });
+    }
+
+    console.log(`[SHEIN_SCRAPER] LLM extraction: ${jsonData.products.length} raw → ${products.length} valid`);
+    return { products, strategy: "llm_json" };
+  } catch (err) {
+    console.warn(`[SHEIN_SCRAPER] LLM error: ${(err as Error).message}, falling back to HTML`);
+    return scrapeCategoryPageHTML(url, apiKey);
+  }
+}
+
+// ── FIRECRAWL HTML FALLBACK ───────────────────────────────────────────────
+
+async function scrapeCategoryPageHTML(
+  url: string,
+  apiKey: string,
+): Promise<{ products: SheinProduct[]; error?: string; strategy: string }> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 50000);
@@ -408,8 +527,13 @@ async function scrapeCategoryPage(
       body: JSON.stringify({
         url,
         formats: ["markdown", "html", "links"],
-        waitFor: 4000,
+        waitFor: 8000,
         onlyMainContent: false,
+        actions: [
+          { type: "wait", milliseconds: 3000 },
+          { type: "scroll", direction: "down", amount: 3 },
+          { type: "wait", milliseconds: 2000 },
+        ],
       }),
     });
 
@@ -417,7 +541,7 @@ async function scrapeCategoryPage(
 
     if (!resp.ok) {
       const errText = await resp.text();
-      return { products: [], error: `HTTP ${resp.status}: ${errText.substring(0, 200)}` };
+      return { products: [], error: `HTTP ${resp.status}: ${errText.substring(0, 200)}`, strategy: "html_fallback" };
     }
 
     const data = await resp.json();
@@ -425,12 +549,10 @@ async function scrapeCategoryPage(
     const html = data?.data?.html || data?.html || "";
     const links: string[] = data?.data?.links || data?.links || [];
 
-    // Extract products from HTML/markdown/links
     const products = extractProductsFromContent(markdown, html, links, url);
-
-    return { products };
+    return { products, strategy: "html_fallback" };
   } catch (err) {
-    return { products: [], error: (err as Error).message };
+    return { products: [], error: (err as Error).message, strategy: "html_fallback" };
   }
 }
 

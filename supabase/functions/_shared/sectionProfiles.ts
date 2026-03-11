@@ -12,7 +12,8 @@
  * like "tee" matching "steel" or "car" matching "carplay".
  */
 
-import { isValidProductImageUrl } from "./imageValidator.ts";
+import { isValidProductImageUrl, upgradeToHighRes } from "./imageValidator.ts";
+import { isDisallowedItem } from "./contentBlocker.ts";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 

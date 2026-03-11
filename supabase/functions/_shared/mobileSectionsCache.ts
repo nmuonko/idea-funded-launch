@@ -14,7 +14,7 @@ import { normalizeSectionTitles, calculateTotalItems } from "./titleNormalizer.t
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const MOBILE_SECTIONS_SCHEMA_VERSION = 5;
+export const MOBILE_SECTIONS_SCHEMA_VERSION = 6;
 const DEFAULT_TTL_SECONDS = 1800; // 30 min default — overridden by admin settings
 const ITEMS_PER_SECTION_RESPONSE = 40; // returned to client
 const ITEMS_PER_SECTION_CACHE = 60; // stored in cache for stability
@@ -245,10 +245,22 @@ async function buildStrictSectionsFromPool(
     sectionBuckets[profile.key] = [];
   }
 
-  // PHASE 1: Strict filter from pool
+  // PHASE 1: Strict filter from pool — prefer specific providers when configured
   if (pool && pool.length > 0) {
     for (const profile of SECTION_PROFILES) {
-      const filtered = filterItemsForProfile(pool, profile)
+      let sourcePool = pool;
+      // If preferProviders is set, filter pool to only those providers first
+      if (profile.preferProviders && profile.preferProviders.length > 0) {
+        const preferredPool = pool.filter(item =>
+          profile.preferProviders!.includes(item.provider)
+        );
+        // Use preferred pool if it has enough items, otherwise mix in others
+        if (preferredPool.length >= 5) {
+          sourcePool = preferredPool;
+        }
+      }
+
+      const filtered = filterItemsForProfile(sourcePool, profile)
         .filter(item => !usedIds.has(item.id))
         .slice(0, ITEMS_PER_SECTION_CACHE);
 

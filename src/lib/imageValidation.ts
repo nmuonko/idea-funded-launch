@@ -4,7 +4,7 @@
  */
 
 const BLOCKED_TOKENS = [
-  'vital_health', 'vitalhealthy', 'vital healthy',
+  'vital_health', 'vitalhealthy', 'vital healthy', 'lovegrown', 'love-grown', 'love_grown',
   'sellerbanner', 'seller_banner', 'seller-banner',
   'shoplogo', 'shop_logo', 'shop-logo',
   'storelogo', 'store_logo', 'store-logo',
@@ -49,6 +49,20 @@ const BLOCKED_TOKENS = [
   '/ads/', '/advertisement/',
   'comparison-chart', 'comparison_chart',
   'infographic', 'info-graphic',
+  // Category / navigation / misc non-product
+  'category-banner', 'category_banner', 'nav-banner', 'nav_banner',
+  'announcement-bar', 'announcement_bar',
+  'gift-card', 'gift_card', 'giftcard',
+  'email-banner', 'email_banner',
+  'social-share', 'social_share', 'share-icon',
+  'review-badge', 'review_badge',
+  'top-rated', 'top_rated',
+  'best-price', 'best_price',
+  'price-drop', 'price_drop',
+  'new-arrival', 'new_arrival',
+  'trending-badge', 'trending_badge',
+  'flash-sale', 'flash_sale',
+  '/swatch', '/color-swatch', '/color_swatch',
 ];
 
 /** Filename patterns that strongly indicate non-product promotional content */

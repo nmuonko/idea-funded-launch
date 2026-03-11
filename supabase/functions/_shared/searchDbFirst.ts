@@ -14,7 +14,7 @@ type SupabaseClientAny = any;
 
 import { filterDisallowedItems } from "./contentBlocker.ts";
 import { getTtlPolicy, TtlPolicy } from "./ttlPolicy.ts";
-import { isValidProductImageUrl } from "./imageValidator.ts";
+import { isValidProductImageUrl, upgradeToHighRes } from "./imageValidator.ts";
 
 /**
  * Ensure provider diversity in results — inject minority-provider items

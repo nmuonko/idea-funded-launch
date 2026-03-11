@@ -648,8 +648,8 @@ export default function ProductDetailsPage() {
     <div className="min-h-screen bg-black overflow-x-hidden">
       <ShopHeader />
 
-      <main className="pt-24 px-4 pb-safe-nav">
-        <div className="container mx-auto max-w-6xl">
+      <main className="pt-20 sm:pt-24 px-3 sm:px-4 pb-safe-nav">
+        <div className="mx-auto max-w-6xl w-full">
           <Link
             to="/"
             className="inline-flex items-center gap-2 text-white/60 hover:text-white mb-6 transition-colors"

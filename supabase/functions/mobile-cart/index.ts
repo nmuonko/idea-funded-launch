@@ -714,6 +714,19 @@ async function handleSync(req: Request, body: any): Promise<Response> {
     const { imageUrl: resolvedImageUrl } = coalesceImageUrl(item);
 
     const cleanProductUrl = canonicalizeProductUrl(item.productUrl);
+    // Extract provider product ID and canonical URL for all order paths
+    let syncProviderProductId: string | null = null;
+    if (store === 'AMAZON') {
+      const asinMatch = item.productUrl.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/)([A-Z0-9]{10})/i);
+      syncProviderProductId = asinMatch ? asinMatch[1].toUpperCase() : null;
+    } else if (store === 'EBAY') {
+      const ebayMatch = item.productUrl.match(/\/itm\/(\d+)/);
+      syncProviderProductId = ebayMatch ? ebayMatch[1] : null;
+    }
+    const syncCanonicalUrl = (store === 'AMAZON' && syncProviderProductId)
+      ? `https://www.amazon.com/dp/${syncProviderProductId}`
+      : cleanProductUrl;
+
     const itemData: Record<string, any> = {
       order_id: cartId, product_url: cleanProductUrl, title: item.title || null,
       product_image_url: resolvedImageUrl, store, base_price_usd: pricing.basePriceUsd,
@@ -721,6 +734,8 @@ async function handleSync(req: Request, body: any): Promise<Response> {
       subtotal_usd: pricing.itemBaseTotalUsd, markup_fee_usd: pricing.itemMarginUsd,
       total_price_usd: pricing.itemSubtotalUsd, total_price_cdf: pricing.itemSubtotalCdf,
       est_weight_kg: 1, is_saved_for_later: false, is_vehicle: isVehicle, requires_manual_quote: isVehicle,
+      provider_product_id: syncProviderProductId,
+      canonical_url: syncCanonicalUrl,
     };
 
     if (priceEdited) {
@@ -877,12 +892,27 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
     const subtotalCdf = Math.round(subtotalUsd * exchangeRate);
 
     const cleanGuestUrl = canonicalizeProductUrl(guestItem.productUrl);
+    // Extract provider product ID and canonical URL for guest merge path
+    let guestProviderProductId: string | null = null;
+    if (store === 'AMAZON') {
+      const asinMatch = guestItem.productUrl.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/)([A-Z0-9]{10})/i);
+      guestProviderProductId = asinMatch ? asinMatch[1].toUpperCase() : null;
+    } else if (store === 'EBAY') {
+      const ebayMatch = guestItem.productUrl.match(/\/itm\/(\d+)/);
+      guestProviderProductId = ebayMatch ? ebayMatch[1] : null;
+    }
+    const guestCanonicalUrl = (store === 'AMAZON' && guestProviderProductId)
+      ? `https://www.amazon.com/dp/${guestProviderProductId}`
+      : cleanGuestUrl;
+
     const itemData = {
       order_id: draftOrder!.id, product_url: cleanGuestUrl, title: guestItem.title || null,
       product_image_url: guestItem.imageUrl || null, store, base_price_usd: basePrice, unit_price_usd: basePrice,
       quantity, subtotal_usd: baseTotalUsd, markup_fee_usd: marginUsd,
       total_price_usd: subtotalUsd, total_price_cdf: subtotalCdf,
       is_vehicle: isVehicleDetected, requires_manual_quote: isVehicleDetected, is_saved_for_later: false,
+      provider_product_id: guestProviderProductId,
+      canonical_url: guestCanonicalUrl,
     };
 
     if (existingItem) {

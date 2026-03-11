@@ -436,24 +436,27 @@ async function scrapeCategoryPage(
 
 // ── STATEFUL ROTATION ─────────────────────────────────────────────────────
 
-async function getRotationOffset(supabase: any): Promise<number> {
+async function getRotationState(supabase: any): Promise<{ offset: number; page: number }> {
   try {
     const { data } = await supabase
       .from("cars_settings")
       .select("value")
       .eq("key", "scraper_rotation_shein")
       .single();
-    return (data?.value as any)?.offset || 0;
-  } catch { return 0; }
+    return {
+      offset: (data?.value as any)?.offset || 0,
+      page: (data?.value as any)?.page || 1,
+    };
+  } catch { return { offset: 0, page: 1 }; }
 }
 
-async function setRotationOffset(supabase: any, offset: number): Promise<void> {
+async function setRotationState(supabase: any, offset: number, page: number): Promise<void> {
   try {
     await supabase
       .from("cars_settings")
       .upsert({
         key: "scraper_rotation_shein",
-        value: { offset, updated_at: new Date().toISOString() },
+        value: { offset, page, updated_at: new Date().toISOString() },
         updated_at: new Date().toISOString(),
       }, { onConflict: "key" });
   } catch (e) {

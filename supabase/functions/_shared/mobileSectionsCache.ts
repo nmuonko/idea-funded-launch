@@ -245,10 +245,22 @@ async function buildStrictSectionsFromPool(
     sectionBuckets[profile.key] = [];
   }
 
-  // PHASE 1: Strict filter from pool
+  // PHASE 1: Strict filter from pool — prefer specific providers when configured
   if (pool && pool.length > 0) {
     for (const profile of SECTION_PROFILES) {
-      const filtered = filterItemsForProfile(pool, profile)
+      let sourcePool = pool;
+      // If preferProviders is set, filter pool to only those providers first
+      if (profile.preferProviders && profile.preferProviders.length > 0) {
+        const preferredPool = pool.filter(item =>
+          profile.preferProviders!.includes(item.provider)
+        );
+        // Use preferred pool if it has enough items, otherwise mix in others
+        if (preferredPool.length >= 5) {
+          sourcePool = preferredPool;
+        }
+      }
+
+      const filtered = filterItemsForProfile(sourcePool, profile)
         .filter(item => !usedIds.has(item.id))
         .slice(0, ITEMS_PER_SECTION_CACHE);
 

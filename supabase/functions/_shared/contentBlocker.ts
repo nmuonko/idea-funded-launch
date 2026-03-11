@@ -59,6 +59,89 @@ const BLOCKED_KEYWORDS = new Set([
   "activation code",
 ]);
 
+// ==================== ADULT / INAPPROPRIATE CONTENT ====================
+// Must NEVER appear on AfriShop — body-related, sexual, or adult products
+const ADULT_BLOCKED_KEYWORDS = new Set([
+  // Body forms & prosthetics (sexual context)
+  "breast form",
+  "breast forms",
+  "silicone breast",
+  "silicone breasts",
+  "fake breast",
+  "fake breasts",
+  "crossdresser",
+  "crossdressing",
+  "drag queen",
+  "breast plate",
+  "breastplate",
+  "chest plate silicone",
+  "body suit silicone",
+
+  // Adult toys & products
+  "sex toy",
+  "sex toys",
+  "vibrator",
+  "dildo",
+  "adult toy",
+  "adult toys",
+  "bondage",
+  "erotic",
+  "lingerie set sexy",
+  "sexy lingerie",
+  "sexy costume",
+  "fetish",
+  "butt plug",
+  "penis",
+  "vagina",
+  "blow up doll",
+  "love doll",
+  "pleasure toy",
+
+  // Nudity / suggestive
+  "nude",
+  "nudity",
+  "nipple cover",
+  "nipple covers",
+  "nipple pasties",
+  "pasties",
+  "body stocking",
+  "crotchless",
+  "see through lingerie",
+  "thong g-string",
+  "stripper",
+  "pole dance",
+
+  // Drugs / smoking
+  "bong",
+  "vape pen",
+  "rolling papers",
+  "grinder herb",
+  "dab rig",
+  "hookah",
+  "cannabis",
+  "marijuana",
+  "weed",
+  "cbd oil",
+  "thc",
+]);
+
+// Allowlist for adult keywords to prevent false positives
+const ADULT_ALLOWLIST = [
+  "nude color",    // Nude-colored shoes/clothing
+  "nude shade",
+  "nude pink",
+  "nude lipstick",
+  "nude palette",
+  "nude heel",
+  "nude pump",
+  "nude sandal",
+  "breast pump",   // Baby product
+  "breast milk",   // Baby product
+  "breastfeeding",
+  "breast cancer",
+  "chicken breast",
+];
+
 // ==================== HOME & GARDEN EXCLUSIONS ====================
 // Seeds, vegetables, plants - NOT appropriate for AfriShop
 // (AfriShop sells appliances, furniture, tools - not food/plants)

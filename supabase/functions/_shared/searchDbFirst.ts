@@ -16,6 +16,76 @@ import { filterDisallowedItems } from "./contentBlocker.ts";
 import { getTtlPolicy, TtlPolicy } from "./ttlPolicy.ts";
 import { isValidProductImageUrl } from "./imageValidator.ts";
 
+/**
+ * Ensure provider diversity in results — inject minority-provider items
+ * into the top results so users see items from SHEIN, Carvana, etc.
+ */
+function diversifyByProvider(items: Record<string, unknown>[], targetLimit: number): Record<string, unknown>[] {
+  if (items.length <= 10) return items;
+
+  // Group by provider
+  const byProvider = new Map<string, Record<string, unknown>[]>();
+  for (const item of items) {
+    const p = (item.provider as string) || "unknown";
+    if (!byProvider.has(p)) byProvider.set(p, []);
+    byProvider.get(p)!.push(item);
+  }
+
+  // If only 1 provider, no diversity needed
+  if (byProvider.size <= 1) return items;
+
+  // Identify minority providers (< 10% of results)
+  const total = items.length;
+  const minorityItems: Record<string, unknown>[] = [];
+  const majorityProviders = new Set<string>();
+  for (const [provider, providerItems] of byProvider) {
+    if (providerItems.length / total < 0.1) {
+      // Take up to 6 items from each minority provider
+      minorityItems.push(...providerItems.slice(0, 6));
+    } else {
+      majorityProviders.add(provider);
+    }
+  }
+
+  if (minorityItems.length === 0) return items;
+
+  // Interleave: place minority items at positions 3, 7, 11, 15... among majority results
+  const majorityItems = items.filter(i => majorityProviders.has((i.provider as string) || ""));
+  const result: Record<string, unknown>[] = [];
+  const usedIds = new Set<string>();
+  let mIdx = 0;
+  let minIdx = 0;
+
+  for (let pos = 0; result.length < targetLimit && (mIdx < majorityItems.length || minIdx < minorityItems.length); pos++) {
+    // Every 4th position (starting at 3), insert a minority item
+    if ((pos + 1) % 4 === 0 && minIdx < minorityItems.length) {
+      const item = minorityItems[minIdx++];
+      const id = item.id as string;
+      if (!usedIds.has(id)) {
+        usedIds.add(id);
+        result.push(item);
+      }
+    } else if (mIdx < majorityItems.length) {
+      const item = majorityItems[mIdx++];
+      const id = item.id as string;
+      if (!usedIds.has(id)) {
+        usedIds.add(id);
+        result.push(item);
+      }
+    }
+  }
+
+  // Append any remaining minority items at the end
+  for (; minIdx < minorityItems.length && result.length < targetLimit; minIdx++) {
+    const item = minorityItems[minIdx];
+    if (!usedIds.has(item.id as string)) {
+      result.push(item);
+    }
+  }
+
+  return result;
+}
+
 export interface DbFirstParams {
   supabase: SupabaseClientAny;
   qNorm: string;
@@ -116,9 +186,10 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
   console.log(`[CATALOG_SEARCH] requestId=${requestId} db_tier_A q="${qNorm}" tokens=${JSON.stringify(topTokens)} count=${tierACount} minRequired=${DB_MIN_RESULTS}`);
 
   if (tierACount >= DB_MIN_RESULTS) {
-    const mapped = tierAItems.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey)).filter(Boolean);
+    const mapped = tierAItems.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey)).filter(Boolean) as Record<string, unknown>[];
+    const diversified = diversifyByProvider(mapped, Math.max(limit, 400));
     const { allowed } = filterDisallowedItems(
-      mapped.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
+      diversified.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
       `[DB_TIER_A] requestId=${requestId}`
     );
     return { items: allowed, fallbackItems: null, dbCount: tierACount, durationMs: Date.now() - dbStartMs, tier: "A", fuzzyUsed: false, expansionUsed: false };

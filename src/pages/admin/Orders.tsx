@@ -112,7 +112,7 @@ export default function AdminOrders() {
         .select(`
           *,
           profiles(user_id, name, full_name, email, phone, address_line1, address_line2, city, state_province, postal_code, country, address),
-          order_items(id, title, product_url, product_image_url, quantity, created_at)
+          order_items(id, title, product_url, product_image_url, quantity, created_at, store, provider_product_id, canonical_url)
         `)
         .order('created_at', { ascending: false });
 

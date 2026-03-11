@@ -1,31 +1,40 @@
+## Edge Function Consolidation Refactor — Phase 3 Complete
 
+### Phase 3: Orphan Deletion — 10 Functions Deleted
+- **`create-referrer`** — routed via auth-service
+- **`execute-ai-action`** — routed via admin-service
+- **`get-ai-actions-for-review`** — routed via admin-service
+- **`predict-customer-ltv`** — routed via admin-service
+- **`ai-order-assistant`** — routed via admin-service
+- **`catalog-categories`** — inlined into catalog-service
+- **`catalog-tabs`** — inlined into catalog-service
+- **`catalog-nav`** — inlined into catalog-service
+- **`catalog-providers`** — inlined into catalog-service
+- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-# Fix: Product Detail Image Background & Pricing Display
+### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
+- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
+- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
+- **`auth-service`** — added `create_referrer`
+- **`email-service`** — added `saved_cart_reminders`
 
-## Issues Identified
+### Batches 1–10: Inlined — 32 Functions Deleted
+- **Batch 10**: auth-service (8 functions)
+- **Batch 9**: mobile-cart (7), mobile-orders (4)
+- **Batch 8**: admin-service (10), support-service (3)
+- **Batch 7**: catalog-service (5 metadata endpoints)
 
-### 1. Hero Image Not Visible on Dark Background
-The product detail hero image container uses `bg-white/5` (line 666) — nearly transparent on the dark theme. Product images with dark/transparent backgrounds (like the iPhone) become invisible. The product **cards** correctly use `bg-white` for their image containers, but the detail page does not.
+**Total reduction: 42 Edge Functions deleted**
 
-**Fix**: Change the hero image container background from `bg-white/5` to `bg-white` to match the product card pattern and ensure all product images are visible regardless of their background color.
+### Kept as Proxy (by decision)
+- **`payments-core`** — proxies 9 functions (complex payment logic)
+- **`payments-provider`** — proxies 10 functions (payment provider logic)
+- **`email-service`** — proxies 25 send-* functions (HTML template code)
 
-### 2. Gallery Thumbnail Background Too Dark  
-Thumbnails use `bg-white/5` (line 722) — same problem. Should be `bg-white` for consistency.
-
-### 3. Price Values Not Rendering
-The PriceBreakdown component receives `itemPriceUsd={displayPrice}` where `displayPrice = product.priceUsd`. When navigating from a product card, the initial nav state carries the price, but if `priceUsd` is `0` (common for products where the API hasn't resolved yet or the nav state was incomplete), all computed fees become `$0.00`, making the breakdown appear empty/blank.
-
-**Fix**: 
-- Show a skeleton/loading state in PriceBreakdown when `itemPriceUsd` is `0` and the page is still loading full data
-- Ensure the price values don't get clipped on narrow mobile screens by adding `break-words` / `min-w-0` utilities to the price container
-
-## Changes
-
-### File: `src/pages/shop/ProductDetails.tsx`
-- **Line 666**: Change hero container `bg-white/5` → `bg-white` for proper image visibility
-- **Line 722**: Change thumbnail `bg-white/5` → `bg-white`
-
-### File: `src/components/shop/PriceBreakdown.tsx`
-- Add early return with skeleton/placeholder when `itemPriceUsd === 0` and no server total exists — display "Loading..." or dashes instead of `$0.00`
-- This prevents the confusing blank-looking state while the full product data is being fetched
-
+### Remaining Standalone (active, not orphaned)
+- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
+- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
+- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
+- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
+- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
+- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment

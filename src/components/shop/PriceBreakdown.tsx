@@ -38,6 +38,31 @@ export function PriceBreakdown({
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
   
+  // Show skeleton when price hasn't loaded yet
+  if (itemPriceUsd === 0 && serverTotal == null) {
+    return (
+      <div className={cn("space-y-3", className)}>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-white/60">{shop.orderSummaryItem || 'Item'}</span>
+          <span className="text-white/40">—</span>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-white/60">{shop.markupFee || 'Markup Fee'}</span>
+          <span className="text-white/40">—</span>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-white/60">{shop.shippingFee || 'Shipping Fee'}</span>
+          <span className="text-white/40">—</span>
+        </div>
+        <div className="border-t border-white/10 pt-3" />
+        <div className="flex items-center justify-between">
+          <span className="text-white font-medium">{shop.estimatedTotal || 'Estimated Total'}</span>
+          <span className="text-white/40 text-xl font-bold">—</span>
+        </div>
+      </div>
+    );
+  }
+
   const subtotal = itemPriceUsd * quantity;
 
   const isDetailVehicle = isVehicle && ctx === 'product-detail';

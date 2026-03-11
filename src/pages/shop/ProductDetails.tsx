@@ -719,7 +719,7 @@ export default function ProductDetailsPage() {
                         src={resizeImageUrl(img, IMAGE_SIZE_THUMB)}
                         alt={`${product.title} ${index + 1}`}
                         loading="lazy"
-                        className="w-full h-full object-contain bg-white/5 p-1"
+                        className="w-full h-full object-contain bg-white p-1"
                       />
                     </button>
                   ))}

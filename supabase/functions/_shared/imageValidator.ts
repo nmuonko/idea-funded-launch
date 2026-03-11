@@ -202,8 +202,8 @@ export function isValidProductImageUrl(url: string | null | undefined): boolean 
   if (whMatch) {
     const w = parseInt(whMatch[1]);
     const h = parseInt(whMatch[2]);
-    // Block truly tiny images
-    if (w < 50 && h < 50) return true; // Actually false — tracking pixels
+    // Block truly tiny images (tracking pixels, spacers)
+    if (w < 50 && h < 50) return false;
     if (w < 50 || h < 50) return false;
     // Block extreme aspect ratios
     const ratio = w / Math.max(h, 1);

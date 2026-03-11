@@ -66,9 +66,8 @@ export function resizeImageUrl(url: string, targetSize: number): string {
       return url.replace(/s-l\d+/gi, `s-l${targetSize}`);
     }
   }
-  // Amazon: don't fake-upscale known tiny thumbnails (_SS/_SX/_SY with 2-3 digit sizes)
-  const amazonSmallThumb = /_(SS|SX|SY)\d{2,3}\./i;
-  if (amazonSmallThumb.test(url) && targetSize > 400) return url;
+  // Amazon: always try to upgrade — Amazon CDN supports arbitrary sizes
+  // Don't block thumbnails; they are just URL tokens, not actual tiny images
 
   // Amazon patterns: _SL1500, _SX1500, _SY1500, _AC_SL1500
   const amazonResized = url

@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Car, Search, ShoppingCart, MessageCircle, AlertTriangle, ChevronLeft, ChevronRight, ImageIcon } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { filterGalleryImages, isRenderableImageUrl } from "@/lib/imageValidation";
 
 interface CarListing {
   id: string;

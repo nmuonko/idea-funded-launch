@@ -1192,8 +1192,8 @@ Deno.serve(async (req: Request) => {
             .upsert({
               provider: dbItem.provider,
               provider_item_id: dbItem.provider_product_id || productId!,
-              image_urls: scraped,
-              image_count: scraped.length,
+              image_urls: upgradedScraped,
+              image_count: upgradedScraped.length,
               fetched_at: new Date().toISOString(),
               expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
             }, { onConflict: "provider,provider_item_id" })

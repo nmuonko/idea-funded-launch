@@ -645,7 +645,7 @@ export default function ProductDetailsPage() {
   const safeRating = typeof product.rating === 'number' ? product.rating : null;
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-black overflow-x-hidden">
       <ShopHeader />
 
       <main className="pt-24 px-4 pb-safe-nav">

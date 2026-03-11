@@ -551,10 +551,9 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, serviceKey);
     const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY") || "";
 
+    // Firecrawl key is optional — SHEIN API doesn't need it
     if (!firecrawlKey) {
-      return new Response(JSON.stringify({ ok: false, error: "FIRECRAWL_API_KEY not configured" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      console.log(`[SHEIN_SCRAPER] FIRECRAWL_API_KEY not set, will use SHEIN API only`);
     }
 
     // Budget check

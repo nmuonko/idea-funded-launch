@@ -14,6 +14,7 @@ const ROUTE_MAP: Record<string, string> = {
   "/search": "catalog-search",
   "/product": "catalog-product",
   "/category": "catalog-category",
+  "/section": "catalog-category",
   "/categories": "catalog-categories",
 };
 

@@ -663,7 +663,7 @@ export default function ProductDetailsPage() {
             <div className="space-y-4">
               <div
                 data-product-hero="true"
-                className="relative w-full aspect-square sm:aspect-[4/3] max-h-[60vh] sm:max-h-[55vh] bg-white rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center p-2 sm:p-4"
+                className="relative w-full aspect-square sm:aspect-[4/3] bg-white rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center"
                 onClick={() => setLightboxOpen(true)}
               >
                 <img
@@ -673,8 +673,7 @@ export default function ProductDetailsPage() {
                     loading="eager"
                     fetchPriority="high"
                     decoding="async"
-                    style={{ objectFit: 'contain' }}
-                    className="absolute inset-0 w-full h-full !object-contain p-4 sm:p-8"
+                    className="max-w-full max-h-full object-contain p-4 sm:p-8"
                   />
 
                 {safeImages.length > 1 && (

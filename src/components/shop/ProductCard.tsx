@@ -147,9 +147,9 @@ export function ProductCard({ product, className, compact = false, coverImage = 
         "relative overflow-hidden bg-white rounded-t-xl",
         compact ? "aspect-square" : "aspect-square"
       )}>
-        {!imgHidden && !blockedByUrl && (
+        {showImage && (
           <img
-            src={imageSrc}
+            src={imgSrc}
             alt={product.title}
             className={cn(
               "w-full h-full object-contain transition-transform duration-200 group-hover:scale-105",
@@ -157,10 +157,10 @@ export function ProductCard({ product, className, compact = false, coverImage = 
             )}
             loading="lazy"
             onLoad={handleImgLoad}
-            onError={() => setImgHidden(true)}
+            onError={handleImgError}
           />
         )}
-        {(imgHidden || blockedByUrl) && (
+        {!showImage && (
           <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
             No image
           </div>

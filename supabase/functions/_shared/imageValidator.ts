@@ -1,7 +1,9 @@
 /**
  * Shared image URL validator for edge functions.
  * Blocks ad banners, seller logos, promotional graphics, and non-product images.
- * Mirrors the frontend `isRenderableImageUrl` logic with additional server-side patterns.
+ * 
+ * SINGLE SOURCE OF TRUTH for all backend image validation.
+ * Frontend mirrors this in src/lib/imageValidation.ts
  */
 
 // ─── BLOCKED URL PATTERNS ─────────────────────────────────────────────────────
@@ -68,67 +70,118 @@ const BLOCKED_SUBSTRINGS = [
   // File types that are never product photos
   ".svg",
   ".gif",
+
+  // Seller branding
+  "lovegrown", "love-grown", "love_grown",
+  "descriptionimage", "seller_pic", "seller-pic",
+  "/00/s/", "vistaprint", "ebay.com/usr/",
+
+  // Amazon badges & renewed labels
+  "certified-renewed", "certified_renewed", "amazon-renewed",
+  "satisfaction-guarantee", "satisfaction_guarantee",
+  "free-shipping", "free_shipping", "best-seller", "best_seller",
+  "warranty-badge", "warranty_badge", "money-back", "money_back",
+  "trust-badge", "trust_badge", "guarantee-badge",
+
+  // SHEIN promo paths
+  "ltwebstatic.com/she_dist/", "ltwebstatic.com/images/bg/",
+  "images3_ccc/",
+
+  // Filename-level markers
+  "-logo.", "_logo.", "-badge.", "_badge.", "-stamp.", "_stamp.",
+  "-icon.", "_icon.",
+
+  // Marketing / campaign paths
+  "landing-page", "landing_page", "landingpage",
+  "marketing/", "campaign/", "promotional/",
+  "coupon", "discount-badge", "discount_badge",
+  "sale-badge", "sale_badge", "deal-badge",
+  "storefront/", "store-front/",
+  "brand-page", "brand_page",
+  "/ads/", "/advertisement/",
+  "comparison-chart", "comparison_chart",
+  "infographic", "info-graphic",
+
+  // Misc non-product
+  "flash-sale", "flash_sale",
+  "/swatch", "/color-swatch", "/color_swatch",
+  "gift-card", "gift_card", "giftcard",
+  "social-share", "social_share", "share-icon",
+  "review-badge", "review_badge",
+  "top-rated", "top_rated",
+  "best-price", "best_price",
+  "price-drop", "price_drop",
+  "new-arrival", "new_arrival",
+  "trending-badge", "trending_badge",
+
+  // Ad tracking / ad system images
+  "amazon-adsystem.com", "aax-us-east", "aax-us-west",
+  "fls-na.amazon.com", "fls-eu.amazon.com",
+  "ir-na.amazon-adsystem.com", "ir-uk.amazon-adsystem.com",
+  "assoc-amazon.com", "rcm-na.amazon-adsystem.com",
+  "/e/is/", "/impb?", "ad-spec-", "ad_spec_",
+  "serving-sys.com", "doubleclick.net", "googlesyndication",
+  "googleadservices", "adsserver", "adnxs.com",
+
+  // eBay ad/tracking
+  "rover.ebay.com", "srp.ebay.com",
+
+  // Generic ad network / tracking
+  "pixel.", "tracking.", "beacon.",
+  "1x1.", "spacer.gif", "blank.gif",
+
+  // Shop Now / CTA overlays
+  "shop-now", "shop_now", "shopnow",
+  "buy-now", "buy_now", "buynow",
+  "order-now", "order_now",
+  "add-to-cart", "add_to_cart",
+  "limited-time", "limited_time",
+  "sponsored-", "sponsored_", "/sponsored",
+
+  // Category banners
+  "category-banner", "category_banner",
+  "announcement-bar", "announcement_bar",
+  "email-banner", "email_banner",
+  "nav-banner", "nav_banner",
+  "lifestyle-banner", "lifestyle_banner",
 ];
 
 // eBay standard product image paths
 const EBAY_VALID_PATHS = ["/d/", "/g/", "/s-l"];
 
-/**
- * Extract width/height hints from URL patterns like `_SL500_`, `200x300`, `w=80`, etc.
- */
-function extractDimensionHints(url: string): { w: number; h: number } | null {
-  // Amazon _SLnnn_ pattern
-  const slMatch = url.match(/_SL(\d+)[_.\-]/i);
-  if (slMatch) {
-    const size = parseInt(slMatch[1]);
-    return { w: size, h: size };
-  }
-
-  // Amazon _AC_UYnnn_ or _AC_USnnn_ patterns (common thumbnails)
-  const acMatch = url.match(/_AC_U[SY](\d+)/i);
-  if (acMatch) {
-    const size = parseInt(acMatch[1]);
-    return { w: size, h: size };
-  }
-
-  // Amazon _UYnnn_ or _USnnn_ (without _AC_ prefix)
-  const uyMatch = url.match(/_U[SY](\d+)[_.\-]/i);
-  if (uyMatch) {
-    const size = parseInt(uyMatch[1]);
-    return { w: size, h: size };
-  }
-
-  // WxH pattern in path: /200x300/ or _200x300.
-  const whMatch = url.match(/[/_](\d{2,4})x(\d{2,4})[/_.]/);
-  if (whMatch) {
-    return { w: parseInt(whMatch[1]), h: parseInt(whMatch[2]) };
-  }
-
-  // Width query param
-  const wParam = url.match(/[?&]w(?:idth)?=(\d+)/i);
-  const hParam = url.match(/[?&]h(?:eight)?=(\d+)/i);
-  if (wParam && hParam) {
-    return { w: parseInt(wParam[1]), h: parseInt(hParam[1]) };
-  }
-
-  return null;
-}
+/** Filename patterns that strongly indicate non-product promotional content */
+const PROMO_FILENAME_PATTERNS = [
+  /^banner/i,
+  /^promo/i,
+  /^hero[-_]/i,
+  /^ad[-_]/i,
+  /^shop[-_]?now/i,
+  /^buy[-_]?now/i,
+  /\bcta\b/i,
+  /^sale[-_]/i,
+  /^offer[-_]/i,
+  /^deal[-_]/i,
+  /^coupon/i,
+  /^sponsored/i,
+];
 
 /**
  * Check if an image URL is a valid product image.
  * Returns true if the URL appears to be a genuine product photo.
- * Returns false for banners, logos, promos, SVGs, GIFs, tiny images, etc.
+ * Returns false for banners, logos, promos, SVGs, GIFs, etc.
+ * 
+ * IMPORTANT: Does NOT reject based on Amazon/eBay thumbnail size tokens
+ * (_AC_UY218_, s-l225) because those are upgradeable to high-res.
+ * Only rejects truly tiny images from WxH patterns or non-product content.
  */
 export function isValidProductImageUrl(url: string | null | undefined): boolean {
   if (!url || typeof url !== "string") return false;
 
   const lower = url.toLowerCase();
 
-  // Must start with http
   if (!lower.startsWith("http")) return false;
-
-  // Block .html pages
   if (lower.includes(".html")) return false;
+  if (lower.startsWith("data:")) return false;
 
   // Block known bad substrings
   for (const pattern of BLOCKED_SUBSTRINGS) {
@@ -144,20 +197,22 @@ export function isValidProductImageUrl(url: string | null | undefined): boolean 
     if (!hasValidPath) return false;
   }
 
-  // Check dimension hints for extreme aspect ratios or tiny/blurry images
-  const dims = extractDimensionHints(url);
-  if (dims) {
-    const { w, h } = dims;
-    // Block small images (< 150px either dimension → blurry on modern screens)
-    if (w > 0 && w < 150) return false;
-    if (h > 0 && h < 150) return false;
-
-    // Block extreme aspect ratios (banners are wide, logos are tall)
-    if (w > 0 && h > 0) {
-      const ratio = w / h;
-      if (ratio > 2.2 || ratio < 0.45) return false;
-    }
+  // Check WxH dimension patterns (NOT provider thumbnail tokens which are upgradeable)
+  const whMatch = lower.match(/[/_](\d{2,4})x(\d{2,4})[/_.]/);
+  if (whMatch) {
+    const w = parseInt(whMatch[1]);
+    const h = parseInt(whMatch[2]);
+    // Block truly tiny images
+    if (w < 50 && h < 50) return true; // Actually false — tracking pixels
+    if (w < 50 || h < 50) return false;
+    // Block extreme aspect ratios
+    const ratio = w / Math.max(h, 1);
+    if (ratio > 2.5 || ratio < 0.4) return false;
   }
+
+  // Check filename for promotional patterns
+  const filename = lower.split('/').pop()?.split('?')[0] || '';
+  if (PROMO_FILENAME_PATTERNS.some(pat => pat.test(filename))) return false;
 
   return true;
 }
@@ -199,18 +254,39 @@ export function upgradeToHighRes(url: string | null | undefined): string | null 
   }
 
   // Carvana: ensure standardizedHero
-  if (upgraded.includes("carvana.io") && !upgraded.includes("standardizedHero")) {
-    upgraded = upgraded.replace(/\/\w+\.jpg$/i, "/standardizedHero.jpg");
+  if (upgraded.includes("carvana.io") && !upgraded.includes("standardizedHero") && upgraded.includes("/stock/")) {
+    upgraded = upgraded.replace(/\/[^/]+\.jpg$/i, "/standardizedHero.jpg");
   }
 
   return upgraded;
 }
 
 /**
- * Sanitize an image URL: returns the URL if valid, or null if it's a banner/ad.
- * Use this when building upsert records.
+ * Sanitize an image URL: upgrade to high-res and validate.
+ * Returns the upgraded URL if valid, or null if it's a banner/ad.
  */
 export function sanitizeImageUrl(url: string | null | undefined): string | null {
   if (!url) return null;
-  return isValidProductImageUrl(url) ? url : null;
+  if (!isValidProductImageUrl(url)) return null;
+  return upgradeToHighRes(url);
+}
+
+/**
+ * Filter and upgrade a gallery array.
+ * Validates, upgrades to high-res, and deduplicates.
+ */
+export function sanitizeGallery(urls: string[]): string[] {
+  if (!urls || !Array.isArray(urls)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const u of urls) {
+    if (typeof u !== 'string' || !u.startsWith('http')) continue;
+    if (!isValidProductImageUrl(u)) continue;
+    const upgraded = upgradeToHighRes(u) || u;
+    const key = upgraded.toLowerCase().replace(/\?.*$/, '');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(upgraded);
+  }
+  return result;
 }

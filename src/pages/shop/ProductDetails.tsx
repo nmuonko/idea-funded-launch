@@ -3,6 +3,7 @@ import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { trackRecentlyViewed } from '@/lib/recentlyViewed';
 import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { filterGalleryImages } from '@/lib/imageValidation';
 import { toast } from 'sonner';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { ProductImageViewer } from '@/components/shop/ProductImageViewer';
@@ -144,7 +145,10 @@ export default function ProductDetailsPage() {
 
   // Safe accessors
   const safeImages = useMemo(() => {
-    if (product?.images?.length) return product.images;
+    if (product?.images?.length) {
+      const filtered = filterGalleryImages(product.images);
+      return filtered.length > 0 ? filtered : ['/placeholder.svg'];
+    }
     return ['/placeholder.svg'];
   }, [product?.images]);
 

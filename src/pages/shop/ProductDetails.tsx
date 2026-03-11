@@ -3,6 +3,7 @@ import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { trackRecentlyViewed } from '@/lib/recentlyViewed';
 import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { filterGalleryImages } from '@/lib/imageValidation';
 import { toast } from 'sonner';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { ProductImageViewer } from '@/components/shop/ProductImageViewer';

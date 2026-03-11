@@ -38,6 +38,30 @@ const BLOCKED_TOKENS = [
   // Filename-level markers (not domain)
   '-logo.', '_logo.', '-badge.', '_badge.', '-stamp.', '_stamp.',
   '-icon.', '_icon.',
+  // Additional promotional / marketing patterns
+  'landing-page', 'landing_page', 'landingpage',
+  'marketing/', 'campaign/', 'promotional/',
+  'coupon', 'discount-badge', 'discount_badge',
+  'sale-badge', 'sale_badge', 'deal-badge',
+  'storefront/', 'store-front/',
+  'brand-page', 'brand_page',
+  'lifestyle-banner', 'lifestyle_banner',
+  '/ads/', '/advertisement/',
+  'comparison-chart', 'comparison_chart',
+  'infographic', 'info-graphic',
+];
+
+/** Filename patterns that strongly indicate non-product promotional content */
+const PROMO_FILENAME_PATTERNS = [
+  /^banner/i,
+  /^promo/i,
+  /^hero[-_]/i,
+  /^ad[-_]/i,
+  /lovegrown/i,
+  /^shop[-_]now/i,
+  /^buy[-_]now/i,
+  /\bcta\b/i,
+  /^sale[-_]/i,
 ];
 
 /**
@@ -75,5 +99,26 @@ export function isRenderableImageUrl(url?: string | null): boolean {
   const amazonSlMatch = lower.match(/_sl(\d+)[_.\-]/i);
   if (amazonSlMatch && parseInt(amazonSlMatch[1], 10) < 80) return false;
 
+  // Check filename for promotional patterns
+  const filename = lower.split('/').pop()?.split('?')[0] || '';
+  if (PROMO_FILENAME_PATTERNS.some(pat => pat.test(filename))) return false;
+
   return true;
+}
+
+/**
+ * Filter an array of image URLs to only valid product images.
+ * Returns at least the first valid image, or empty array if none are valid.
+ */
+export function filterGalleryImages(images: string[]): string[] {
+  if (!images || !Array.isArray(images)) return [];
+  const filtered = images.filter(url => isRenderableImageUrl(url));
+  // Deduplicate by normalized URL
+  const seen = new Set<string>();
+  return filtered.filter(url => {
+    const key = url.toLowerCase().replace(/\?.*$/, '');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

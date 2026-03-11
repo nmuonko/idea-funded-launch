@@ -941,7 +941,9 @@ export default function ProductDetailsPage() {
           {/* Similar Products */}
           {similarProducts.length > 0 && (
             <section className="mt-16">
-              <h2 className="text-xl font-bold text-white mb-6">Similar Products</h2>
+              <h2 className="text-xl font-bold text-foreground mb-6">
+                {language === 'fr' ? 'Produits similaires' : 'Similar Products'}
+              </h2>
               <ProductGrid products={similarProducts} />
             </section>
           )}

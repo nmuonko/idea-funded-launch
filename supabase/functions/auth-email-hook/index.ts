@@ -2,12 +2,32 @@ import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
 import { sendLovableEmail, parseEmailWebhookPayload } from 'npm:@lovable.dev/email-js'
 import { WebhookError, verifyWebhookRequest } from 'npm:@lovable.dev/webhooks-js'
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1"
 import { SignupEmail } from '../_shared/email-templates/signup.tsx'
 import { InviteEmail } from '../_shared/email-templates/invite.tsx'
 import { MagicLinkEmail } from '../_shared/email-templates/magic-link.tsx'
 import { RecoveryEmail } from '../_shared/email-templates/recovery.tsx'
 import { EmailChangeEmail } from '../_shared/email-templates/email-change.tsx'
 import { ReauthenticationEmail } from '../_shared/email-templates/reauthentication.tsx'
+
+// Auto-confirm user on signup email event (resilient against GoTrue config resets)
+async function autoConfirmUser(email: string) {
+  try {
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    );
+    const { data: { users } } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
+    const user = users?.find((u: any) => u.email?.toLowerCase() === email?.toLowerCase());
+    if (user && !user.email_confirmed_at) {
+      await supabaseAdmin.auth.admin.updateUserById(user.id, { email_confirm: true });
+      console.log('[auth-email-hook] Auto-confirmed user:', email, 'id:', user.id);
+    }
+  } catch (err) {
+    console.error('[auth-email-hook] Auto-confirm failed for:', email, err);
+  }
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -206,6 +226,14 @@ async function handleWebhook(req: Request): Promise<Response> {
   // payload.type is the hook event type ("auth")
   const emailType = payload.data.action_type
   console.log('Received auth event', { emailType, email: payload.data.email, run_id })
+
+  // AUTO-CONFIRM: When GoTrue sends a signup confirmation email, it means the user
+  // is unconfirmed. Force-confirm them immediately so the mobile app can log in
+  // without waiting for email click. This is resilient against GoTrue config resets.
+  if (emailType === 'signup' && payload.data.email) {
+    console.log('[auth-email-hook] Signup email triggered — auto-confirming user:', payload.data.email);
+    await autoConfirmUser(payload.data.email);
+  }
 
   const EmailTemplate = EMAIL_TEMPLATES[emailType]
   if (!EmailTemplate) {

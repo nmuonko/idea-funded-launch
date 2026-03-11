@@ -186,9 +186,10 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
   console.log(`[CATALOG_SEARCH] requestId=${requestId} db_tier_A q="${qNorm}" tokens=${JSON.stringify(topTokens)} count=${tierACount} minRequired=${DB_MIN_RESULTS}`);
 
   if (tierACount >= DB_MIN_RESULTS) {
-    const mapped = tierAItems.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey)).filter(Boolean);
+    const mapped = tierAItems.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey)).filter(Boolean) as Record<string, unknown>[];
+    const diversified = diversifyByProvider(mapped, Math.max(limit, 400));
     const { allowed } = filterDisallowedItems(
-      mapped.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
+      diversified.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
       `[DB_TIER_A] requestId=${requestId}`
     );
     return { items: allowed, fallbackItems: null, dbCount: tierACount, durationMs: Date.now() - dbStartMs, tier: "A", fuzzyUsed: false, expansionUsed: false };

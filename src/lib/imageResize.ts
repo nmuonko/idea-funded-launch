@@ -57,12 +57,16 @@ export function resizeImageUrl(url: string, targetSize: number): string {
     url = url.replace(/_thumbnail_\d+x\d+/i, '');
   }
 
-  // Guard: don't fake-upscale known tiny thumbnails
+  // eBay: always upgrade to at least the target size (server stores s-l225 thumbnails historically)
   const ebayMatch = url.match(/s-l(\d+)/i);
   if (ebayMatch) {
     const currentSize = parseInt(ebayMatch[1], 10);
-    if (currentSize < 200 && targetSize > currentSize) return url;
+    // Always upgrade eBay images — they support s-l1600 universally
+    if (currentSize < targetSize) {
+      return url.replace(/s-l\d+/gi, `s-l${targetSize}`);
+    }
   }
+  // Amazon: don't fake-upscale known tiny thumbnails (_SS/_SX/_SY with 2-3 digit sizes)
   const amazonSmallThumb = /_(SS|SX|SY)\d{2,3}\./i;
   if (amazonSmallThumb.test(url) && targetSize > 400) return url;
 

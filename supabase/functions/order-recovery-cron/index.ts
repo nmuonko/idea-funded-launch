@@ -199,6 +199,21 @@ const handler = async (req: Request): Promise<Response> => {
       return orders.filter((o: any) => !paidIds.has(o.id));
     }
 
+    // Helper: send + throttle
+    async function sendThrottled(to: string, subject: string, html: string, orderId: string, label: string) {
+      if (emailsSent >= MAX_EMAILS_PER_RUN) return false;
+      const result = await sendEmail({ to, subject, html, category: "cart_recovery" });
+      emailsSent++;
+      if (!result.success) {
+        stats.errors.push(`${label} ${orderId}: ${result.error}`);
+        return false;
+      }
+      if (emailsSent < MAX_EMAILS_PER_RUN) {
+        await new Promise(r => setTimeout(r, THROTTLE_MS));
+      }
+      return true;
+    }
+
     const orderSelect = `id, total_usd, user_id, created_at, status,
                  profiles(email, name, full_name),
                  order_items(title, quantity)`;

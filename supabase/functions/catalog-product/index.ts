@@ -60,6 +60,53 @@ function buildDiagHeaders(opts: {
 }
 
 /**
+ * Check if a URL looks like a banner/promo/non-product image
+ */
+function isPromotionalImage(url: string): boolean {
+  const lower = url.toLowerCase();
+  // Blocked path tokens
+  const blocked = [
+    'sellerbanner', 'seller_banner', 'seller-banner',
+    'shoplogo', 'shop_logo', 'store_logo', 'brandlogo', 'brand_logo',
+    'watermark', 'promo_badge', 'promo-badge', 'promobanner', 'promo_banner',
+    'header_banner', 'footer_banner', 'hero_banner', 'ad_banner',
+    'template_banner', 'storefront_banner', 'sprite', 'icon_only',
+    'no-image-placeholder', '/banner', 'descriptionimage',
+    'seller_pic', 'seller-pic', '/00/s/', 'vistaprint', 'ebay.com/usr/',
+    'certified-renewed', 'certified_renewed', 'amazon-renewed',
+    'satisfaction-guarantee', 'satisfaction_guarantee',
+    'free-shipping', 'free_shipping', 'best-seller', 'best_seller',
+    'warranty-badge', 'warranty_badge', 'money-back', 'money_back',
+    'trust-badge', 'trust_badge', 'guarantee-badge',
+    '-logo.', '_logo.', '-badge.', '_badge.', '-stamp.', '_stamp.',
+    '-icon.', '_icon.', 'landing-page', 'landing_page',
+    'marketing/', 'campaign/', 'promotional/', 'coupon',
+    '/ads/', '/advertisement/', 'comparison-chart', 'infographic',
+    '/v4/p/ccc/', 'images3_ccc/', 'ltwebstatic.com/she_dist/',
+    'ltwebstatic.com/images/bg/', 'pt.ispot.tv',
+    'assets.fastly.carvana.io/merchui/images',
+    'site-cars/merchandising', 'heliosconditionaltiles',
+  ];
+  if (blocked.some(t => lower.includes(t))) return true;
+  if (lower.endsWith('.svg') || lower.endsWith('.gif')) return true;
+  // Aspect ratio from URL dimensions
+  const sizeMatch = lower.match(/[\/_](\d+)x(\d+)/);
+  if (sizeMatch) {
+    const w = Number(sizeMatch[1]);
+    const h = Number(sizeMatch[2]);
+    if (w < 100 && h < 100) return true;
+    const ratio = w / Math.max(h, 1);
+    if (ratio > 2.2 || ratio < 0.45) return true;
+  }
+  // Amazon tiny thumbnails
+  const slMatch = lower.match(/_sl(\d+)[_.\-]/i);
+  if (slMatch && parseInt(slMatch[1], 10) < 80) return true;
+  // eBay non-gallery images
+  if (lower.includes('i.ebayimg.com') && !lower.includes('/d/') && !lower.includes('/g/') && !lower.includes('/s-l')) return true;
+  return false;
+}
+
+/**
  * Upgrade ALL gallery images to high-resolution for product detail view
  */
 function upgradeGalleryImages(images: string[], provider: string): string[] {
@@ -70,6 +117,8 @@ function upgradeGalleryImages(images: string[], provider: string): string[] {
   
   for (const url of images) {
     if (!url || typeof url !== "string") continue;
+    if (!url.startsWith("http")) continue;
+    if (isPromotionalImage(url)) continue;
     
     let upgradedUrl: string;
     

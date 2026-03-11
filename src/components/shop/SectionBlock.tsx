@@ -4,6 +4,7 @@ import { CategoryCard } from '@/components/shop/CategoryCard';
 import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { isRenderableImageUrl } from '@/lib/imageValidation';
 
 interface SectionBlockProps {
   title?: string;

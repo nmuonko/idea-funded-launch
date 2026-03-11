@@ -39,12 +39,18 @@ export function ProductCard({ product, className, compact = false, coverImage = 
   const { addItem, addToSaved, removeFromSaved, isItemSaved, exchangeRate } = useShopCart();
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
+  // Collect all candidate gallery images for fallback
+  const galleryImages = [...new Set([
+    product.imageUrl,
+    ...(product.images || []),
+    ...(product.imageUrls || []),
+  ].filter(Boolean))];
+
   const [imgSrc, setImgSrc] = useState<string>(() => {
     // Pick best image upfront: try primary, then fallback to any valid image from gallery
-    const primary = product.imageUrl;
-    if (primary && isRenderableImageUrl(primary)) return resizeImageUrl(primary, IMAGE_SIZE_THUMB);
-    return '/placeholder.svg';
+    return pickBestImage(galleryImages, product.imageUrl);
   });
+  const [fallbackIdx, setFallbackIdx] = useState(0);
   const { language } = useLanguage();
 
   // On load: check aspect ratio for banner detection, try next image if bad

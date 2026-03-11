@@ -21,7 +21,7 @@ export interface SectionProfile {
   title: { en: string; fr: string };
   includeAny: string[];
   excludeAny: string[];
-  preferProviders?: ("amazon" | "ebay")[];
+  preferProviders?: string[];
   minItems: number;
 }
 

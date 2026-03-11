@@ -14,10 +14,10 @@ import { normalizeSectionTitles, calculateTotalItems } from "./titleNormalizer.t
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const MOBILE_SECTIONS_SCHEMA_VERSION = 4;
+export const MOBILE_SECTIONS_SCHEMA_VERSION = 5;
 const DEFAULT_TTL_SECONDS = 1800; // 30 min default — overridden by admin settings
-const ITEMS_PER_SECTION_RESPONSE = 20; // returned to client
-const ITEMS_PER_SECTION_CACHE = 30; // stored in cache for stability
+const ITEMS_PER_SECTION_RESPONSE = 40; // returned to client
+const ITEMS_PER_SECTION_CACHE = 60; // stored in cache for stability
 
 // (flattenToSingleSection removed — mobile needs multi-section response)
 
@@ -155,8 +155,13 @@ async function backfillForProfile(
       .map(kw => `title.ilike.*${kw.replace(/ /g, "+")}*`)
       .join(",");
 
+    // Use preferProviders if set, otherwise all providers
+    const providerFilter = profile.preferProviders && profile.preferProviders.length > 0
+      ? `provider=in.(${profile.preferProviders.join(",")})`
+      : `provider=in.(amazon,ebay,cargurus,carvana,shein,rainforest)`;
+
     const url = `${supabaseUrl}/rest/v1/catalog_items?` +
-      `provider=in.(amazon,ebay,cargurus,carvana,shein)&price_usd=gt.0&image_url=not.is.null&is_disallowed=eq.false` + +
+      `${providerFilter}&price_usd=gt.0&image_url=not.is.null&is_disallowed=eq.false` +
       `&or=(${orClauses})&order=updated_at.desc.nullslast&limit=${needed * 4}`;
 
     const res = await fetch(url, {
@@ -169,33 +174,55 @@ async function backfillForProfile(
     if (!res.ok) return [];
 
     const rows = await res.json() as Array<Record<string, unknown>>;
-    if (!Array.isArray(rows) || rows.length === 0) return [];
+    if (!Array.isArray(rows) || rows.length === 0) {
+      // Fallback to all providers if preferred returned nothing
+      if (profile.preferProviders && profile.preferProviders.length > 0) {
+        console.log(`[MOBILE_SECTIONS_CACHE] preferred providers empty for ${profile.key}, trying all`);
+        const fallbackUrl = `${supabaseUrl}/rest/v1/catalog_items?` +
+          `provider=in.(amazon,ebay,cargurus,carvana,shein,rainforest)&price_usd=gt.0&image_url=not.is.null&is_disallowed=eq.false` +
+          `&or=(${orClauses})&order=updated_at.desc.nullslast&limit=${needed * 4}`;
+        const fallbackRes = await fetch(fallbackUrl, {
+          headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
+        });
+        if (fallbackRes.ok) {
+          const fallbackRows = await fallbackRes.json() as Array<Record<string, unknown>>;
+          if (Array.isArray(fallbackRows) && fallbackRows.length > 0) {
+            return mapRows(fallbackRows, profile, usedIds, needed);
+          }
+        }
+      }
+      return [];
+    }
 
-    const mapped: SectionItem[] = rows
-      .filter(row => isValidProductImageUrl(row.image_url as string | null))
-      .map(row => ({
-        id: `${row.provider}_${row.provider_product_id}`,
-        provider: row.provider as string,
-        provider_product_id: row.provider_product_id as string,
-        title: (row.title as string) || "Product",
-        price_usd: row.price_usd as number | null,
-        priceUsd: row.price_usd as number | null,
-        currency: "USD",
-        image_url: row.image_url as string | null,
-        imageUrl: row.image_url as string | null,
-        product_url: row.product_url as string | null,
-        productUrl: row.product_url as string | null,
-        in_stock: true,
-        segment: row.segment as string | undefined,
-      }));
-
-    return filterItemsForProfile(mapped, profile)
-      .filter(item => !usedIds.has(item.id))
-      .slice(0, needed);
+    return mapRows(rows, profile, usedIds, needed);
   } catch (e) {
     console.warn(`[MOBILE_SECTIONS_CACHE] backfill error for ${profile.key}: ${e}`);
     return [];
   }
+}
+
+function mapRows(rows: Array<Record<string, unknown>>, profile: SectionProfile, usedIds: Set<string>, needed: number): SectionItem[] {
+  const mapped: SectionItem[] = rows
+    .filter(row => isValidProductImageUrl(row.image_url as string | null))
+    .map(row => ({
+      id: `${row.provider}_${row.provider_product_id}`,
+      provider: row.provider as string,
+      provider_product_id: row.provider_product_id as string,
+      title: (row.title as string) || "Product",
+      price_usd: row.price_usd as number | null,
+      priceUsd: row.price_usd as number | null,
+      currency: "USD",
+      image_url: row.image_url as string | null,
+      imageUrl: row.image_url as string | null,
+      product_url: row.product_url as string | null,
+      productUrl: row.product_url as string | null,
+      in_stock: true,
+      segment: row.segment as string | undefined,
+    }));
+
+  return filterItemsForProfile(mapped, profile)
+    .filter(item => !usedIds.has(item.id))
+    .slice(0, needed);
 }
 
 // ─── BUILD STRICT SECTIONS ───────────────────────────────────────────────────

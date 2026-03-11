@@ -126,7 +126,9 @@ export function isRenderableImageUrl(url?: string | null): boolean {
  */
 export function filterGalleryImages(images: string[]): string[] {
   if (!images || !Array.isArray(images)) return [];
-  const filtered = images.filter(url => isRenderableImageUrl(url));
+  const filtered = images
+    .map(url => upgradeToHighRes(url))
+    .filter(url => isRenderableImageUrl(url));
   // Deduplicate by normalized URL
   const seen = new Set<string>();
   return filtered.filter(url => {
@@ -135,4 +137,31 @@ export function filterGalleryImages(images: string[]): string[] {
     seen.add(key);
     return true;
   });
+}
+
+/**
+ * Upgrade known provider image URLs to their highest available resolution.
+ * eBay: s-l### → s-l1600
+ * Amazon: _SL### → _SL1500, _AC_SL### → _AC_SL1500
+ * SHEIN: strip _thumbnail_NNNxNNN
+ */
+function upgradeToHighRes(url: string): string {
+  if (!url || typeof url !== 'string') return url;
+  // eBay
+  if (url.includes('ebayimg.com')) {
+    return url.replace(/s-l\d+/gi, 's-l1600');
+  }
+  // Amazon
+  if (url.includes('media-amazon.com') || url.includes('images-amazon.com')) {
+    return url
+      .replace(/_SL\d{2,4}/gi, '_SL1500')
+      .replace(/_SX\d{2,4}/gi, '_SX1500')
+      .replace(/_SY\d{2,4}/gi, '_SY1500')
+      .replace(/_AC_SL\d{2,4}/gi, '_AC_SL1500');
+  }
+  // SHEIN
+  if (url.includes('ltwebstatic.com') && /_thumbnail_\d+x\d+/i.test(url)) {
+    return url.replace(/_thumbnail_\d+x\d+/i, '');
+  }
+  return url;
 }

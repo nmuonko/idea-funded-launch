@@ -468,6 +468,24 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     if (updateResult.error || !updateResult.data) return errorResponse("Failed to update cart item", 500);
     itemId = existingItem.id; merged = true;
   } else {
+    // Extract provider product ID (ASIN for Amazon, item ID for eBay)
+    const providerProductId = (() => {
+      if (store === 'AMAZON') {
+        const { extractAmazonAsin } = await import("../_shared/cartHelpers.ts");
+        return extractAmazonAsin(productUrl);
+      }
+      if (store === 'EBAY') {
+        const match = productUrl.match(/\/itm\/(\d+)/);
+        return match ? match[1] : null;
+      }
+      return null;
+    })();
+    // Build canonical URL
+    const canonicalUrl = (() => {
+      if (store === 'AMAZON' && providerProductId) return `https://www.amazon.com/dp/${providerProductId}`;
+      return productUrl;
+    })();
+
     const newItem = {
       order_id: draft.id, product_url: productUrl, title: productTitle, product_image_url: productImageUrl,
       store, quantity, base_price_usd: productPrice, shipping_item_type_id: finalShippingTypeId,
@@ -475,6 +493,8 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       is_saved_for_later: false, price_source: userEdited ? "manual_user" : "auto",
       price_confirmation_status: userEdited ? "pending" : null,
       captured_price: userEdited ? (addBody.capturedPrice ?? addBody.captured_price ?? null) : null,
+      provider_product_id: providerProductId,
+      canonical_url: canonicalUrl,
     };
     const insertResult = await insertCartItem(db, newItem, correlationId);
     if (insertResult.error || !insertResult.data) return errorResponse("Failed to add item to cart", 500);

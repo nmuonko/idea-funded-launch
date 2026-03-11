@@ -29,13 +29,19 @@ function normalizeAmazonHost(url?: string | null): string {
   return 'www.amazon.com';
 }
 
+function isAmazonProductDetailUrl(url?: string | null): boolean {
+  if (!url) return false;
+  if (AMAZON_HOME_PATTERN.test(url)) return false;
+  return AMAZON_ASIN_PATTERN.test(url);
+}
+
 export function extractAmazonAsinFromOrderItem(item: AdminOrderProductLinkItem): string | null {
   const fromProviderId = item.provider_product_id?.trim().toUpperCase() || '';
   if (/^[A-Z0-9]{10}$/.test(fromProviderId)) {
     return fromProviderId;
   }
 
-  for (const value of [item.canonical_url, item.product_url]) {
+  for (const value of [item.product_url, item.canonical_url]) {
     const match = value?.match(AMAZON_ASIN_PATTERN);
     if (match?.[1]) {
       return match[1].toUpperCase();
@@ -49,7 +55,15 @@ export function buildAmazonCanonicalOrderUrl(item: AdminOrderProductLinkItem): s
   const asin = extractAmazonAsinFromOrderItem(item);
   if (!asin) return null;
 
-  const host = normalizeAmazonHost(item.canonical_url || item.product_url);
+  if (isAmazonProductDetailUrl(item.product_url)) {
+    return item.product_url!;
+  }
+
+  if (isAmazonProductDetailUrl(item.canonical_url)) {
+    return item.canonical_url!;
+  }
+
+  const host = normalizeAmazonHost(item.product_url || item.canonical_url);
   return `https://${host}/dp/${asin}`;
 }
 

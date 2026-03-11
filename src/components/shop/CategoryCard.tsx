@@ -101,20 +101,26 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
             className="group flex flex-col"
           >
             <div className="aspect-square rounded-lg bg-white overflow-hidden p-1.5 border border-gray-100 shadow-sm">
-              <img
-                src={product.imageUrl || '/placeholder.svg'}
-                alt={product.title}
-                className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105"
-                loading="lazy"
-                onLoad={(e) => {
-                  const img = e.currentTarget;
-                  const ratio = img.naturalWidth / Math.max(img.naturalHeight, 1);
-                  if (ratio > 3 || ratio < 0.33 || (img.naturalWidth < 50 && img.naturalHeight < 50)) {
-                    img.src = '/placeholder.svg';
-                  }
-                }}
-                onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }}
-              />
+              {isRenderableImageUrl(product.imageUrl) ? (
+                <img
+                  src={resizeImageUrl(product.imageUrl!, IMAGE_SIZE_THUMB)}
+                  alt={product.title}
+                  className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105"
+                  loading="lazy"
+                  onLoad={(e) => {
+                    const img = e.currentTarget;
+                    const ratio = img.naturalWidth / Math.max(img.naturalHeight, 1);
+                    if (ratio > 3 || ratio < 0.33 || (img.naturalWidth < 50 && img.naturalHeight < 50)) {
+                      img.style.display = 'none';
+                    }
+                  }}
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-muted-foreground text-[10px]">
+                  No image
+                </div>
+              )}
             </div>
             <p className="mt-1 text-[11px] text-white/70 line-clamp-2 leading-tight">
               {product.title}

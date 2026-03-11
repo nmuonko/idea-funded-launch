@@ -188,13 +188,20 @@ function upgradeToHighRes(url: string): string {
   if (url.includes('ebayimg.com')) {
     return url.replace(/s-l\d+/gi, 's-l1600');
   }
-  // Amazon
-  if (url.includes('media-amazon.com') || url.includes('images-amazon.com')) {
+  // Amazon: upgrade ALL thumbnail tokens to high-res
+  if (url.includes('media-amazon.com') || url.includes('images-amazon.com') || url.includes('ssl-images-amazon.com')) {
     return url
-      .replace(/_SL\d{2,4}/gi, '_SL1500')
-      .replace(/_SX\d{2,4}/gi, '_SX1500')
-      .replace(/_SY\d{2,4}/gi, '_SY1500')
-      .replace(/_AC_SL\d{2,4}/gi, '_AC_SL1500');
+      .replace(/_SL\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_SS\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_SX\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_SY\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_AC_SL\d{2,4}/gi, '_AC_SL1500')
+      .replace(/_AC_UY\d{2,4}/gi, '_AC_SL1500')
+      .replace(/_AC_US\d{2,4}/gi, '_AC_SL1500')
+      .replace(/_AC_UL\d{2,4}/gi, '_AC_SL1500')
+      .replace(/_UY\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_US\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_SR\d+,\d+([_.])/gi, '_SL1500$1');
   }
   // SHEIN
   if (url.includes('ltwebstatic.com') && /_thumbnail_\d+x\d+/i.test(url)) {

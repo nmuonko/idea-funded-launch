@@ -106,10 +106,18 @@ export function canonicalizeProductUrl(url: string): string {
     const u = new URL(url);
     const host = u.hostname.toLowerCase();
 
-    // Amazon: extract ASIN and build clean canonical URL
+    // Amazon: preserve product slug + ASIN, strip tracking params
     if (host.includes('amazon.com') || host.includes('amazon.co') || host.includes('amzn.')) {
       const asin = extractAmazonAsin(url);
-      if (asin) return `https://www.amazon.com/dp/${asin}`;
+      if (asin) {
+        // Try to preserve the SEO slug from the original URL path
+        // e.g. /Apple-iPhone-14-128GB-Blue/dp/B0D2PY1Z7B → keep slug
+        const slugMatch = u.pathname.match(/^\/([^\/]+)\/dp\//);
+        if (slugMatch && slugMatch[1] !== 'dp') {
+          return `https://www.amazon.com/${slugMatch[1]}/dp/${asin}`;
+        }
+        return `https://www.amazon.com/dp/${asin}`;
+      }
     }
 
     // SHEIN: strip tracking params but keep path

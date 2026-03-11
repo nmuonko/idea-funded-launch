@@ -601,7 +601,7 @@ export default function ProductDetailsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black">
+      <div className="min-h-screen bg-black overflow-x-hidden">
         <ShopHeader />
         <div className="pt-24 px-4">
           <div className="container mx-auto max-w-6xl">

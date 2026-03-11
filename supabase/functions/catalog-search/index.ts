@@ -2229,20 +2229,25 @@ Deno.serve(async (req: Request) => {
             }
 
             if (lastResortResult && lastResortResult.items && lastResortResult.items.length > 0) {
-              relatedItems = lastResortResult.items.map((item: any) => ({
-                id: item.id, provider: item.provider || "ebay",
-                providerProductId: item.providerProductId || item.provider_product_id,
-                title: item.title, priceUsd: item.priceUsd || item.price_usd,
-                currency: item.currency || "USD",
-                mainImageUrl: item.imageUrl || item.image_url,
-                imageUrl: item.imageUrl || item.image_url,
-                images: item.images || (item.imageUrl ? [item.imageUrl] : []),
-                imageUrls: item.images || (item.imageUrl ? [item.imageUrl] : []),
-                imageCount: item.imageCount || 1,
-                productUrl: item.productUrl || item.product_url,
-                inStock: true, rating: item.rating,
-                category: categoryKey || undefined, store: "ebay",
-              }));
+              relatedItems = lastResortResult.items
+                .filter((item: any) => sanitizeItemImageUrl(item.imageUrl || item.image_url))
+                .map((item: any) => {
+                  const img = sanitizeItemImageUrl(item.imageUrl || item.image_url)!;
+                  return {
+                    id: item.id, provider: item.provider || "ebay",
+                    providerProductId: item.providerProductId || item.provider_product_id,
+                    title: item.title, priceUsd: item.priceUsd || item.price_usd,
+                    currency: item.currency || "USD",
+                    mainImageUrl: img,
+                    imageUrl: img,
+                    images: item.images || [img],
+                    imageUrls: item.images || [img],
+                    imageCount: item.imageCount || 1,
+                    productUrl: item.productUrl || item.product_url,
+                    inStock: true, rating: item.rating,
+                    category: categoryKey || undefined, store: "ebay",
+                  };
+                });
               fallbackReason = `last_resort_cascade:${candidateQ}`;
               console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_CASCADE: found ${relatedItems.length} items with q="${candidateQ}"`);
 

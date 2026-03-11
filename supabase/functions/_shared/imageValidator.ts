@@ -171,11 +171,17 @@ export function upgradeToHighRes(url: string | null | undefined): string | null 
 
   let upgraded = url;
 
-  // Amazon: replace _SLxxx_, _SSxxx_, _ACxxx_ with _SL1500_
+  // Amazon: replace all thumbnail patterns with high-res
   if (upgraded.includes("m.media-amazon.com") || upgraded.includes("images-amazon.com")) {
     upgraded = upgraded.replace(/_SL\d+[_.]/, "_SL1500.");
     upgraded = upgraded.replace(/_SS\d+[_.]/, "_SL1500.");
     upgraded = upgraded.replace(/_AC_SL\d+_/, "_AC_SL1500_");
+    upgraded = upgraded.replace(/_AC_UY\d+_/g, "_AC_SL1500_");
+    upgraded = upgraded.replace(/_AC_US\d+_/g, "_AC_SL1500_");
+    upgraded = upgraded.replace(/_UY\d+_/g, "_SL1500_");
+    upgraded = upgraded.replace(/_US\d+_/g, "_SL1500_");
+    upgraded = upgraded.replace(/_SX\d+_/g, "_SL1500_");
+    upgraded = upgraded.replace(/_SY\d+_/g, "_SL1500_");
   }
 
   // eBay: replace s-l225 / s-l300 / s-l500 with s-l1600

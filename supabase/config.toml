@@ -55,3 +55,5 @@ project_id = "ecqpqtirhpumfgbdtvhh"
     verify_jwt = false
   [functions.order-recovery-cron]
     verify_jwt = false
+  [functions.market-search-proxy]
+    verify_jwt = false

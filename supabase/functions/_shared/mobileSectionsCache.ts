@@ -204,22 +204,32 @@ async function backfillForProfile(
 
 function mapRows(rows: Array<Record<string, unknown>>, profile: SectionProfile, usedIds: Set<string>, needed: number): SectionItem[] {
   const mapped: SectionItem[] = rows
-    .filter(row => isValidProductImageUrl(row.image_url as string | null))
-    .map(row => ({
-      id: `${row.provider}_${row.provider_product_id}`,
-      provider: row.provider as string,
-      provider_product_id: row.provider_product_id as string,
-      title: (row.title as string) || "Product",
-      price_usd: row.price_usd as number | null,
-      priceUsd: row.price_usd as number | null,
-      currency: "USD",
-      image_url: row.image_url as string | null,
-      imageUrl: row.image_url as string | null,
-      product_url: row.product_url as string | null,
-      productUrl: row.product_url as string | null,
-      in_stock: true,
-      segment: row.segment as string | undefined,
-    }));
+    .filter(row => {
+      // Block invalid images
+      if (!isValidProductImageUrl(row.image_url as string | null)) return false;
+      // Block adult/inappropriate content
+      const blocked = isDisallowedItem({ title: row.title as string, productUrl: row.product_url as string });
+      if (blocked.isDisallowed) return false;
+      return true;
+    })
+    .map(row => {
+      const hiRes = upgradeToHighRes(row.image_url as string | null);
+      return {
+        id: `${row.provider}_${row.provider_product_id}`,
+        provider: row.provider as string,
+        provider_product_id: row.provider_product_id as string,
+        title: (row.title as string) || "Product",
+        price_usd: row.price_usd as number | null,
+        priceUsd: row.price_usd as number | null,
+        currency: "USD",
+        image_url: hiRes,
+        imageUrl: hiRes,
+        product_url: row.product_url as string | null,
+        productUrl: row.product_url as string | null,
+        in_stock: true,
+        segment: row.segment as string | undefined,
+      };
+    });
 
   return filterItemsForProfile(mapped, profile)
     .filter(item => !usedIds.has(item.id))

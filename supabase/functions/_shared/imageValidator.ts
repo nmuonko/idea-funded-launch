@@ -164,35 +164,43 @@ export function isValidProductImageUrl(url: string | null | undefined): boolean 
 
 /**
  * Upgrade image URL to highest available resolution.
- * Works for Amazon, eBay, and SHEIN CDN patterns.
+ * Works for Amazon, eBay, SHEIN, and Carvana CDN patterns.
+ * Handles ALL known thumbnail tokens including _AC_UY###_, _US###_, _SX###_, _SR###,###
  */
 export function upgradeToHighRes(url: string | null | undefined): string | null {
   if (!url) return null;
 
   let upgraded = url;
 
-  // Amazon: replace all thumbnail patterns with high-res
-  if (upgraded.includes("m.media-amazon.com") || upgraded.includes("images-amazon.com")) {
-    upgraded = upgraded.replace(/_SL\d+[_.]/, "_SL1500.");
-    upgraded = upgraded.replace(/_SS\d+[_.]/, "_SL1500.");
-    upgraded = upgraded.replace(/_AC_SL\d+_/, "_AC_SL1500_");
-    upgraded = upgraded.replace(/_AC_UY\d+_/g, "_AC_SL1500_");
-    upgraded = upgraded.replace(/_AC_US\d+_/g, "_AC_SL1500_");
-    upgraded = upgraded.replace(/_UY\d+_/g, "_SL1500_");
-    upgraded = upgraded.replace(/_US\d+_/g, "_SL1500_");
-    upgraded = upgraded.replace(/_SX\d+_/g, "_SL1500_");
-    upgraded = upgraded.replace(/_SY\d+_/g, "_SL1500_");
+  // Amazon: upgrade ALL thumbnail/resize patterns to high-res
+  if (upgraded.includes("m.media-amazon.com") || upgraded.includes("images-amazon.com") || upgraded.includes("ssl-images-amazon.com")) {
+    upgraded = upgraded
+      .replace(/_SL\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_SS\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_SX\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_SY\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_AC_SL\d{2,4}/gi, '_AC_SL1500')
+      .replace(/_AC_UY\d{2,4}/gi, '_AC_SL1500')
+      .replace(/_AC_US\d{2,4}/gi, '_AC_SL1500')
+      .replace(/_AC_UL\d{2,4}/gi, '_AC_SL1500')
+      .replace(/_UY\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_US\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_SR\d+,\d+([_.])/gi, '_SL1500$1');
   }
 
   // eBay: replace s-l225 / s-l300 / s-l500 with s-l1600
   if (upgraded.includes("ebayimg.com")) {
-    upgraded = upgraded.replace(/s-l\d+/, "s-l1600");
+    upgraded = upgraded.replace(/s-l\d+/gi, "s-l1600");
   }
 
-  // SHEIN: replace _thumbnail_xxx with original
+  // SHEIN: strip _thumbnail_xxx to get original full-size
   if (upgraded.includes("ltwebstatic.com")) {
-    upgraded = upgraded.replace(/_thumbnail_\d+x\d*/, "_thumbnail_600x");
-    upgraded = upgraded.replace(/_thumbnail_\d+x/, "_thumbnail_600x");
+    upgraded = upgraded.replace(/_thumbnail_\d+x\d*/gi, "");
+  }
+
+  // Carvana: ensure standardizedHero
+  if (upgraded.includes("carvana.io") && !upgraded.includes("standardizedHero")) {
+    upgraded = upgraded.replace(/\/\w+\.jpg$/i, "/standardizedHero.jpg");
   }
 
   return upgraded;

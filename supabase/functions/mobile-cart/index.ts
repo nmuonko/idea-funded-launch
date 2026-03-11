@@ -714,6 +714,19 @@ async function handleSync(req: Request, body: any): Promise<Response> {
     const { imageUrl: resolvedImageUrl } = coalesceImageUrl(item);
 
     const cleanProductUrl = canonicalizeProductUrl(item.productUrl);
+    // Extract provider product ID and canonical URL for all order paths
+    let syncProviderProductId: string | null = null;
+    if (store === 'AMAZON') {
+      const asinMatch = item.productUrl.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/)([A-Z0-9]{10})/i);
+      syncProviderProductId = asinMatch ? asinMatch[1].toUpperCase() : null;
+    } else if (store === 'EBAY') {
+      const ebayMatch = item.productUrl.match(/\/itm\/(\d+)/);
+      syncProviderProductId = ebayMatch ? ebayMatch[1] : null;
+    }
+    const syncCanonicalUrl = (store === 'AMAZON' && syncProviderProductId)
+      ? `https://www.amazon.com/dp/${syncProviderProductId}`
+      : cleanProductUrl;
+
     const itemData: Record<string, any> = {
       order_id: cartId, product_url: cleanProductUrl, title: item.title || null,
       product_image_url: resolvedImageUrl, store, base_price_usd: pricing.basePriceUsd,
@@ -721,6 +734,8 @@ async function handleSync(req: Request, body: any): Promise<Response> {
       subtotal_usd: pricing.itemBaseTotalUsd, markup_fee_usd: pricing.itemMarginUsd,
       total_price_usd: pricing.itemSubtotalUsd, total_price_cdf: pricing.itemSubtotalCdf,
       est_weight_kg: 1, is_saved_for_later: false, is_vehicle: isVehicle, requires_manual_quote: isVehicle,
+      provider_product_id: syncProviderProductId,
+      canonical_url: syncCanonicalUrl,
     };
 
     if (priceEdited) {

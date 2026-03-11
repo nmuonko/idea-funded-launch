@@ -1058,6 +1058,39 @@ async function saveToCatalogItems(
     const provider = store === 'generic' ? null : store;
     if (!provider) return;
 
+    // Validate title — reject ad-tracker URLs or garbage strings
+    let cleanTitle = title || null;
+    if (cleanTitle) {
+      const tLower = cleanTitle.toLowerCase();
+      if (
+        tLower.includes('amazon-adsystem.com') ||
+        tLower.includes('adsystem') ||
+        tLower.includes('doubleclick') ||
+        tLower.includes('googlesyndication') ||
+        /^https?:\/\//.test(tLower) ||
+        cleanTitle.length < 3
+      ) {
+        console.warn(`[extract-price] Rejecting garbage title: "${cleanTitle}"`);
+        cleanTitle = null;
+      }
+    }
+
+    // Validate image — reject ad-tracker images
+    let cleanImage = imageUrl || null;
+    if (cleanImage) {
+      const iLower = cleanImage.toLowerCase();
+      if (
+        iLower.includes('amazon-adsystem') ||
+        iLower.includes('adsystem') ||
+        iLower.includes('doubleclick') ||
+        iLower.includes('googlesyndication') ||
+        iLower.includes('/impb?')
+      ) {
+        console.warn(`[extract-price] Rejecting ad-tracker image: "${cleanImage}"`);
+        cleanImage = null;
+      }
+    }
+
     const now = new Date().toISOString();
 
     await supabase.from('catalog_items').upsert(
@@ -1066,8 +1099,8 @@ async function saveToCatalogItems(
         provider_product_id: productId,
         product_url: url,
         price_usd: price,
-        title: title || null,
-        image_url: imageUrl || null,
+        title: cleanTitle,
+        image_url: cleanImage,
         is_active: true,
         price_updated_at: now,
         last_seen_at: now,

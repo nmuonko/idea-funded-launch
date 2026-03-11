@@ -734,9 +734,18 @@ async function handleSync(req: Request, body: any): Promise<Response> {
       const ebayMatch = item.productUrl.match(/\/itm\/(\d+)/);
       syncProviderProductId = ebayMatch ? ebayMatch[1] : null;
     }
-    const syncCanonicalUrl = (store === 'AMAZON' && syncProviderProductId)
-      ? `https://www.amazon.com/dp/${syncProviderProductId}`
-      : cleanProductUrl;
+    let syncCanonicalUrl = cleanProductUrl;
+    if (store === 'AMAZON' && syncProviderProductId) {
+      const hasSlugged = /\/[^/]+\/dp\/[A-Z0-9]{10}/i.test(cleanProductUrl);
+      if (hasSlugged) {
+        syncCanonicalUrl = cleanProductUrl;
+      } else {
+        const titleStr = (item.title || '').replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '-').substring(0, 120);
+        syncCanonicalUrl = (titleStr.length > 2)
+          ? `https://www.amazon.com/${titleStr}/dp/${syncProviderProductId}`
+          : `https://www.amazon.com/dp/${syncProviderProductId}`;
+      }
+    }
 
     const itemData: Record<string, any> = {
       order_id: cartId, product_url: cleanProductUrl, title: item.title || null,

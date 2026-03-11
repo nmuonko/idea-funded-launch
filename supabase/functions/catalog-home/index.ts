@@ -1055,42 +1055,62 @@ serve(async (req) => {
 
     console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} detectedBy=${detectedBy} lang=${lang} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);
 
-    // ===== RECIPE CACHE (PRIMARY SOURCE) =====
-    // Try the new home_recipes-based caches first. If they have valid data, serve directly.
+    // ===== MOBILE: STRICT SECTIONS CACHE (PRIMARY) → RECIPE CACHE (FALLBACK) =====
+    // ===== WEB: RECIPE CACHE (PRIMARY) =====
     if (!forceLive) {
       try {
         const recipeSettings = await loadRefreshSettings(env);
         
         if (clientType === "mobile") {
+          // PRIMARY: Try strict sections cache (has provider filtering: SHEIN for clothing, Amazon for phones)
+          const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
+          const strictResponse = await serveMobileSections(
+            env,
+            envRequested,
+            langKey,
+            correlationId,
+            detectedBy,
+            [], // empty pool — force cache read or backfill from DB
+            recipeSettings.mobile_refresh_hours > 0 ? recipeSettings.mobile_refresh_hours * 3600 : 1800
+          );
+          
+          // Check if strict sections returned valid data
+          if (strictResponse.status === 200) {
+            const body = await strictResponse.json();
+            if (body.ok && body.sections && body.sections.length > 0) {
+              const totalItems = calculateTotalItems(body.sections);
+              if (totalItems > 0) {
+                console.log(`[CATALOG_HOME] strict_sections_hit correlationId=${correlationId} sections=${body.sections.length} totalItems=${totalItems}`);
+                return jsonResponse(body);
+              }
+            }
+          }
+          
+          // FALLBACK: Try recipe cache
+          console.log(`[CATALOG_HOME] strict_sections_miss, trying recipe_cache correlationId=${correlationId}`);
           let mobileCache = await readMobileCache(env);
-          // Production fallback: if requested env (e.g. staging) has no recipe cache, try production
           if ((!mobileCache.hit || !mobileCache.payload) && env !== "production") {
-            console.log(`[CATALOG_HOME] recipe_cache_fallback_to_production env=${env} correlationId=${correlationId}`);
             mobileCache = await readMobileCache("production");
           }
-          // Check freshness + schema version
           if (mobileCache.hit && mobileCache.payload && mobileCache.schemaVersion === recipeSettings.mobile_schema_version) {
             const payload = mobileCache.payload as Record<string, unknown>;
             const sections = payload.sections as Array<Record<string, unknown>> || [];
             if (sections.length > 0) {
-              // Normalize titles for the requested locale
-              const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
+              const langKey2: "fr" | "en" = (locale === "en" ? "en" : "fr");
               const normalized = sections.map(s => ({
                 ...s,
-                title: langKey === "fr" ? (s.title_fr || s.title) : (s.title_en || s.title),
-                items: (s.items as unknown[] || []).slice(0, 20), // Serve 20 per section
+                title: langKey2 === "fr" ? (s.title_fr || s.title) : (s.title_en || s.title),
+                items: (s.items as unknown[] || []).slice(0, 40),
               }));
-              const normalizedSections = normalizeSectionTitles(normalized, langKey) as typeof normalized;
+              const normalizedSections = normalizeSectionTitles(normalized, langKey2) as typeof normalized;
               const totalItems = calculateTotalItems(normalizedSections);
               const totalMs = Date.now() - startTime;
-              
-              console.log(`[CATALOG_HOME] recipe_cache_hit correlationId=${correlationId} client=mobile sections=${normalizedSections.length} totalItems=${totalItems} ageSeconds=${mobileCache.ageSeconds} ms=${totalMs}`);
               
               return jsonResponse({
                 ok: true,
                 sections: normalizedSections,
                 page: 1,
-                pageSize: 20,
+                pageSize: 40,
                 totalPages: 1,
                 totalItems,
                 hasMore: false,
@@ -1102,7 +1122,7 @@ serve(async (req) => {
                   detectedBy,
                   envUsed: env,
                   envRequested,
-                  source: "recipe_cache",
+                  source: "recipe_cache_fallback",
                   isStale: false,
                   ageSeconds: mobileCache.ageSeconds,
                   correlationId,
@@ -1114,29 +1134,25 @@ serve(async (req) => {
             }
           }
           
-          // Fallback: if recipe cache stale/missing but has old payload, we can still try to serve stale
+          // Stale recipe cache fallback
           if (!mobileCache.hit && mobileCache.payload) {
             const payload = mobileCache.payload as Record<string, unknown>;
             const sections = payload.sections as Array<Record<string, unknown>> || [];
             if (sections.length > 0) {
-              console.log(`[CATALOG_HOME] recipe_cache_stale correlationId=${correlationId} client=mobile serving_stale ageSeconds=${mobileCache.ageSeconds}`);
-              const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
+              const langKey2: "fr" | "en" = (locale === "en" ? "en" : "fr");
               const normalized = sections.map(s => ({
                 ...s,
-                title: langKey === "fr" ? (s.title_fr || s.title) : (s.title_en || s.title),
-                items: (s.items as unknown[] || []).slice(0, 20),
+                title: langKey2 === "fr" ? (s.title_fr || s.title) : (s.title_en || s.title),
+                items: (s.items as unknown[] || []).slice(0, 40),
               }));
-              const normalizedSections = normalizeSectionTitles(normalized, langKey) as typeof normalized;
+              const normalizedSections = normalizeSectionTitles(normalized, langKey2) as typeof normalized;
               const totalItems = calculateTotalItems(normalizedSections);
-              
-              // Auto-rebuild disabled — admin controls homepage manually
-              console.log(`[CATALOG_HOME] stale_mobile_cache_served_no_rebuild correlationId=${correlationId} (manual-only mode)`);
               
               return jsonResponse({
                 ok: true,
                 sections: normalizedSections,
                 page: 1,
-                pageSize: 20,
+                pageSize: 40,
                 totalPages: 1,
                 totalItems,
                 hasMore: false,

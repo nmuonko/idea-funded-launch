@@ -207,26 +207,32 @@ async function handleRegister(body: any, req: Request) {
   }
 
   // Try sign in for session
+  console.log('[auth-service:register] START signIn for email:', email.trim(), 'userId:', userId);
   const supabase = createAnonClient();
   let { data: sessionData, error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+  console.log('[auth-service:register] signIn result — error:', signInError?.message || 'none', 'hasSession:', !!sessionData?.session);
 
   // Auto-confirm retry: if GoTrue rejects with "Email not confirmed", force-confirm and retry
   if (signInError?.message?.includes('Email not confirmed') || signInError?.message?.includes('email_not_confirmed')) {
-    console.log('[auth-service:register] Email not confirmed after createUser, force-confirming userId:', userId);
-    await supabaseAdmin.auth.admin.updateUserById(userId, { email_confirm: true });
+    console.log('[auth-service:register] DETECTED "Email not confirmed" — force-confirming userId:', userId);
+    const confirmResult = await supabaseAdmin.auth.admin.updateUserById(userId, { email_confirm: true });
+    console.log('[auth-service:register] force-confirm result — error:', confirmResult.error?.message || 'none');
     const retry = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    console.log('[auth-service:register] retry signIn result — error:', retry.error?.message || 'none', 'hasSession:', !!retry.data?.session);
     sessionData = retry.data;
     signInError = retry.error;
   }
 
   if (signInError || !sessionData?.session) {
-    console.warn('[auth-service:register] signIn failed after create:', signInError?.message);
+    // NEVER return success:true without a real session — mobile app depends on token
+    console.error('[auth-service:register] FINAL FAILURE — no session obtained. Error:', signInError?.message || 'no session');
     return jsonRes({
-      success: true, ok: true, userId,
-      message: 'Account created successfully.',
-      message_fr: 'Compte créé avec succès.',
-      email: email.trim(), user: { id: userId, email: email.trim(), fullName: fullName.trim() },
-    });
+      success: false, ok: false,
+      error: signInError?.message || 'Account created but session could not be established. Please try logging in.',
+      error_fr: 'Compte créé mais la session n\'a pas pu être établie. Veuillez essayer de vous connecter.',
+      code: 'SESSION_FAILED',
+      userId,
+    }, 500);
   }
 
   return jsonRes({

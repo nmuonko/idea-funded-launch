@@ -601,11 +601,11 @@ export default function ProductDetailsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black">
+      <div className="min-h-screen bg-black overflow-x-hidden">
         <ShopHeader />
-        <div className="pt-24 px-4">
-          <div className="container mx-auto max-w-6xl">
-            <div className="grid lg:grid-cols-2 gap-8">
+        <div className="pt-20 sm:pt-24 px-3 sm:px-4">
+          <div className="mx-auto max-w-6xl w-full">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
               <Skeleton className="aspect-square rounded-2xl bg-white/10" />
               <div className="space-y-4">
                 <Skeleton className="h-8 w-3/4 bg-white/10" />
@@ -621,7 +621,7 @@ export default function ProductDetailsPage() {
 
   if (error || !product) {
     return (
-      <div className="min-h-screen bg-black">
+      <div className="min-h-screen bg-black overflow-x-hidden">
         <ShopHeader />
         <div className="pt-24 px-4 text-center">
           <p className="text-red-400 mb-4">{error || 'Product not found'}</p>
@@ -645,11 +645,11 @@ export default function ProductDetailsPage() {
   const safeRating = typeof product.rating === 'number' ? product.rating : null;
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-black overflow-x-hidden">
       <ShopHeader />
 
-      <main className="pt-24 px-4 pb-safe-nav">
-        <div className="container mx-auto max-w-6xl">
+      <main className="pt-20 sm:pt-24 px-3 sm:px-4 pb-safe-nav">
+        <div className="mx-auto max-w-6xl w-full">
           <Link
             to="/"
             className="inline-flex items-center gap-2 text-white/60 hover:text-white mb-6 transition-colors"
@@ -658,12 +658,12 @@ export default function ProductDetailsPage() {
             Back to Shop
           </Link>
 
-          <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-12">
             {/* Image Gallery */}
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4 min-w-0">
               <div
                 data-product-hero="true"
-                className="relative w-full aspect-square sm:aspect-[4/3] bg-white rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center touch-pan-y"
+                className="relative w-full aspect-square sm:aspect-[4/3] bg-white rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center touch-pan-y max-w-full"
                 onClick={() => setLightboxOpen(true)}
                 onTouchStart={(e) => {
                   const touch = e.touches[0];
@@ -677,7 +677,6 @@ export default function ProductDetailsPage() {
                   const touch = e.changedTouches[0];
                   const dx = touch.clientX - startX;
                   const dy = touch.clientY - startY;
-                  // Only trigger if horizontal swipe > 40px and more horizontal than vertical
                   if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
                     e.preventDefault();
                     userInteractedRef.current = true;
@@ -735,7 +734,7 @@ export default function ProductDetailsPage() {
               </div>
 
               {safeImages.length > 1 && (
-                <div className="flex gap-2 overflow-x-auto pb-2">
+                <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
                   {safeImages.map((img, index) => (
                     <button
                       key={index}
@@ -759,14 +758,14 @@ export default function ProductDetailsPage() {
             </div>
 
             {/* Product Info */}
-            <div className="space-y-6">
+            <div className="space-y-5 sm:space-y-6 min-w-0">
               {product.brand && (
                 <p className="text-sm text-white/60 uppercase tracking-wider">
                   {product.brand}
                 </p>
               )}
 
-              <h1 className="text-2xl md:text-3xl font-bold text-white break-words">
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white break-words min-w-0">
                 {product.title}
               </h1>
 
@@ -838,7 +837,7 @@ export default function ProductDetailsPage() {
               )}
 
               {/* Price Breakdown */}
-              <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
+              <div className="bg-white/5 rounded-2xl p-4 sm:p-6 border border-white/10 min-w-0">
                 <PriceBreakdown
                   itemPriceUsd={displayPrice}
                   quantity={quantity}

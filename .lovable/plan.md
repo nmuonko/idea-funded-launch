@@ -1,40 +1,56 @@
-## Edge Function Consolidation Refactor — Phase 3 Complete
 
-### Phase 3: Orphan Deletion — 10 Functions Deleted
-- **`create-referrer`** — routed via auth-service
-- **`execute-ai-action`** — routed via admin-service
-- **`get-ai-actions-for-review`** — routed via admin-service
-- **`predict-customer-ltv`** — routed via admin-service
-- **`ai-order-assistant`** — routed via admin-service
-- **`catalog-categories`** — inlined into catalog-service
-- **`catalog-tabs`** — inlined into catalog-service
-- **`catalog-nav`** — inlined into catalog-service
-- **`catalog-providers`** — inlined into catalog-service
-- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
-- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
-- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
-- **`auth-service`** — added `create_referrer`
-- **`email-service`** — added `saved_cart_reminders`
+## Current State
 
-### Batches 1–10: Inlined — 32 Functions Deleted
-- **Batch 10**: auth-service (8 functions)
-- **Batch 9**: mobile-cart (7), mobile-orders (4)
-- **Batch 8**: admin-service (10), support-service (3)
-- **Batch 7**: catalog-service (5 metadata endpoints)
+### SHEIN Catalog
+- **1,298 active SHEIN items** in the database (not 762 — the frontend may be filtering further)
+- **Scraper is broken**: The last run scraped 25 categories and extracted **0 products** from every single one. SHEIN's anti-bot protections are blocking Firecrawl.
+- Growth has stalled — 1,122 items were added on March 11 (likely from earlier successful runs), but current runs yield nothing.
 
-**Total reduction: 42 Edge Functions deleted**
+### Mobile Homepage
+- Controlled by `sectionProfiles.ts` — 10 sections (phones, electronics, vehicles, parts, gaming, clothing, home, toys, sports, refurbished)
+- Each section returns **20 items** to the mobile client (30 cached)
+- Clothing section uses generic keyword matching across ALL providers (amazon, ebay, shein)
+- Phones section also pulls from all providers
+- No provider-level filtering exists per section
 
-### Kept as Proxy (by decision)
-- **`payments-core`** — proxies 9 functions (complex payment logic)
-- **`payments-provider`** — proxies 10 functions (payment provider logic)
-- **`email-service`** — proxies 25 send-* functions (HTML template code)
+## Plan
 
-### Remaining Standalone (active, not orphaned)
-- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
-- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
-- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
-- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
-- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
-- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment
+### 1. Fix SHEIN Scraper — Switch Extraction Strategy
+The current scraper relies on extracting product URLs from Firecrawl HTML, but SHEIN is returning empty/blocked content. Fix by:
+- Adding a **Firecrawl JSON/LLM extraction mode** (like the existing `extract-price` Strategy 5) as primary method
+- Increasing `waitFor` to 8-10 seconds for JS rendering
+- Adding retry with `actions: [{"type": "wait", "milliseconds": 5000}]` to let SHEIN's lazy-loaded content render
+- If Firecrawl continues to fail, fall back to **SHEIN API endpoints** (us.shein.com has public JSON APIs like `/api/productList/...`) which return structured data directly
+
+### 2. Update Mobile Homepage — Provider Preferences per Section
+Modify `sectionProfiles.ts`:
+- **Clothing section**: Add `preferProviders: ["shein"]` and update backfill logic to query `provider=eq.shein` first
+- **Phones section**: Change `preferProviders: ["amazon"]` and update backfill to prioritize `provider=in.(rainforest,amazon)`
+
+### 3. Increase Mobile Homepage Item Counts
+Modify `mobileSectionsCache.ts`:
+- Increase `ITEMS_PER_SECTION_RESPONSE` from **20 → 40**
+- Increase `ITEMS_PER_SECTION_CACHE` from **30 → 60**
+- Update `minItems` in section profiles to higher values (clothing: 30, phones: 30, others: 20)
+
+### 4. Update Backfill Logic for Provider Filtering
+In both `sectionProfiles.ts` and `mobileSectionsCache.ts`, the `backfillForProfile()` function currently queries all providers. Update it to:
+- Check `profile.preferProviders` and use that as the primary provider filter in the DB query
+- For clothing: query `provider=eq.shein` first, then fall back to other providers if under target
+- For phones: query `provider=in.(rainforest,amazon)` first
+
+### 5. Rebuild Mobile Homepage Cache
+After deploying changes, trigger a cache rebuild so the mobile app immediately serves the updated sections with SHEIN clothing and Amazon phones.
+
+### Files to Modify
+- `supabase/functions/catalog-shein-scraper/index.ts` — Fix extraction strategy
+- `supabase/functions/_shared/sectionProfiles.ts` — Update provider preferences and item counts
+- `supabase/functions/_shared/mobileSectionsCache.ts` — Increase items per section, update backfill provider filtering
+
+### Expected Outcome
+- SHEIN scraper resumes ingesting products toward 3k+ target
+- Mobile homepage clothing section shows SHEIN items exclusively
+- Mobile homepage phones section shows Amazon phones exclusively
+- Each section displays ~40 items instead of 20
+

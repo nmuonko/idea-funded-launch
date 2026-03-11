@@ -1,40 +1,44 @@
-## Edge Function Consolidation Refactor — Phase 3 Complete
 
-### Phase 3: Orphan Deletion — 10 Functions Deleted
-- **`create-referrer`** — routed via auth-service
-- **`execute-ai-action`** — routed via admin-service
-- **`get-ai-actions-for-review`** — routed via admin-service
-- **`predict-customer-ltv`** — routed via admin-service
-- **`ai-order-assistant`** — routed via admin-service
-- **`catalog-categories`** — inlined into catalog-service
-- **`catalog-tabs`** — inlined into catalog-service
-- **`catalog-nav`** — inlined into catalog-service
-- **`catalog-providers`** — inlined into catalog-service
-- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
-- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
-- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
-- **`auth-service`** — added `create_referrer`
-- **`email-service`** — added `saved_cart_reminders`
+## Problem Analysis
 
-### Batches 1–10: Inlined — 32 Functions Deleted
-- **Batch 10**: auth-service (8 functions)
-- **Batch 9**: mobile-cart (7), mobile-orders (4)
-- **Batch 8**: admin-service (10), support-service (3)
-- **Batch 7**: catalog-service (5 metadata endpoints)
+The screenshot shows a "Backend Warning" dialog on the mobile app with: "Backend connection failed / Not in production mode / Mobile Money unavailable / Card payments unavailable." This is a **payment health check** from the React Native app.
 
-**Total reduction: 42 Edge Functions deleted**
+### Root Causes Found
 
-### Kept as Proxy (by decision)
-- **`payments-core`** — proxies 9 functions (complex payment logic)
-- **`payments-provider`** — proxies 10 functions (payment provider logic)
-- **`email-service`** — proxies 25 send-* functions (HTML template code)
+**1. Duplicate `payment_settings` rows causing non-deterministic behavior**
+The `payment_settings` table has **two rows** with conflicting values:
+- Row `deb44ffd` (newer, Jan 17): `stripe_enabled = false`, `mobile_money_max_usd = 5000`
+- Row `9c543883` (older, Jan 14): `stripe_enabled = true`, `mobile_money_max_usd = 3000`
 
-### Remaining Standalone (active, not orphaned)
-- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
-- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
-- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
-- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
-- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
-- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment
+All edge functions (`app-bootstrap`, `mobile-checkout`, `payment-decision`) query with `.limit(1)` — which row they get is non-deterministic. When the `stripe_enabled: false` row is picked, Stripe appears disabled.
+
+**2. Mobile app connecting to staging environment**
+The edge function logs show mobile requests use `envUsed=staging` instead of `production`. This triggers the "Not in production mode" warning in the app's health check.
+
+**3. No syntax error exists**
+I verified `catalog-category/index.ts` and `catalog-home/index.ts` — there is no duplicate `enrichedItems` declaration. The functions are deploying and executing correctly per the logs.
+
+---
+
+## Plan
+
+### Database Fix: Clean up duplicate payment_settings
+- **Delete** the duplicate row (`deb44ffd`) that has `stripe_enabled: false`
+- **Update** the remaining row (`9c543883`) to use the higher `mobile_money_max_usd: 5000` limit (preserving the best of both rows)
+
+### Code Fix: Make payment_settings queries deterministic
+- In `app-bootstrap/index.ts`: Change `.limit(1).maybeSingle()` to `.order('updated_at', { ascending: false }).limit(1).maybeSingle()` so it always picks the most recently updated row
+- In `mobile-checkout/index.ts` and `payment-decision/index.ts`: Same fix — add `.order('updated_at', { ascending: false })` before `.limit(1)`
+
+### Deploy
+- Redeploy `app-bootstrap`, `mobile-checkout`, `payment-decision`
+
+---
+
+## Technical Details
+
+The `payment_settings` table has no `environment` column, so there's no way to differentiate rows by env. The correct fix is to consolidate to a single row and ensure all queries are deterministic with `ORDER BY updated_at DESC`.
+
+The "Not in production mode" warning is likely triggered by the mobile app sending requests that resolve to staging. This is controlled by the React Native app's environment detection (not in this web repo), but ensuring the backend returns correct payment configuration will resolve the payment-related warnings.
+

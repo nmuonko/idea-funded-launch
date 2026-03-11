@@ -311,8 +311,22 @@ async function buildStrictSectionsFromPool(
     }
   }
 
+  // Section key → canonical category for "Voir Tout" navigation
+  const SECTION_TO_CATEGORY: Record<string, string> = {
+    phones: "phones",
+    electronics: "electronics",
+    vehicles: "vehicles",
+    parts_accessories: "parts_accessories",
+    gaming: "gaming",
+    clothing: "clothing",
+    home_garden: "home_garden",
+    toys: "toys",
+    sporting_goods: "sporting_goods",
+    refurbished: "refurbished",
+  };
+
   // Build final sections
-  const sections: Array<{ key: string; title: string; title_en: string; title_fr: string; items: SectionItem[] }> = [];
+  const sections: Array<{ key: string; title: string; title_en: string; title_fr: string; see_all_category: string; items: SectionItem[] }> = [];
   const itemCounts: Record<string, number> = {};
 
   for (const profile of SECTION_PROFILES) {
@@ -323,6 +337,7 @@ async function buildStrictSectionsFromPool(
       title: lang === "fr" ? profile.title.fr : profile.title.en,
       title_fr: profile.title.fr,
       title_en: profile.title.en,
+      see_all_category: SECTION_TO_CATEGORY[profile.key] || profile.key,
       items,
     });
   }

@@ -316,6 +316,11 @@ export function filterItemsForProfile(
 ): SectionItem[] {
   const out: SectionItem[] = [];
   for (const item of items) {
+    // Price floor filter (e.g. phones $80+ to exclude accessories)
+    if (profile.minPrice) {
+      const price = item.price_usd ?? item.priceUsd ?? 0;
+      if (price < profile.minPrice) continue;
+    }
     const t = normText(item);
     if (!matchesAny(t, profile.includeAny)) continue;
     if (profile.excludeAny.length > 0 && matchesAny(t, profile.excludeAny)) continue;

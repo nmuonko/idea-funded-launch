@@ -1,19 +1,20 @@
 
 
-# Plan: Fix Cart Recovery "Envoyer les rappels" Button
+# Plan: Re-trigger Bulk Email Send
 
-## Root Cause
+Your Resend Pro quota is fully reset: **0/50,000 used**, **unlimited daily limit**, **2 req/s rate**.
 
-The error "Failed to send a request to the Edge Function" indicates the deployed `email-service` function is likely running a stale version that doesn't include the `handleCartRecovery` inline handler. The function boots successfully (26ms) and returns proper 401 for unauthenticated requests, but the cart recovery code path was never reached — zero logs for `cart_recovery`.
+## What needs to happen
 
-## Fix
+**No code changes needed.** The `send-bulk-announcement` edge function is already deployed and correct. I just need to:
 
-### 1. Redeploy the `email-service` edge function
-The current code in `supabase/functions/email-service/index.ts` is correct and complete — it has the `handleCartRecovery` handler, proper auth gating, and Resend integration. It just needs to be redeployed so the live version matches the code.
+1. **Redeploy** the function (to ensure it's fresh and won't hit any stale container issues)
+2. **Invoke** it via POST with `x-deploy-token: send-now-2026` and `dry_run: false`
+3. **Monitor logs** to confirm emails are flowing successfully
 
-### 2. Test the function
-After deployment, invoke the function with `preview: true` to verify it responds correctly and can query eligible orders.
+The function will fetch all registered users, then send each one the bilingual (French/English) "Connexion simplifiée" announcement with a 600ms delay between sends to stay under the 2 req/s rate limit.
 
-## No code changes needed
-The `email-service/index.ts` and `CartRecoveryDialog.tsx` code are both correct. This is purely a deployment sync issue.
+## Expected outcome
+
+All registered users receive the announcement email. The function returns a JSON summary with `sent` and `failed` counts.
 

@@ -22,6 +22,7 @@ const corsHeaders = {
 const HARD_FUNCTION_CAP_MS = 240000;
 const DAILY_CREDIT_CAP = 5000;
 const DEFAULT_CATEGORIES_PER_RUN = 15;
+const MAX_PAGES_PER_CATEGORY = 10; // SHEIN categories have many pages
 
 // ── SHEIN CATEGORY URLs ────────────────────────────────────────────────────
 // Each category page yields ~20 unique products per scrape

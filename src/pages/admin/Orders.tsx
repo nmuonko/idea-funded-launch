@@ -1021,7 +1021,7 @@ export default function AdminOrders() {
                               </span>
                               <div className="flex flex-wrap gap-1">
                                 {groupItems.slice(0, 2).map((item: any) => {
-                                  const itemLink = item.canonical_url || item.product_url;
+                                  const itemLink = getAdminOrderProductLink(item);
                                   const isAmazon = item.store === 'AMAZON';
                                   return itemLink ? (
                                     <a

@@ -740,9 +740,9 @@ export default function AdminOrderDetail() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    {(item.canonical_url || item.product_url) ? (
+                    {getAdminOrderProductLink(item) ? (
                       <a 
-                        href={item.canonical_url || item.product_url} 
+                        href={getAdminOrderProductLink(item)!} 
                         target="_blank" 
                         rel="noopener noreferrer" 
                         className="text-primary hover:underline inline-flex items-center gap-1 text-sm"

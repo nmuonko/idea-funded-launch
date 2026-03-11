@@ -319,16 +319,36 @@ Deno.serve(async (req) => {
     envName = "production";
   }
 
-  // Parse query params
-  const categoryRaw = url.searchParams.get("category") || url.searchParams.get("key") || "";
-  const cursor = url.searchParams.get("cursor") || null;
-  const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10)));
-  const sortParam = url.searchParams.get("sort") || "relevance";
+  // Parse params from query string OR POST body (mobile sends POST)
+  let categoryRaw = url.searchParams.get("category") || url.searchParams.get("key") || "";
+  let cursor = url.searchParams.get("cursor") || null;
+  let limitRaw = url.searchParams.get("limit") || String(DEFAULT_LIMIT);
+  let sortParam = url.searchParams.get("sort") || "relevance";
+  let filtersParam = url.searchParams.get("filters") || null;
+  let providerParam = url.searchParams.get("provider") || null;
+  let subtabParam = url.searchParams.get("subtab") || null;
+
+  // Support POST body for mobile apps using supabase.functions.invoke()
+  if (req.method === "POST") {
+    try {
+      const body = await req.json();
+      if (body.category) categoryRaw = categoryRaw || body.category;
+      if (body.key) categoryRaw = categoryRaw || body.key;
+      if (body.section) categoryRaw = categoryRaw || body.section;
+      if (body.cursor) cursor = cursor || body.cursor;
+      if (body.limit) limitRaw = limitRaw || String(body.limit);
+      if (body.sort) sortParam = body.sort || sortParam;
+      if (body.filters) filtersParam = filtersParam || (typeof body.filters === 'string' ? body.filters : JSON.stringify(body.filters));
+      if (body.provider) providerParam = providerParam || body.provider;
+      if (body.subtab) subtabParam = subtabParam || body.subtab;
+    } catch {
+      // Ignore parse errors, use query params
+    }
+  }
+
+  const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(limitRaw, 10)));
   const sort = validateSort(sortParam);
-  const filtersParam = url.searchParams.get("filters") || null;
   const catalogFilters = parseFilters(filtersParam);
-  const providerParam = url.searchParams.get("provider") || null;
-  const subtabParam = url.searchParams.get("subtab") || null;
 
   // Build empty provider stats helper
   const buildEmptyProviderStats = (): ProviderStats => buildProviderStats({

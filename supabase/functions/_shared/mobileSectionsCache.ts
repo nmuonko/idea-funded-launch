@@ -15,7 +15,7 @@ import { isDisallowedItem } from "./contentBlocker.ts";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const MOBILE_SECTIONS_SCHEMA_VERSION = 8;
+export const MOBILE_SECTIONS_SCHEMA_VERSION = 9;
 const DEFAULT_TTL_SECONDS = 1800; // 30 min default — overridden by admin settings
 const ITEMS_PER_SECTION_RESPONSE = 40; // returned to client
 const ITEMS_PER_SECTION_CACHE = 60; // stored in cache for stability
@@ -30,6 +30,7 @@ interface CachedSectionsPayload {
     title: string;
     title_en: string;
     title_fr: string;
+    see_all_category?: string;
     items: SectionItem[];
   }>;
   builtAt: number;
@@ -311,8 +312,22 @@ async function buildStrictSectionsFromPool(
     }
   }
 
+  // Section key → canonical category for "Voir Tout" navigation
+  const SECTION_TO_CATEGORY: Record<string, string> = {
+    phones: "phones",
+    electronics: "electronics",
+    vehicles: "vehicles",
+    parts_accessories: "parts_accessories",
+    gaming: "gaming",
+    clothing: "clothing",
+    home_garden: "home_garden",
+    toys: "toys",
+    sporting_goods: "sporting_goods",
+    refurbished: "refurbished",
+  };
+
   // Build final sections
-  const sections: Array<{ key: string; title: string; title_en: string; title_fr: string; items: SectionItem[] }> = [];
+  const sections: Array<{ key: string; title: string; title_en: string; title_fr: string; see_all_category: string; items: SectionItem[] }> = [];
   const itemCounts: Record<string, number> = {};
 
   for (const profile of SECTION_PROFILES) {
@@ -323,6 +338,7 @@ async function buildStrictSectionsFromPool(
       title: lang === "fr" ? profile.title.fr : profile.title.en,
       title_fr: profile.title.fr,
       title_en: profile.title.en,
+      see_all_category: SECTION_TO_CATEGORY[profile.key] || profile.key,
       items,
     });
   }
@@ -506,7 +522,8 @@ export function emptyMobileSectionsResponse(
     title: lang === "fr" ? p.title.fr : p.title.en,
     title_en: p.title.en,
     title_fr: p.title.fr,
-    items: [],
+    see_all_category: p.key,
+    items: [] as SectionItem[],
   }));
   const normalized = normalizeSectionTitles(sections, lang) as typeof sections;
   const totalItems = calculateTotalItems(normalized);

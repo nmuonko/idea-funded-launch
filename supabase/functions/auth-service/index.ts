@@ -208,9 +208,19 @@ async function handleRegister(body: any, req: Request) {
 
   // Try sign in for session
   const supabase = createAnonClient();
-  const { data: sessionData, error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+  let { data: sessionData, error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+
+  // Auto-confirm retry: if GoTrue rejects with "Email not confirmed", force-confirm and retry
+  if (signInError?.message?.includes('Email not confirmed') || signInError?.message?.includes('email_not_confirmed')) {
+    console.log('[auth-service:register] Email not confirmed after createUser, force-confirming userId:', userId);
+    await supabaseAdmin.auth.admin.updateUserById(userId, { email_confirm: true });
+    const retry = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    sessionData = retry.data;
+    signInError = retry.error;
+  }
 
   if (signInError || !sessionData?.session) {
+    console.warn('[auth-service:register] signIn failed after create:', signInError?.message);
     return jsonRes({
       success: true, ok: true, userId,
       message: 'Account created successfully.',

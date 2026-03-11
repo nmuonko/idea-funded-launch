@@ -84,6 +84,20 @@ function extractDimensionHints(url: string): { w: number; h: number } | null {
     return { w: size, h: size };
   }
 
+  // Amazon _AC_UYnnn_ or _AC_USnnn_ patterns (common thumbnails)
+  const acMatch = url.match(/_AC_U[SY](\d+)/i);
+  if (acMatch) {
+    const size = parseInt(acMatch[1]);
+    return { w: size, h: size };
+  }
+
+  // Amazon _UYnnn_ or _USnnn_ (without _AC_ prefix)
+  const uyMatch = url.match(/_U[SY](\d+)[_.\-]/i);
+  if (uyMatch) {
+    const size = parseInt(uyMatch[1]);
+    return { w: size, h: size };
+  }
+
   // WxH pattern in path: /200x300/ or _200x300.
   const whMatch = url.match(/[/_](\d{2,4})x(\d{2,4})[/_.]/);
   if (whMatch) {

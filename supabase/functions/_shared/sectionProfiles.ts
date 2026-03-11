@@ -24,6 +24,9 @@ export interface SectionProfile {
   excludeAny: string[];
   preferProviders?: string[];
   minItems: number;
+  minPrice?: number;
+  /** Per-brand diversity queries for backfill (each queried separately, results interleaved) */
+  diversityQueries?: string[];
 }
 
 export interface SectionItem {

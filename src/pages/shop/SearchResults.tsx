@@ -17,11 +17,11 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { expandQuery, relevanceScore } from '@/lib/expandQuery';
 
-const PAGE_SIZE = 200;
-const HARD_MAX_ITEMS = 1000;
-const MAX_PAGES = Math.ceil(HARD_MAX_ITEMS / PAGE_SIZE); // 5
+const PAGE_SIZE = 500;
+const HARD_MAX_ITEMS = 2000;
+const MAX_PAGES = Math.ceil(HARD_MAX_ITEMS / PAGE_SIZE); // 4
 const BROADEN_THRESHOLD = 30;
-const BROADEN_TARGET = 500;
+const BROADEN_TARGET = 800;
 
 /** Generate a unique key per product for deduplication — provider-aware */
 function productKey(p: Product): string {

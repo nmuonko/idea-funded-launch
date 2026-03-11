@@ -169,10 +169,10 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
   }
 
   const DB_MIN_RESULTS = policy.dbMinResults;
-  const TARGET_RESULTS = 400; // Target for expansion tiers — pull broadly from 200K+ cached catalog
+  const TARGET_RESULTS = 800; // Target for expansion tiers — pull broadly from 700K+ cached catalog
 
-  // Build tokens from primary query — use only top 2 longest tokens
-  // to cast a wider net (3 tokens is too restrictive for most queries)
+  // Build tokens from primary query — use top 2 longest tokens first,
+  // then fall back to single longest token if 2-token search returns too few
   const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2);
   const topTokens = [...searchTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 2);
 
@@ -181,13 +181,27 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
   }
 
   // ─── TIER A: Token ilike match (fast, indexed) ─────────────────────────────
-  const tierAItems = await tierASearch(supabase, topTokens, categoryKey, Math.max(limit, 800), requestId, offset);
+  // First try with top 2 tokens (more precise)
+  let tierAItems = await tierASearch(supabase, topTokens, categoryKey, 1000, requestId, offset);
+  
+  // If 2-token search returned few results, retry with just the single longest token for broader coverage
+  if (tierAItems.length < 50 && topTokens.length >= 2) {
+    const singleToken = [topTokens[0]]; // longest token only
+    const broaderItems = await tierASearch(supabase, singleToken, categoryKey, 1000, requestId, offset);
+    if (broaderItems.length > tierAItems.length) {
+      // Merge: precise results first, then broader results
+      const seenIds = new Set(tierAItems.map((i: any) => i.id));
+      const newBroader = broaderItems.filter((i: any) => !seenIds.has(i.id));
+      tierAItems = [...tierAItems, ...newBroader].slice(0, 1000);
+    }
+  }
+  
   const tierACount = tierAItems.length;
   console.log(`[CATALOG_SEARCH] requestId=${requestId} db_tier_A q="${qNorm}" tokens=${JSON.stringify(topTokens)} count=${tierACount} minRequired=${DB_MIN_RESULTS}`);
 
   if (tierACount >= DB_MIN_RESULTS) {
     const mapped = tierAItems.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey)).filter(Boolean) as Record<string, unknown>[];
-    const diversified = diversifyByProvider(mapped, Math.max(limit, 400));
+    const diversified = diversifyByProvider(mapped, Math.max(limit, 500));
     const { allowed } = filterDisallowedItems(
       diversified.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
       `[DB_TIER_A] requestId=${requestId}`
@@ -197,7 +211,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
 
   // ─── TIER B: Fuzzy pg_trgm similarity (typo-tolerant) ─────────────────────
   const elapsed = Date.now() - dbStartMs;
-  if (elapsed < 500) { // Only if we have time budget
+  if (elapsed < 800) { // Generous time budget for fuzzy search
     const tierBItems = await tierBFuzzySearch(supabase, qNorm, categoryKey, limit, requestId);
     // Merge and dedupe with Tier A
     const seenIds = new Set(tierAItems.map((i: any) => i.id));
@@ -217,14 +231,14 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
 
     // ─── TIER C: Query expansion ──────────────────────────────────────────────
     const elapsed2 = Date.now() - dbStartMs;
-    if (elapsed2 < 600 && mergedCount < TARGET_RESULTS) {
+    if (elapsed2 < 1000 && mergedCount < TARGET_RESULTS) {
       const expansionQueries = generateExpansionQueries(qNorm);
       let pool = [...mergedAB];
       const poolIds = new Set(pool.map((i: any) => i.id));
 
       for (const eq of expansionQueries) {
         if (pool.length >= TARGET_RESULTS) break;
-        if (Date.now() - dbStartMs > 700) break;
+        if (Date.now() - dbStartMs > 1200) break;
 
         const eqTokens = eq.split(/\s+/).filter((t: string) => t.length >= 2);
         const eqTop = [...eqTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);

@@ -1045,8 +1045,7 @@ export default function AdminOrders() {
                                       )}
                                     </a>
                                   ) : null;
-                                }
-                                ))}
+                                })}
                                 {groupItems.length > 2 && (
                                   <span className="text-xs text-muted-foreground">+{groupItems.length - 2} more</span>
                                 )}

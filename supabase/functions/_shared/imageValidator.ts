@@ -127,13 +127,13 @@ export function isValidProductImageUrl(url: string | null | undefined): boolean 
     if (!hasValidPath) return false;
   }
 
-  // Check dimension hints for extreme aspect ratios or tiny images
+  // Check dimension hints for extreme aspect ratios or tiny/blurry images
   const dims = extractDimensionHints(url);
   if (dims) {
     const { w, h } = dims;
-    // Block tiny images (< 80px either dimension)
-    if (w > 0 && w < 80) return false;
-    if (h > 0 && h < 80) return false;
+    // Block small images (< 150px either dimension → blurry on modern screens)
+    if (w > 0 && w < 150) return false;
+    if (h > 0 && h < 150) return false;
 
     // Block extreme aspect ratios (banners are wide, logos are tall)
     if (w > 0 && h > 0) {
@@ -143,6 +143,36 @@ export function isValidProductImageUrl(url: string | null | undefined): boolean 
   }
 
   return true;
+}
+
+/**
+ * Upgrade image URL to highest available resolution.
+ * Works for Amazon, eBay, and SHEIN CDN patterns.
+ */
+export function upgradeToHighRes(url: string | null | undefined): string | null {
+  if (!url) return null;
+
+  let upgraded = url;
+
+  // Amazon: replace _SLxxx_, _SSxxx_, _ACxxx_ with _SL1500_
+  if (upgraded.includes("m.media-amazon.com") || upgraded.includes("images-amazon.com")) {
+    upgraded = upgraded.replace(/_SL\d+[_.]/, "_SL1500.");
+    upgraded = upgraded.replace(/_SS\d+[_.]/, "_SL1500.");
+    upgraded = upgraded.replace(/_AC_SL\d+_/, "_AC_SL1500_");
+  }
+
+  // eBay: replace s-l225 / s-l300 / s-l500 with s-l1600
+  if (upgraded.includes("ebayimg.com")) {
+    upgraded = upgraded.replace(/s-l\d+/, "s-l1600");
+  }
+
+  // SHEIN: replace _thumbnail_xxx with original
+  if (upgraded.includes("ltwebstatic.com")) {
+    upgraded = upgraded.replace(/_thumbnail_\d+x\d*/, "_thumbnail_600x");
+    upgraded = upgraded.replace(/_thumbnail_\d+x/, "_thumbnail_600x");
+  }
+
+  return upgraded;
 }
 
 /**

@@ -477,10 +477,21 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       const ebayMatch = productUrl.match(/\/itm\/(\d+)/);
       providerProductId = ebayMatch ? ebayMatch[1] : null;
     }
-    // Build canonical URL
-    const canonicalUrl = (store === 'AMAZON' && providerProductId)
-      ? `https://www.amazon.com/dp/${providerProductId}`
-      : productUrl;
+    // Build canonical URL — prefer slugged detail URL for Amazon stability
+    let canonicalUrl = productUrl;
+    if (store === 'AMAZON' && providerProductId) {
+      // Check if productUrl already has a slug (e.g. /Product-Name/dp/ASIN)
+      const hasSlugged = /\/[^/]+\/dp\/[A-Z0-9]{10}/i.test(productUrl);
+      if (hasSlugged) {
+        canonicalUrl = productUrl;
+      } else {
+        // Build slugged URL from title if available
+        const titleStr = (productTitle || '').replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '-').substring(0, 120);
+        canonicalUrl = (titleStr.length > 2)
+          ? `https://www.amazon.com/${titleStr}/dp/${providerProductId}`
+          : `https://www.amazon.com/dp/${providerProductId}`;
+      }
+    }
 
     const newItem = {
       order_id: draft.id, product_url: productUrl, title: productTitle, product_image_url: productImageUrl,

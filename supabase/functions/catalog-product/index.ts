@@ -62,38 +62,17 @@ function buildDiagHeaders(opts: {
 // isPromotionalImage is now imported from the shared imageUpgrade module
 // to prevent drift between local and shared copies.
 import { isPromotionalImage, filterProductImages } from "../_shared/imageUpgrade.ts";
+import { sanitizeGallery, upgradeToHighRes } from "../_shared/imageValidator.ts";
 
 /**
- * Upgrade ALL gallery images to high-resolution for product detail view
+ * Upgrade ALL gallery images to high-resolution for product detail view.
+ * Uses the shared imageValidator pipeline (single source of truth):
+ * 1. Filter out promo/banner/ad images
+ * 2. Upgrade ALL remaining images to high-res
+ * 3. Deduplicate by normalized URL
  */
-function upgradeGalleryImages(images: string[], provider: string): string[] {
-  if (!images || !Array.isArray(images)) return [];
-  
-  const seen = new Set<string>();
-  const upgraded: string[] = [];
-  
-  for (const url of images) {
-    if (!url || typeof url !== "string") continue;
-    if (!url.startsWith("http")) continue;
-    if (isPromotionalImage(url)) continue;
-    
-    let upgradedUrl: string;
-    
-    if (provider === "ebay" || url.includes("ebayimg.com") || url.includes("i.ebayimg")) {
-      upgradedUrl = upgradeEbayImageToHighRes(url);
-    } else if (provider === "rainforest" || url.includes("amazon") || url.includes("media-amazon") || url.includes("ssl-images-amazon")) {
-      upgradedUrl = upgradeAmazonImageToHighRes(url);
-    } else {
-      upgradedUrl = url;
-    }
-    
-    if (!seen.has(upgradedUrl)) {
-      seen.add(upgradedUrl);
-      upgraded.push(upgradedUrl);
-    }
-  }
-  
-  return upgraded;
+function upgradeGalleryImages(images: string[], _provider: string): string[] {
+  return sanitizeGallery(images);
 }
 
 /**

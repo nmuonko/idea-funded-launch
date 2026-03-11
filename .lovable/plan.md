@@ -1,40 +1,68 @@
-## Edge Function Consolidation Refactor — Phase 3 Complete
 
-### Phase 3: Orphan Deletion — 10 Functions Deleted
-- **`create-referrer`** — routed via auth-service
-- **`execute-ai-action`** — routed via admin-service
-- **`get-ai-actions-for-review`** — routed via admin-service
-- **`predict-customer-ltv`** — routed via admin-service
-- **`ai-order-assistant`** — routed via admin-service
-- **`catalog-categories`** — inlined into catalog-service
-- **`catalog-tabs`** — inlined into catalog-service
-- **`catalog-nav`** — inlined into catalog-service
-- **`catalog-providers`** — inlined into catalog-service
-- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
-- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
-- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
-- **`auth-service`** — added `create_referrer`
-- **`email-service`** — added `saved_cart_reminders`
+# Auto-Cancel Stale Orders with Cart Recovery Emails
 
-### Batches 1–10: Inlined — 32 Functions Deleted
-- **Batch 10**: auth-service (8 functions)
-- **Batch 9**: mobile-cart (7), mobile-orders (4)
-- **Batch 8**: admin-service (10), support-service (3)
-- **Batch 7**: catalog-service (5 metadata endpoints)
+## Strategy
+- **2 reminder emails** (not 3) spaced at 2h and 14h after order creation
+- **Auto-cancel** after 24 hours if no payment completed
+- Bilingual French-first emails (matching existing AfriShop standard)
 
-**Total reduction: 42 Edge Functions deleted**
+## Implementation
 
-### Kept as Proxy (by decision)
-- **`payments-core`** — proxies 9 functions (complex payment logic)
-- **`payments-provider`** — proxies 10 functions (payment provider logic)
-- **`email-service`** — proxies 25 send-* functions (HTML template code)
+### 1. Database Migration
+Add tracking columns to `orders` table:
+- `cart_reminder_1_sent_at timestamptz` — tracks first reminder
+- `cart_reminder_2_sent_at timestamptz` — tracks second reminder
 
-### Remaining Standalone (active, not orphaned)
-- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
-- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
-- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
-- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
-- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
-- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment
+### 2. New Edge Function: `order-recovery-cron`
+Triggered every 30 minutes by pg_cron. Three actions per run:
+
+**Action A — Send Reminder 1** (orders 2+ hours old, no reminder sent):
+```
+WHERE status IN ('PENDING_PAYMENT','DRAFT')
+  AND has items > 0
+  AND created_at < now() - interval '2 hours'
+  AND cart_reminder_1_sent_at IS NULL
+```
+→ Send bilingual email via Resend REST API (reuse existing `_shared/email.ts`)
+→ Update `cart_reminder_1_sent_at = now()`
+
+**Action B — Send Reminder 2** (orders 14+ hours old, reminder 1 sent, reminder 2 not sent):
+```
+WHERE cart_reminder_1_sent_at IS NOT NULL
+  AND cart_reminder_2_sent_at IS NULL
+  AND created_at < now() - interval '14 hours'
+```
+→ Send second bilingual email
+→ Update `cart_reminder_2_sent_at = now()`
+
+**Action C — Auto-cancel** (orders 24+ hours old, still unpaid):
+```
+WHERE status IN ('PENDING_PAYMENT','DRAFT')
+  AND created_at < now() - interval '24 hours'
+  AND no successful payment_attempts exist
+```
+→ Update status to `CANCELLED`, set `cancel_reason = 'auto_expired'`
+
+### 3. Email Templates
+- Bilingual (French first, English below) matching existing AfriShop email style
+- Include order items summary, total, and a direct "Complete Your Order" link
+- Email 1: Friendly reminder tone
+- Email 2: Urgency tone ("your order will expire in 10 hours")
+- Pull `support_whatsapp` and `support_email` from settings table
+
+### 4. Cron Job (pg_cron)
+Schedule `order-recovery-cron` to run every 30 minutes:
+```
+*/30 * * * *
+```
+
+### 5. Throttling
+- 600ms delay between emails (matching existing Resend rate limit pattern)
+- Cap at 20 emails per run to avoid overloading
+
+### Files Changed
+- `supabase/functions/order-recovery-cron/index.ts` — new edge function
+- SQL migration — add tracking columns + cron job
+- `supabase/config.toml` — add function config with `verify_jwt = false`
+

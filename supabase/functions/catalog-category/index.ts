@@ -61,7 +61,7 @@ import {
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 const DEFAULT_LIMIT = 200;
-const MAX_LIMIT = 200;
+const MAX_LIMIT = 500;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -332,15 +332,16 @@ Deno.serve(async (req) => {
   if (req.method === "POST") {
     try {
       const body = await req.json();
-      if (body.category) categoryRaw = categoryRaw || body.category;
-      if (body.key) categoryRaw = categoryRaw || body.key;
-      if (body.section) categoryRaw = categoryRaw || body.section;
-      if (body.cursor) cursor = cursor || body.cursor;
-      if (body.limit) limitRaw = limitRaw || String(body.limit);
-      if (body.sort) sortParam = body.sort || sortParam;
-      if (body.filters) filtersParam = filtersParam || (typeof body.filters === 'string' ? body.filters : JSON.stringify(body.filters));
-      if (body.provider) providerParam = providerParam || body.provider;
-      if (body.subtab) subtabParam = subtabParam || body.subtab;
+      // POST body values OVERRIDE query param defaults (not the other way around)
+      if (body.category) categoryRaw = body.category;
+      if (body.key && !categoryRaw) categoryRaw = body.key;
+      if (body.section && !categoryRaw) categoryRaw = body.section;
+      if (body.cursor) cursor = body.cursor;
+      if (body.limit) limitRaw = String(body.limit);
+      if (body.sort) sortParam = body.sort;
+      if (body.filters) filtersParam = typeof body.filters === 'string' ? body.filters : JSON.stringify(body.filters);
+      if (body.provider) providerParam = body.provider;
+      if (body.subtab) subtabParam = body.subtab;
     } catch {
       // Ignore parse errors, use query params
     }
@@ -648,38 +649,46 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ─── DB FALLBACK: if providers returned 0 items, OR if subtab is specified
-    //     but eBay (the subtab-aware provider) returned nothing ──
+    // ─── DB BACKFILL: ALWAYS fill up to limit from DB if providers returned fewer ──
     const totalProviderItems = amazonItems.length + ebayItems.length;
-    const needsDbFallback = totalProviderItems === 0 || (subtabKey && ebayItems.length === 0);
-    if (needsDbFallback) {
+    const needsDbBackfill = totalProviderItems < limit;
+    if (needsDbBackfill) {
       try {
         const resolvedSub = subtabKey ? subtabKey.replace(`${parentTab}_`, "") : null;
-        console.log(`[CATALOG] requestId=${requestId} DB fallback triggered (providerItems=${totalProviderItems}, subtab=${resolvedSub}) for ${canonicalKey}`);
-        let dbFallbackQ = supabase.from("catalog_items").select("*")
+        const needed = limit - totalProviderItems;
+        console.log(`[CATALOG] requestId=${requestId} DB backfill triggered (providerItems=${totalProviderItems}, needed=${needed}, subtab=${resolvedSub}) for ${canonicalKey}`);
+        
+        // Collect existing IDs for dedup
+        const existingIds = new Set([...amazonItems, ...ebayItems].map((i: any) => i.id));
+        
+        // Fetch more from DB than needed to account for dedup
+        const fetchLimit = Math.min(needed * 2, 1000);
+        let dbBackfillQ = supabase.from("catalog_items").select("*")
           .eq("unified_category", parentTab)
           .or("is_disallowed.is.null,is_disallowed.eq.false")
           .neq("image_url", null)
           .gt("price_usd", 0);
         if (resolvedSub) {
-          dbFallbackQ = dbFallbackQ.eq("unified_subcategory", resolvedSub);
+          dbBackfillQ = dbBackfillQ.eq("unified_subcategory", resolvedSub);
         }
-        const { data: dbFallbackItems } = await dbFallbackQ
-          .order("rating", { ascending: false, nullsFirst: false })
-          .limit(limit);
+        
+        // Use offset for pagination - skip items already returned by providers
+        const dbOffset = mixerCursor.totalReturned > 0 ? mixerCursor.totalReturned : 0;
+        
+        const { data: dbBackfillItems } = await dbBackfillQ
+          .order("popularity_score", { ascending: false, nullsFirst: false })
+          .range(dbOffset, dbOffset + fetchLimit - 1);
 
-        if (dbFallbackItems && dbFallbackItems.length > 0) {
-          const mapped = dbFallbackItems.map((item: Record<string, unknown>) => 
+        if (dbBackfillItems && dbBackfillItems.length > 0) {
+          const mapped = dbBackfillItems.map((item: Record<string, unknown>) => 
             normalizeDbItem(item, parentTab, resolvedSub)
           );
-          // Merge with existing results (deduped by id)
-          const existingIds = new Set([...amazonItems, ...ebayItems].map((i: any) => i.id));
-          const newItems = mapped.filter((i: any) => !existingIds.has(i.id));
+          const newItems = mapped.filter((i: any) => !existingIds.has(i.id)).slice(0, needed);
           ebayItems = [...ebayItems, ...newItems];
-          console.log(`[CATALOG] requestId=${requestId} DB fallback added ${newItems.length} items (total ebay now: ${ebayItems.length})`);
+          console.log(`[CATALOG] requestId=${requestId} DB backfill added ${newItems.length} items (total now: ${amazonItems.length + ebayItems.length})`);
         }
       } catch (dbErr) {
-        console.error(`[CATALOG] requestId=${requestId} DB fallback error:`, dbErr);
+        console.error(`[CATALOG] requestId=${requestId} DB backfill error:`, dbErr);
       }
     }
 
@@ -739,17 +748,50 @@ Deno.serve(async (req) => {
       console.log(`[CATALOG_DIVERSITY] requestId=${requestId} applied diversity maxPerBrand=${diversityMaxPerBrand} items=${filteredFinalItems.length}`);
     }
 
+    // ─── POST-MIXER DB BACKFILL: Guarantee target item count ──────────────────
+    // If mixer + diversity produced fewer than limit, fill from DB directly
+    if (filteredFinalItems.length < limit) {
+      try {
+        const postMixNeeded = limit - filteredFinalItems.length;
+        const postMixIds = new Set(filteredFinalItems.map((i: any) => i.id));
+        const resolvedSub2 = subtabKey ? subtabKey.replace(`${parentTab}_`, "") : null;
+        
+        let postMixQ = supabase.from("catalog_items").select("*")
+          .eq("unified_category", parentTab)
+          .or("is_disallowed.is.null,is_disallowed.eq.false")
+          .not("image_url", "is", null)
+          .gt("price_usd", 0);
+        if (resolvedSub2) {
+          postMixQ = postMixQ.eq("unified_subcategory", resolvedSub2);
+        }
+        
+        const { data: postMixItems, error: postMixErr } = await postMixQ
+          .order("popularity_score", { ascending: false, nullsFirst: false })
+          .range(filteredFinalItems.length, filteredFinalItems.length + postMixNeeded * 2);
+
+        if (!postMixErr && postMixItems && postMixItems.length > 0) {
+          const postMapped = postMixItems
+            .map((item: Record<string, unknown>) => normalizeDbItem(item, parentTab, resolvedSub2))
+            .filter((i: any) => !postMixIds.has(i.id))
+            .slice(0, postMixNeeded);
+          filteredFinalItems = [...filteredFinalItems, ...postMapped];
+          console.log(`[CATALOG] requestId=${requestId} post-mixer backfill added ${postMapped.length} items (total=${filteredFinalItems.length})`);
+        }
+      } catch (e) {
+        console.warn(`[CATALOG] requestId=${requestId} post-mixer backfill error:`, e);
+      }
+    }
+
     // Enrich items with exact image counts from media cache
     const { items: enrichedItems, stats: mediaStats } = await enrichItemsWithMediaCounts(
       supabase,
       filteredFinalItems as unknown as Record<string, unknown>[]
     );
 
-    // Map enriched items back to CatalogProduct type with updated counts
     const finalItems = filteredFinalItems.map((item, idx) => ({
       ...item,
-      imageCount: (enrichedItems[idx] as Record<string, unknown>).image_count as number || item.imageCount,
-      image_count_status: (enrichedItems[idx] as Record<string, unknown>).image_count_status as string | undefined,
+      imageCount: (enrichedItems[idx] as Record<string, unknown>)?.image_count as number || item.imageCount,
+      image_count_status: (enrichedItems[idx] as Record<string, unknown>)?.image_count_status as string | undefined,
     }));
 
     console.log(`[CATALOG_MEDIA] requestId=${requestId} checked=${mediaStats.checked} cacheHit=${mediaStats.cacheHit} fetched=${mediaStats.fetched} timeout=${mediaStats.timedOut}`);
@@ -813,9 +855,8 @@ Deno.serve(async (req) => {
       const { count } = await supabase
         .from("catalog_items")
         .select("id", { count: "exact", head: true })
-        .eq("unified_category", canonicalKey)
-        .eq("is_active", true)
-        .eq("is_disallowed", false)
+        .eq("unified_category", parentTab)
+        .or("is_disallowed.is.null,is_disallowed.eq.false")
         .gt("price_usd", 0);
       dbCount = count || 0;
     } catch (e) {
@@ -823,13 +864,16 @@ Deno.serve(async (req) => {
     }
 
     const realTotal = Math.max(ebayTotal, amazonItems.length, finalItems.length, dbCount);
+    // hasMore should be true if DB has more items than what we've returned so far
+    const totalReturnedSoFar = (mixerCursor.totalReturned || 0) + finalItems.length;
+    const dbHasMore = dbCount > totalReturnedSoFar;
 
     return new Response(
       JSON.stringify(buildResponse(
         finalItems, 
         realTotal,
-        mixResult.hasMore || finalItems.length < realTotal, 
-        nextCursor,
+        dbHasMore || mixResult.hasMore, 
+        nextCursor || (dbHasMore ? encodeMixerCursor({ ...mixerCursor, totalReturned: totalReturnedSoFar, ebayOffset: mixerCursor.ebayOffset + limit, amazonReturnedSoFar: mixerCursor.amazonReturnedSoFar + amazonItems.length }) : null),
         { requested: categoryRaw, resolved: canonicalKey, resolution: resolved.method },
         providerStats,
         filters,

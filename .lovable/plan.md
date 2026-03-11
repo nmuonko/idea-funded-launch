@@ -1,38 +1,40 @@
+## Edge Function Consolidation Refactor — Phase 3 Complete
 
+### Phase 3: Orphan Deletion — 10 Functions Deleted
+- **`create-referrer`** — routed via auth-service
+- **`execute-ai-action`** — routed via admin-service
+- **`get-ai-actions-for-review`** — routed via admin-service
+- **`predict-customer-ltv`** — routed via admin-service
+- **`ai-order-assistant`** — routed via admin-service
+- **`catalog-categories`** — inlined into catalog-service
+- **`catalog-tabs`** — inlined into catalog-service
+- **`catalog-nav`** — inlined into catalog-service
+- **`catalog-providers`** — inlined into catalog-service
+- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-## Problem
+### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
+- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
+- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
+- **`auth-service`** — added `create_referrer`
+- **`email-service`** — added `saved_cart_reminders`
 
-The "Email non confirmé" (Email not confirmed) error persists for users who created accounts **before** auto-confirm was enabled. Even though new signups are now auto-confirmed, existing unconfirmed accounts (like `Pascalmukonkoleee@gmail.com`) still have `email_confirmed_at = NULL` in the auth system, causing Supabase to reject their sign-in with "Email not confirmed."
+### Batches 1–10: Inlined — 32 Functions Deleted
+- **Batch 10**: auth-service (8 functions)
+- **Batch 9**: mobile-cart (7), mobile-orders (4)
+- **Batch 8**: admin-service (10), support-service (3)
+- **Batch 7**: catalog-service (5 metadata endpoints)
 
-The screenshot also shows a verification banner and dialog that appear to come from a cached/older version of the Android app — the current codebase does not contain this dialog UI.
+**Total reduction: 42 Edge Functions deleted**
 
-## Root Causes
+### Kept as Proxy (by decision)
+- **`payments-core`** — proxies 9 functions (complex payment logic)
+- **`payments-provider`** — proxies 10 functions (payment provider logic)
+- **`email-service`** — proxies 25 send-* functions (HTML template code)
 
-1. **Existing unconfirmed users**: The bulk-confirm action was run previously (per project memory) but new unconfirmed accounts have accumulated since then.
-2. **Sign-in flow doesn't auto-confirm**: When `signInWithPassword` returns "Email not confirmed," the code just shows an error instead of auto-confirming the user server-side and retrying.
-
-## Plan
-
-### 1. Bulk-confirm all existing unconfirmed users (Database)
-Run the existing `confirm_all_users` action via the auth-service edge function to set `email_confirmed_at` on all unconfirmed accounts. This is a one-time fix for historical accounts.
-
-### 2. Auto-confirm on sign-in failure (AuthContext.tsx)
-Modify `signIn()` in `src/contexts/AuthContext.tsx`: when Supabase returns "Email not confirmed," automatically call the auth-service edge function with `action: 'confirm_all_users'` (or a targeted confirm for that specific email), then retry `signInWithPassword`. This prevents the issue from ever recurring regardless of server config.
-
-**Specific change**: In the `else if (error.message?.includes('Email not confirmed'))` block (line ~343), instead of just showing a toast, call the auth-service to auto-confirm that user, then retry sign-in silently.
-
-### 3. Remove verification UI remnants (ShopAuth.tsx)
-Remove the `handleResendVerification` function and any related translation references from `ShopAuth.tsx` since email verification is no longer required. This ensures no UI path can show a verification prompt.
-
-### Technical Details
-
-- **AuthContext.tsx** (lines ~343-345): Replace error toast with auto-confirm + retry logic:
-  ```typescript
-  // Auto-confirm and retry
-  await supabase.functions.invoke('auth-service', { body: { action: 'confirm_all_users' } });
-  const retry = await supabase.auth.signInWithPassword({ email, password });
-  if (!retry.error) { /* proceed with session */ }
-  ```
-- **auth-service edge function**: Already has `confirm_all_users` action — no backend changes needed.
-- **ShopAuth.tsx**: Remove `handleResendVerification` function (lines 264-291) as dead code.
-
+### Remaining Standalone (active, not orphaned)
+- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
+- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
+- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
+- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
+- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
+- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment

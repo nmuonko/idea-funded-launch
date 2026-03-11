@@ -1148,7 +1148,7 @@ Deno.serve(async (req: Request) => {
       }
 
       // ========== DB-only providers Gallery Enrichment (SHEIN/CarGurus/Carvana) ==========
-      if ((dbItem.provider === "shein" || dbItem.provider === "cargurus" || dbItem.provider === "carvana") && (item.images?.length || 0) <= 1) {
+      if ((dbItem.provider === "shein" || dbItem.provider === "cargurus" || dbItem.provider === "carvana") && (item.images?.length || 0) <= 2) {
         let scraped = await scrapeProviderGalleryFromPage(dbItem.provider, item.productUrl || dbItem.product_url);
         
         // Firecrawl fallback for items with <=1 image, budget-controlled (100/day)

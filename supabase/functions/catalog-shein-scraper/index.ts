@@ -454,7 +454,7 @@ async function scrapeCategoryPageLLM(
     }
 
     const data = await resp.json();
-    const jsonData = data?.data?.json || data?.json;
+    const jsonData = data?.data?.extract || data?.extract || data?.data?.json || data?.json;
 
     if (!jsonData?.products || !Array.isArray(jsonData.products) || jsonData.products.length === 0) {
       console.warn(`[SHEIN_SCRAPER] LLM returned 0 products, falling back to HTML strategy`);

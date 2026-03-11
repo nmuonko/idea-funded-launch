@@ -62,38 +62,17 @@ function buildDiagHeaders(opts: {
 // isPromotionalImage is now imported from the shared imageUpgrade module
 // to prevent drift between local and shared copies.
 import { isPromotionalImage, filterProductImages } from "../_shared/imageUpgrade.ts";
+import { sanitizeGallery, upgradeToHighRes } from "../_shared/imageValidator.ts";
 
 /**
- * Upgrade ALL gallery images to high-resolution for product detail view
+ * Upgrade ALL gallery images to high-resolution for product detail view.
+ * Uses the shared imageValidator pipeline (single source of truth):
+ * 1. Filter out promo/banner/ad images
+ * 2. Upgrade ALL remaining images to high-res
+ * 3. Deduplicate by normalized URL
  */
-function upgradeGalleryImages(images: string[], provider: string): string[] {
-  if (!images || !Array.isArray(images)) return [];
-  
-  const seen = new Set<string>();
-  const upgraded: string[] = [];
-  
-  for (const url of images) {
-    if (!url || typeof url !== "string") continue;
-    if (!url.startsWith("http")) continue;
-    if (isPromotionalImage(url)) continue;
-    
-    let upgradedUrl: string;
-    
-    if (provider === "ebay" || url.includes("ebayimg.com") || url.includes("i.ebayimg")) {
-      upgradedUrl = upgradeEbayImageToHighRes(url);
-    } else if (provider === "rainforest" || url.includes("amazon") || url.includes("media-amazon") || url.includes("ssl-images-amazon")) {
-      upgradedUrl = upgradeAmazonImageToHighRes(url);
-    } else {
-      upgradedUrl = url;
-    }
-    
-    if (!seen.has(upgradedUrl)) {
-      seen.add(upgradedUrl);
-      upgraded.push(upgradedUrl);
-    }
-  }
-  
-  return upgraded;
+function upgradeGalleryImages(images: string[], _provider: string): string[] {
+  return sanitizeGallery(images);
 }
 
 /**
@@ -1020,8 +999,8 @@ Deno.serve(async (req: Request) => {
         }
       }
       
-      // ========== eBay Gallery Enrichment: fetch full gallery if only 0-2 images ==========
-      if (dbItem.provider === "ebay" && (item.images?.length || 0) <= 2) {
+      // ========== eBay Gallery Enrichment: fetch full gallery if only 0-4 images ==========
+      if (dbItem.provider === "ebay" && (item.images?.length || 0) <= 4) {
         let enrichedImages: string[] = [];
         
         try {
@@ -1092,8 +1071,8 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // ========== Amazon Gallery Enrichment: fetch full gallery if only 0-2 images ==========
-      if ((dbItem.provider === "rainforest" || dbItem.provider === "amazon") && (item.images?.length || 0) <= 2) {
+      // ========== Amazon Gallery Enrichment: fetch full gallery if only 0-4 images ==========
+      if ((dbItem.provider === "rainforest" || dbItem.provider === "amazon") && (item.images?.length || 0) <= 4) {
         let enrichedImages: string[] = [];
         const amazonAsin = dbItem.provider_product_id || productId!;
         
@@ -1148,7 +1127,7 @@ Deno.serve(async (req: Request) => {
       }
 
       // ========== DB-only providers Gallery Enrichment (SHEIN/CarGurus/Carvana) ==========
-      if ((dbItem.provider === "shein" || dbItem.provider === "cargurus" || dbItem.provider === "carvana") && (item.images?.length || 0) <= 1) {
+      if ((dbItem.provider === "shein" || dbItem.provider === "cargurus" || dbItem.provider === "carvana") && (item.images?.length || 0) <= 2) {
         let scraped = await scrapeProviderGalleryFromPage(dbItem.provider, item.productUrl || dbItem.product_url);
         
         // Firecrawl fallback for items with <=1 image, budget-controlled (100/day)
@@ -1172,15 +1151,18 @@ Deno.serve(async (req: Request) => {
           }
         }
         
-        if (scraped.length > (item.images?.length || 0)) {
-          item.images = scraped;
-          item.imageUrls = scraped;
-          item.mainImageUrl = scraped[0] || item.mainImageUrl;
-          item.imageUrl = scraped[0] || item.imageUrl;
+        // Upgrade scraped images to high-res and filter promos
+        const upgradedScraped = upgradeGalleryImages(scraped, dbItem.provider);
+        if (upgradedScraped.length > (item.images?.length || 0)) {
+          console.log(`[GALLERY_ENRICH] ${dbItem.provider} enriched ${productId}: ${item.images?.length ?? 0} → ${upgradedScraped.length} images`);
+          item.images = upgradedScraped;
+          item.imageUrls = upgradedScraped;
+          item.mainImageUrl = upgradedScraped[0] || item.mainImageUrl;
+          item.imageUrl = upgradedScraped[0] || item.imageUrl;
 
           const dbRowId = dbItem.id || fullProductId;
           db.from("catalog_items")
-            .update({ images: scraped, image_url: scraped[0] || dbItem.image_url, updated_at: new Date().toISOString() })
+            .update({ images: upgradedScraped, image_url: upgradedScraped[0] || dbItem.image_url, updated_at: new Date().toISOString() })
             .eq("id", dbRowId)
             .then(() => {})
             .catch(() => {});
@@ -1189,8 +1171,8 @@ Deno.serve(async (req: Request) => {
             .upsert({
               provider: dbItem.provider,
               provider_item_id: dbItem.provider_product_id || productId!,
-              image_urls: scraped,
-              image_count: scraped.length,
+              image_urls: upgradedScraped,
+              image_count: upgradedScraped.length,
               fetched_at: new Date().toISOString(),
               expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
             }, { onConflict: "provider,provider_item_id" })

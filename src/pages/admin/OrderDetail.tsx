@@ -685,7 +685,7 @@ export default function AdminOrderDetail() {
                   />
                 </TableHead>
                 <TableHead>Product</TableHead>
-                <TableHead>Store</TableHead>
+                <TableHead>Store / ID</TableHead>
                 <TableHead>Product Link</TableHead>
                 <TableHead>Qty</TableHead>
                 <TableHead>Unit Price</TableHead>

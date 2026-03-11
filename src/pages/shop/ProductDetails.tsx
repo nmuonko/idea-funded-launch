@@ -145,7 +145,10 @@ export default function ProductDetailsPage() {
 
   // Safe accessors
   const safeImages = useMemo(() => {
-    if (product?.images?.length) return product.images;
+    if (product?.images?.length) {
+      const filtered = filterGalleryImages(product.images);
+      return filtered.length > 0 ? filtered : ['/placeholder.svg'];
+    }
     return ['/placeholder.svg'];
   }, [product?.images]);
 

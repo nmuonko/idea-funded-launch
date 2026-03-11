@@ -4,6 +4,8 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { ArrowRight } from 'lucide-react';
 import { prefetchCatalogCategory } from '@/lib/catalogCache';
 import { useCallback } from 'react';
+import { isRenderableImageUrl, filterGalleryImages } from '@/lib/imageValidation';
+import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 
 interface CategoryCardProps {
   title: string;

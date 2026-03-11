@@ -251,7 +251,7 @@ const handler = async (req: Request): Promise<Response> => {
       .select(orderSelect)
       .in("status", ["PENDING_PAYMENT", "DRAFT"])
       .lt("created_at", fourteenHoursAgo)
-      .not("cart_reminder_sent_at", "is", null)
+      .neq("cart_reminder_sent_at", null)
       .is("cart_reminder_2_sent_at", null)
       .limit(MAX_EMAILS_PER_RUN);
     const eligible2 = await filterNoPaidAttempts(

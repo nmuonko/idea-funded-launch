@@ -429,9 +429,11 @@ async function scrapeCategoryPageLLM(
       },
       body: JSON.stringify({
         url,
-        formats: [
-          { type: "json", schema: SHEIN_PRODUCT_SCHEMA, prompt: "Extract ALL product listings from this SHEIN category page. For each product, get the name, price in USD, main product image URL (from img.ltwebstatic.com CDN, not color swatches), the full product page URL, and the numeric product ID from the URL." },
-        ],
+        formats: ["extract"],
+        extract: {
+          schema: SHEIN_PRODUCT_SCHEMA,
+          prompt: "Extract ALL product listings from this SHEIN category page. For each product, get the name, price in USD, main product image URL (from img.ltwebstatic.com CDN, not color swatches), the full product page URL, and the numeric product ID from the URL.",
+        },
         waitFor: 8000,
         onlyMainContent: false,
         actions: [

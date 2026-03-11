@@ -14,6 +14,8 @@ export const BLOCKED_IMAGE_PATTERNS: RegExp[] = [
   /amazon.*no[_-]?image/i,
   /images-na\.ssl-images-amazon\.com.*amazon[_-]?logo/i,
   /m\.media-amazon\.com.*amazon[_-]?logo/i,
+  // Amazon known generic placeholder (tiny product icon)
+  /\/21dM81tBHEL\./i,
   
   // Generic placeholder patterns
   /placeholder/i,

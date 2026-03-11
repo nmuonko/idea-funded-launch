@@ -1030,6 +1030,7 @@ serve(async (req) => {
     let amazonDomain = "amazon.com";
     let forceLive = false;
     let locale = lang;
+    let cursor = "";
 
     if (req.method === "POST") {
       try {
@@ -1037,6 +1038,7 @@ serve(async (req) => {
         page = parseInt(body.page) || 1;
         category = body.category || "";
         section = body.section || body.sectionKey || "";
+        cursor = body.cursor || "";
         amazonDomain = body.amazon_domain || "amazon.com";
         locale = body.locale || body.lang || lang;
         if (body.env) {
@@ -1051,6 +1053,7 @@ serve(async (req) => {
       page = parseInt(url.searchParams.get("page") || "1") || 1;
       category = url.searchParams.get("category") || "";
       section = url.searchParams.get("section") || url.searchParams.get("sectionKey") || "";
+      cursor = url.searchParams.get("cursor") || "";
       amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
       locale = url.searchParams.get("locale") || url.searchParams.get("lang") || lang;
       forceLive = url.searchParams.get("live") === "1" || url.searchParams.get("source") === "live";
@@ -1058,13 +1061,13 @@ serve(async (req) => {
 
     // If section is specified, redirect to catalog-category for "Voir Tout" browsing
     const sectionKey = section || "";
-    if (sectionKey && clientType === "mobile") {
-      console.log(`[CATALOG_HOME] section_browse correlationId=${correlationId} section=${sectionKey} page=${page} — delegating to catalog-category`);
+    if (sectionKey) {
+      console.log(`[CATALOG_HOME] section_browse correlationId=${correlationId} section=${sectionKey} page=${page} client=${clientType} — delegating to catalog-category`);
       const supabaseUrl = Deno.env.get("SUPABASE_URL");
       const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY") || "";
       if (supabaseUrl) {
         try {
-          const catUrl = `${supabaseUrl}/functions/v1/catalog-category?category=${encodeURIComponent(sectionKey)}&limit=200&sort=relevance`;
+          const catUrl = `${supabaseUrl}/functions/v1/catalog-category?category=${encodeURIComponent(sectionKey)}&limit=500&sort=relevance${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
           const catRes = await fetch(catUrl, {
             headers: {
               apikey: serviceRoleKey,

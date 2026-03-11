@@ -577,7 +577,7 @@ Deno.serve(async (req: Request) => {
     // Select categories to scrape
     let categoriesToScrape: typeof CATEGORY_URLS;
     if (customUrl) {
-      categoriesToScrape = [{ url: customUrl, category: "clothing_shoes", label: "custom" }];
+      categoriesToScrape = [{ url: customUrl, category: "clothing_shoes", label: "custom", catId: "" }];
     } else {
       const womenTarget = Math.max(1, Math.ceil(categoriesPerRun * 0.8));
       const otherTarget = Math.max(0, categoriesPerRun - womenTarget);

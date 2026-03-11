@@ -51,6 +51,9 @@ const BLOCKED_SUBSTRINGS = [
   "icon_only",
   "sprite",
   "no-image-placeholder",
+  "no_image_available",
+  "image-not-available",
+  "imagenotavailable",
 
   // Health spam images
   "vitalhealthy",

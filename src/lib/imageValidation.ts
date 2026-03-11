@@ -140,19 +140,15 @@ export function isRenderableImageUrl(url?: string | null): boolean {
     !lower.includes('/d/') && !lower.includes('/g/') && !lower.includes('/s-l')
   )) return false;
 
-  // Block suspicious aspect ratio hints from URL dimensions
+  // Check WxH dimension patterns (NOT provider thumbnail tokens which are upgradeable)
   const sizeMatch = lower.match(/[\/_](\d+)x(\d+)/);
   if (sizeMatch) {
     const w = Number(sizeMatch[1]);
     const h = Number(sizeMatch[2]);
-    if (w < 100 && h < 100) return false;
+    if (w < 50 && h < 50) return false;
     const ratio = w / Math.max(h, 1);
     if (ratio > 2.5 || ratio < 0.4) return false;
   }
-
-  // Block Amazon tiny thumbnails (e.g. _SL75_, _SL50_)
-  const amazonSlMatch = lower.match(/_sl(\d+)[_.\-]/i);
-  if (amazonSlMatch && parseInt(amazonSlMatch[1], 10) < 80) return false;
 
   // Check filename for promotional patterns
   const filename = lower.split('/').pop()?.split('?')[0] || '';
@@ -192,13 +188,20 @@ function upgradeToHighRes(url: string): string {
   if (url.includes('ebayimg.com')) {
     return url.replace(/s-l\d+/gi, 's-l1600');
   }
-  // Amazon
-  if (url.includes('media-amazon.com') || url.includes('images-amazon.com')) {
+  // Amazon: upgrade ALL thumbnail tokens to high-res
+  if (url.includes('media-amazon.com') || url.includes('images-amazon.com') || url.includes('ssl-images-amazon.com')) {
     return url
-      .replace(/_SL\d{2,4}/gi, '_SL1500')
-      .replace(/_SX\d{2,4}/gi, '_SX1500')
-      .replace(/_SY\d{2,4}/gi, '_SY1500')
-      .replace(/_AC_SL\d{2,4}/gi, '_AC_SL1500');
+      .replace(/_SL\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_SS\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_SX\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_SY\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_AC_SL\d{2,4}/gi, '_AC_SL1500')
+      .replace(/_AC_UY\d{2,4}/gi, '_AC_SL1500')
+      .replace(/_AC_US\d{2,4}/gi, '_AC_SL1500')
+      .replace(/_AC_UL\d{2,4}/gi, '_AC_SL1500')
+      .replace(/_UY\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_US\d{2,4}([_.])/gi, '_SL1500$1')
+      .replace(/_SR\d+,\d+([_.])/gi, '_SL1500$1');
   }
   // SHEIN
   if (url.includes('ltwebstatic.com') && /_thumbnail_\d+x\d+/i.test(url)) {

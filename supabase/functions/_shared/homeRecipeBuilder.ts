@@ -10,7 +10,7 @@
  * Web gets {ok, sections:[{key:"featured", items}], page, pageSize, totalPages, hasMore, meta}
  */
 
-import { isValidProductImageUrl } from "./imageValidator.ts";
+import { isValidProductImageUrl, upgradeToHighRes } from "./imageValidator.ts";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 

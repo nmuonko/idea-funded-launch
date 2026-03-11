@@ -603,9 +603,9 @@ export default function ProductDetailsPage() {
     return (
       <div className="min-h-screen bg-black overflow-x-hidden">
         <ShopHeader />
-        <div className="pt-24 px-4">
-          <div className="container mx-auto max-w-6xl">
-            <div className="grid lg:grid-cols-2 gap-8">
+        <div className="pt-20 sm:pt-24 px-3 sm:px-4">
+          <div className="mx-auto max-w-6xl w-full">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
               <Skeleton className="aspect-square rounded-2xl bg-white/10" />
               <div className="space-y-4">
                 <Skeleton className="h-8 w-3/4 bg-white/10" />

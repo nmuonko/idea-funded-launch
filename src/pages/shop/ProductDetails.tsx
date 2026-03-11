@@ -663,7 +663,7 @@ export default function ProductDetailsPage() {
             <div className="space-y-3 sm:space-y-4 min-w-0">
               <div
                 data-product-hero="true"
-                className="relative w-full aspect-square sm:aspect-[4/3] bg-white rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center touch-pan-y max-w-full">
+                className="relative w-full aspect-square sm:aspect-[4/3] bg-white rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center touch-pan-y max-w-full"
                 onClick={() => setLightboxOpen(true)}
                 onTouchStart={(e) => {
                   const touch = e.touches[0];
@@ -677,7 +677,6 @@ export default function ProductDetailsPage() {
                   const touch = e.changedTouches[0];
                   const dx = touch.clientX - startX;
                   const dy = touch.clientY - startY;
-                  // Only trigger if horizontal swipe > 40px and more horizontal than vertical
                   if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
                     e.preventDefault();
                     userInteractedRef.current = true;

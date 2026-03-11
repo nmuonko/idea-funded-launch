@@ -921,9 +921,18 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
       const ebayMatch = guestItem.productUrl.match(/\/itm\/(\d+)/);
       guestProviderProductId = ebayMatch ? ebayMatch[1] : null;
     }
-    const guestCanonicalUrl = (store === 'AMAZON' && guestProviderProductId)
-      ? `https://www.amazon.com/dp/${guestProviderProductId}`
-      : cleanGuestUrl;
+    let guestCanonicalUrl = cleanGuestUrl;
+    if (store === 'AMAZON' && guestProviderProductId) {
+      const hasSlugged = /\/[^/]+\/dp\/[A-Z0-9]{10}/i.test(cleanGuestUrl);
+      if (hasSlugged) {
+        guestCanonicalUrl = cleanGuestUrl;
+      } else {
+        const titleStr = (guestItem.title || '').replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '-').substring(0, 120);
+        guestCanonicalUrl = (titleStr.length > 2)
+          ? `https://www.amazon.com/${titleStr}/dp/${guestProviderProductId}`
+          : `https://www.amazon.com/dp/${guestProviderProductId}`;
+      }
+    }
 
     const itemData = {
       order_id: draftOrder!.id, product_url: cleanGuestUrl, title: guestItem.title || null,

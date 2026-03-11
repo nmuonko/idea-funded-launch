@@ -3,11 +3,14 @@ export interface AdminOrderProductLinkItem {
   product_url?: string | null;
   canonical_url?: string | null;
   provider_product_id?: string | null;
+  title?: string | null;
 }
 
 const AMAZON_ASIN_PATTERN = /(?:\/dp\/|\/gp\/(?:product|aw\/d)\/|\/product\/)([A-Z0-9]{10})/i;
 const AMAZON_HOST_PATTERN = /^https?:\/\/([^/]*amazon\.[^/]+)\//i;
 const AMAZON_HOME_PATTERN = /^https?:\/\/(?:www\.)?amazon\.[^/]+\/?$/i;
+/** Bare /dp/ASIN with NO slug before it */
+const AMAZON_BARE_DP_PATTERN = /^https?:\/\/[^/]*amazon\.[^/]+\/dp\/[A-Z0-9]{10}\/?$/i;
 
 function normalizeAmazonHost(url?: string | null): string {
   if (!url) return 'www.amazon.com';
@@ -35,6 +38,23 @@ function isAmazonProductDetailUrl(url?: string | null): boolean {
   return AMAZON_ASIN_PATTERN.test(url);
 }
 
+/** Returns true only for slugged detail URLs like /Product-Name/dp/ASIN */
+function isAmazonSluggedDetailUrl(url?: string | null): boolean {
+  if (!url) return false;
+  if (!isAmazonProductDetailUrl(url)) return false;
+  // If the URL is just /dp/ASIN (bare), it is NOT slugged
+  if (AMAZON_BARE_DP_PATTERN.test(url.split('?')[0].split('#')[0])) return false;
+  return true;
+}
+
+function slugifyTitle(title: string): string {
+  return title
+    .replace(/[^a-zA-Z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .substring(0, 120);
+}
+
 export function extractAmazonAsinFromOrderItem(item: AdminOrderProductLinkItem): string | null {
   const fromProviderId = item.provider_product_id?.trim().toUpperCase() || '';
   if (/^[A-Z0-9]{10}$/.test(fromProviderId)) {
@@ -55,15 +75,27 @@ export function buildAmazonCanonicalOrderUrl(item: AdminOrderProductLinkItem): s
   const asin = extractAmazonAsinFromOrderItem(item);
   if (!asin) return null;
 
-  if (isAmazonProductDetailUrl(item.product_url)) {
+  // 1. Prefer an existing slugged product_url
+  if (isAmazonSluggedDetailUrl(item.product_url)) {
     return item.product_url!;
   }
 
-  if (isAmazonProductDetailUrl(item.canonical_url)) {
+  // 2. Prefer an existing slugged canonical_url
+  if (isAmazonSluggedDetailUrl(item.canonical_url)) {
     return item.canonical_url!;
   }
 
+  // 3. Build a slugged URL from title + ASIN
   const host = normalizeAmazonHost(item.product_url || item.canonical_url);
+  const title = item.title?.trim();
+  if (title && title !== 'Product') {
+    const slug = slugifyTitle(title);
+    if (slug.length > 2) {
+      return `https://${host}/${slug}/dp/${asin}`;
+    }
+  }
+
+  // 4. Last resort: bare /dp/ (may still redirect on some browsers)
   return `https://${host}/dp/${asin}`;
 }
 

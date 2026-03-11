@@ -766,7 +766,7 @@ export default function ProductDetailsPage() {
                 </p>
               )}
 
-              <h1 className="text-2xl md:text-3xl font-bold text-white break-words">
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white break-words min-w-0">
                 {product.title}
               </h1>
 

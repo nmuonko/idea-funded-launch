@@ -8,6 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { formatUSD, formatCDF } from '@/lib/formatCurrency';
 import { formatOrderId } from '@/lib/formatOrderId';
+import { getAdminOrderProductLink } from '@/lib/orderProductLinks';
 import { 
   Loader2, 
   Package, 

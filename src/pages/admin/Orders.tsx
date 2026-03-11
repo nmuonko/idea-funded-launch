@@ -40,6 +40,7 @@ import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation, getStatusTranslation } from '@/lib/i18n/translations';
 import { formatOrderId } from '@/lib/formatOrderId';
+import { getAdminOrderProductLink } from '@/lib/orderProductLinks';
 
 export default function AdminOrders() {
   const navigate = useNavigate();

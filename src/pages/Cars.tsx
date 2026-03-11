@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Car, Search, ShoppingCart, MessageCircle, AlertTriangle, ChevronLeft, ChevronRight, ImageIcon } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { filterGalleryImages, isRenderableImageUrl } from "@/lib/imageValidation";
 
 interface CarListing {
   id: string;
@@ -73,17 +74,19 @@ export default function Cars() {
       
       return (data || []).map((row: any) => {
         // Parse images from JSON
-        let images: string[] = [];
+        let rawImages: string[] = [];
         if (row.images) {
           try {
-            images = Array.isArray(row.images) ? row.images : [];
+            rawImages = Array.isArray(row.images) ? row.images : [];
           } catch {
-            images = [];
+            rawImages = [];
           }
         }
-        if (images.length === 0 && row.image_url) {
-          images = [row.image_url];
+        if (rawImages.length === 0 && row.image_url) {
+          rawImages = [row.image_url];
         }
+        // Filter out promo/banner images and upgrade to high-res
+        const images = filterGalleryImages(rawImages);
         
         return {
           id: `${row.provider}:${row.provider_listing_id}`,

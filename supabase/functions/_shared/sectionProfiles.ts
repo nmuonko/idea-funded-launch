@@ -406,10 +406,20 @@ export async function buildStrictMobileSections(
     sectionBuckets[profile.key] = [];
   }
 
-  // PHASE 1: Strict filter from pool
+  // PHASE 1: Strict filter from pool — prefer specific providers when configured
   if (pool && pool.length > 0) {
     for (const profile of SECTION_PROFILES) {
-      const filtered = filterItemsForProfile(pool, profile)
+      let sourcePool = pool;
+      if (profile.preferProviders && profile.preferProviders.length > 0) {
+        const preferredPool = pool.filter(item =>
+          profile.preferProviders!.includes(item.provider)
+        );
+        if (preferredPool.length >= 5) {
+          sourcePool = preferredPool;
+        }
+      }
+
+      const filtered = filterItemsForProfile(sourcePool, profile)
         .filter(item => !usedIds.has(item.id))
         .slice(0, profile.minItems);
 

@@ -208,29 +208,52 @@ function upgradeToHighRes(url: string): string {
 }
 
 /**
+ * Pick the best valid product image from a list.
+ * Returns the first renderable image URL, or '/placeholder.svg' if none valid.
+ */
+export function pickBestImage(images: string[], currentUrl?: string): string {
+  // If current URL is valid, keep it
+  if (currentUrl && isRenderableImageUrl(currentUrl)) return currentUrl;
+  // Try each image in the list
+  for (const url of (images || [])) {
+    if (isRenderableImageUrl(url)) return upgradeToHighRes(url);
+  }
+  return '/placeholder.svg';
+}
+
+/**
  * Runtime image load error handler for <img> elements.
- * If an image fails to load or loads as a tiny tracking pixel,
- * replace it with placeholder.
+ * Tries next valid image from data-fallback-images before placeholder.
  */
 export function handleImageError(e: React.SyntheticEvent<HTMLImageElement>) {
   const img = e.currentTarget;
-  if (img.src !== '/placeholder.svg') {
-    img.src = '/placeholder.svg';
+  if (img.src === '/placeholder.svg') return;
+  // Try fallback images stored in data attribute
+  const fallbacks = img.dataset.fallbackImages?.split('|||').filter(Boolean) || [];
+  for (const url of fallbacks) {
+    if (isRenderableImageUrl(url) && url !== img.src) {
+      img.src = upgradeToHighRes(url);
+      // Remove this URL from fallbacks so we don't retry
+      img.dataset.fallbackImages = fallbacks.filter(u => u !== url).join('|||');
+      return;
+    }
   }
+  img.src = '/placeholder.svg';
 }
 
 /**
  * Runtime check after image loads — detect banner-like images by aspect ratio.
- * Attach as onLoad handler to catch banners that passed URL-level filtering.
+ * If detected, tries next fallback image before placeholder.
  */
 export function handleImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
   const img = e.currentTarget;
+  if (img.src === '/placeholder.svg') return;
   const { naturalWidth, naturalHeight } = img;
   if (naturalWidth > 0 && naturalHeight > 0) {
     const ratio = naturalWidth / naturalHeight;
-    // Extreme banner aspect ratios (> 3:1 or < 1:3) or tiny tracking pixels
     if (ratio > 3 || ratio < 0.33 || (naturalWidth < 50 && naturalHeight < 50)) {
-      img.src = '/placeholder.svg';
+      // Trigger error handler which tries next fallback
+      handleImageError(e);
     }
   }
 }

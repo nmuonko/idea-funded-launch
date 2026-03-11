@@ -19,6 +19,8 @@ export interface Product {
   rating?: number;
   inStock?: boolean;
   productUrl?: string;
+  images?: string[];
+  imageUrls?: string[];
 }
 
 interface ProductCardProps {
@@ -37,13 +39,33 @@ export function ProductCard({ product, className, compact = false, coverImage = 
   const { addItem, addToSaved, removeFromSaved, isItemSaved, exchangeRate } = useShopCart();
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
+  // Collect all candidate gallery images for fallback
+  const galleryImages = [...new Set([
+    product.imageUrl,
+    ...(product.images || []),
+    ...(product.imageUrls || []),
+  ].filter(Boolean))];
+
   const [imgSrc, setImgSrc] = useState<string>(() => {
     // Pick best image upfront: try primary, then fallback to any valid image from gallery
-    const primary = product.imageUrl;
-    if (primary && isRenderableImageUrl(primary)) return resizeImageUrl(primary, IMAGE_SIZE_THUMB);
-    return '/placeholder.svg';
+    return pickBestImage(galleryImages, product.imageUrl);
   });
+  const [fallbackIdx, setFallbackIdx] = useState(0);
   const { language } = useLanguage();
+
+  // Try next valid gallery image, then placeholder as last resort
+  const tryNextImage = useCallback(() => {
+    // Find next valid image in gallery starting after current fallbackIdx
+    for (let i = fallbackIdx + 1; i < galleryImages.length; i++) {
+      const url = galleryImages[i];
+      if (url && isRenderableImageUrl(url) && resizeImageUrl(url, IMAGE_SIZE_THUMB) !== imgSrc) {
+        setFallbackIdx(i);
+        setImgSrc(resizeImageUrl(url, IMAGE_SIZE_THUMB));
+        return;
+      }
+    }
+    setImgSrc('/placeholder.svg');
+  }, [fallbackIdx, galleryImages, imgSrc]);
 
   // On load: check aspect ratio for banner detection, try next image if bad
   const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
@@ -52,14 +74,14 @@ export function ProductCard({ product, className, compact = false, coverImage = 
     if (w > 0 && h > 0) {
       const ratio = w / h;
       if (ratio > 2.2 || ratio < 0.45 || (w < 80 && h < 80) || Math.min(w, h) < 70) {
-        setImgSrc('/placeholder.svg');
+        tryNextImage();
       }
     }
-  }, []);
+  }, [tryNextImage]);
   
   const handleImgError = useCallback(() => {
-    setImgSrc('/placeholder.svg');
-  }, []);
+    tryNextImage();
+  }, [tryNextImage]);
 
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;

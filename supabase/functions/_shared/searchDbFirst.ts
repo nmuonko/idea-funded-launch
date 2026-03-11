@@ -14,7 +14,7 @@ type SupabaseClientAny = any;
 
 import { filterDisallowedItems } from "./contentBlocker.ts";
 import { getTtlPolicy, TtlPolicy } from "./ttlPolicy.ts";
-import { isValidProductImageUrl } from "./imageValidator.ts";
+import { isValidProductImageUrl, upgradeToHighRes } from "./imageValidator.ts";
 
 /**
  * Ensure provider diversity in results — inject minority-provider items
@@ -136,8 +136,8 @@ const EXPANSION_SYNONYMS: Record<string, string[]> = {
 
 function mapDbItem(item: Record<string, unknown>, categoryKey: string | null): Record<string, unknown> | null {
   const rawImage = item.image_url as string | null;
-  const imageUrl = rawImage && isValidProductImageUrl(rawImage) ? rawImage : null;
-  if (!imageUrl) return null; // Skip items with banner/ad images
+  if (!rawImage || !isValidProductImageUrl(rawImage)) return null; // Skip items with banner/ad images
+  const imageUrl = upgradeToHighRes(rawImage) || rawImage;
   return {
     id: item.external_id || item.id,
     title: item.title,

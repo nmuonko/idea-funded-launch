@@ -11,6 +11,7 @@
 
 import { createAdminPostgrestClient } from "../_shared/postgrest.ts";
 import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
+import { sanitizeImageUrl, upgradeToHighRes } from "../_shared/imageValidator.ts";
 import { isBlockedSearchQuery, getBlockedSearchMessage, filterDisallowedItems } from "../_shared/contentBlocker.ts";
 import { getCatalogSettings, getEffectiveMode } from "../_shared/catalogSettings.ts";
 import {
@@ -60,6 +61,15 @@ import {
   SearchResponse, SearchMeta,
 } from "../_shared/searchResponseBuilder.ts";
 import type { SearchTimings } from "../_shared/searchResponseBuilder.ts";
+
+/**
+ * Sanitize a raw DB item image_url: validate + upgrade to high-res.
+ * Returns null if the image is a banner/ad/promo.
+ */
+function sanitizeItemImageUrl(rawUrl: string | null | undefined): string | null {
+  if (!rawUrl) return null;
+  return sanitizeImageUrl(rawUrl);
+}
 
 const DEFAULT_LIMIT = 500;   // Default page size
 const MAX_LIMIT = 500;       // Max page size
@@ -2073,16 +2083,21 @@ Deno.serve(async (req: Request) => {
           .order("updated_at", { ascending: false })
           .limit(40);
         if (relData && relData.length > 0) {
-          relatedItems = relData.map((item: any) => ({
-            id: item.id, provider: item.provider, providerProductId: item.provider_product_id,
-            title: item.title, priceUsd: item.price_usd, currency: "USD",
-            mainImageUrl: item.image_url, imageUrl: item.image_url,
-            images: item.images || (item.image_url ? [item.image_url] : []),
-            imageUrls: item.images || (item.image_url ? [item.image_url] : []),
-            imageCount: item.images?.length || 1,
-            productUrl: item.product_url, inStock: item.in_stock ?? true,
-            rating: item.rating, category: item.unified_category || categoryKey || undefined,
-          }));
+          relatedItems = relData
+            .filter((item: any) => sanitizeItemImageUrl(item.image_url))
+            .map((item: any) => {
+              const img = sanitizeItemImageUrl(item.image_url)!;
+              return {
+                id: item.id, provider: item.provider, providerProductId: item.provider_product_id,
+                title: item.title, priceUsd: item.price_usd, currency: "USD",
+                mainImageUrl: img, imageUrl: img,
+                images: item.images || [img],
+                imageUrls: item.images || [img],
+                imageCount: item.images?.length || 1,
+                productUrl: item.product_url, inStock: item.in_stock ?? true,
+                rating: item.rating, category: item.unified_category || categoryKey || undefined,
+              };
+            });
           fallbackReason = "related_db";
           console.log(`[CATALOG_SEARCH] requestId=${requestId} related_db fallback: ${relatedItems.length} tractor/equipment items`);
         }
@@ -2127,24 +2142,29 @@ Deno.serve(async (req: Request) => {
               });
 
               if (relevantItems.length > 0) {
-                relatedItems = relevantItems.map((item: any) => ({
-                  id: item.id,
-                  provider: item.provider === "rainforest" ? "amazon" : item.provider,
-                  providerProductId: item.provider_product_id,
-                  title: item.title,
-                  priceUsd: item.price_usd,
-                  currency: "USD",
-                  mainImageUrl: item.image_url,
-                  imageUrl: item.image_url,
-                  images: item.images || (item.image_url ? [item.image_url] : []),
-                  imageUrls: item.images || (item.image_url ? [item.image_url] : []),
-                  imageCount: item.images?.length || 1,
-                  productUrl: item.product_url,
-                  inStock: item.in_stock ?? true,
-                  rating: item.rating,
-                  category: item.unified_category || categoryKey || undefined,
-                  store: item.provider === "rainforest" ? "amazon" : item.provider,
-                }));
+                relatedItems = relevantItems
+                  .filter((item: any) => sanitizeItemImageUrl(item.image_url))
+                  .map((item: any) => {
+                    const img = sanitizeItemImageUrl(item.image_url)!;
+                    return {
+                      id: item.id,
+                      provider: item.provider === "rainforest" ? "amazon" : item.provider,
+                      providerProductId: item.provider_product_id,
+                      title: item.title,
+                      priceUsd: item.price_usd,
+                      currency: "USD",
+                      mainImageUrl: img,
+                      imageUrl: img,
+                      images: item.images || [img],
+                      imageUrls: item.images || [img],
+                      imageCount: item.images?.length || 1,
+                      productUrl: item.product_url,
+                      inStock: item.in_stock ?? true,
+                      rating: item.rating,
+                      category: item.unified_category || categoryKey || undefined,
+                      store: item.provider === "rainforest" ? "amazon" : item.provider,
+                    };
+                  });
                 fallbackReason = "related_db_loose";
                 console.log(`[CATALOG_SEARCH] requestId=${requestId} related_db_loose fallback: ${relevantItems.length}/${ebayDbLoose.length} passed relevance gate`);
               } else {
@@ -2209,20 +2229,25 @@ Deno.serve(async (req: Request) => {
             }
 
             if (lastResortResult && lastResortResult.items && lastResortResult.items.length > 0) {
-              relatedItems = lastResortResult.items.map((item: any) => ({
-                id: item.id, provider: item.provider || "ebay",
-                providerProductId: item.providerProductId || item.provider_product_id,
-                title: item.title, priceUsd: item.priceUsd || item.price_usd,
-                currency: item.currency || "USD",
-                mainImageUrl: item.imageUrl || item.image_url,
-                imageUrl: item.imageUrl || item.image_url,
-                images: item.images || (item.imageUrl ? [item.imageUrl] : []),
-                imageUrls: item.images || (item.imageUrl ? [item.imageUrl] : []),
-                imageCount: item.imageCount || 1,
-                productUrl: item.productUrl || item.product_url,
-                inStock: true, rating: item.rating,
-                category: categoryKey || undefined, store: "ebay",
-              }));
+              relatedItems = lastResortResult.items
+                .filter((item: any) => sanitizeItemImageUrl(item.imageUrl || item.image_url))
+                .map((item: any) => {
+                  const img = sanitizeItemImageUrl(item.imageUrl || item.image_url)!;
+                  return {
+                    id: item.id, provider: item.provider || "ebay",
+                    providerProductId: item.providerProductId || item.provider_product_id,
+                    title: item.title, priceUsd: item.priceUsd || item.price_usd,
+                    currency: item.currency || "USD",
+                    mainImageUrl: img,
+                    imageUrl: img,
+                    images: item.images || [img],
+                    imageUrls: item.images || [img],
+                    imageCount: item.imageCount || 1,
+                    productUrl: item.productUrl || item.product_url,
+                    inStock: true, rating: item.rating,
+                    category: categoryKey || undefined, store: "ebay",
+                  };
+                });
               fallbackReason = `last_resort_cascade:${candidateQ}`;
               console.log(`[CATALOG_SEARCH] requestId=${requestId} LAST_RESORT_CASCADE: found ${relatedItems.length} items with q="${candidateQ}"`);
 

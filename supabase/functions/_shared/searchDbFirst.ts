@@ -231,7 +231,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
 
     // ─── TIER C: Query expansion ──────────────────────────────────────────────
     const elapsed2 = Date.now() - dbStartMs;
-    if (elapsed2 < 600 && mergedCount < TARGET_RESULTS) {
+    if (elapsed2 < 1000 && mergedCount < TARGET_RESULTS) {
       const expansionQueries = generateExpansionQueries(qNorm);
       let pool = [...mergedAB];
       const poolIds = new Set(pool.map((i: any) => i.id));

@@ -2083,16 +2083,21 @@ Deno.serve(async (req: Request) => {
           .order("updated_at", { ascending: false })
           .limit(40);
         if (relData && relData.length > 0) {
-          relatedItems = relData.map((item: any) => ({
-            id: item.id, provider: item.provider, providerProductId: item.provider_product_id,
-            title: item.title, priceUsd: item.price_usd, currency: "USD",
-            mainImageUrl: item.image_url, imageUrl: item.image_url,
-            images: item.images || (item.image_url ? [item.image_url] : []),
-            imageUrls: item.images || (item.image_url ? [item.image_url] : []),
-            imageCount: item.images?.length || 1,
-            productUrl: item.product_url, inStock: item.in_stock ?? true,
-            rating: item.rating, category: item.unified_category || categoryKey || undefined,
-          }));
+          relatedItems = relData
+            .filter((item: any) => sanitizeItemImageUrl(item.image_url))
+            .map((item: any) => {
+              const img = sanitizeItemImageUrl(item.image_url)!;
+              return {
+                id: item.id, provider: item.provider, providerProductId: item.provider_product_id,
+                title: item.title, priceUsd: item.price_usd, currency: "USD",
+                mainImageUrl: img, imageUrl: img,
+                images: item.images || [img],
+                imageUrls: item.images || [img],
+                imageCount: item.images?.length || 1,
+                productUrl: item.product_url, inStock: item.in_stock ?? true,
+                rating: item.rating, category: item.unified_category || categoryKey || undefined,
+              };
+            });
           fallbackReason = "related_db";
           console.log(`[CATALOG_SEARCH] requestId=${requestId} related_db fallback: ${relatedItems.length} tractor/equipment items`);
         }

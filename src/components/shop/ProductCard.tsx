@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
-import { isRenderableImageUrl } from '@/lib/imageValidation';
+import { isRenderableImageUrl, handleImageLoad as sharedHandleImageLoad, handleImageError as sharedHandleImageError } from '@/lib/imageValidation';
 
 export interface Product {
   id: string;

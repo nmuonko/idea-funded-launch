@@ -292,7 +292,167 @@ function extractProductsFromContent(markdown: string, html: string, links: strin
   return products;
 }
 
-// ── FIRECRAWL JSON/LLM EXTRACTION (PRIMARY) ──────────────────────────────
+// ── SHEIN PUBLIC API STRATEGY (PRIMARY — no Firecrawl credits) ────────────
+
+async function scrapeViaSHEINApi(
+  catId: string,
+  page: number,
+  label: string,
+): Promise<{ products: SheinProduct[]; error?: string; strategy: string }> {
+  try {
+    const limit = 120;
+    const offset = (page - 1) * limit;
+    const apiUrl = `https://us.shein.com/api/productList/info/get?cat_id=${catId}&page=${page}&limit=${limit}&offset=${offset}&sort=0&currency=USD&language=en`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    const resp = await fetch(apiUrl, {
+      signal: controller.signal,
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://us.shein.com/",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      console.warn(`[SHEIN_SCRAPER] API HTTP ${resp.status} for cat=${catId}: ${errText.substring(0, 100)}`);
+      return { products: [], error: `API HTTP ${resp.status}`, strategy: "shein_api" };
+    }
+
+    const data = await resp.json();
+    const goods = data?.info?.products || data?.info?.goods || data?.goods || data?.products || [];
+    
+    if (!Array.isArray(goods) || goods.length === 0) {
+      console.log(`[SHEIN_SCRAPER] API returned 0 products for ${label} cat=${catId} page=${page}`);
+      return { products: [], strategy: "shein_api" };
+    }
+
+    const products: SheinProduct[] = [];
+    for (const item of goods) {
+      const goodsId = String(item.goods_id || item.goodsId || item.id || "");
+      if (!goodsId) continue;
+
+      const pid = `p${goodsId}`;
+      const title = item.goods_name || item.goodsName || item.title || item.name || "";
+      if (!title || title.length < 3) continue;
+
+      let priceUsd = 0;
+      const salePrice = item.salePrice?.amount || item.sale_price?.amount || item.retailPrice?.amount || item.retail_price?.amount;
+      if (salePrice) {
+        priceUsd = parseFloat(salePrice);
+      } else if (item.salePrice?.usdAmount) {
+        priceUsd = parseFloat(item.salePrice.usdAmount);
+      } else if (typeof item.price === "number") {
+        priceUsd = item.price;
+      } else if (typeof item.price === "string") {
+        priceUsd = parseFloat(item.price) || 0;
+      }
+      if (!Number.isFinite(priceUsd) || priceUsd <= 0) priceUsd = 0;
+
+      let imageUrl = "";
+      const img = item.goods_img || item.goodsImg || item.image?.url || item.main_image || "";
+      if (img) {
+        imageUrl = img.startsWith("//") ? `https:${img}` : img.startsWith("http") ? img : img ? `https:${img}` : "";
+      }
+      if (isSwatchUrl(imageUrl)) imageUrl = "";
+
+      const images: string[] = [];
+      if (imageUrl) images.push(imageUrl);
+      const detailImages = item.detail_image || item.detailImage || [];
+      if (Array.isArray(detailImages)) {
+        for (const di of detailImages.slice(0, 5)) {
+          const diUrl = typeof di === "string" ? di : di?.url || di?.origin_image || "";
+          if (diUrl && !isSwatchUrl(diUrl)) {
+            const fullUrl = diUrl.startsWith("//") ? `https:${diUrl}` : diUrl;
+            images.push(fullUrl);
+          }
+        }
+      }
+
+      products.push({
+        title: title.substring(0, 200),
+        price_usd: priceUsd > 0 ? Math.round(priceUsd * 100) / 100 : 0,
+        image_url: imageUrl,
+        product_url: `https://us.shein.com/-p-${goodsId}.html`,
+        provider_product_id: pid,
+        brand: "SHEIN",
+        images: [...new Set(images)].slice(0, 8),
+      });
+    }
+
+    console.log(`[SHEIN_SCRAPER] API: ${label} cat=${catId} page=${page} → ${goods.length} raw → ${products.length} valid`);
+    return { products, strategy: "shein_api" };
+  } catch (err) {
+    console.warn(`[SHEIN_SCRAPER] API error for ${label}: ${(err as Error).message}`);
+    return { products: [], error: (err as Error).message, strategy: "shein_api" };
+  }
+}
+
+// ── PRIMARY SCRAPE: API first, Firecrawl HTML fallback ────────────────────
+
+async function scrapeCategoryPageLLM(
+  url: string,
+  apiKey: string,
+  catId?: string,
+  label?: string,
+  page?: number,
+): Promise<{ products: SheinProduct[]; error?: string; strategy: string }> {
+  if (catId) {
+    const apiResult = await scrapeViaSHEINApi(catId, page || 1, label || "unknown");
+    if (apiResult.products.length > 0) return apiResult;
+    console.log(`[SHEIN_SCRAPER] API returned 0 for ${label}, falling back to Firecrawl HTML`);
+  }
+
+  return scrapeCategoryPageHTML(url, apiKey);
+}
+
+async function scrapeCategoryPageHTML(
+  url: string,
+  apiKey: string,
+): Promise<{ products: SheinProduct[]; error?: string; strategy: string }> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 50000);
+
+    const resp = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        formats: ["markdown", "html", "links"],
+        waitFor: 8000,
+        onlyMainContent: false,
+      }),
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      return { products: [], error: `HTTP ${resp.status}: ${errText.substring(0, 200)}`, strategy: "html_fallback" };
+    }
+
+    const data = await resp.json();
+    const markdown = data?.data?.markdown || data?.markdown || "";
+    const html = data?.data?.html || data?.html || "";
+    const links: string[] = data?.data?.links || data?.links || [];
+
+    const products = extractProductsFromContent(markdown, html, links, url);
+    return { products, strategy: "html_fallback" };
+  } catch (err) {
+    return { products: [], error: (err as Error).message, strategy: "html_fallback" };
+  }
+}
 
 const SHEIN_PRODUCT_SCHEMA = {
   type: "object",

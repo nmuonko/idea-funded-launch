@@ -1019,11 +1019,13 @@ export default function AdminOrders() {
                                 {date} ({groupItems.length} item{groupItems.length > 1 ? 's' : ''})
                               </span>
                               <div className="flex flex-wrap gap-1">
-                                {groupItems.slice(0, 2).map((item: any) => (
-                                  item.product_url ? (
+                                {groupItems.slice(0, 2).map((item: any) => {
+                                  const itemLink = item.canonical_url || item.product_url;
+                                  const isAmazon = item.store === 'AMAZON';
+                                  return itemLink ? (
                                     <a
                                       key={item.id}
-                                      href={item.product_url}
+                                      href={itemLink}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="text-xs text-primary hover:underline flex items-center gap-1"
@@ -1038,8 +1040,12 @@ export default function AdminOrders() {
                                         />
                                       )}
                                       <span className="line-clamp-1">{item.title?.slice(0, 15) || 'Product'}</span>
+                                      {isAmazon && item.provider_product_id && (
+                                        <span className="text-[10px] text-muted-foreground font-mono">({item.provider_product_id})</span>
+                                      )}
                                     </a>
-                                  ) : null
+                                  ) : null;
+                                }
                                 ))}
                                 {groupItems.length > 2 && (
                                   <span className="text-xs text-muted-foreground">+{groupItems.length - 2} more</span>

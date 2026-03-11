@@ -159,7 +159,9 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
             unit_price_usd,
             subtotal_usd,
             notes,
-            store
+            store,
+            provider_product_id,
+            canonical_url
           )
         `)
         .eq('id', orderId)

@@ -59,67 +59,9 @@ function buildDiagHeaders(opts: {
   };
 }
 
-/**
- * Check if a URL looks like a banner/promo/non-product image
- */
-function isPromotionalImage(url: string): boolean {
-  const lower = url.toLowerCase();
-  // Blocked path tokens
-  const blocked = [
-    'lovegrown', 'love-grown', 'love_grown',
-    'vital_health', 'vitalhealthy', 'vital healthy',
-    'sellerbanner', 'seller_banner', 'seller-banner',
-    'shoplogo', 'shop_logo', 'shop-logo', 'store_logo', 'store-logo', 'storelogo',
-    'brandlogo', 'brand_logo', 'brand-logo',
-    'watermark', 'promo_badge', 'promo-badge', 'promotion-badge',
-    'promobanner', 'promo_banner', 'promo-banner',
-    'header_banner', 'footer_banner', 'hero_banner', 'ad_banner',
-    'template_banner', 'storefront_banner', 'sprite', 'icon_only',
-    'no-image-placeholder', '/banner', '_thumbnail_126x',
-    'descriptionimage', 'seller_pic', 'seller-pic',
-    '/00/s/', 'vistaprint', 'ebay.com/usr/',
-    'certified-renewed', 'certified_renewed', 'amazon-renewed',
-    'satisfaction-guarantee', 'satisfaction_guarantee',
-    'free-shipping', 'free_shipping', 'best-seller', 'best_seller',
-    'warranty-badge', 'warranty_badge', 'money-back', 'money_back',
-    'trust-badge', 'trust_badge', 'guarantee-badge',
-    '-logo.', '_logo.', '-badge.', '_badge.', '-stamp.', '_stamp.',
-    '-icon.', '_icon.', 'landing-page', 'landing_page', 'landingpage',
-    'marketing/', 'campaign/', 'promotional/', 'coupon',
-    'discount-badge', 'discount_badge', 'sale-badge', 'sale_badge', 'deal-badge',
-    'storefront/', 'store-front/', 'brand-page', 'brand_page',
-    'lifestyle-banner', 'lifestyle_banner',
-    '/ads/', '/advertisement/', 'comparison-chart', 'comparison_chart',
-    'infographic', 'info-graphic',
-    '/v4/p/ccc/', 'images3_ccc/', 'ltwebstatic.com/she_dist/',
-    'ltwebstatic.com/images/bg/', 'pt.ispot.tv',
-    'images3_pi/2024/01/01/00/',
-    'assets.fastly.carvana.io/merchui/images',
-    'site-cars/merchandising', 'heliosconditionaltiles',
-    'category-banner', 'category_banner',
-    'announcement-bar', 'announcement_bar',
-    'email-banner', 'email_banner',
-    'flash-sale', 'flash_sale',
-    '/swatch', '/color-swatch', '/color_swatch',
-  ];
-  if (blocked.some(t => lower.includes(t))) return true;
-  if (lower.endsWith('.svg') || lower.endsWith('.gif')) return true;
-  // Aspect ratio from URL dimensions
-  const sizeMatch = lower.match(/[\/_](\d+)x(\d+)/);
-  if (sizeMatch) {
-    const w = Number(sizeMatch[1]);
-    const h = Number(sizeMatch[2]);
-    if (w < 100 && h < 100) return true;
-    const ratio = w / Math.max(h, 1);
-    if (ratio > 2.2 || ratio < 0.45) return true;
-  }
-  // Amazon tiny thumbnails
-  const slMatch = lower.match(/_sl(\d+)[_.\-]/i);
-  if (slMatch && parseInt(slMatch[1], 10) < 80) return true;
-  // eBay non-gallery images
-  if (lower.includes('i.ebayimg.com') && !lower.includes('/d/') && !lower.includes('/g/') && !lower.includes('/s-l')) return true;
-  return false;
-}
+// isPromotionalImage is now imported from the shared imageUpgrade module
+// to prevent drift between local and shared copies.
+import { isPromotionalImage, filterProductImages } from "../_shared/imageUpgrade.ts";
 
 /**
  * Upgrade ALL gallery images to high-resolution for product detail view

@@ -4,6 +4,7 @@ import { CategoryCard } from '@/components/shop/CategoryCard';
 import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { isRenderableImageUrl } from '@/lib/imageValidation';
 
 interface SectionBlockProps {
   title?: string;
@@ -69,11 +70,18 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
             >
               <div className="aspect-square rounded-lg bg-white overflow-hidden p-1.5 border border-gray-100 shadow-sm">
                 <img
-                  src={product.imageUrl || '/placeholder.svg'}
+                  src={isRenderableImageUrl(product.imageUrl) ? product.imageUrl : '/placeholder.svg'}
                   alt={product.title}
                   className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105 image-rendering-auto"
                   loading="lazy"
                   decoding="async"
+                  onLoad={(e) => {
+                    const img = e.currentTarget;
+                    const ratio = img.naturalWidth / Math.max(img.naturalHeight, 1);
+                    if (ratio > 3 || ratio < 0.33 || (img.naturalWidth < 50 && img.naturalHeight < 50)) {
+                      img.src = '/placeholder.svg';
+                    }
+                  }}
                   onError={(e) => {
                     e.currentTarget.onerror = null;
                     e.currentTarget.src = '/placeholder.svg';

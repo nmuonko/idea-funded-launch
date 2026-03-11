@@ -1,59 +1,74 @@
 /**
  * Shared image URL validator for the frontend.
  * Blocks ad banners, seller logos, promotional graphics, and non-product images.
+ * 
+ * This is the FRONTEND FALLBACK GUARD — the backend should filter first,
+ * but this catches anything that slips through.
  */
 
 const BLOCKED_TOKENS = [
-  'vital_health', 'vitalhealthy', 'vital healthy', 'lovegrown', 'love-grown', 'love_grown',
+  // Seller branding
+  'lovegrown', 'love-grown', 'love_grown',
+  'vital_health', 'vitalhealthy', 'vital healthy',
   'sellerbanner', 'seller_banner', 'seller-banner',
   'shoplogo', 'shop_logo', 'shop-logo',
   'storelogo', 'store_logo', 'store-logo',
   'brandlogo', 'brand_logo', 'brand-logo',
-  'watermark', 'promo_badge', 'promo-badge', 'promotion-badge',
+  'watermark',
+
+  // Promo badges & banners
+  'promo_badge', 'promo-badge', 'promotion-badge',
   'promobanner', 'promo_banner', 'promo-banner',
   'header_banner', 'footer_banner', 'hero_banner',
   'template_banner', 'storefront_banner', 'ad_banner',
+  'category-banner', 'category_banner',
+  'announcement-bar', 'announcement_bar',
+  'email-banner', 'email_banner',
+  'nav-banner', 'nav_banner',
+  'lifestyle-banner', 'lifestyle_banner',
+
+  // Generic non-product
   'sprite', 'icon_only',
   'no-image-placeholder',
-  '/v4/p/ccc/',
-  'images3_pi/2024/01/01/00/',
-  'site-cars/merchandising', 'heliosconditionaltiles',
   '/banner', '_thumbnail_126x',
-  'assets.fastly.carvana.io/merchui/images',
-  'pt.ispot.tv',
-  // eBay description-area / seller template images
   'descriptionimage', 'seller_pic', 'seller-pic',
   '/00/s/', 'vistaprint', 'ebay.com/usr/',
+
   // Amazon badges & renewed labels
   'certified-renewed', 'certified_renewed', 'amazon-renewed',
-  'a]badge', 'satisfaction-guarantee', 'satisfaction_guarantee',
-  // Generic promo / marketing tokens
+  'satisfaction-guarantee', 'satisfaction_guarantee',
   'free-shipping', 'free_shipping', 'best-seller', 'best_seller',
   'warranty-badge', 'warranty_badge', 'money-back', 'money_back',
   'trust-badge', 'trust_badge', 'guarantee-badge',
-  // SHEIN promo paths, swatches & known placeholder
+
+  // SHEIN promo paths
   'ltwebstatic.com/she_dist/', 'ltwebstatic.com/images/bg/',
-  'images3_ccc/', // SHEIN color swatch images
-  '1585556531965e5d98ef5a432eab61147c16af31c6', // SHEIN category placeholder
-  // Filename-level markers (not domain)
+  '/v4/p/ccc/', 'images3_ccc/',
+  '1585556531965e5d98ef5a432eab61147c16af31c6',
+
+  // Carvana merchandising
+  'assets.fastly.carvana.io/merchui/images',
+  'site-cars/merchandising', 'heliosconditionaltiles',
+
+  // Filename-level markers
   '-logo.', '_logo.', '-badge.', '_badge.', '-stamp.', '_stamp.',
   '-icon.', '_icon.',
-  // Additional promotional / marketing patterns
+
+  // Marketing / campaign paths
   'landing-page', 'landing_page', 'landingpage',
   'marketing/', 'campaign/', 'promotional/',
   'coupon', 'discount-badge', 'discount_badge',
   'sale-badge', 'sale_badge', 'deal-badge',
   'storefront/', 'store-front/',
   'brand-page', 'brand_page',
-  'lifestyle-banner', 'lifestyle_banner',
   '/ads/', '/advertisement/',
   'comparison-chart', 'comparison_chart',
   'infographic', 'info-graphic',
-  // Category / navigation / misc non-product
-  'category-banner', 'category_banner', 'nav-banner', 'nav_banner',
-  'announcement-bar', 'announcement_bar',
+
+  // Misc non-product
+  'flash-sale', 'flash_sale',
+  '/swatch', '/color-swatch', '/color_swatch',
   'gift-card', 'gift_card', 'giftcard',
-  'email-banner', 'email_banner',
   'social-share', 'social_share', 'share-icon',
   'review-badge', 'review_badge',
   'top-rated', 'top_rated',
@@ -61,8 +76,31 @@ const BLOCKED_TOKENS = [
   'price-drop', 'price_drop',
   'new-arrival', 'new_arrival',
   'trending-badge', 'trending_badge',
-  'flash-sale', 'flash_sale',
-  '/swatch', '/color-swatch', '/color_swatch',
+  'pt.ispot.tv',
+
+  // Ad tracking / ad system images (NOT product photos)
+  'amazon-adsystem.com', 'aax-us-east', 'aax-us-west',
+  'fls-na.amazon.com', 'fls-eu.amazon.com',
+  'ir-na.amazon-adsystem.com', 'ir-uk.amazon-adsystem.com',
+  'assoc-amazon.com', 'rcm-na.amazon-adsystem.com',
+  '/e/is/', '/impb?', 'ad-spec-', 'ad_spec_',
+  'serving-sys.com', 'doubleclick.net', 'googlesyndication',
+  'googleadservices', 'adsserver', 'adnxs.com',
+
+  // eBay ad/tracking
+  'rover.ebay.com', 'srp.ebay.com',
+
+  // Generic ad network / tracking
+  'pixel.', 'tracking.', 'beacon.',
+  '1x1.', 'spacer.gif', 'blank.gif',
+
+  // Shop Now / CTA overlays
+  'shop-now', 'shop_now', 'shopnow',
+  'buy-now', 'buy_now', 'buynow',
+  'order-now', 'order_now',
+  'add-to-cart', 'add_to_cart',
+  'limited-time', 'limited_time',
+  'sponsored-', 'sponsored_', '/sponsored',
 ];
 
 /** Filename patterns that strongly indicate non-product promotional content */
@@ -71,11 +109,14 @@ const PROMO_FILENAME_PATTERNS = [
   /^promo/i,
   /^hero[-_]/i,
   /^ad[-_]/i,
-  /lovegrown/i,
-  /^shop[-_]now/i,
-  /^buy[-_]now/i,
+  /^shop[-_]?now/i,
+  /^buy[-_]?now/i,
   /\bcta\b/i,
   /^sale[-_]/i,
+  /^offer[-_]/i,
+  /^deal[-_]/i,
+  /^coupon/i,
+  /^sponsored/i,
 ];
 
 /**
@@ -89,12 +130,12 @@ export function isRenderableImageUrl(url?: string | null): boolean {
   if (!lower.startsWith('http')) return false;
   if (lower.includes('.html')) return false;
   if (lower.endsWith('.svg') || lower.endsWith('.gif')) return false;
+  if (lower.startsWith('data:')) return false;
 
   // Block known bad substrings
   if (BLOCKED_TOKENS.some(token => lower.includes(token))) return false;
-  if (lower.includes('promotion') && (lower.includes('badge') || lower.includes('banner'))) return false;
 
-  // Block eBay seller template/promo images (non-product photos)
+  // Block eBay seller template/promo images
   if (lower.includes('i.ebayimg.com') && (
     !lower.includes('/d/') && !lower.includes('/g/') && !lower.includes('/s-l')
   )) return false;
@@ -106,7 +147,7 @@ export function isRenderableImageUrl(url?: string | null): boolean {
     const h = Number(sizeMatch[2]);
     if (w < 100 && h < 100) return false;
     const ratio = w / Math.max(h, 1);
-    if (ratio > 2.2 || ratio < 0.45) return false;
+    if (ratio > 2.5 || ratio < 0.4) return false;
   }
 
   // Block Amazon tiny thumbnails (e.g. _SL75_, _SL50_)
@@ -122,7 +163,7 @@ export function isRenderableImageUrl(url?: string | null): boolean {
 
 /**
  * Filter an array of image URLs to only valid product images.
- * Returns at least the first valid image, or empty array if none are valid.
+ * Deduplicates by normalized URL.
  */
 export function filterGalleryImages(images: string[]): string[] {
   if (!images || !Array.isArray(images)) return [];
@@ -164,4 +205,32 @@ function upgradeToHighRes(url: string): string {
     return url.replace(/_thumbnail_\d+x\d+/i, '');
   }
   return url;
+}
+
+/**
+ * Runtime image load error handler for <img> elements.
+ * If an image fails to load or loads as a tiny tracking pixel,
+ * replace it with placeholder.
+ */
+export function handleImageError(e: React.SyntheticEvent<HTMLImageElement>) {
+  const img = e.currentTarget;
+  if (img.src !== '/placeholder.svg') {
+    img.src = '/placeholder.svg';
+  }
+}
+
+/**
+ * Runtime check after image loads — detect banner-like images by aspect ratio.
+ * Attach as onLoad handler to catch banners that passed URL-level filtering.
+ */
+export function handleImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
+  const img = e.currentTarget;
+  const { naturalWidth, naturalHeight } = img;
+  if (naturalWidth > 0 && naturalHeight > 0) {
+    const ratio = naturalWidth / naturalHeight;
+    // Extreme banner aspect ratios (> 3:1 or < 1:3) or tiny tracking pixels
+    if (ratio > 3 || ratio < 0.33 || (naturalWidth < 50 && naturalHeight < 50)) {
+      img.src = '/placeholder.svg';
+    }
+  }
 }

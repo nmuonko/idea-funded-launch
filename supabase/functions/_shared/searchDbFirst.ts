@@ -238,7 +238,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
 
       for (const eq of expansionQueries) {
         if (pool.length >= TARGET_RESULTS) break;
-        if (Date.now() - dbStartMs > 700) break;
+        if (Date.now() - dbStartMs > 1200) break;
 
         const eqTokens = eq.split(/\s+/).filter((t: string) => t.length >= 2);
         const eqTop = [...eqTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);

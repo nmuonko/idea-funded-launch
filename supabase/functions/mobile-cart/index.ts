@@ -892,12 +892,27 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
     const subtotalCdf = Math.round(subtotalUsd * exchangeRate);
 
     const cleanGuestUrl = canonicalizeProductUrl(guestItem.productUrl);
+    // Extract provider product ID and canonical URL for guest merge path
+    let guestProviderProductId: string | null = null;
+    if (store === 'AMAZON') {
+      const asinMatch = guestItem.productUrl.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/)([A-Z0-9]{10})/i);
+      guestProviderProductId = asinMatch ? asinMatch[1].toUpperCase() : null;
+    } else if (store === 'EBAY') {
+      const ebayMatch = guestItem.productUrl.match(/\/itm\/(\d+)/);
+      guestProviderProductId = ebayMatch ? ebayMatch[1] : null;
+    }
+    const guestCanonicalUrl = (store === 'AMAZON' && guestProviderProductId)
+      ? `https://www.amazon.com/dp/${guestProviderProductId}`
+      : cleanGuestUrl;
+
     const itemData = {
       order_id: draftOrder!.id, product_url: cleanGuestUrl, title: guestItem.title || null,
       product_image_url: guestItem.imageUrl || null, store, base_price_usd: basePrice, unit_price_usd: basePrice,
       quantity, subtotal_usd: baseTotalUsd, markup_fee_usd: marginUsd,
       total_price_usd: subtotalUsd, total_price_cdf: subtotalCdf,
       is_vehicle: isVehicleDetected, requires_manual_quote: isVehicleDetected, is_saved_for_later: false,
+      provider_product_id: guestProviderProductId,
+      canonical_url: guestCanonicalUrl,
     };
 
     if (existingItem) {

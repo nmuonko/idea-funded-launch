@@ -1092,8 +1092,8 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // ========== Amazon Gallery Enrichment: fetch full gallery if only 0-2 images ==========
-      if ((dbItem.provider === "rainforest" || dbItem.provider === "amazon") && (item.images?.length || 0) <= 2) {
+      // ========== Amazon Gallery Enrichment: fetch full gallery if only 0-4 images ==========
+      if ((dbItem.provider === "rainforest" || dbItem.provider === "amazon") && (item.images?.length || 0) <= 4) {
         let enrichedImages: string[] = [];
         const amazonAsin = dbItem.provider_product_id || productId!;
         

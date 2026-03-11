@@ -62,6 +62,15 @@ import {
 } from "../_shared/searchResponseBuilder.ts";
 import type { SearchTimings } from "../_shared/searchResponseBuilder.ts";
 
+/**
+ * Sanitize a raw DB item image_url: validate + upgrade to high-res.
+ * Returns null if the image is a banner/ad/promo.
+ */
+function sanitizeItemImageUrl(rawUrl: string | null | undefined): string | null {
+  if (!rawUrl) return null;
+  return sanitizeImageUrl(rawUrl);
+}
+
 const DEFAULT_LIMIT = 500;   // Default page size
 const MAX_LIMIT = 500;       // Max page size
 const MIN_TARGET_RESULTS = 200; // Minimum results target for strong commercial queries

@@ -295,7 +295,9 @@ Deno.serve(async (req) => {
     const { data: paymentSettings } = await supabaseAdmin
       .from('payment_settings')
       .select('mobile_money_max_usd, mobile_money_max_cdf, pawapay_enabled, stripe_enabled, bank_transfer_enabled')
-      .single();
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     const pawapayMaxUsd = paymentSettings?.mobile_money_max_usd || 5000;
     const stripeEnabled = paymentSettings?.stripe_enabled !== false;

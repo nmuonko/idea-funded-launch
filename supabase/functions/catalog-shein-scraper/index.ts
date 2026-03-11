@@ -738,7 +738,7 @@ Deno.serve(async (req: Request) => {
           }
         }
         categoryResults[cat.label] = added;
-        console.log(`[SHEIN_SCRAPER] ${cat.label} page=${currentPage}: ${products.length} extracted, ${added} new unique`);
+        console.log(`[SHEIN_SCRAPER] ${cat.label} page=${currentPage} strategy=${strategy || "unknown"}: ${products.length} extracted, ${added} new unique`);
       }
 
       categoriesProcessed++;

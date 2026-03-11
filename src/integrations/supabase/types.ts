@@ -3222,7 +3222,9 @@ export type Database = {
           admin_notes: string | null
           approved_at: string | null
           approved_by: string | null
+          cancel_reason: string | null
           carrier: string | null
+          cart_reminder_2_sent_at: string | null
           cart_reminder_sent_at: string | null
           cart_version: number
           contains_vehicle: boolean | null
@@ -3269,7 +3271,9 @@ export type Database = {
           admin_notes?: string | null
           approved_at?: string | null
           approved_by?: string | null
+          cancel_reason?: string | null
           carrier?: string | null
+          cart_reminder_2_sent_at?: string | null
           cart_reminder_sent_at?: string | null
           cart_version?: number
           contains_vehicle?: boolean | null
@@ -3316,7 +3320,9 @@ export type Database = {
           admin_notes?: string | null
           approved_at?: string | null
           approved_by?: string | null
+          cancel_reason?: string | null
           carrier?: string | null
+          cart_reminder_2_sent_at?: string | null
           cart_reminder_sent_at?: string | null
           cart_version?: number
           contains_vehicle?: boolean | null

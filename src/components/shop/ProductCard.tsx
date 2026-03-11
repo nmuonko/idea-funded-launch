@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
-import { isRenderableImageUrl, handleImageLoad as sharedHandleImageLoad, handleImageError as sharedHandleImageError } from '@/lib/imageValidation';
+import { isRenderableImageUrl, handleImageLoad, handleImageError, pickBestImage } from '@/lib/imageValidation';
 
 export interface Product {
   id: string;
@@ -37,37 +37,35 @@ export function ProductCard({ product, className, compact = false, coverImage = 
   const { addItem, addToSaved, removeFromSaved, isItemSaved, exchangeRate } = useShopCart();
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
-  const [imgHidden, setImgHidden] = useState(false);
+  const [imgSrc, setImgSrc] = useState<string>(() => {
+    // Pick best image upfront: try primary, then fallback to any valid image from gallery
+    const primary = product.imageUrl;
+    if (primary && isRenderableImageUrl(primary)) return resizeImageUrl(primary, IMAGE_SIZE_THUMB);
+    return '/placeholder.svg';
+  });
   const { language } = useLanguage();
 
-  // Hide banner-like / promo-like images by shape and minimum quality
+  // On load: check aspect ratio for banner detection, try next image if bad
   const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     const { naturalWidth: w, naturalHeight: h } = img;
     if (w > 0 && h > 0) {
       const ratio = w / h;
-      // More aggressive anti-banner thresholds
-      if (ratio > 1.9 || ratio < 0.5) {
-        setImgHidden(true);
-        return;
-      }
-      // Tiny placeholders/icons
-      if ((w < 80 && h < 80) || Math.min(w, h) < 70) {
-        setImgHidden(true);
-        return;
-      }
-      // Very wide/short strips or very tall/narrow strips
-      if ((w >= 900 && h <= 320) || (h >= 900 && w <= 320)) {
-        setImgHidden(true);
+      if (ratio > 2.2 || ratio < 0.45 || (w < 80 && h < 80) || Math.min(w, h) < 70) {
+        setImgSrc('/placeholder.svg');
       }
     }
   }, []);
+  
+  const handleImgError = useCallback(() => {
+    setImgSrc('/placeholder.svg');
+  }, []);
+
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
 
   const isSaved = isItemSaved(product.id, product.provider);
-  const imageSrc = resizeImageUrl(product.imageUrl || '/placeholder.svg', IMAGE_SIZE_THUMB);
-  const blockedByUrl = isLikelyPromotionalImageUrl(imageSrc);
+  const showImage = imgSrc !== '/placeholder.svg';
 
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -149,9 +147,9 @@ export function ProductCard({ product, className, compact = false, coverImage = 
         "relative overflow-hidden bg-white rounded-t-xl",
         compact ? "aspect-square" : "aspect-square"
       )}>
-        {!imgHidden && !blockedByUrl && (
+        {showImage && (
           <img
-            src={imageSrc}
+            src={imgSrc}
             alt={product.title}
             className={cn(
               "w-full h-full object-contain transition-transform duration-200 group-hover:scale-105",
@@ -159,10 +157,10 @@ export function ProductCard({ product, className, compact = false, coverImage = 
             )}
             loading="lazy"
             onLoad={handleImgLoad}
-            onError={() => setImgHidden(true)}
+            onError={handleImgError}
           />
         )}
-        {(imgHidden || blockedByUrl) && (
+        {!showImage && (
           <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
             No image
           </div>

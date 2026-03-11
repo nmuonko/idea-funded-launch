@@ -1020,8 +1020,8 @@ Deno.serve(async (req: Request) => {
         }
       }
       
-      // ========== eBay Gallery Enrichment: fetch full gallery if only 0-2 images ==========
-      if (dbItem.provider === "ebay" && (item.images?.length || 0) <= 2) {
+      // ========== eBay Gallery Enrichment: fetch full gallery if only 0-4 images ==========
+      if (dbItem.provider === "ebay" && (item.images?.length || 0) <= 4) {
         let enrichedImages: string[] = [];
         
         try {

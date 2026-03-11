@@ -211,7 +211,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
 
   // ─── TIER B: Fuzzy pg_trgm similarity (typo-tolerant) ─────────────────────
   const elapsed = Date.now() - dbStartMs;
-  if (elapsed < 500) { // Only if we have time budget
+  if (elapsed < 800) { // Generous time budget for fuzzy search
     const tierBItems = await tierBFuzzySearch(supabase, qNorm, categoryKey, limit, requestId);
     // Merge and dedupe with Tier A
     const seenIds = new Set(tierAItems.map((i: any) => i.id));

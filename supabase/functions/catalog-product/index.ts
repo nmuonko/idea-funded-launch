@@ -1172,15 +1172,18 @@ Deno.serve(async (req: Request) => {
           }
         }
         
-        if (scraped.length > (item.images?.length || 0)) {
-          item.images = scraped;
-          item.imageUrls = scraped;
-          item.mainImageUrl = scraped[0] || item.mainImageUrl;
-          item.imageUrl = scraped[0] || item.imageUrl;
+        // Upgrade scraped images to high-res and filter promos
+        const upgradedScraped = upgradeGalleryImages(scraped, dbItem.provider);
+        if (upgradedScraped.length > (item.images?.length || 0)) {
+          console.log(`[GALLERY_ENRICH] ${dbItem.provider} enriched ${productId}: ${item.images?.length ?? 0} → ${upgradedScraped.length} images`);
+          item.images = upgradedScraped;
+          item.imageUrls = upgradedScraped;
+          item.mainImageUrl = upgradedScraped[0] || item.mainImageUrl;
+          item.imageUrl = upgradedScraped[0] || item.imageUrl;
 
           const dbRowId = dbItem.id || fullProductId;
           db.from("catalog_items")
-            .update({ images: scraped, image_url: scraped[0] || dbItem.image_url, updated_at: new Date().toISOString() })
+            .update({ images: upgradedScraped, image_url: upgradedScraped[0] || dbItem.image_url, updated_at: new Date().toISOString() })
             .eq("id", dbRowId)
             .then(() => {})
             .catch(() => {});

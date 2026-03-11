@@ -663,7 +663,7 @@ export default function ProductDetailsPage() {
             <div className="space-y-4">
               <div
                 data-product-hero="true"
-                className="relative w-full aspect-square sm:aspect-[4/3] max-h-[60vh] sm:max-h-[55vh] bg-white/5 rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center p-2 sm:p-4"
+                className="relative w-full aspect-square sm:aspect-[4/3] max-h-[60vh] sm:max-h-[55vh] bg-white rounded-2xl overflow-hidden border border-white/10 cursor-pointer flex items-center justify-center p-2 sm:p-4"
                 onClick={() => setLightboxOpen(true)}
               >
                 <img

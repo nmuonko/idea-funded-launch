@@ -549,8 +549,9 @@ Deno.serve(async (req: Request) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Get rotation offset for category rotation
-    const offset = customUrl ? 0 : await getRotationOffset(supabase);
+    // Get rotation state (category offset + page number)
+    const rotationState = customUrl ? { offset: 0, page: 1 } : await getRotationState(supabase);
+    let { offset, page: currentPage } = rotationState;
     
     // Select categories to scrape
     let categoriesToScrape: typeof CATEGORY_URLS;
@@ -575,7 +576,7 @@ Deno.serve(async (req: Request) => {
       categoriesToScrape = [...womenSelection, ...otherSelection];
     }
 
-    console.log(`[SHEIN_SCRAPER] START categories=${categoriesToScrape.length} offset=${offset} dryRun=${dryRun} budget=${budgetData?.count || 0}/${DAILY_CREDIT_CAP}`);
+    console.log(`[SHEIN_SCRAPER] START categories=${categoriesToScrape.length} offset=${offset} page=${currentPage} dryRun=${dryRun} budget=${budgetData?.count || 0}/${DAILY_CREDIT_CAP}`);
 
     const allProducts: SheinProduct[] = [];
     const globalSeenIds = new Set<string>();
@@ -588,8 +589,12 @@ Deno.serve(async (req: Request) => {
         break;
       }
 
-      console.log(`[SHEIN_SCRAPER] scraping ${cat.label}: ${cat.url}`);
-      const { products, error } = await scrapeCategoryPage(cat.url, firecrawlKey);
+      // Append page parameter for pagination (SHEIN uses ?page=N)
+      const separator = cat.url.includes('?') ? '&' : '?';
+      const pageUrl = currentPage > 1 ? `${cat.url}${separator}page=${currentPage}` : cat.url;
+
+      console.log(`[SHEIN_SCRAPER] scraping ${cat.label} page=${currentPage}: ${pageUrl}`);
+      const { products, error } = await scrapeCategoryPage(pageUrl, firecrawlKey);
 
       // Track credits
       await supabase.rpc("increment_provider_budget", {
@@ -611,7 +616,7 @@ Deno.serve(async (req: Request) => {
           }
         }
         categoryResults[cat.label] = added;
-        console.log(`[SHEIN_SCRAPER] ${cat.label}: ${products.length} extracted, ${added} new unique`);
+        console.log(`[SHEIN_SCRAPER] ${cat.label} page=${currentPage}: ${products.length} extracted, ${added} new unique`);
       }
 
       categoriesProcessed++;
@@ -620,10 +625,18 @@ Deno.serve(async (req: Request) => {
       await new Promise((r) => setTimeout(r, 500));
     }
 
-    // Update rotation offset
+    // Advance rotation: cycle through pages, then advance category offset
+    let nextPage = currentPage + 1;
+    let nextOffset = offset;
+    if (nextPage > MAX_PAGES_PER_CATEGORY) {
+      // Done with all pages for these categories, advance to next batch
+      nextPage = 1;
+      nextOffset = (offset + categoriesProcessed) % CATEGORY_URLS.length;
+    }
+
+    // Update rotation state
     if (!customUrl) {
-      const newOffset = (offset + categoriesProcessed) % CATEGORY_URLS.length;
-      await setRotationOffset(supabase, newOffset);
+      await setRotationState(supabase, nextOffset, nextPage);
     }
 
     // Upsert

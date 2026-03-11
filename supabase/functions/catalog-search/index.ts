@@ -11,6 +11,7 @@
 
 import { createAdminPostgrestClient } from "../_shared/postgrest.ts";
 import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
+import { sanitizeImageUrl, upgradeToHighRes } from "../_shared/imageValidator.ts";
 import { isBlockedSearchQuery, getBlockedSearchMessage, filterDisallowedItems } from "../_shared/contentBlocker.ts";
 import { getCatalogSettings, getEffectiveMode } from "../_shared/catalogSettings.ts";
 import {

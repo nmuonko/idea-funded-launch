@@ -300,7 +300,7 @@ async function fetchItemsFromDB(
       const title = (row.title as string) || "";
       const brand = (row.brand as string) || "";
       const rawImageUrl = row.image_url as string | null;
-      const imageUrl = rawImageUrl && isValidProductImageUrl(rawImageUrl) ? rawImageUrl : null;
+      const imageUrl = rawImageUrl && isValidProductImageUrl(rawImageUrl) ? (upgradeToHighRes(rawImageUrl) || rawImageUrl) : null;
       const priceUsd = row.price_usd as number | null;
       if (!title || !imageUrl || !priceUsd || priceUsd <= 0) continue;
 

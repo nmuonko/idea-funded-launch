@@ -136,8 +136,8 @@ const EXPANSION_SYNONYMS: Record<string, string[]> = {
 
 function mapDbItem(item: Record<string, unknown>, categoryKey: string | null): Record<string, unknown> | null {
   const rawImage = item.image_url as string | null;
-  const imageUrl = rawImage && isValidProductImageUrl(rawImage) ? rawImage : null;
-  if (!imageUrl) return null; // Skip items with banner/ad images
+  if (!rawImage || !isValidProductImageUrl(rawImage)) return null; // Skip items with banner/ad images
+  const imageUrl = upgradeToHighRes(rawImage) || rawImage;
   return {
     id: item.external_id || item.id,
     title: item.title,

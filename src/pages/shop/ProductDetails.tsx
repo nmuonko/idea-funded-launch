@@ -431,10 +431,12 @@ export default function ProductDetailsPage() {
 
     const fetchSimilar = async () => {
       try {
-        const keywords = title.split(' ').slice(0, 3).join(' ');
+        // Use first 4 meaningful words (skip short filler words) for better relevance
+        const meaningful = title.split(/[\s,\-]+/).filter(w => w.length > 2).slice(0, 4).join(' ');
+        const keywords = meaningful || title.split(' ').slice(0, 3).join(' ');
         const similarData = await cachedCatalogFetch<any>('catalog-search', {
           q: keywords.trim().toLowerCase(),
-          limit: 5,
+          limit: 13,
         });
 
         if (controller.signal.aborted) return;
@@ -443,7 +445,7 @@ export default function ProductDetailsPage() {
           setSimilarProducts(
             similarData.items
               .filter((i: any) => (i.provider_product_id || i.id) !== currentId)
-              .slice(0, 4)
+              .slice(0, 12)
               .map((i: any) => ({
                 id: i.provider_product_id || i.id,
                 provider: i.provider || 'amazon',
@@ -463,7 +465,7 @@ export default function ProductDetailsPage() {
     fetchSimilar();
     return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider, id]);
+  }, [product?.title, provider, id]);
 
   // Check if this vehicle product is already in the user's cart
   const isInCart = product && items.some(item => {
@@ -939,7 +941,9 @@ export default function ProductDetailsPage() {
           {/* Similar Products */}
           {similarProducts.length > 0 && (
             <section className="mt-16">
-              <h2 className="text-xl font-bold text-white mb-6">Similar Products</h2>
+              <h2 className="text-xl font-bold text-foreground mb-6">
+                {language === 'fr' ? 'Produits similaires' : 'Similar Products'}
+              </h2>
               <ProductGrid products={similarProducts} />
             </section>
           )}

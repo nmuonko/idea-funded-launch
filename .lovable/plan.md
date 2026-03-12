@@ -1,45 +1,40 @@
+## Edge Function Consolidation Refactor — Phase 3 Complete
 
+### Phase 3: Orphan Deletion — 10 Functions Deleted
+- **`create-referrer`** — routed via auth-service
+- **`execute-ai-action`** — routed via admin-service
+- **`get-ai-actions-for-review`** — routed via admin-service
+- **`predict-customer-ltv`** — routed via admin-service
+- **`ai-order-assistant`** — routed via admin-service
+- **`catalog-categories`** — inlined into catalog-service
+- **`catalog-tabs`** — inlined into catalog-service
+- **`catalog-nav`** — inlined into catalog-service
+- **`catalog-providers`** — inlined into catalog-service
+- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-# Fix Hot Products Email — 4 Issues
+### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
+- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
+- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
+- **`auth-service`** — added `create_referrer`
+- **`email-service`** — added `saved_cart_reminders`
 
-## Issues Identified
+### Batches 1–10: Inlined — 32 Functions Deleted
+- **Batch 10**: auth-service (8 functions)
+- **Batch 9**: mobile-cart (7), mobile-orders (4)
+- **Batch 8**: admin-service (10), support-service (3)
+- **Batch 7**: catalog-service (5 metadata endpoints)
 
-1. **No logo** — Header is just text "AfriShop USA". The logo is already hosted at `https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo.png` (used in invite email template).
+**Total reduction: 42 Edge Functions deleted**
 
-2. **Product links go to /paste-link** — Two causes:
-   - Test mode (line 118-120) hardcodes `product_url: 'https://afrishop-usa.com/paste-link'` for all sample products
-   - Paste-link products (line 191) use the raw retailer URL instead of constructing an AfriShop product page URL. Should build `https://afrishop-usa.com/product/{provider}/{provider_product_id}` when provider info is available, otherwise link to the AfriShop search or the original URL.
+### Kept as Proxy (by decision)
+- **`payments-core`** — proxies 9 functions (complex payment logic)
+- **`payments-provider`** — proxies 10 functions (payment provider logic)
+- **`email-service`** — proxies 25 send-* functions (HTML template code)
 
-3. **Images not displaying** — Some email clients block images from unfamiliar CDNs. The `toHighResImage()` regex patterns may also break valid URLs. Will ensure proper `alt` text and fallback, and verify the regex is correct.
-
-4. **Email lands in Promotions** — Gmail categorizes based on content signals. Improvements:
-   - Remove promotional language ("Hot Picks", "Produits Vedettes")
-   - Use a more personal/transactional subject line
-   - Reduce image-to-text ratio
-   - Remove the "Paste a Link" marketing CTA section from the email (keep it minimal)
-   - Add more plain text content relative to HTML
-
-## Changes
-
-### File: `supabase/functions/send-hot-products-email/index.ts`
-
-**Email HTML template (`buildEmailHtml`):**
-- Add AfriShop logo image in header: `<img src="https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo.png" width="140" alt="AfriShop USA" />`
-- Change subject to something more transactional: `"Votre selection de la semaine - AfriShop USA"` (sounds personal, not promotional)
-- Remove or tone down "Paste a Link" CTA section (this screams promotional to Gmail)
-- Keep email short and personal-sounding
-- Ensure product images have proper `alt` text and explicit dimensions
-
-**Test mode sample products (lines 117-121):**
-- Fix `product_url` to use realistic AfriShop product page URLs instead of `/paste-link`
-
-### File: `src/pages/admin/HotProducts.tsx`
-
-**`extractFromLink` function (line 191):**
-- When `data.provider` and `data.providerId` are available, construct the proper AfriShop product URL: `https://afrishop-usa.com/product/${provider}/${providerId}`
-- Fall back to original URL only if no provider info
-
-**`buildPreviewHtml` function:**
-- Add the logo image in the preview header to match the actual email
-- Remove emoji from header (anti-spam)
-
+### Remaining Standalone (active, not orphaned)
+- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
+- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
+- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
+- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
+- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
+- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment

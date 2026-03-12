@@ -27,6 +27,8 @@ interface CampaignProduct {
   product_url: string;
 }
 
+const LOGO_URL = "https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo.png";
+
 function buildEmailHtml(products: CampaignProduct[]): string {
   const productCards = products.map(p => `
     <tr><td align="center" style="padding:8px;">
@@ -44,19 +46,19 @@ function buildEmailHtml(products: CampaignProduct[]): string {
 
   return `<!DOCTYPE html>
 <html lang="fr">
-<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>AfriShop USA - Produits Vedettes</title></head>
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>AfriShop USA</title></head>
 <body style="margin:0;padding:0;background-color:#f3f4f6;-webkit-font-smoothing:antialiased;">
 <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f3f4f6"><tr><td align="center" style="padding:20px 0;">
   <table width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="max-width:600px;border-radius:8px;overflow:hidden;">
-    <!-- Header -->
+    <!-- Header with Logo -->
     <tr><td style="text-align:center;padding:20px;background-color:#1a1a1a;">
-      <h1 style="color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:20px;margin:0;">AfriShop USA</h1>
+      <img src="${LOGO_URL}" width="140" height="auto" alt="AfriShop USA" style="display:inline-block;max-width:140px;" />
     </td></tr>
-    <!-- Intro -->
-    <tr><td style="padding:20px 24px 8px;text-align:center;font-family:Arial,Helvetica,sans-serif;">
-      <p style="font-size:16px;font-weight:700;color:#1a1a1a;margin:0 0 6px;">Produits Vedettes / Hot Picks</p>
-      <p style="font-size:12px;color:#555;margin:0;">Prix tout inclus. Livraison en RDC en 2-4 semaines.</p>
-      <p style="font-size:12px;color:#555;margin:2px 0 0;">All-inclusive price. Delivered to DRC in 2-4 weeks.</p>
+    <!-- Intro - personal tone -->
+    <tr><td style="padding:20px 24px 8px;font-family:Arial,Helvetica,sans-serif;">
+      <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Bonjour,</p>
+      <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Voici une selection de produits disponibles cette semaine. Les prix incluent la livraison en RDC (2 a 4 semaines).</p>
+      <p style="font-size:13px;color:#666;margin:0 0 4px;line-height:1.5;">Here are this week's available products. Prices include delivery to DRC (2-4 weeks).</p>
     </td></tr>
     <!-- Products -->
     <tr><td style="padding:8px 16px;">
@@ -64,15 +66,9 @@ function buildEmailHtml(products: CampaignProduct[]): string {
         ${productCards}
       </table>
     </td></tr>
-    <!-- Paste Link CTA -->
-    <tr><td style="padding:12px 24px 20px;">
-      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fff8f0;border-radius:8px;border:1px solid #fde1c3;">
-        <tr><td style="padding:14px 16px;text-align:center;font-family:Arial,Helvetica,sans-serif;">
-          <p style="font-size:13px;color:#333;margin:0 0 4px;font-weight:600;">Envie d'autre chose? / Want something else?</p>
-          <p style="font-size:11px;color:#555;margin:0 0 10px;">Collez le lien de n'importe quel produit USA.<br/>Paste any US product link and get the delivered price.</p>
-          <a href="https://afrishop-usa.com/paste-link" style="display:inline-block;background-color:#1a1a1a;color:#ffffff;padding:8px 20px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:700;font-family:Arial,Helvetica,sans-serif;">Coller un lien / Paste a Link</a>
-        </td></tr>
-      </table>
+    <!-- Simple text CTA instead of promotional block -->
+    <tr><td style="padding:12px 24px 20px;font-family:Arial,Helvetica,sans-serif;">
+      <p style="font-size:12px;color:#555;margin:0;line-height:1.5;">Vous cherchez un autre produit? Visitez <a href="https://afrishop-usa.com/paste-link" style="color:#e63946;text-decoration:underline;">afrishop-usa.com</a> et collez le lien de n'importe quel produit americain.</p>
     </td></tr>
     <!-- Footer -->
     <tr><td style="text-align:center;padding:16px 24px;background-color:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
@@ -86,14 +82,19 @@ function buildEmailHtml(products: CampaignProduct[]): string {
 }
 
 function buildPlainText(products: CampaignProduct[]): string {
-  let text = "AfriShop USA - Produits Vedettes / Hot Picks\n\n";
-  text += "Prix tout inclus. Livraison en RDC en 2-4 semaines.\nAll-inclusive price. Delivered to DRC in 2-4 weeks.\n\n";
+  let text = "Bonjour,\n\n";
+  text += "Voici une selection de produits disponibles cette semaine.\n";
+  text += "Les prix incluent la livraison en RDC (2 a 4 semaines).\n\n";
+  text += "Here are this week's available products. Prices include delivery to DRC (2-4 weeks).\n\n";
+  text += "---\n\n";
   for (const p of products) {
-    text += `${p.title}\n$${p.total_price_usd.toFixed(2)} (tout inclus / all-inclusive)\n${p.product_url}\n\n`;
+    text += `${p.title}\n$${p.total_price_usd.toFixed(2)} (tout inclus / all-inclusive)\nCommander: ${p.product_url}\n\n`;
   }
-  text += "---\nEnvie d'autre chose? Collez un lien: https://afrishop-usa.com/paste-link\n";
-  text += "Want something else? Paste a link: https://afrishop-usa.com/paste-link\n\n";
+  text += "---\n\n";
+  text += "Vous cherchez un autre produit? Visitez afrishop-usa.com/paste-link\n";
+  text += "Looking for something else? Visit afrishop-usa.com/paste-link\n\n";
   text += "AfriShop USA - Achetez aux USA, livre en Afrique\n";
+  text += `© ${new Date().getFullYear()} AfriShop USA\n`;
   return text;
 }
 
@@ -115,13 +116,13 @@ serve(async (req) => {
     // === TEST MODE ===
     if (testEmail && !campaignId) {
       const sampleProducts: CampaignProduct[] = [
-        { title: 'iPhone 16 Pro Max 256GB', image_url: 'https://store.storeimages.cdn-apple.com/4982/as-images.apple.com/is/iphone-16-pro-finish-select-202409-6-3inch-deserttitanium?wid=600&hei=600&fmt=jpeg', total_price_usd: 1650.00, product_url: 'https://afrishop-usa.com/paste-link' },
-        { title: 'PlayStation 5 Slim Console', image_url: 'https://m.media-amazon.com/images/I/51pMtfGmjcL._SL1500_.jpg', total_price_usd: 720.00, product_url: 'https://afrishop-usa.com/paste-link' },
-        { title: 'Nike Air Max 90 Premium', image_url: 'https://m.media-amazon.com/images/I/71KMCJBfLdL._AC_SL1500_.jpg', total_price_usd: 225.00, product_url: 'https://afrishop-usa.com/paste-link' },
+        { title: 'iPhone 16 Pro Max 256GB', image_url: 'https://store.storeimages.cdn-apple.com/4982/as-images.apple.com/is/iphone-16-pro-finish-select-202409-6-3inch-deserttitanium?wid=600&hei=600&fmt=jpeg', total_price_usd: 1650.00, product_url: 'https://afrishop-usa.com/product/amazon/B0DGJ28LDF' },
+        { title: 'PlayStation 5 Slim Console', image_url: 'https://m.media-amazon.com/images/I/51pMtfGmjcL._SL1500_.jpg', total_price_usd: 720.00, product_url: 'https://afrishop-usa.com/product/amazon/B0CL61F39H' },
+        { title: 'Nike Air Max 90 Premium', image_url: 'https://m.media-amazon.com/images/I/71KMCJBfLdL._AC_SL1500_.jpg', total_price_usd: 225.00, product_url: 'https://afrishop-usa.com/product/amazon/B09WN3B2JR' },
       ];
       const html = buildEmailHtml(sampleProducts);
       const text = buildPlainText(sampleProducts);
-      const subject = 'Produits Vedettes cette semaine - AfriShop USA';
+      const subject = 'Votre selection de la semaine - AfriShop USA';
       const result = await sendEmail({
         to: testEmail,
         subject,
@@ -166,7 +167,7 @@ serve(async (req) => {
 
     const html = buildEmailHtml(products);
     const text = buildPlainText(products);
-    const subject = `Produits Vedettes - AfriShop USA`;
+    const subject = `Votre selection de la semaine - AfriShop USA`;
 
     // Fetch all users
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');

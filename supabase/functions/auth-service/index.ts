@@ -289,7 +289,7 @@ async function handleRegister(body: any, req: Request) {
       id: sessionData.user.id, email: sessionData.user.email, fullName: fullName.trim(),
       phoneNumber: phoneNumber?.trim() || null, addressLine1: addressLine1?.trim() || null,
       addressLine2: addressLine2?.trim() || null, city: city?.trim() || null,
-      stateOrProvince: stateOrProvince?.trim() || null, postalCode: postalCode?.trim() || null, country: country.trim(),
+      stateOrProvince: stateOrProvince?.trim() || null, postalCode: postalCode?.trim() || null, country: normalizedCountry,
     },
     token: sessionData.session.access_token, refreshToken: sessionData.session.refresh_token,
   });

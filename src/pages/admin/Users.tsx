@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Shield, User, Mail, UserPlus, Clock, CheckCircle, XCircle, Eye, EyeOff, RefreshCw, Calendar, Copy, AlertCircle, Settings2, Phone, MapPin, Globe, Languages } from 'lucide-react';
+import { Loader2, Shield, User, Mail, UserPlus, Clock, CheckCircle, XCircle, Eye, EyeOff, RefreshCw, Calendar, Copy, AlertCircle, Settings2, Phone, MapPin, Globe, Languages, Trash2 } from 'lucide-react';
 import { StaffRoleSelector, RoleBadge } from '@/components/admin/StaffRoleSelector';
 import { PermissionsEditor, PermissionsSummaryBadges, applyRoleDefaults } from '@/components/admin/PermissionsEditor';
 import { format } from 'date-fns';
@@ -88,6 +88,7 @@ export default function AdminUsers() {
   const [showPassword, setShowPassword] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [resending, setResending] = useState<string | null>(null);
+  const [deletingInvite, setDeletingInvite] = useState<string | null>(null);
   
   // Filters for profiles
   const [filterCountry, setFilterCountry] = useState<string>('all');
@@ -313,6 +314,23 @@ export default function AdminUsers() {
       setResending(null);
     }
   };
+
+  const deleteInvitation = async (invitationId: string) => {
+    try {
+      setDeletingInvite(invitationId);
+      const { data, error } = await supabase.functions.invoke('admin-service', {
+        body: { action: 'delete_invitation', invitationId },
+      });
+      if (error) throw error;
+      toast({ title: 'Invitation deleted' });
+      await loadInvitations();
+    } catch (error: any) {
+      toast({ title: 'Error deleting invitation', description: error.message, variant: 'destructive' });
+    } finally {
+      setDeletingInvite(null);
+    }
+  };
+
 
   const promoteToAdmin = async (userId: string, adminRole: string = 'operations') => {
     try {
@@ -703,6 +721,19 @@ export default function AdminUsers() {
                               </Button>
                             </>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => deleteInvitation(invite.id)}
+                            disabled={deletingInvite === invite.id}
+                          >
+                            {deletingInvite === invite.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3 w-3" />
+                            )}
+                          </Button>
                         </div>
                       </div>
                     );

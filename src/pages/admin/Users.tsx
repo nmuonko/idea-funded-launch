@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Shield, User, Mail, UserPlus, Clock, CheckCircle, XCircle, Eye, EyeOff, RefreshCw, Calendar, Copy, AlertCircle, Settings2, Phone, MapPin, Globe, Languages } from 'lucide-react';
+import { Loader2, Shield, User, Mail, UserPlus, Clock, CheckCircle, XCircle, Eye, EyeOff, RefreshCw, Calendar, Copy, AlertCircle, Settings2, Phone, MapPin, Globe, Languages, Trash2 } from 'lucide-react';
 import { StaffRoleSelector, RoleBadge } from '@/components/admin/StaffRoleSelector';
 import { PermissionsEditor, PermissionsSummaryBadges, applyRoleDefaults } from '@/components/admin/PermissionsEditor';
 import { format } from 'date-fns';

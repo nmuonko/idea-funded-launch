@@ -413,15 +413,16 @@ async function handleInviteUser(auth: AdminAuth, body: any): Promise<Response> {
   const parsed = inviteUserSchema.safeParse(body);
   if (!parsed.success) return jsonRes({ error: (parsed as any).error?.errors?.map((e: any) => e.message).join(', ') || 'Validation failed' }, 400);
 
-  // Check existing user
+  // Check existing user via profiles table (listUsers not available in edge runtime)
   let existingUser = null;
-  let page = 1;
-  while (true) {
-    const { data: usersData } = await serviceSupabase.auth.admin.listUsers({ page, perPage: 100 });
-    if (!usersData?.users?.length) break;
-    existingUser = usersData.users.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
-    if (existingUser || usersData.users.length < 100) break;
-    page++;
+  const { data: profileMatch } = await serviceSupabase
+    .from('profiles')
+    .select('user_id, email, full_name')
+    .ilike('email', email.trim())
+    .limit(1)
+    .maybeSingle();
+  if (profileMatch) {
+    existingUser = { id: profileMatch.user_id, email: profileMatch.email };
   }
 
   if (existingUser) {

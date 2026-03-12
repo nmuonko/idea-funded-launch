@@ -144,20 +144,27 @@ export default function ChatRouting() {
         }
       });
 
-      // Build admin users list with role info
-      const admins: AdminUser[] = adminUserIds.map(uid => {
-        const profile = profilesMap[uid];
-        const adminRole = adminRoleMap.get(uid) || 'admin';
-        const displayName = profile?.full_name || profile?.name || profile?.email || uid.slice(0, 8) + '...';
-        return {
-          id: uid,
-          displayName,
-          email: profile?.email || null,
-          role: adminRole === 'super_admin' ? 'Super Admin' : adminRole.charAt(0).toUpperCase() + adminRole.slice(1),
-        };
-      });
+      // Build admin users list with role info — only include those with a profile
+      const admins: AdminUser[] = adminUserIds
+        .filter(uid => {
+          const profile = profilesMap[uid];
+          return profile?.full_name || profile?.name || profile?.email;
+        })
+        .map(uid => {
+          const profile = profilesMap[uid]!;
+          const adminRole = adminRoleMap.get(uid) || 'admin';
+          const displayName = profile.full_name || profile.name || profile.email || uid.slice(0, 8) + '...';
+          return {
+            id: uid,
+            displayName,
+            email: profile.email || null,
+            role: adminRole === 'super_admin' ? 'Super Admin' : adminRole.charAt(0).toUpperCase() + adminRole.slice(1),
+          };
+        });
 
-      setAdminUsers(admins);
+      // Deduplicate by id
+      const uniqueAdmins = Array.from(new Map(admins.map(a => [a.id, a])).values());
+      setAdminUsers(uniqueAdmins);
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {

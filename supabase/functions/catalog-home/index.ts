@@ -1015,10 +1015,12 @@ async function fetchLiveItems(
 serve(async (req) => {
   const correlationId = generateCorrelationId();
   
-  // CORS preflight - ALWAYS handle first with proper headers
+  // Dynamic CORS preflight — echoes whatever headers the client requests
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 200, headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
+
+  logStartupRequest("CATALOG_HOME", req, { correlationId });
 
   const startTime = Date.now();
   const detection = detectClientType(req);

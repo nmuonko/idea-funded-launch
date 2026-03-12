@@ -332,11 +332,19 @@ const defaultPermissions: Record<string, any> = {
   support: { can_view_dashboard: true, can_view_orders: true, can_view_tickets: true, can_view_ticket_analytics: true, can_view_knowledge_base: true },
 };
 
+const roleLabels: Record<string, string> = {
+  super_admin: 'Super Admin (Full Access)',
+  operations: 'Operations (Orders & Shipping)',
+  finance: 'Finance (Payments & Analytics)',
+  support: 'Support (Tickets & Help)',
+};
+
 async function sendInvitationEmail(email: string, role: string, token: string): Promise<{ sent: boolean; error?: string }> {
   const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
   const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
   const inviteUrl = `${frontendUrl}/accept-invite?token=${token}`;
   if (!RESEND_API_KEY) return { sent: false, error: 'Email service not configured' };
+  const roleLabel = roleLabels[role] || role;
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -344,8 +352,36 @@ async function sendInvitationEmail(email: string, role: string, token: string): 
       body: JSON.stringify({
         from: Deno.env.get('EMAIL_FROM_ADDRESS') || 'AfriShop <noreply@afrishop.com>',
         to: [email],
-        subject: 'You have been invited to AfriShop Admin',
-        html: `<h2>Welcome to AfriShop Admin!</h2><p>You have been invited as <strong>${role}</strong>.</p><p><a href="${inviteUrl}" style="background:#6366f1;color:white;padding:12px 24px;text-decoration:none;border-radius:6px">Accept Invitation</a></p><p>Expires in 7 days.</p>`,
+        subject: 'AfriShop — You\'ve been invited to join the admin team',
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;">
+            <div style="text-align:center;padding:24px 0;">
+              <img src="https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo.png" width="140" alt="AfriShop USA" style="display:inline-block;" />
+            </div>
+            <div style="padding:0 24px 24px;">
+              <h2 style="color:#1a1a1a;margin:0 0 16px;">You're invited to AfriShop Admin</h2>
+              <p style="color:#333;line-height:1.6;">
+                You have been invited to join the AfriShop administration team with the role:
+              </p>
+              <div style="background:#f0f0ff;padding:12px 16px;border-radius:8px;margin:16px 0;border-left:4px solid #6366f1;">
+                <strong style="color:#6366f1;">${roleLabel}</strong>
+              </div>
+              <p style="color:#333;line-height:1.6;">
+                Click the button below to accept your invitation and set up your account.
+              </p>
+              <div style="text-align:center;margin:24px 0;">
+                <a href="${inviteUrl}" style="background:#6366f1;color:white;padding:14px 32px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block;font-size:16px;">Accept Invitation</a>
+              </div>
+              <p style="color:#888;font-size:13px;margin-top:24px;">
+                This invitation expires in 7 days. If you did not expect this invitation, you can safely ignore this email.
+              </p>
+              <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
+              <p style="color:#aaa;font-size:12px;text-align:center;">
+                AfriShop USA — Shop from USA, Delivered to Africa
+              </p>
+            </div>
+          </div>
+        `,
       }),
     });
     if (!response.ok) { const t = await response.text(); return { sent: false, error: t }; }

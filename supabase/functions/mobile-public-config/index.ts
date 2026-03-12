@@ -824,9 +824,10 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
 
+  logStartupRequest("MOBILE_PUBLIC_CONFIG", req);
   const priority = getEndpointPriority("mobile-public-config");
 
   try {

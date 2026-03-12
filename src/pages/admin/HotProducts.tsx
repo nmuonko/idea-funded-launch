@@ -175,8 +175,8 @@ export default function HotProducts() {
         setExtracting(false);
         return;
       }
-      const basePrice = data.price || data.priceUsd || 0;
-      const imageUrl = toHighResImage(data.image || data.imageUrl || '');
+      const basePrice = data.basePrice || data.price || data.priceUsd || 0;
+      const imageUrl = toHighResImage(data.imageUrl || data.image || '');
       const title = data.title || data.name || 'Product';
       const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings);
 

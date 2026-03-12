@@ -432,22 +432,19 @@ function buildPreviewHtml(products: SelectedProduct[]): string {
 
   return `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;">
-      <div style="text-align:center;padding:16px 20px;background:#1a1a1a;">
-        <h1 style="color:#fff;font-size:20px;margin:0;">🛍️ AfriShop USA</h1>
+      <div style="text-align:center;padding:20px;background:#1a1a1a;">
+        <img src="https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo.png" width="140" alt="AfriShop USA" style="display:inline-block;max-width:140px;" />
       </div>
       <div style="padding:20px;">
-        <p style="text-align:center;font-size:15px;font-weight:700;color:#1a1a1a;margin:0 0 4px;">🔥 Produits Vedettes / Hot Picks</p>
-        <p style="text-align:center;font-size:12px;color:#555;margin:0 0 16px;">Prix tout inclus – livraison en RDC en 2-4 semaines<br/>All-inclusive price – delivered to DRC in 2-4 weeks</p>
+        <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Bonjour,</p>
+        <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Voici une selection de produits disponibles cette semaine. Les prix incluent la livraison en RDC (2 a 4 semaines).</p>
+        <p style="font-size:13px;color:#666;margin:0 0 16px;line-height:1.5;">Here are this week's available products. Prices include delivery to DRC (2-4 weeks).</p>
         <div style="text-align:center;">${productCards}</div>
-        <div style="margin:20px 0;padding:12px 16px;background:#fff8f0;border-radius:8px;border:1px solid #fde1c3;text-align:center;">
-          <p style="font-size:12px;color:#333;margin:0 0 6px;font-weight:600;">🔗 Envie d'autre chose ? / Want something else?</p>
-          <p style="font-size:11px;color:#555;margin:0 0 8px;">Collez le lien de n'importe quel produit USA et obtenez le prix total !<br/>Paste any US product link and get the full delivered price!</p>
-          <a href="https://afrishop-usa.com/paste-link" style="display:inline-block;background:#1a1a1a;color:#fff;padding:6px 18px;border-radius:6px;text-decoration:none;font-size:11px;font-weight:700;">Coller un lien / Paste a Link →</a>
-        </div>
+        <p style="font-size:12px;color:#555;margin:16px 0 0;line-height:1.5;">Vous cherchez un autre produit? Visitez <a href="https://afrishop-usa.com/paste-link" style="color:#e63946;text-decoration:underline;">afrishop-usa.com</a> et collez le lien de n'importe quel produit americain.</p>
       </div>
       <div style="text-align:center;padding:12px;background:#f3f4f6;font-size:10px;color:#999;">
-        <p style="margin:2px 0;">AfriShop USA · Achetez aux USA, livré en Afrique</p>
-        <p style="margin:2px 0;">© ${new Date().getFullYear()} AfriShop USA</p>
+        <p style="margin:2px 0;">AfriShop USA - Achetez aux USA, livre en Afrique</p>
+        <p style="margin:2px 0;">&copy; ${new Date().getFullYear()} AfriShop USA</p>
       </div>
     </div>
   `;

@@ -86,7 +86,22 @@ serve(async (req) => {
     const { data: adminRow } = await supabase.from('admin_users').select('id').eq('id', user.id).maybeSingle();
     if (!adminRow) return jsonRes({ ok: false, error: 'Admin access required' }, 403);
 
-    const { campaignId } = await req.json();
+    const { campaignId, testEmail } = await req.json();
+
+    // === TEST MODE: send sample email to a single address ===
+    if (testEmail && !campaignId) {
+      const sampleProducts: CampaignProduct[] = [
+        { title: 'iPhone 16 Pro Max 256GB', image_url: 'https://store.storeimages.cdn-apple.com/4982/as-images.apple.com/is/iphone-16-pro-finish-select-202409-6-3inch-deserttitanium?wid=600&hei=600&fmt=jpeg', total_price_usd: 1650.00, product_url: 'https://afrishop-usa.com/paste-link' },
+        { title: 'PlayStation 5 Slim Console', image_url: 'https://m.media-amazon.com/images/I/51pMtfGmjcL._SL1500_.jpg', total_price_usd: 720.00, product_url: 'https://afrishop-usa.com/paste-link' },
+        { title: 'Nike Air Max 90 Premium', image_url: 'https://static.nike.com/a/images/t_PDP_1728_v1/f_auto,q_auto:eco/af407d53-37fc-4a91-bf20-094c2845e039/NIKE+AIR+MAX+90.png', total_price_usd: 225.00, product_url: 'https://afrishop-usa.com/paste-link' },
+      ];
+      const html = buildEmailHtml(sampleProducts);
+      const subject = '🔥 Hot Picks: iPhone 16 Pro Max | PS5 Slim | Nike Air Max 90';
+      const result = await sendEmail({ to: testEmail, subject, html, category: 'admin_notification' });
+      console.log(`[HotProducts] Test email to ${testEmail}: ${result.success ? 'sent' : 'failed'}`);
+      return jsonRes({ ok: result.success, test: true, to: testEmail });
+    }
+
     if (!campaignId) return jsonRes({ ok: false, error: 'campaignId required' }, 400);
 
     const { data: campaign } = await supabase.from('hot_product_campaigns').select('*').eq('id', campaignId).maybeSingle();

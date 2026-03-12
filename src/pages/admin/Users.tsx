@@ -315,6 +315,23 @@ export default function AdminUsers() {
     }
   };
 
+  const deleteInvitation = async (invitationId: string) => {
+    try {
+      setDeletingInvite(invitationId);
+      const { data, error } = await supabase.functions.invoke('admin-service', {
+        body: { action: 'delete_invitation', invitationId },
+      });
+      if (error) throw error;
+      toast({ title: 'Invitation deleted' });
+      await loadInvitations();
+    } catch (error: any) {
+      toast({ title: 'Error deleting invitation', description: error.message, variant: 'destructive' });
+    } finally {
+      setDeletingInvite(null);
+    }
+  };
+
+
   const promoteToAdmin = async (userId: string, adminRole: string = 'operations') => {
     try {
       setPromoting(userId);

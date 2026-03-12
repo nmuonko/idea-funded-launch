@@ -325,11 +325,46 @@ export default function AdminUsers() {
       });
       if (error) throw error;
       toast({ title: 'Invitation deleted' });
+      setSelectedInvites(prev => { const n = new Set(prev); n.delete(invitationId); return n; });
       await loadInvitations();
     } catch (error: any) {
       toast({ title: 'Error deleting invitation', description: error.message, variant: 'destructive' });
     } finally {
       setDeletingInvite(null);
+    }
+  };
+
+  const bulkDeleteInvitations = async () => {
+    if (selectedInvites.size === 0) return;
+    try {
+      setBulkDeleting(true);
+      const { data, error } = await supabase.functions.invoke('admin-service', {
+        body: { action: 'delete_invitation', invitationIds: Array.from(selectedInvites) },
+      });
+      if (error) throw error;
+      toast({ title: `${selectedInvites.size} invitation(s) deleted` });
+      setSelectedInvites(new Set());
+      await loadInvitations();
+    } catch (error: any) {
+      toast({ title: 'Error deleting invitations', description: error.message, variant: 'destructive' });
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const toggleInviteSelection = (id: string) => {
+    setSelectedInvites(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+
+  const toggleAllInvites = () => {
+    if (selectedInvites.size === invitations.length) {
+      setSelectedInvites(new Set());
+    } else {
+      setSelectedInvites(new Set(invitations.map(i => i.id)));
     }
   };
 

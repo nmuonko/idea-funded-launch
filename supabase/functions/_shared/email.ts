@@ -60,7 +60,7 @@ function stripHtml(html: string): string {
  * No SDK dependency - uses native fetch
  */
 export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult> {
-  const { to, subject, html, text, from = DEFAULT_FROM_EMAIL, category = "test", replyTo } = opts;
+  const { to, subject, html, text, from = DEFAULT_FROM_EMAIL, category = "test", replyTo, headers: customHeaders } = opts;
 
   const apiKey = Deno.env.get("RESEND_API_KEY");
   if (!apiKey) {

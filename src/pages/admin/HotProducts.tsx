@@ -229,6 +229,10 @@ export default function HotProducts() {
     setSelectedProducts(prev => prev.filter(p => p.id !== id));
   }
 
+  function updateTitle(id: string, title: string) {
+    setSelectedProducts(prev => prev.map(p => p.id === id ? { ...p, title } : p));
+  }
+
   function updateShipping(id: string, shipping: number) {
     setSelectedProducts(prev => prev.map(p => {
       if (p.id !== id) return p;

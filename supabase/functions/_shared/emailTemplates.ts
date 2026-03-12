@@ -611,6 +611,9 @@ export function buildOrderAssistanceEmail(params: {
     itemsLabel: string;
     contactLabel: string;
     appInstruction: string;
+    pasteLinkTitle: string;
+    pasteLinkBody: string;
+    pasteLinkCta: string;
   }> = {
     en: {
       subject: `🛒 ${firstName}, need help completing your order?`,
@@ -621,6 +624,9 @@ export function buildOrderAssistanceEmail(params: {
       itemsLabel: `item(s)`,
       contactLabel: `Contact us:`,
       appInstruction: `Open the <strong>AfriShop</strong> app on your phone to complete your order.`,
+      pasteLinkTitle: `🔗 Can't find what you're looking for?`,
+      pasteLinkBody: `Visit our Paste Any Link tool — choose any US store (Amazon, Walmart, Temu, SHEIN…), copy the product link and paste it to get the full price including shipping to your city.`,
+      pasteLinkCta: `Paste a Link Now`,
     },
     fr: {
       subject: `🛒 ${firstName}, avez-vous besoin d'aide?`,
@@ -631,6 +637,9 @@ export function buildOrderAssistanceEmail(params: {
       itemsLabel: `article(s)`,
       contactLabel: `Contactez-nous:`,
       appInstruction: `Ouvrez l'application <strong>AfriShop</strong> sur votre téléphone pour finaliser votre commande.`,
+      pasteLinkTitle: `🔗 Vous ne trouvez pas ce que vous cherchez?`,
+      pasteLinkBody: `Visitez notre outil "Coller un lien" — choisissez un magasin américain (Amazon, Walmart, Temu, SHEIN…), copiez le lien du produit et collez-le pour obtenir le prix complet avec la livraison jusqu'à votre ville.`,
+      pasteLinkCta: `Coller un lien maintenant`,
     },
     sw: {
       subject: `🛒 ${firstName}, unahitaji msaada kukamilisha oda yako?`,
@@ -641,6 +650,9 @@ export function buildOrderAssistanceEmail(params: {
       itemsLabel: `bidhaa`,
       contactLabel: `Wasiliana nasi:`,
       appInstruction: `Fungua programu ya <strong>AfriShop</strong> kwenye simu yako ili ukamilishe oda yako.`,
+      pasteLinkTitle: `🔗 Hupati unachotafuta?`,
+      pasteLinkBody: `Tembelea zana yetu ya "Bandika Kiungo" — chagua duka lolote la Marekani (Amazon, Walmart, Temu, SHEIN…), nakili kiungo na ubandike ili kupata bei kamili pamoja na usafirishaji.`,
+      pasteLinkCta: `Bandika Kiungo Sasa`,
     },
     ln: {
       subject: `🛒 ${firstName}, osengeli lisalisi pona kosilisa commande na yo?`,
@@ -651,6 +663,9 @@ export function buildOrderAssistanceEmail(params: {
       itemsLabel: `biloko`,
       contactLabel: `Benga biso:`,
       appInstruction: `Fungolá application <strong>AfriShop</strong> na téléphone na yo pona kosilisa commande na yo.`,
+      pasteLinkTitle: `🔗 Ozali kozwa te oyo ozali koluka?`,
+      pasteLinkBody: `Kende na outil "Coller un lien" — poná magazin ya Amerika (Amazon, Walmart, Temu, SHEIN…), kopya lien ya produit mpe koller yango pona kozwa ntalo mobimba na livraison.`,
+      pasteLinkCta: `Koller lien sikoyo`,
     },
     en_sw: {
       subject: `🛒 ${firstName}, need help? / Unahitaji msaada?`,
@@ -661,6 +676,9 @@ export function buildOrderAssistanceEmail(params: {
       itemsLabel: `item(s) / bidhaa`,
       contactLabel: `Contact us / Wasiliana nasi:`,
       appInstruction: `Open the <strong>AfriShop</strong> app on your phone to complete your order. / Fungua programu ya <strong>AfriShop</strong> kwenye simu yako ili ukamilishe oda yako.`,
+      pasteLinkTitle: `🔗 Can't find what you're looking for? / Hupati unachotafuta?`,
+      pasteLinkBody: `Visit our Paste Any Link tool — choose any US store, paste the product link to get the full price. / Tembelea zana yetu ya "Bandika Kiungo" ili kupata bei kamili.`,
+      pasteLinkCta: `Paste a Link / Bandika Kiungo`,
     },
   };
 

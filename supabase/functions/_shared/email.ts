@@ -36,6 +36,7 @@ export interface SendEmailOptions {
   from?: string;
   category?: EmailCategory;
   replyTo?: string;
+  headers?: Record<string, string>;
 }
 
 export interface SendEmailResult {

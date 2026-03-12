@@ -95,15 +95,33 @@ export default function ChatRouting() {
       setEntries(routingRes.data || []);
 
       // Load all admins from user_roles + profiles for the dropdown
-      const { data: rolesData, error: rolesError } = await supabase
-        .from('user_roles')
-        .select('user_id, role, admin_role')
-        .eq('role', 'admin');
+      // Also load admin_users table as fallback (some admins may only be there)
+      const [rolesRes, adminUsersRes] = await Promise.all([
+        supabase
+          .from('user_roles')
+          .select('user_id, role, admin_role')
+          .eq('role', 'admin'),
+        supabase
+          .from('admin_users')
+          .select('id, email'),
+      ]);
 
-      if (rolesError) throw rolesError;
+      if (rolesRes.error) throw rolesRes.error;
 
-      // Get profiles for these admin user_ids
-      const adminUserIds = (rolesData || []).map(r => r.user_id);
+      // Collect all admin user IDs from both sources
+      const adminIdSet = new Set<string>();
+      const adminRoleMap = new Map<string, string>();
+      
+      (rolesRes.data || []).forEach(r => {
+        adminIdSet.add(r.user_id);
+        adminRoleMap.set(r.user_id, r.admin_role || 'admin');
+      });
+      (adminUsersRes.data || []).forEach(a => {
+        adminIdSet.add(a.id);
+        if (!adminRoleMap.has(a.id)) adminRoleMap.set(a.id, 'super_admin');
+      });
+
+      const adminUserIds = Array.from(adminIdSet);
       let profilesMap: Record<string, { email?: string | null; full_name?: string | null; name?: string | null }> = {};
       
       if (adminUserIds.length > 0) {
@@ -117,15 +135,25 @@ export default function ChatRouting() {
         });
       }
 
+      // Also add email from admin_users table to profilesMap
+      (adminUsersRes.data || []).forEach(a => {
+        if (!profilesMap[a.id]) {
+          profilesMap[a.id] = { email: a.email };
+        } else if (!profilesMap[a.id].email && a.email) {
+          profilesMap[a.id].email = a.email;
+        }
+      });
+
       // Build admin users list with role info
-      const admins: AdminUser[] = (rolesData || []).map(r => {
-        const profile = profilesMap[r.user_id];
-        const displayName = profile?.full_name || profile?.name || profile?.email || r.user_id.slice(0, 8) + '...';
+      const admins: AdminUser[] = adminUserIds.map(uid => {
+        const profile = profilesMap[uid];
+        const adminRole = adminRoleMap.get(uid) || 'admin';
+        const displayName = profile?.full_name || profile?.name || profile?.email || uid.slice(0, 8) + '...';
         return {
-          id: r.user_id,
+          id: uid,
           displayName,
           email: profile?.email || null,
-          role: r.admin_role === 'super_admin' ? 'Super Admin' : 'Limited Admin',
+          role: adminRole === 'super_admin' ? 'Super Admin' : adminRole.charAt(0).toUpperCase() + adminRole.slice(1),
         };
       });
 

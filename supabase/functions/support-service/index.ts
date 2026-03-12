@@ -3,7 +3,7 @@
  *
  * Actions:
  *   start        — find or create a support conversation
- *   chat_bot     — FAQ-matching chatbot with auto-escalation
+ *   chat_bot     — FAQ-matching chatbot with auto-escalation + DB FAQ lookup
  *   notify_agent — assign an agent and send notifications
  *
  * AUTH: All actions require a valid JWT (via getClaims).
@@ -62,16 +62,16 @@ async function getUserFromRequest(req: Request): Promise<{ userId: string; user:
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const WELCOME_MESSAGES: Record<string, string> = {
-  en: 'Leave us a message describing your need and an agent will respond as soon as possible.',
-  fr: 'Laissez-nous un message décrivant votre besoin et un agent vous répondra dans les plus brefs délais.',
-  sw: 'Tuachie ujumbe kuhusu hitaji lako na wakala atajibu haraka iwezekanavyo.',
-  ln: 'Tika biso message mpo na mposa na yo mpe agent akozongisela yo noki.',
+  en: 'Hello! 👋 Welcome to AfriShop support. How can I help you today?\n\nI can assist with:\n• Delivery & tracking\n• Payments & billing\n• Order status\n• Returns & refunds\n\nJust type your question!',
+  fr: 'Bonjour ! 👋 Bienvenue au support AfriShop. Comment puis-je vous aider ?\n\nJe peux vous assister avec :\n• Livraison & suivi\n• Paiements & facturation\n• Statut de commande\n• Retours & remboursements\n\nÉcrivez simplement votre question !',
+  sw: 'Habari! 👋 Karibu kwa msaada wa AfriShop. Ninawezaje kukusaidia leo?\n\nNinaweza kusaidia na:\n• Utoaji & ufuatiliaji\n• Malipo\n• Hali ya agizo\n• Kurejesha & kurudishiwa pesa\n\nAndika swali lako!',
+  ln: 'Mbote! 👋 Boyei malamu na lisungi ya AfriShop. Ndenge nini nakoki kosalisa yo lelo?\n\nNakoki kosalisa na:\n• Livraison & suivi\n• Biloko ya kofuta\n• État ya commande\n• Kozongisa & remboursement\n\nKoma motuna na yo!',
 };
 
 async function handleStart(userId: string | null, body: any): Promise<Response> {
   const supabaseAdmin = createServiceClient();
   const guestDeviceId = body.guest_device_id || null;
-  const language = body.language || 'en';
+  const language = body.language || 'fr';
 
   if (!userId && !guestDeviceId) {
     return jsonRes({ ok: false, error: 'Authentication required or provide guest_device_id' }, 401);
@@ -81,7 +81,6 @@ async function handleStart(userId: string | null, body: any): Promise<Response> 
   const isGuest = !userId;
 
   if (userId) {
-    // Find existing open conversation
     const { data: existingConvo, error: findError } = await supabaseAdmin
       .from('support_conversations')
       .select('id')
@@ -107,11 +106,10 @@ async function handleStart(userId: string | null, body: any): Promise<Response> 
       await supabaseAdmin.from('support_messages').insert({
         conversation_id: conversationId,
         sender_type: 'bot',
-        content: WELCOME_MESSAGES[language] || WELCOME_MESSAGES.en,
+        content: WELCOME_MESSAGES[language] || WELCOME_MESSAGES.fr,
       });
     }
   } else {
-    // Guest flow
     const { data: newConvo, error: createError } = await supabaseAdmin
       .from('support_conversations')
       .insert({ status: 'bot', language: 'fr' })
@@ -123,7 +121,7 @@ async function handleStart(userId: string | null, body: any): Promise<Response> 
     await supabaseAdmin.from('support_messages').insert({
       conversation_id: conversationId,
       sender_type: 'bot',
-      content: WELCOME_MESSAGES[language] || WELCOME_MESSAGES.en,
+      content: WELCOME_MESSAGES[language] || WELCOME_MESSAGES.fr,
     });
   }
 
@@ -134,98 +132,227 @@ async function handleStart(userId: string | null, body: any): Promise<Response> 
 // ACTION: chat_bot
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const faqKnowledge: Record<string, any> = {
-  fr: {
-    delivery: [
-      { q: ['livraison', 'délai', 'quand', 'arriver'], a: 'Les délais de livraison varient de 7 à 21 jours selon la destination. Vous pouvez suivre votre commande dans la section "Mes Commandes".' },
-      { q: ['où', 'commande', 'colis', 'suivi'], a: 'Vous pouvez suivre votre commande dans "Mes Commandes". Vous y trouverez le numéro de suivi et le statut actuel.' },
-      { q: ['ville', 'livrer', 'kinshasa', 'lubumbashi'], a: 'Nous livrons dans toutes les grandes villes de RDC, principalement Kinshasa et Lubumbashi. Contactez-nous pour les autres villes.' },
-    ],
-    payment: [
-      { q: ['paiement', 'payer', 'mobile money', 'mpesa', 'airtel'], a: 'Nous acceptons Mobile Money (M-Pesa, Airtel Money, Orange Money) et les virements bancaires.' },
-      { q: ['échoué', 'erreur', 'problème', 'refusé'], a: 'Si votre paiement a échoué, vérifiez votre solde et réessayez. Si le problème persiste, un agent peut vous aider.' },
-      { q: ['reçu', 'confirmation', 'facture'], a: 'Après un paiement réussi, vous recevez un email de confirmation avec les détails de votre commande.' },
-    ],
-    orders: [
-      { q: ['commande', 'statut', 'état'], a: 'Vous pouvez voir le statut de vos commandes dans "Mes Commandes". Les statuts possibles sont: En attente, Payé, En traitement, Expédié, Livré.' },
-      { q: ['annuler', 'annulation'], a: 'Pour annuler une commande non encore traitée, contactez notre support. Les commandes déjà expédiées ne peuvent pas être annulées.' },
-      { q: ['modifier', 'changer', 'adresse'], a: 'Pour modifier votre commande ou adresse de livraison, contactez-nous rapidement avant l\'expédition.' },
-    ],
-    refund: [
-      { q: ['remboursement', 'rembourser', 'retour'], a: 'Les remboursements sont possibles pour les produits non conformes ou endommagés. Contactez un agent pour initier la procédure.' },
-      { q: ['combien', 'temps', 'délai'], a: 'Les remboursements sont traités sous 5-10 jours ouvrables après validation de votre demande.' },
-    ],
-    default: 'Je ne suis pas sûr de comprendre votre question. Voulez-vous parler à un agent pour une assistance personnalisée?',
-  },
-  en: {
-    delivery: [
-      { q: ['delivery', 'time', 'when', 'arrive'], a: 'Delivery times vary from 7 to 21 days depending on destination. You can track your order in "My Orders".' },
-      { q: ['where', 'order', 'package', 'track'], a: 'You can track your order in "My Orders". You\'ll find the tracking number and current status there.' },
-      { q: ['city', 'deliver', 'kinshasa', 'lubumbashi'], a: 'We deliver to all major cities in DRC, mainly Kinshasa and Lubumbashi. Contact us for other cities.' },
-    ],
-    payment: [
-      { q: ['payment', 'pay', 'mobile money', 'mpesa', 'airtel'], a: 'We accept Mobile Money (M-Pesa, Airtel Money, Orange Money) and bank transfers.' },
-      { q: ['failed', 'error', 'problem', 'declined'], a: 'If your payment failed, check your balance and try again. If the problem persists, an agent can help.' },
-      { q: ['receipt', 'confirmation', 'invoice'], a: 'After a successful payment, you receive a confirmation email with your order details.' },
-    ],
-    orders: [
-      { q: ['order', 'status', 'state'], a: 'You can see your order status in "My Orders". Possible statuses: Pending, Paid, Processing, Shipped, Delivered.' },
-      { q: ['cancel', 'cancellation'], a: 'To cancel an unprocessed order, contact our support. Already shipped orders cannot be cancelled.' },
-      { q: ['modify', 'change', 'address'], a: 'To modify your order or delivery address, contact us quickly before shipping.' },
-    ],
-    refund: [
-      { q: ['refund', 'return', 'money back'], a: 'Refunds are possible for non-conforming or damaged products. Contact an agent to initiate the process.' },
-      { q: ['how long', 'time', 'delay'], a: 'Refunds are processed within 5-10 business days after your request is validated.' },
-    ],
-    default: 'I\'m not sure I understand your question. Would you like to speak with an agent for personalized assistance?',
-  },
-  sw: { default: 'Sijui kujibu swali lako. Je, ungependa kuongea na wakala kwa msaada zaidi?' },
-  ln: { default: 'Nayebi te ndenge ya koyanola motuna na yo. Olingi kosolola na agent mpo na lisungi?' },
+// Hardcoded fallback FAQ (used if DB faq_kb is empty)
+const fallbackFaq: Record<string, Array<{ triggers: string[]; answer: string }>> = {
+  fr: [
+    { triggers: ['livraison', 'délai', 'quand', 'arriver', 'expédier'], answer: 'Les délais de livraison varient de 7 à 21 jours selon la destination. Vous pouvez suivre votre commande dans la section "Mes Commandes" de votre compte.' },
+    { triggers: ['où', 'colis', 'suivi', 'tracking', 'numéro'], answer: 'Vous pouvez suivre votre commande dans "Mes Commandes". Vous y trouverez le numéro de suivi et le statut actuel de votre colis.' },
+    { triggers: ['ville', 'livrer', 'kinshasa', 'lubumbashi', 'adresse'], answer: 'Nous livrons dans toutes les grandes villes de RDC, principalement Kinshasa et Lubumbashi. Pour les autres villes, veuillez nous contacter.' },
+    { triggers: ['paiement', 'payer', 'mobile money', 'mpesa', 'airtel', 'orange money'], answer: 'Nous acceptons Mobile Money (M-Pesa, Airtel Money, Orange Money), les virements bancaires et les cartes de crédit.' },
+    { triggers: ['échoué', 'erreur', 'problème', 'refusé', 'marche pas'], answer: 'Si votre paiement a échoué, vérifiez votre solde et réessayez. Si le problème persiste, un agent peut vous aider. Voulez-vous que je vous connecte à un agent ?' },
+    { triggers: ['commande', 'statut', 'état', 'commander'], answer: 'Vous pouvez voir le statut de vos commandes dans "Mes Commandes". Les statuts possibles sont : En attente, Payé, En traitement, Expédié, Livré.' },
+    { triggers: ['annuler', 'annulation'], answer: 'Pour annuler une commande non encore traitée, contactez notre support rapidement. Les commandes déjà expédiées ne peuvent pas être annulées.' },
+    { triggers: ['modifier', 'changer', 'adresse'], answer: 'Pour modifier votre commande ou adresse de livraison, contactez-nous rapidement avant l\'expédition.' },
+    { triggers: ['remboursement', 'rembourser', 'retour', 'retourner'], answer: 'Les remboursements sont possibles pour les produits non conformes ou endommagés. Contactez un agent pour initier la procédure. Le traitement prend 5-10 jours ouvrables.' },
+    { triggers: ['prix', 'coût', 'combien', 'tarif'], answer: 'Les prix sont affichés sur chaque produit en USD. Les frais de livraison sont calculés à la commande selon la destination.' },
+    { triggers: ['compte', 'inscription', 'mot de passe', 'connexion', 'connecter'], answer: 'Pour créer un compte, cliquez sur "S\'inscrire". Si vous avez oublié votre mot de passe, utilisez "Mot de passe oublié" sur la page de connexion.' },
+    { triggers: ['bonjour', 'salut', 'bonsoir', 'hello', 'hi', 'coucou'], answer: 'Bonjour ! 😊 Comment puis-je vous aider aujourd\'hui ? N\'hésitez pas à poser votre question.' },
+    { triggers: ['merci', 'thanks', 'ok', 'bien', 'super', 'parfait', 'génial'], answer: 'Je vous en prie ! 😊 Y a-t-il autre chose que je puisse faire pour vous ?' },
+    { triggers: ['oui', 'yes', 'ouais', 'ok', 'okay', 'd\'accord'], answer: 'D\'accord ! Quelle est votre question ? Je suis là pour vous aider.' },
+    { triggers: ['non', 'no', 'nan', 'pas besoin'], answer: 'D\'accord, n\'hésitez pas à revenir si vous avez besoin d\'aide. Bonne journée ! 😊' },
+    { triggers: ['ebay', 'amazon', 'acheter', 'produit', 'article', 'magasin'], answer: 'AfriShop vous permet d\'acheter des produits d\'eBay et Amazon avec livraison en Afrique. Parcourez nos catégories ou utilisez la recherche pour trouver ce que vous cherchez.' },
+    { triggers: ['contact', 'téléphone', 'appeler', 'whatsapp', 'email'], answer: 'Vous pouvez nous contacter par WhatsApp au +243 973 141 627 ou par email à nkadimisha@afrishop-usa.com. Un agent est également disponible ici dans le chat.' },
+  ],
+  en: [
+    { triggers: ['delivery', 'shipping', 'when', 'arrive', 'ship'], answer: 'Delivery times vary from 7 to 21 days depending on destination. You can track your order in "My Orders".' },
+    { triggers: ['where', 'package', 'track', 'tracking'], answer: 'You can track your order in "My Orders". You\'ll find the tracking number and current status there.' },
+    { triggers: ['payment', 'pay', 'mobile money', 'mpesa', 'airtel'], answer: 'We accept Mobile Money (M-Pesa, Airtel Money, Orange Money), bank transfers, and credit cards.' },
+    { triggers: ['failed', 'error', 'problem', 'declined'], answer: 'If your payment failed, check your balance and try again. If the problem persists, I can connect you with an agent.' },
+    { triggers: ['order', 'status'], answer: 'You can see your order status in "My Orders". Possible statuses: Pending, Paid, Processing, Shipped, Delivered.' },
+    { triggers: ['cancel', 'cancellation'], answer: 'To cancel an unprocessed order, contact our support. Already shipped orders cannot be cancelled.' },
+    { triggers: ['refund', 'return', 'money back'], answer: 'Refunds are possible for non-conforming or damaged products. Contact an agent to initiate the process.' },
+    { triggers: ['hello', 'hi', 'hey', 'good morning', 'good evening'], answer: 'Hello! 😊 How can I help you today? Feel free to ask your question.' },
+    { triggers: ['thank', 'thanks', 'ok', 'great', 'perfect'], answer: 'You\'re welcome! 😊 Is there anything else I can help you with?' },
+    { triggers: ['yes', 'yeah', 'okay', 'sure'], answer: 'Sure! What\'s your question? I\'m here to help.' },
+    { triggers: ['no', 'nope', 'not needed'], answer: 'Alright, feel free to come back if you need help. Have a great day! 😊' },
+    { triggers: ['ebay', 'amazon', 'buy', 'product', 'shop'], answer: 'AfriShop lets you buy products from eBay and Amazon with delivery to Africa. Browse our categories or use search to find what you need.' },
+    { triggers: ['contact', 'phone', 'call', 'whatsapp', 'email'], answer: 'You can reach us on WhatsApp at +243 973 141 627 or email nkadimisha@afrishop-usa.com. An agent is also available here in chat.' },
+  ],
 };
 
 const escalationKeywords: Record<string, string[]> = {
-  fr: ['agent', 'humain', 'plainte', 'mécontent', 'arnaque', 'volé', 'urgent', 'avocat', 'remboursement', 'scandale'],
-  en: ['agent', 'human', 'complaint', 'unhappy', 'scam', 'stolen', 'urgent', 'lawyer', 'refund', 'scandal'],
+  fr: ['agent', 'humain', 'plainte', 'mécontent', 'arnaque', 'volé', 'urgent', 'avocat', 'scandale', 'parlé', 'parler à quelqu', 'vrai personne'],
+  en: ['agent', 'human', 'complaint', 'unhappy', 'scam', 'stolen', 'urgent', 'lawyer', 'scandal', 'real person', 'speak to someone'],
   sw: ['wakala', 'mtu', 'malalamiko'],
   ln: ['agent', 'moto', 'nkanda'],
 };
 
-function findBestAnswer(message: string, lang: string): { answer: string; confidence: number; shouldEscalate: boolean } {
-  const lowerMessage = message.toLowerCase();
-  const kb = faqKnowledge[lang] || faqKnowledge.fr;
+// Acknowledgment keywords that shouldn't trigger "I don't understand"
+const acknowledgmentKeywords = ['ok', 'okay', 'd\'accord', 'j\'attend', 'j\'attends', 'bien', 'merci', 'thanks', 'thank', 'oui', 'yes', 'non', 'no', 'salut', 'bonjour', 'hello', 'hi', 'bonsoir', 'super', 'parfait', 'génial', 'great', 'perfect', 'cool', 'alright', 'sure', 'ouais', 'yeah', 'nope', 'nan'];
+
+async function fetchFaqFromDb(supabase: any, language: string): Promise<Array<{ triggers: string[]; answer: string }>> {
+  try {
+    const { data, error } = await supabase
+      .from('faq_kb')
+      .select('trigger_phrases, answer, language')
+      .eq('is_active', true)
+      .eq('language', language)
+      .order('priority', { ascending: true });
+
+    if (error || !data?.length) return [];
+
+    return data.map((row: any) => ({
+      triggers: row.trigger_phrases || [],
+      answer: row.answer,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function findBestAnswer(
+  message: string,
+  lang: string,
+  dbFaq: Array<{ triggers: string[]; answer: string }>,
+): { answer: string; confidence: number; shouldEscalate: boolean; matched: boolean } {
+  const lowerMessage = message.toLowerCase().trim();
   const escKeywords = escalationKeywords[lang] || escalationKeywords.fr;
 
+  // Check for escalation keywords
   for (const keyword of escKeywords) {
     if (lowerMessage.includes(keyword)) {
-      return { answer: kb.default || faqKnowledge.fr.default, confidence: 0, shouldEscalate: true };
+      return { answer: '', confidence: 0, shouldEscalate: true, matched: false };
     }
   }
 
-  let bestMatch = { answer: '', score: 0 };
-  for (const category of ['delivery', 'payment', 'orders', 'refund'] as const) {
-    const items = kb[category];
-    if (!items) continue;
-    for (const item of items) {
-      let score = 0;
-      for (const keyword of item.q) {
-        if (lowerMessage.includes(keyword)) score += 1;
-      }
-      if (score > bestMatch.score) bestMatch = { answer: item.a, score };
+  // Check if it's just an acknowledgment (don't say "I don't understand" for "ok", "merci", etc.)
+  const isAcknowledgment = acknowledgmentKeywords.some(kw => {
+    const clean = lowerMessage.replace(/[^a-zàâäéèêëïîôùûüÿçæœ\s]/gi, '').trim();
+    return clean === kw || clean.startsWith(kw + ' ') || clean.endsWith(' ' + kw);
+  });
+
+  // Search DB FAQ first (higher priority)
+  const allFaq = [...dbFaq, ...(fallbackFaq[lang] || fallbackFaq.fr || [])];
+
+  let bestMatch = { answer: '', score: 0, totalKeywords: 1 };
+  for (const item of allFaq) {
+    let score = 0;
+    for (const keyword of item.triggers) {
+      if (lowerMessage.includes(keyword.toLowerCase())) score += 1;
+    }
+    if (score > bestMatch.score) {
+      bestMatch = { answer: item.answer, score, totalKeywords: item.triggers.length };
     }
   }
 
   if (bestMatch.score >= 1) {
-    return { answer: bestMatch.answer, confidence: Math.min(bestMatch.score / 3, 1), shouldEscalate: false };
+    const confidence = Math.min(bestMatch.score / Math.max(bestMatch.totalKeywords * 0.5, 1), 1);
+    return { answer: bestMatch.answer, confidence, shouldEscalate: false, matched: true };
   }
-  return { answer: kb.default || faqKnowledge.fr.default, confidence: 0.3, shouldEscalate: false };
+
+  // If it's just an acknowledgment, respond naturally
+  if (isAcknowledgment) {
+    const ackResponses: Record<string, string> = {
+      fr: 'D\'accord ! Y a-t-il autre chose que je puisse faire pour vous ? 😊',
+      en: 'Alright! Is there anything else I can help you with? 😊',
+      sw: 'Sawa! Kuna kitu kingine ninachoweza kukusaidia? 😊',
+      ln: 'Malamu! Ezali na eloko mosusu nakoki kosalisa yo? 😊',
+    };
+    return { answer: ackResponses[lang] || ackResponses.fr, confidence: 0.6, shouldEscalate: false, matched: true };
+  }
+
+  // No match found — will be logged as unanswered
+  const noMatchResponses: Record<string, string> = {
+    fr: 'Je n\'ai pas trouvé de réponse précise à votre question. Voulez-vous que je vous connecte à un agent humain ? Tapez "agent" pour parler à un conseiller.',
+    en: 'I couldn\'t find a specific answer to your question. Would you like me to connect you with a human agent? Type "agent" to speak with an advisor.',
+    sw: 'Sijapata jibu sahihi la swali lako. Ungependa nikuunganishe na wakala? Andika "agent" kuongea na msaidizi.',
+    ln: 'Nazwaki te eyano ya motuna na yo. Olingi nakangisa yo na agent? Koma "agent" mpo na kosolola na mosungi.',
+  };
+
+  return { answer: noMatchResponses[lang] || noMatchResponses.fr, confidence: 0.2, shouldEscalate: false, matched: false };
 }
 
 const ESCALATION_MESSAGES: Record<string, string> = {
-  fr: "Je vous mets en relation avec un agent pour mieux vous aider. Un moment s'il vous plaît...",
-  en: "I'm connecting you with an agent to better assist you. One moment please...",
-  sw: "Ninakuunganisha na wakala ili kukusaidia vizuri. Subiri kidogo...",
-  ln: "Nazali kokangisa yo na agent mpo na kosalisa yo malamu. Zela moke...",
+  fr: "Je vous connecte avec un agent humain pour mieux vous aider. Un moment s'il vous plaît, un conseiller va prendre en charge votre conversation... 🙏",
+  en: "I'm connecting you with a human agent to better assist you. One moment please, an advisor will take over your conversation... 🙏",
+  sw: "Ninakuunganisha na wakala wa binadamu ili kukusaidia vizuri. Subiri kidogo, msaidizi atachukua mazungumzo yako... 🙏",
+  ln: "Nazali kokangisa yo na agent ya moto mpo na kosalisa yo malamu. Zela moke, mosungi akozwa masolo na yo... 🙏",
 };
+
+const ALREADY_ESCALATED_MESSAGES: Record<string, string> = {
+  fr: "Votre conversation a déjà été transmise à un agent. Un conseiller va vous répondre bientôt. Merci de patienter. 🙏",
+  en: "Your conversation has already been forwarded to an agent. An advisor will respond to you shortly. Thank you for your patience. 🙏",
+  sw: "Mazungumzo yako tayari yametumwa kwa wakala. Msaidizi atakujibu hivi karibuni. Asante kwa subira. 🙏",
+  ln: "Masolo na yo etindamaki na agent. Mosungi akozongisela yo noki. Matondo mpo na motema molai. 🙏",
+};
+
+async function notifyAllAdminsNewMessage(supabase: any, conversationId: string, userMessage: string, userId: string) {
+  try {
+    // Get all admin emails from chat_routing_config + profiles
+    const { data: routingAgents } = await supabase
+      .from('chat_routing_config')
+      .select('admin_email, admin_user_id, is_available')
+      .eq('is_available', true);
+
+    // Also get all admin users from user_roles + profiles
+    const { data: adminRoles } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .eq('role', 'admin');
+
+    const adminUserIds = new Set<string>();
+    (routingAgents || []).forEach((a: any) => adminUserIds.add(a.admin_user_id));
+    (adminRoles || []).forEach((r: any) => adminUserIds.add(r.user_id));
+
+    if (adminUserIds.size === 0) return;
+
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('user_id, email, full_name')
+      .in('user_id', Array.from(adminUserIds));
+
+    const adminEmails = (profiles || [])
+      .map((p: any) => p.email)
+      .filter((e: string | null) => e);
+
+    if (adminEmails.length === 0) return;
+
+    // Get customer info
+    const { data: customerProfile } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
+    const EMAIL_FROM = Deno.env.get('EMAIL_FROM_ADDRESS') || 'noreply@afrishop.com';
+    const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+
+    if (!RESEND_API_KEY) {
+      console.log('[support-service] No RESEND_API_KEY, skipping admin email notification');
+      return;
+    }
+
+    const customerName = customerProfile?.full_name || customerProfile?.email || 'Customer';
+    const truncatedMessage = userMessage.length > 200 ? userMessage.slice(0, 200) + '...' : userMessage;
+
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: EMAIL_FROM,
+        to: adminEmails,
+        subject: `[AfriShop Chat] New message from ${customerName}`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <h2 style="color:#1a1a1a;">New Support Chat Message</h2>
+            <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
+              <p style="margin:0 0 8px 0;"><strong>Customer:</strong> ${customerName}</p>
+              <p style="margin:0 0 8px 0;"><strong>Email:</strong> ${customerProfile?.email || 'N/A'}</p>
+              <p style="margin:0;"><strong>Message:</strong></p>
+              <p style="margin:8px 0 0 0;padding:12px;background:white;border-radius:4px;border-left:3px solid #6366f1;">${truncatedMessage}</p>
+            </div>
+            <p><a href="${frontendUrl}/admin/support-inbox" style="background:#6366f1;color:white;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;">Open Support Inbox</a></p>
+          </div>
+        `,
+      }),
+    });
+
+    console.log(`[support-service] Admin notification sent to ${adminEmails.length} admins`);
+  } catch (err) {
+    console.error('[support-service] Failed to send admin notification:', err);
+  }
+}
 
 async function handleChatBot(userId: string, body: any, req: Request): Promise<Response> {
   const supabase = createServiceClient();
@@ -238,7 +365,7 @@ async function handleChatBot(userId: string, body: any, req: Request): Promise<R
   // Verify conversation ownership
   const { data: conversation, error: convError } = await supabase
     .from('support_conversations')
-    .select('user_id')
+    .select('user_id, status')
     .eq('id', conversation_id)
     .single();
 
@@ -249,26 +376,68 @@ async function handleChatBot(userId: string, body: any, req: Request): Promise<R
     return jsonRes({ error: 'Forbidden - not your conversation' }, 403);
   }
 
-  const { answer, confidence, shouldEscalate } = findBestAnswer(message, language);
+  // If conversation is already escalated (waiting_agent or assigned), don't run bot logic
+  if (conversation.status === 'waiting_agent' || conversation.status === 'assigned') {
+    // Just acknowledge — an agent will respond
+    await supabase.from('support_messages').insert({
+      conversation_id,
+      sender_type: 'bot',
+      content: ALREADY_ESCALATED_MESSAGES[language] || ALREADY_ESCALATED_MESSAGES.fr,
+      meta: { alreadyEscalated: true },
+    });
+
+    // Notify admins of the new message
+    notifyAllAdminsNewMessage(supabase, conversation_id, message, userId).catch(() => {});
+
+    return jsonRes({ success: true, escalated: true, alreadyEscalated: true });
+  }
+
+  // Fetch FAQ from database
+  const dbFaq = await fetchFaqFromDb(supabase, language);
+
+  const { answer, confidence, shouldEscalate, matched } = findBestAnswer(message, language, dbFaq);
+
+  // Log unanswered questions
+  if (!matched && !shouldEscalate) {
+    await supabase.from('support_unanswered_questions').insert({
+      conversation_id,
+      user_id: userId,
+      question: message,
+      language,
+    }).then(() => {}).catch((e: any) => console.error('[support-service] Failed to log unanswered question:', e));
+  }
+
+  if (shouldEscalate) {
+    // Escalate to agent
+    await supabase.from('support_messages').insert({
+      conversation_id,
+      sender_type: 'bot',
+      content: ESCALATION_MESSAGES[language] || ESCALATION_MESSAGES.fr,
+      meta: { confidence: 0, shouldEscalate: true },
+    });
+    await supabase.from('support_conversations')
+      .update({ status: 'waiting_agent', updated_at: new Date().toISOString() })
+      .eq('id', conversation_id);
+
+    // Notify admins
+    notifyAllAdminsNewMessage(supabase, conversation_id, message, userId).catch(() => {});
+
+    return jsonRes({ success: true, escalated: true });
+  }
 
   // Insert bot response
   await supabase.from('support_messages').insert({
     conversation_id,
     sender_type: 'bot',
     content: answer,
-    meta: { confidence, shouldEscalate },
+    meta: { confidence, matched },
   });
 
-  if (shouldEscalate || confidence < 0.5) {
-    await supabase.from('support_messages').insert({
-      conversation_id,
-      sender_type: 'bot',
-      content: ESCALATION_MESSAGES[language] || ESCALATION_MESSAGES.fr,
-    });
-    await supabase.from('support_conversations')
-      .update({ status: 'waiting_agent', updated_at: new Date().toISOString() })
-      .eq('id', conversation_id);
-    return jsonRes({ success: true, escalated: true });
+  // If confidence is low, also suggest escalation but DON'T auto-escalate
+  if (confidence < 0.4 && !matched) {
+    // Already included in the noMatchResponses answer text
+    // Notify admins about low-confidence question
+    notifyAllAdminsNewMessage(supabase, conversation_id, message, userId).catch(() => {});
   }
 
   await supabase.from('support_conversations')
@@ -308,7 +477,6 @@ async function handleNotifyAgent(body: any): Promise<Response> {
   let selectedAgent = agents?.[0];
 
   if (!selectedAgent) {
-    // Fallback: any agent
     const { data: fallbackAgents } = await supabase
       .from('support_agents')
       .select('*')
@@ -321,7 +489,6 @@ async function handleNotifyAgent(body: any): Promise<Response> {
     return jsonRes({ success: false, message: 'No agents available' });
   }
 
-  // Assign conversation
   await supabase.from('support_conversations')
     .update({
       assigned_agent_id: selectedAgent.user_id,
@@ -330,7 +497,6 @@ async function handleNotifyAgent(body: any): Promise<Response> {
     })
     .eq('id', conversation_id);
 
-  // Send email notification
   if (selectedAgent.notify_email) {
     const { data: profile } = await supabase
       .from('profiles')
@@ -359,7 +525,6 @@ async function handleNotifyAgent(body: any): Promise<Response> {
     }
   }
 
-  // Send push notification
   if (selectedAgent.notify_push_token) {
     try {
       const supabaseForInvoke = createClient(
@@ -402,13 +567,13 @@ serve(async (req) => {
       }, 400);
     }
 
-    // Auth gate: get user (support-start allows optional auth for guests)
+    // Auth gate
     let userId: string | null = null;
     if (action !== 'start' || !body.guest_device_id) {
       const authResult = await getUserFromRequest(req);
       if (authResult instanceof Response) {
         if (action === 'start' && body.guest_device_id) {
-          // Guest mode - continue without auth
+          // Guest mode
         } else {
           return authResult;
         }

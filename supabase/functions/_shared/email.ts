@@ -89,6 +89,10 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
       payload.reply_to = replyTo;
     }
 
+    if (customHeaders) {
+      payload.headers = customHeaders;
+    }
+
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {

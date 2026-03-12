@@ -1,40 +1,69 @@
-## Edge Function Consolidation Refactor — Phase 3 Complete
 
-### Phase 3: Orphan Deletion — 10 Functions Deleted
-- **`create-referrer`** — routed via auth-service
-- **`execute-ai-action`** — routed via admin-service
-- **`get-ai-actions-for-review`** — routed via admin-service
-- **`predict-customer-ltv`** — routed via admin-service
-- **`ai-order-assistant`** — routed via admin-service
-- **`catalog-categories`** — inlined into catalog-service
-- **`catalog-tabs`** — inlined into catalog-service
-- **`catalog-nav`** — inlined into catalog-service
-- **`catalog-providers`** — inlined into catalog-service
-- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
-- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
-- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
-- **`auth-service`** — added `create_referrer`
-- **`email-service`** — added `saved_cart_reminders`
+# Root Cause: Two Issues Found
 
-### Batches 1–10: Inlined — 32 Functions Deleted
-- **Batch 10**: auth-service (8 functions)
-- **Batch 9**: mobile-cart (7), mobile-orders (4)
-- **Batch 8**: admin-service (10), support-service (3)
-- **Batch 7**: catalog-service (5 metadata endpoints)
+## Finding 1: `auth-me` Edge Function Does Not Exist
 
-**Total reduction: 42 Edge Functions deleted**
+The Replit audit shows the mobile app calls `GET /functions/v1/auth-me` at startup (call #6 in the chain, from `src/api/auth.ts:195`). **There is no `auth-me` edge function in this project.** The Supabase gateway returns a 401/404 error for this call. The mobile app likely interprets this as "Backend connection failed", which cascades into showing all warnings (catalog unavailable, payment unavailable, etc.).
 
-### Kept as Proxy (by decision)
-- **`payments-core`** — proxies 9 functions (complex payment logic)
-- **`payments-provider`** — proxies 10 functions (payment provider logic)
-- **`email-service`** — proxies 25 send-* functions (HTML template code)
+Only `auth-service` exists, which uses POST with `action: "me"` — a completely different contract.
 
-### Remaining Standalone (active, not orphaned)
-- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
-- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
-- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
-- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
-- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
-- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment
+## Finding 2: Echo of `env: "staging"` Triggers "Not in Production Mode"
+
+The latest fix echoes `env: "staging"` back in response bodies to match what the mobile sends. But the mobile app's health check almost certainly requires `env === "production"` to consider the backend healthy. The error message "Not in production mode" directly confirms this — the app sees `env: "staging"` and flags it as a problem.
+
+**Evidence from live logs:**
+- Real device `48553513-ff5f-4044-a408-90b9fa36bbac` (okhttp/4.12.0) is hitting all endpoints
+- All responses return 200 with valid data
+- `mobile-public-config` returns `responseEnv: staging` — yet the app still shows errors
+- `catalog-home` returns 327 items in 10 sections — valid data, but labeled `envUsed: staging`
+
+## Fix Plan
+
+### Step 1: Create `auth-me` Edge Function
+
+Create `supabase/functions/auth-me/index.ts` as a thin compatibility shim that:
+- Handles GET requests (mobile contract)
+- If valid Bearer token: extracts user, fetches profile, returns user data
+- If no/invalid token: returns `{ ok: true, authenticated: false }` (HTTP 200, not 401)
+- Uses `buildCorsHeaders` / `corsPreflightResponse` from `_shared/mobileCors.ts`
+- Add to `config.toml` with `verify_jwt = false` (validate JWT in code)
+
+### Step 2: Revert Env Echo — Always Return `env: "production"`
+
+Undo the echo fix across all endpoints. The mobile app's health check requires `env === "production"`:
+
+- **`mobile-public-config/index.ts`**: Remove `getRequestedEnv` usage, set `env: "production"` in all response paths
+- **`catalog-categories/index.ts`**: Set `env: "production"` instead of `responseEnv`
+- **`mobileSectionsCache.ts`**: Set `meta.envUsed` to `"production"` instead of `envRequested`
+- **`catalog-home/index.ts`**: Pass `"production"` through response labeling
+
+The internal data resolution stays on production (via `getEnvironmentFromRequest` override). Only the response label changes.
+
+### Step 3: Deploy All Modified Functions
+
+Deploy: `auth-me`, `mobile-public-config`, `catalog-categories`, `catalog-home`, plus any shared modules.
+
+### Step 4: Test Full Mobile Startup Chain
+
+Simulate the exact mobile startup sequence with `okhttp` headers, `x-device-id`, and `?env=staging`:
+1. `GET /mobile-public-config?env=staging` → expect `env: "production"`, `catalogEnabled: true`
+2. `GET /catalog-categories?env=staging` → expect `env: "production"`, valid tabs
+3. `GET /catalog-home?env=staging&page=1&pageSize=20&mode=auto` → expect `envUsed: "production"`, items
+4. `GET /auth-me` (no token) → expect 200, `authenticated: false`
+5. `GET /app-bootstrap?env=staging` → expect 200, payments configured
+
+### Files to Change
+
+- **Create**: `supabase/functions/auth-me/index.ts`
+- **Edit**: `supabase/functions/mobile-public-config/index.ts` (revert echo)
+- **Edit**: `supabase/functions/catalog-categories/index.ts` (revert echo)
+- **Edit**: `supabase/functions/_shared/mobileSectionsCache.ts` (revert echo)
+- **Edit**: `supabase/config.toml` (add auth-me entry)
+
+### Why Previous Fixes Failed
+
+1. **Env override fix** (force production data): Correct for data, but response still showed env values that triggered warnings
+2. **Env echo fix** (return "staging"): Wrong direction — the mobile health check requires `env === "production"`, not matching the request
+3. **Missing `auth-me`**: Never addressed — the function simply doesn't exist, causing auth startup to fail and cascade into all other warnings
+

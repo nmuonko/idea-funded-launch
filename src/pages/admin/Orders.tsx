@@ -1060,29 +1060,20 @@ export default function AdminOrders() {
                   <TableCell className="whitespace-nowrap px-2">{getPaymentBadge(order)}</TableCell>
                   <TableCell className="whitespace-nowrap px-2">{getStatusBadge(order.status)}</TableCell>
                   <TableCell className="whitespace-nowrap px-2 text-[11px]">{new Date(order.created_at).toLocaleDateString()}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2 whitespace-nowrap">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openOrderDetails(order.id)}
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        Details
+                  <TableCell className="px-2">
+                    <div className="flex items-center gap-1 whitespace-nowrap">
+                      <Button variant="outline" size="sm" className="h-7 px-2 text-[11px]" onClick={() => openOrderDetails(order.id)}>
+                        <Eye className="h-3 w-3 mr-1" />
+                        View
                       </Button>
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={() => handlePrintLabel(order)}
-                        className="bg-purple-600 hover:bg-purple-700"
-                      >
-                        <Printer className="h-4 w-4 mr-1" />
+                      <Button variant="default" size="sm" className="h-7 px-2 text-[11px] bg-purple-600 hover:bg-purple-700" onClick={() => handlePrintLabel(order)}>
+                        <Printer className="h-3 w-3 mr-1" />
                         Print
                       </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                            <MoreHorizontal className="h-4 w-4" />
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                            <MoreHorizontal className="h-3.5 w-3.5" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
@@ -1103,9 +1094,11 @@ export default function AdminOrders() {
                     </div>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
+          </div>
         )}
       </CardContent>
     </Card>

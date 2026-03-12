@@ -132,7 +132,8 @@ async function handleRegister(body: any, req: Request) {
   const city = body.city;
   const stateOrProvince = body.stateOrProvince || body.state_province || body.province;
   const postalCode = body.postalCode || body.postal_code;
-  const country = body.country;
+  const country = body.country || body.countryName || body.country_name || body.locationCountry || body.location_country;
+  const normalizedCountry = (country && String(country).trim()) ? String(country).trim() : 'DR Congo';
   let signupPlatform = body.signup_platform || body.signupPlatform || null;
   if (!signupPlatform || signupPlatform === 'web') {
     const ua = req.headers.get('user-agent') || '';
@@ -156,8 +157,8 @@ async function handleRegister(body: any, req: Request) {
   if (!email || !email.trim()) missing.push('email');
   if (!password || !password.trim()) missing.push('password');
   if (!fullName || !fullName.trim()) missing.push('fullName');
-  if (!country || !country.trim()) missing.push('country');
   if (missing.length) return jsonRes({ ok: false, message: `Missing required fields: ${missing.join(', ')}`, missingFields: missing }, 400);
+  if (!country) console.log('[auth-service:register] country missing in payload, defaulting to DR Congo for mobile compatibility');
 
   if (!validateEmail(email.trim())) return jsonRes({ ok: false, message: 'Invalid email format' }, 400);
   if (phoneNumber && !validatePhone(phoneNumber.trim())) return jsonRes({ ok: false, message: 'Invalid phone number. Must be between 8 and 15 digits.' }, 400);
@@ -197,7 +198,7 @@ async function handleRegister(body: any, req: Request) {
             phone: phoneNumber?.trim() || null, address_line1: addressLine1?.trim() || null,
             address_line2: addressLine2?.trim() || null, city: city?.trim() || null,
             state_province: stateOrProvince?.trim() || null, postal_code: postalCode?.trim() || null,
-            country: country.trim(), signup_platform: signupPlatform,
+            country: normalizedCountry, signup_platform: signupPlatform,
           }, { onConflict: 'user_id' });
         }
         return jsonRes({
@@ -210,7 +211,7 @@ async function handleRegister(body: any, req: Request) {
             id: signInData.user.id, email: signInData.user.email, fullName: fullName.trim(),
             phoneNumber: phoneNumber?.trim() || null, addressLine1: addressLine1?.trim() || null,
             addressLine2: addressLine2?.trim() || null, city: city?.trim() || null,
-            stateOrProvince: stateOrProvince?.trim() || null, postalCode: postalCode?.trim() || null, country: country.trim(),
+            stateOrProvince: stateOrProvince?.trim() || null, postalCode: postalCode?.trim() || null, country: normalizedCountry,
           },
           token: signInData.session.access_token, refreshToken: signInData.session.refresh_token,
         });
@@ -238,7 +239,7 @@ async function handleRegister(body: any, req: Request) {
     phone: phoneNumber?.trim() || null, address_line1: addressLine1?.trim() || null,
     address_line2: addressLine2?.trim() || null, city: city?.trim() || null,
     state_province: stateOrProvince?.trim() || null, postal_code: postalCode?.trim() || null,
-    country: country.trim(), signup_platform: signupPlatform, referred_by_code: referredByCode || null,
+    country: normalizedCountry, signup_platform: signupPlatform, referred_by_code: referredByCode || null,
   }, { onConflict: 'user_id' });
 
   // Log referral event (non-blocking)
@@ -288,7 +289,7 @@ async function handleRegister(body: any, req: Request) {
       id: sessionData.user.id, email: sessionData.user.email, fullName: fullName.trim(),
       phoneNumber: phoneNumber?.trim() || null, addressLine1: addressLine1?.trim() || null,
       addressLine2: addressLine2?.trim() || null, city: city?.trim() || null,
-      stateOrProvince: stateOrProvince?.trim() || null, postalCode: postalCode?.trim() || null, country: country.trim(),
+      stateOrProvince: stateOrProvince?.trim() || null, postalCode: postalCode?.trim() || null, country: normalizedCountry,
     },
     token: sessionData.session.access_token, refreshToken: sessionData.session.refresh_token,
   });

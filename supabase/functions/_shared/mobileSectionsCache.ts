@@ -491,7 +491,7 @@ export async function serveMobileSections(
     meta: {
       client: "mobile",
       detectedBy,
-      envUsed: envRequested,
+      envUsed: "production",
       envRequested,
       source: "rebuilt",
       isStale: false,

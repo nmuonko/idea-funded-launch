@@ -5525,6 +5525,47 @@ export type Database = {
           },
         ]
       }
+      support_unanswered_questions: {
+        Row: {
+          added_to_faq: boolean | null
+          conversation_id: string | null
+          created_at: string | null
+          id: string
+          language: string | null
+          question: string
+          resolved: boolean | null
+          user_id: string | null
+        }
+        Insert: {
+          added_to_faq?: boolean | null
+          conversation_id?: string | null
+          created_at?: string | null
+          id?: string
+          language?: string | null
+          question: string
+          resolved?: boolean | null
+          user_id?: string | null
+        }
+        Update: {
+          added_to_faq?: boolean | null
+          conversation_id?: string | null
+          created_at?: string | null
+          id?: string
+          language?: string | null
+          question?: string
+          resolved?: boolean | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_unanswered_questions_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "support_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       supported_countries: {
         Row: {
           country_code: string

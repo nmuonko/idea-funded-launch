@@ -188,9 +188,13 @@ export default function HotProducts() {
         markup_usd: Math.round(markup * 100) / 100,
         shipping_usd: Math.round(shipping * 100) / 100,
         total_price_usd: total,
-        product_url: (data.provider && data.providerId) ? `https://afrishop-usa.com/product/${data.provider}/${data.providerId}` : pasteUrl.trim(),
-        provider: data.provider || 'external',
-        provider_product_id: data.providerId || '',
+        product_url: (() => {
+          const prov = data.provider || inferProvider(pasteUrl.trim());
+          const pid = data.providerId || inferProductId(pasteUrl.trim());
+          return (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : `https://afrishop-usa.com/paste-link`;
+        })(),
+        provider: data.provider || inferProvider(pasteUrl.trim()) || 'external',
+        provider_product_id: data.providerId || inferProductId(pasteUrl.trim()) || '',
       }]);
       setPasteUrl('');
       toast.success('Product extracted!');

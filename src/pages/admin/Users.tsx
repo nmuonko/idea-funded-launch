@@ -721,6 +721,19 @@ export default function AdminUsers() {
                               </Button>
                             </>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => deleteInvitation(invite.id)}
+                            disabled={deletingInvite === invite.id}
+                          >
+                            {deletingInvite === invite.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3 w-3" />
+                            )}
+                          </Button>
                         </div>
                       </div>
                     );

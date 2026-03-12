@@ -188,7 +188,7 @@ export default function HotProducts() {
         markup_usd: Math.round(markup * 100) / 100,
         shipping_usd: Math.round(shipping * 100) / 100,
         total_price_usd: total,
-        product_url: pasteUrl.trim(),
+        product_url: (data.provider && data.providerId) ? `https://afrishop-usa.com/product/${data.provider}/${data.providerId}` : pasteUrl.trim(),
         provider: data.provider || 'external',
         provider_product_id: data.providerId || '',
       }]);

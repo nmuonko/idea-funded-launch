@@ -27,7 +27,7 @@ interface CampaignProduct {
   product_url: string;
 }
 
-const LOGO_URL = "https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo.png";
+const LOGO_URL = "https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo-white.png";
 
 function buildEmailHtml(products: CampaignProduct[]): string {
   const productCards = products.map(p => `
@@ -37,8 +37,8 @@ function buildEmailHtml(products: CampaignProduct[]): string {
         <tr><td style="padding:12px;text-align:center;">
           <p style="font-weight:600;font-size:13px;margin:0 0 4px;color:#1a1a1a;line-height:1.3;">${p.title.length > 50 ? p.title.slice(0, 50) + '…' : p.title}</p>
           <p style="font-size:22px;font-weight:800;color:#e63946;margin:6px 0 2px;">$${p.total_price_usd.toFixed(2)}</p>
-          <p style="font-size:10px;color:#666;margin:0 0 10px;">Tout inclus / All-inclusive</p>
-          <a href="${p.product_url}" style="display:inline-block;background:#e63946;color:#ffffff;padding:10px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">Commander / Order</a>
+          <p style="font-size:10px;color:#666;margin:0 0 10px;">Tout inclus</p>
+          <a href="${p.product_url}" style="display:inline-block;background:#e63946;color:#ffffff;padding:10px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">🛒 Commander</a>
         </td></tr>
       </table>
     </td></tr>
@@ -54,11 +54,10 @@ function buildEmailHtml(products: CampaignProduct[]): string {
     <tr><td style="text-align:center;padding:20px;background-color:#1a1a1a;">
       <img src="${LOGO_URL}" width="140" height="auto" alt="AfriShop USA" style="display:inline-block;max-width:140px;" />
     </td></tr>
-    <!-- Intro - personal tone -->
+    <!-- Intro -->
     <tr><td style="padding:20px 24px 8px;font-family:Arial,Helvetica,sans-serif;">
       <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Bonjour,</p>
-      <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Voici une selection de produits disponibles cette semaine. Les prix incluent la livraison en RDC (2 a 4 semaines).</p>
-      <p style="font-size:13px;color:#666;margin:0 0 4px;line-height:1.5;">Here are this week's available products. Prices include delivery to DRC (2-4 weeks).</p>
+      <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Voici une s&eacute;lection de produits disponibles cette semaine. Les prix incluent la livraison en RDC (2 &agrave; 4 semaines).</p>
     </td></tr>
     <!-- Products -->
     <tr><td style="padding:8px 16px;">
@@ -66,15 +65,15 @@ function buildEmailHtml(products: CampaignProduct[]): string {
         ${productCards}
       </table>
     </td></tr>
-    <!-- Simple text CTA instead of promotional block -->
+    <!-- CTA -->
     <tr><td style="padding:12px 24px 20px;font-family:Arial,Helvetica,sans-serif;">
-      <p style="font-size:12px;color:#555;margin:0;line-height:1.5;">Vous cherchez un autre produit? Visitez <a href="https://afrishop-usa.com/paste-link" style="color:#e63946;text-decoration:underline;">afrishop-usa.com</a> et collez le lien de n'importe quel produit americain.</p>
+      <p style="font-size:12px;color:#555;margin:0;line-height:1.5;">Vous cherchez un autre produit? Visitez <a href="https://afrishop-usa.com/paste-link" style="color:#e63946;text-decoration:underline;">afrishop-usa.com</a> et collez le lien de n'importe quel produit am&eacute;ricain.</p>
     </td></tr>
     <!-- Footer -->
     <tr><td style="text-align:center;padding:16px 24px;background-color:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
       <p style="margin:0 0 4px;font-size:11px;color:#999;">AfriShop USA - Achetez aux USA, livr&eacute; en Afrique</p>
-      <p style="margin:0 0 4px;font-size:10px;color:#bbb;">&copy; ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
-      <p style="margin:0;font-size:10px;color:#bbb;">Vous recevez cet email car vous avez un compte AfriShop USA.<br/>You are receiving this email because you have an AfriShop USA account.</p>
+      <p style="margin:0 0 4px;font-size:10px;color:#bbb;">&copy; ${new Date().getFullYear()} AfriShop USA</p>
+      <p style="margin:0;font-size:10px;color:#bbb;">Vous recevez cet email car vous avez un compte AfriShop USA.</p>
     </td></tr>
   </table>
 </td></tr></table>
@@ -83,17 +82,15 @@ function buildEmailHtml(products: CampaignProduct[]): string {
 
 function buildPlainText(products: CampaignProduct[]): string {
   let text = "Bonjour,\n\n";
-  text += "Voici une selection de produits disponibles cette semaine.\n";
-  text += "Les prix incluent la livraison en RDC (2 a 4 semaines).\n\n";
-  text += "Here are this week's available products. Prices include delivery to DRC (2-4 weeks).\n\n";
+  text += "Voici une sélection de produits disponibles cette semaine.\n";
+  text += "Les prix incluent la livraison en RDC (2 à 4 semaines).\n\n";
   text += "---\n\n";
   for (const p of products) {
-    text += `${p.title}\n$${p.total_price_usd.toFixed(2)} (tout inclus / all-inclusive)\nCommander: ${p.product_url}\n\n`;
+    text += `${p.title}\n$${p.total_price_usd.toFixed(2)} (tout inclus)\nCommander: ${p.product_url}\n\n`;
   }
   text += "---\n\n";
-  text += "Vous cherchez un autre produit? Visitez afrishop-usa.com/paste-link\n";
-  text += "Looking for something else? Visit afrishop-usa.com/paste-link\n\n";
-  text += "AfriShop USA - Achetez aux USA, livre en Afrique\n";
+  text += "Vous cherchez un autre produit? Visitez afrishop-usa.com/paste-link\n\n";
+  text += "AfriShop USA - Achetez aux USA, livré en Afrique\n";
   text += `© ${new Date().getFullYear()} AfriShop USA\n`;
   return text;
 }

@@ -179,10 +179,53 @@ async function handleRegister(body: any, req: Request) {
   });
 
   if (authError) {
-    if (authError.message.includes('already registered') || authError.message.includes('already exists')) {
-      return jsonRes({ ok: false, message: 'This email is already registered. Please sign in instead.', code: 'USER_EXISTS' }, 409);
+    console.log('[auth-service:register] createUser error:', authError.message, 'status:', (authError as any).status);
+    const errMsg = (authError.message || '').toLowerCase();
+    if (errMsg.includes('already') || errMsg.includes('exists') || errMsg.includes('email_exists') || errMsg.includes('registered') || (authError as any).status === 422) {
+      // User already exists — try to sign them in instead of failing
+      console.log('[auth-service:register] User already exists, attempting sign-in for:', email.trim());
+      const supabase = createAnonClient();
+      const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      
+      if (!signInErr && signInData?.session) {
+        console.log('[auth-service:register] Existing user sign-in SUCCESS for:', email.trim());
+        // Ensure profile exists
+        const { data: existingProfile } = await supabaseAdmin.from('profiles').select('user_id').eq('user_id', signInData.user.id).maybeSingle();
+        if (!existingProfile) {
+          await supabaseAdmin.from('profiles').upsert({
+            user_id: signInData.user.id, email: email.trim().toLowerCase(), full_name: fullName.trim(), name: fullName.trim(),
+            phone: phoneNumber?.trim() || null, address_line1: addressLine1?.trim() || null,
+            address_line2: addressLine2?.trim() || null, city: city?.trim() || null,
+            state_province: stateOrProvince?.trim() || null, postal_code: postalCode?.trim() || null,
+            country: country.trim(), signup_platform: signupPlatform,
+          }, { onConflict: 'user_id' });
+        }
+        return jsonRes({
+          success: true, ok: true,
+          userId: signInData.user.id,
+          message: 'Welcome back! Signed in successfully.',
+          message_fr: 'Bienvenue ! Connexion réussie.',
+          email: signInData.user.email,
+          user: {
+            id: signInData.user.id, email: signInData.user.email, fullName: fullName.trim(),
+            phoneNumber: phoneNumber?.trim() || null, addressLine1: addressLine1?.trim() || null,
+            addressLine2: addressLine2?.trim() || null, city: city?.trim() || null,
+            stateOrProvince: stateOrProvince?.trim() || null, postalCode: postalCode?.trim() || null, country: country.trim(),
+          },
+          token: signInData.session.access_token, refreshToken: signInData.session.refresh_token,
+        });
+      }
+      
+      console.log('[auth-service:register] Existing user sign-in FAILED:', signInErr?.message || 'no session');
+      return jsonRes({ 
+        success: false, ok: false, 
+        message: 'This email is already registered. Please sign in instead, or check your password.', 
+        message_fr: 'Cet email est déjà enregistré. Veuillez vous connecter ou vérifier votre mot de passe.',
+        code: 'USER_EXISTS' 
+      }, 409);
     }
-    return jsonRes({ ok: false, message: 'We could not create your account. Please check your information and try again.' }, 400);
+    console.error('[auth-service:register] Unhandled createUser error:', authError.message);
+    return jsonRes({ ok: false, success: false, message: 'We could not create your account. Please check your information and try again.' }, 400);
   }
 
   // Verification email skipped — auto-confirm is enabled

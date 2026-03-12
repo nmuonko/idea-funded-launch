@@ -141,6 +141,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   // --- Sync lock: prevent overlapping syncCart() calls ---
   const syncInProgressRef = useRef(false);
   const pendingSyncRef = useRef(false);
+  // --- Race condition guard: delay syncCart if addItem was just called ---
+  const lastAddTimestampRef = useRef(0);
+  const ADD_SYNC_DELAY_MS = 2000; // Don't sync within 2s of an add
 
   // --- Only force loading=true on first server hydration, not on token refresh ---
   const didInitialServerHydrateRef = useRef(false);
@@ -357,6 +360,14 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const syncCart = useCallback(async () => {
     if (!user || !sessionRef.current) return;
 
+    // Race condition guard: if addItem just ran, delay sync so server has time to persist
+    const msSinceLastAdd = Date.now() - lastAddTimestampRef.current;
+    if (msSinceLastAdd < ADD_SYNC_DELAY_MS) {
+      const waitMs = ADD_SYNC_DELAY_MS - msSinceLastAdd;
+      console.log(`[CART] syncCart delayed ${waitMs}ms (addItem was ${msSinceLastAdd}ms ago)`);
+      await new Promise(r => setTimeout(r, waitMs));
+    }
+
     // Lock: avoid overlapping syncs
     if (syncInProgressRef.current) {
       pendingSyncRef.current = true;
@@ -475,8 +486,12 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       productUrl: resolvedUrl || item.productId,
     };
 
+    // Mark timestamp so syncCart delays after this add
+    lastAddTimestampRef.current = Date.now();
+
     // Dedup INSIDE the updater so rapid clicks can't produce duplicates
     const newKey = canonicalItemKey(newItem);
+    console.log('[CART] addItem optimistic:', newItem.title, 'key=', newKey, 'user=', !!user);
     setItems(prev => {
       const existingIndex = prev.findIndex(i => canonicalItemKey(i) === newKey);
       if (existingIndex >= 0) {

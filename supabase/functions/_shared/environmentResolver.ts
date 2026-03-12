@@ -48,8 +48,17 @@ function isLikelyMobileRequest(req: Request): boolean {
  */
 export function getEnvironmentFromRequest(req: Request): EnvironmentName {
   try {
+    // CRITICAL: Check mobile FIRST — frozen mobile builds send ?env=staging
+    // as a query param that we MUST override to production
+    const mobile = isLikelyMobileRequest(req);
+
     const url = new URL(req.url);
     const envParam = url.searchParams.get("env")?.toLowerCase().trim();
+
+    if (envParam === "staging" && mobile) {
+      console.warn("[environmentResolver] Mobile request sent ?env=staging query param; forcing production");
+      return "production";
+    }
     if (envParam === "production") return "production";
     if (envParam === "staging") return "staging";
 
@@ -57,7 +66,7 @@ export function getEnvironmentFromRequest(req: Request): EnvironmentName {
     if (header === "production") return "production";
 
     if (header === "staging") {
-      if (isLikelyMobileRequest(req)) {
+      if (mobile) {
         console.warn("[environmentResolver] Mobile request sent staging header; forcing production fallback");
         return "production";
       }

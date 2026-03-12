@@ -139,9 +139,13 @@ export default function HotProducts() {
     const { data } = await supabase
       .from('catalog_items')
       .select('id, title, image_url, images, price_usd, provider, provider_product_id')
-      .ilike('title', `%${searchQuery}%`)
+      .ilike('search_text', `%${searchQuery.trim().toLowerCase()}%`)
       .eq('is_active', true)
-      .limit(20);
+      .eq('is_disallowed', false)
+      .gt('price_usd', 0)
+      .not('image_url', 'is', null)
+      .order('popularity_score', { ascending: false, nullsFirst: false })
+      .limit(100);
     if (data) setSearchResults(data);
     setSearching(false);
   }

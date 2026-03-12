@@ -840,14 +840,14 @@ Deno.serve(async (req: Request) => {
       return coalesce(cacheKey, () => fetchConfig(envName), CACHE_TTL.PUBLIC_CONFIG);
     });
 
-    // Echo the REQUESTED env in the response body so frozen mobile builds
-    // that sent ?env=staging see env:"staging" and don't reject the response.
-    const responseBody = { ...response, env: requestedEnv };
+    // ALWAYS return env:"production" — mobile health check requires this exact value.
+    // Internal data already uses production (via getEnvironmentFromRequest override).
+    const responseBody = { ...response, env: "production" as const };
     if (responseBody.envDetails) {
-      responseBody.envDetails = { ...responseBody.envDetails, name: requestedEnv };
+      responseBody.envDetails = { ...responseBody.envDetails, name: "production" as const };
     }
 
-    console.log("[mobile-public-config] Returning config for env:", envName, "responseEnv:", requestedEnv, "version:", response.version);
+    console.log("[mobile-public-config] Returning config for env:", envName, "responseEnv: production", "version:", response.version);
 
     return new Response(JSON.stringify(responseBody), {
       status: 200,
@@ -866,16 +866,14 @@ Deno.serve(async (req: Request) => {
     
     console.log("[PUBLIC_CONFIG_ENV]", { env: "production", catalogEnabled: true, catalogMode: "native", storesEnabled: false, version: 0, error: true });
     
-    // Echo requested env even in error fallback
-    const errorEnv = getRequestedEnv(req);
+    // ALWAYS return env:"production" even in error fallback
     return new Response(
       JSON.stringify({
         success: false,
         configValid: false,
         reason: "INTERNAL_ERROR",
         error: err instanceof Error ? err.message : "Unknown error",
-        // Echo requested env so mobile doesn't reject
-        env: errorEnv,
+        env: "production",
         catalogEnabled: true,
         catalogMode: "native",
         catalogApiBaseUrl: fallbackApiBaseUrl,

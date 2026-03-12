@@ -59,3 +59,5 @@ project_id = "ecqpqtirhpumfgbdtvhh"
     verify_jwt = false
   [functions.market-search-proxy]
     verify_jwt = false
+  [functions.auth-me]
+    verify_jwt = false

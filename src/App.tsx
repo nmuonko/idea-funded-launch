@@ -392,6 +392,11 @@ const App = () => {
                   <AdminReferrals />
                 </AdminRouteGuard>
               } />
+              <Route path="hot-products" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <AdminHotProducts />
+                </AdminRouteGuard>
+              } />
               <Route path="access-denied" element={<AdminAccessDenied />} />
           </Route>
             

@@ -13,6 +13,23 @@ import { calculateShippingUsd } from '@/lib/shippingCalculation';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 
+function inferProvider(url: string): string | null {
+  if (/amazon\.\w/.test(url)) return 'amazon';
+  if (/walmart\.com/.test(url)) return 'walmart';
+  if (/temu\.com/.test(url)) return 'temu';
+  if (/shein\.com/.test(url)) return 'shein';
+  if (/ebay\.com/.test(url)) return 'ebay';
+  return null;
+}
+
+function inferProductId(url: string): string | null {
+  const asinMatch = url.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/);
+  if (asinMatch) return asinMatch[1];
+  const walmartMatch = url.match(/\/ip\/[^/]*?\/(\d+)/);
+  if (walmartMatch) return walmartMatch[1];
+  return null;
+}
+
 interface SelectedProduct {
   id: string;
   title: string;
@@ -188,9 +205,13 @@ export default function HotProducts() {
         markup_usd: Math.round(markup * 100) / 100,
         shipping_usd: Math.round(shipping * 100) / 100,
         total_price_usd: total,
-        product_url: (data.provider && data.providerId) ? `https://afrishop-usa.com/product/${data.provider}/${data.providerId}` : pasteUrl.trim(),
-        provider: data.provider || 'external',
-        provider_product_id: data.providerId || '',
+        product_url: (() => {
+          const prov = data.provider || inferProvider(pasteUrl.trim());
+          const pid = data.providerId || inferProductId(pasteUrl.trim());
+          return (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : `https://afrishop-usa.com/paste-link`;
+        })(),
+        provider: data.provider || inferProvider(pasteUrl.trim()) || 'external',
+        provider_product_id: data.providerId || inferProductId(pasteUrl.trim()) || '',
       }]);
       setPasteUrl('');
       toast.success('Product extracted!');

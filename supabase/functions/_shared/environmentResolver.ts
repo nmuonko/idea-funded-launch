@@ -24,37 +24,52 @@ let envCache: Map<string, { data: EnvironmentConfig; expires: number }> = new Ma
 const CACHE_TTL_MS = 30_000; // 30 seconds
 
 /**
+ * Heuristic mobile detection for frozen app builds.
+ * If a stale mobile header keeps sending staging, we force production fallback.
+ */
+function isLikelyMobileRequest(req: Request): boolean {
+  const h = req.headers;
+  const deviceId = h.get("x-device-id") || "";
+  if (deviceId.trim().length > 0) return true;
+
+  const platform = (h.get("x-supabase-client-platform") || "").toLowerCase();
+  if (platform.includes("ios") || platform.includes("android")) return true;
+
+  const afrishopClient = (h.get("x-afrishop-client") || "").toLowerCase();
+  if (afrishopClient.includes("mobile")) return true;
+
+  const ua = (h.get("user-agent") || "").toLowerCase();
+  return ua.includes("okhttp") || ua.includes("expo") || ua.includes("reactnative") || ua.includes("react-native") || ua.includes("capacitor");
+}
+
+/**
  * Detect environment from request
- * Priority: Header (if valid) > Query param (if valid) > Default (production)
- * Safe fallback chain - always returns valid environment
+ * Priority: Query param > Header > Default production
  */
 export function getEnvironmentFromRequest(req: Request): EnvironmentName {
   try {
-    // 1. Check header first (if it exists and is valid)
-    const header = req.headers.get("X-Afrishop-Environment");
+    const url = new URL(req.url);
+    const envParam = url.searchParams.get("env")?.toLowerCase().trim();
+    if (envParam === "production") return "production";
+    if (envParam === "staging") return "staging";
+
+    const header = req.headers.get("x-afrishop-environment")?.toLowerCase().trim();
+    if (header === "production") return "production";
+
+    if (header === "staging") {
+      if (isLikelyMobileRequest(req)) {
+        console.warn("[environmentResolver] Mobile request sent staging header; forcing production fallback");
+        return "production";
+      }
+      return "staging";
+    }
+
     if (header) {
-      const normalizedHeader = header.toLowerCase().trim();
-      if (normalizedHeader === "staging") return "staging";
-      if (normalizedHeader === "production") return "production";
-      // Header exists but invalid - fall through to query param
       console.warn("[environmentResolver] Invalid header value:", header);
     }
 
-    // 2. Check query param (if it exists and is valid)
-    const url = new URL(req.url);
-    const envParam = url.searchParams.get("env");
-    if (envParam) {
-      const normalizedParam = envParam.toLowerCase().trim();
-      if (normalizedParam === "staging") return "staging";
-      if (normalizedParam === "production") return "production";
-      // Query param exists but invalid - fall through to default
-      console.warn("[environmentResolver] Invalid query param value:", envParam);
-    }
-
-    // 3. Default to production (safe fallback)
     return "production";
   } catch (err) {
-    // Any parsing error - default to production
     console.error("[environmentResolver] Error parsing request:", err);
     return "production";
   }

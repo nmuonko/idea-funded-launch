@@ -198,7 +198,7 @@ async function handleRegister(body: any, req: Request) {
             phone: phoneNumber?.trim() || null, address_line1: addressLine1?.trim() || null,
             address_line2: addressLine2?.trim() || null, city: city?.trim() || null,
             state_province: stateOrProvince?.trim() || null, postal_code: postalCode?.trim() || null,
-            country: country.trim(), signup_platform: signupPlatform,
+            country: normalizedCountry, signup_platform: signupPlatform,
           }, { onConflict: 'user_id' });
         }
         return jsonRes({

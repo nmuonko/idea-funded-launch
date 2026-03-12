@@ -400,7 +400,7 @@ export async function serveMobileSections(
       meta: {
         client: "mobile",
         detectedBy,
-        envUsed: env,
+        envUsed: envRequested,
         envRequested,
         source: "mobile_sections_cache",
         isStale: false,

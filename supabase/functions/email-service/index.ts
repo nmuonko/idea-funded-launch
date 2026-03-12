@@ -226,6 +226,7 @@ type CartRecoveryLang = 'fr' | 'en' | 'sw' | 'ln';
 const CART_RECOVERY_STRINGS: Record<CartRecoveryLang, {
   subject: string; greeting: string; body: string; cta: string;
   helpTitle: string; whatsappBtn: string; emailBtn: string; footer: string;
+  pasteLinkTitle: string; pasteLinkBody: string; pasteLinkCta: string;
 }> = {
   fr: {
     subject: 'Votre panier vous attend! 🛒',
@@ -236,6 +237,9 @@ const CART_RECOVERY_STRINGS: Record<CartRecoveryLang, {
     whatsappBtn: '💬 Contactez-nous sur WhatsApp',
     emailBtn: '📧 Envoyez-nous un email',
     footer: 'Merci de faire confiance à AfriShop! Si vous ne souhaitez plus recevoir ces rappels, ignorez cet email.',
+    pasteLinkTitle: '🔗 Vous ne trouvez pas ce que vous cherchez?',
+    pasteLinkBody: 'Choisissez un magasin américain (Amazon, Walmart, Temu, SHEIN…), copiez le lien du produit et collez-le pour obtenir le prix complet avec livraison.',
+    pasteLinkCta: 'Coller un lien maintenant',
   },
   en: {
     subject: 'Your cart is waiting! 🛒',
@@ -246,6 +250,9 @@ const CART_RECOVERY_STRINGS: Record<CartRecoveryLang, {
     whatsappBtn: '💬 Contact us on WhatsApp',
     emailBtn: '📧 Send us an email',
     footer: 'Thank you for shopping with AfriShop! If you no longer wish to receive these reminders, simply ignore this email.',
+    pasteLinkTitle: '🔗 Can\'t find what you\'re looking for?',
+    pasteLinkBody: 'Choose any US store (Amazon, Walmart, Temu, SHEIN…), copy the product link and paste it to get the full price including shipping.',
+    pasteLinkCta: 'Paste a Link Now',
   },
   sw: {
     subject: 'Kikapu chako kinakungoja! 🛒',
@@ -256,6 +263,9 @@ const CART_RECOVERY_STRINGS: Record<CartRecoveryLang, {
     whatsappBtn: '💬 Wasiliana nasi WhatsApp',
     emailBtn: '📧 Tutumie barua pepe',
     footer: 'Asante kwa kununua na AfriShop!',
+    pasteLinkTitle: '🔗 Hupati unachotafuta?',
+    pasteLinkBody: 'Chagua duka la Marekani, nakili kiungo na ubandike ili kupata bei kamili pamoja na usafirishaji.',
+    pasteLinkCta: 'Bandika Kiungo Sasa',
   },
   ln: {
     subject: 'Panier na yo ezali kozela yo! 🛒',
@@ -266,6 +276,9 @@ const CART_RECOVERY_STRINGS: Record<CartRecoveryLang, {
     whatsappBtn: '💬 Solola na biso na WhatsApp',
     emailBtn: '📧 Tindela biso email',
     footer: 'Merci ndenge osombi na AfriShop!',
+    pasteLinkTitle: '🔗 Ozali kozwa te oyo ozali koluka?',
+    pasteLinkBody: 'Poná magazin ya Amerika, kopya lien ya produit mpe koller yango pona kozwa ntalo mobimba na livraison.',
+    pasteLinkCta: 'Koller lien sikoyo',
   },
 };
 

@@ -37,7 +37,7 @@ Deno.serve(async (req: Request) => {
 
     const url = new URL(req.url);
     const lang = url.searchParams.get("lang") || url.searchParams.get("language") || "en";
-    const env = url.searchParams.get("env") || getEnvironmentFromRequest(req) || "production";
+    const env = getEnvironmentFromRequest(req);
 
     // Fetch tabs
     const { data: tabs, error: tabsError } = await supabase

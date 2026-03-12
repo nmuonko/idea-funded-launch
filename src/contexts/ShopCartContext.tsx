@@ -486,8 +486,12 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       productUrl: resolvedUrl || item.productId,
     };
 
+    // Mark timestamp so syncCart delays after this add
+    lastAddTimestampRef.current = Date.now();
+
     // Dedup INSIDE the updater so rapid clicks can't produce duplicates
     const newKey = canonicalItemKey(newItem);
+    console.log('[CART] addItem optimistic:', newItem.title, 'key=', newKey, 'user=', !!user);
     setItems(prev => {
       const existingIndex = prev.findIndex(i => canonicalItemKey(i) === newKey);
       if (existingIndex >= 0) {

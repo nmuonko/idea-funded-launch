@@ -254,10 +254,10 @@ function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
   if (envUsed === "prod") envUsed = "production";
   if (envUsed !== "production" && envUsed !== "staging" && envUsed !== "dev") envUsed = "production";
 
-  // Frozen mobile builds can persist a stale staging header; keep them on production unless staging is explicitly requested in query param.
+  // Frozen mobile builds send ?env=staging — force production for ALL mobile requests
   const { clientType } = detectClientType(req);
-  if (envUsed === "staging" && clientType === "mobile" && !explicitStagingQuery) {
-    console.warn("[CATALOG_HOME] Mobile request sent staging env header; forcing production fallback");
+  if (envUsed === "staging" && clientType === "mobile") {
+    console.warn("[CATALOG_HOME] Mobile request sent staging env (header or query param); forcing production fallback");
     envUsed = "production";
   }
 

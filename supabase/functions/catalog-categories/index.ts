@@ -98,7 +98,7 @@ Deno.serve(async (req: Request) => {
       ok: true,
       tabs: categories,
       categories,
-      env,
+      env: responseEnv,
       total: categories.length,
     });
 

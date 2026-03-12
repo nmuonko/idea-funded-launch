@@ -866,14 +866,16 @@ Deno.serve(async (req: Request) => {
     
     console.log("[PUBLIC_CONFIG_ENV]", { env: "production", catalogEnabled: true, catalogMode: "native", storesEnabled: false, version: 0, error: true });
     
+    // Echo requested env even in error fallback
+    const errorEnv = getRequestedEnv(req);
     return new Response(
       JSON.stringify({
         success: false,
         configValid: false,
         reason: "INTERNAL_ERROR",
         error: err instanceof Error ? err.message : "Unknown error",
-        // Provide stable defaults even on error so mobile doesn't crash
-        env: "production",
+        // Echo requested env so mobile doesn't reject
+        env: errorEnv,
         catalogEnabled: true,
         catalogMode: "native",
         catalogApiBaseUrl: fallbackApiBaseUrl,

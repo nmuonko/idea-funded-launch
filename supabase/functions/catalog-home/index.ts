@@ -241,23 +241,26 @@ function jsonResponse(data: unknown, status = 200, extraHeaders: Record<string, 
  */
 function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
   const url = new URL(req.url);
-  
-  let envRequested = url.searchParams.get("env") 
-    || req.headers.get("X-Afrishop-Environment") 
+
+  let envRequested = url.searchParams.get("env")
+    || req.headers.get("X-Afrishop-Environment")
     || req.headers.get("x-afrishop-environment")
     || "production";
-  
+
   envRequested = envRequested.toLowerCase().trim();
+  const explicitStagingQuery = (url.searchParams.get("env") || "").toLowerCase().trim() === "staging";
+
   let envUsed = envRequested;
-  
-  if (envUsed === "prod") {
+  if (envUsed === "prod") envUsed = "production";
+  if (envUsed !== "production" && envUsed !== "staging" && envUsed !== "dev") envUsed = "production";
+
+  // Frozen mobile builds can persist a stale staging header; keep them on production unless staging is explicitly requested in query param.
+  const { clientType } = detectClientType(req);
+  if (envUsed === "staging" && clientType === "mobile" && !explicitStagingQuery) {
+    console.warn("[CATALOG_HOME] Mobile request sent staging env header; forcing production fallback");
     envUsed = "production";
   }
-  
-  if (envUsed !== "production" && envUsed !== "staging" && envUsed !== "dev") {
-    envUsed = "production";
-  }
-  
+
   return { envRequested, envUsed };
 }
 

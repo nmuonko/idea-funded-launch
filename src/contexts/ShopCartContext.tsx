@@ -494,8 +494,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      let addSucceeded = false;
       try {
-        await supabase.functions.invoke('mobile-cart', {
+        const { error } = await supabase.functions.invoke('mobile-cart', {
           body: {
             action: 'add_item',
             productUrl: resolvedUrl,
@@ -505,12 +506,17 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
             productImageUrl: item.imageUrl,
           },
         });
-        // syncCart will drop all local_ items — no need to manually filter here
+        if (error) throw error;
+        addSucceeded = true;
       } catch (error) {
-        console.error('[CART] Failed to add item to server:', error);
+        console.error('[CART] Failed to add item to server, keeping optimistic local item:', error);
       }
-      // Background sync to get server IDs — no await, no loading spinner
-      syncCart();
+
+      // IMPORTANT: only reconcile from server when add actually succeeded.
+      // If add failed, keep optimistic local item so it doesn't "disappear".
+      if (addSucceeded) {
+        syncCart();
+      }
     }
   };
 

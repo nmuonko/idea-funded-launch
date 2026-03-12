@@ -88,6 +88,7 @@ export default function AdminUsers() {
   const [showPassword, setShowPassword] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [resending, setResending] = useState<string | null>(null);
+  const [deletingInvite, setDeletingInvite] = useState<string | null>(null);
   
   // Filters for profiles
   const [filterCountry, setFilterCountry] = useState<string>('all');

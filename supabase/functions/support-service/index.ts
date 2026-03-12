@@ -145,7 +145,7 @@ const fallbackFaq: Record<string, Array<{ triggers: string[]; answer: string }>>
     { triggers: ['annuler', 'annulation'], answer: 'Pour annuler une commande non encore traitée, contactez notre support rapidement. Les commandes déjà expédiées ne peuvent pas être annulées.' },
     { triggers: ['modifier', 'changer', 'adresse'], answer: 'Pour modifier votre commande ou adresse de livraison, contactez-nous rapidement avant l\'expédition.' },
     { triggers: ['remboursement', 'rembourser', 'retour', 'retourner'], answer: 'Les remboursements sont possibles pour les produits non conformes ou endommagés. Contactez un agent pour initier la procédure. Le traitement prend 5-10 jours ouvrables.' },
-    { triggers: ['prix', 'coût', 'combien', 'tarif'], answer: 'Les prix sont affichés sur chaque produit en USD. Les frais de livraison sont calculés à la commande selon la destination.' },
+    { triggers: ['prix', 'coût', 'combien', 'tarif'], answer: 'Les prix sont affichés sur chaque produit en USD. Les frais de livraison sont calculés à la commande selon la destination. Nos prix sont finaux et non négociables.' },
     { triggers: ['compte', 'inscription', 'mot de passe', 'connexion', 'connecter'], answer: 'Pour créer un compte, cliquez sur "S\'inscrire". Si vous avez oublié votre mot de passe, utilisez "Mot de passe oublié" sur la page de connexion.' },
     { triggers: ['bonjour', 'salut', 'bonsoir', 'hello', 'hi', 'coucou'], answer: 'Bonjour ! 😊 Comment puis-je vous aider aujourd\'hui ? N\'hésitez pas à poser votre question.' },
     { triggers: ['merci', 'thanks', 'ok', 'bien', 'super', 'parfait', 'génial'], answer: 'Je vous en prie ! 😊 Y a-t-il autre chose que je puisse faire pour vous ?' },

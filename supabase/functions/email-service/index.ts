@@ -325,6 +325,13 @@ function buildCartRecoveryHtml(opts: {
       <a href="${cartUrl}" style="display:inline-block;background:#f59e0b;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:600;">${s.cta}</a>
     </div>
     <hr style="border:none;border-top:1px solid #eee;margin:30px 0;" />
+    <div style="background:#f0f9ff;padding:20px;border-radius:8px;margin-bottom:20px;border:1px solid #bae6fd;">
+      <p style="margin:0 0 8px;font-size:16px;font-weight:600;color:#0369a1;">${s.pasteLinkTitle}</p>
+      <p style="margin:0 0 15px;font-size:14px;color:#555;line-height:1.5;">${s.pasteLinkBody}</p>
+      <div style="text-align:center;">
+        <a href="https://afrishop-usa.com/paste-link" style="display:inline-block;background:#0369a1;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:15px;font-weight:600;">${s.pasteLinkCta}</a>
+      </div>
+    </div>
     <h3 style="color:#333;margin-bottom:15px;">${s.helpTitle}</h3>
     <div style="text-align:center;">
       <a href="${whatsappUrl}" style="display:inline-block;background:#25D366;color:#fff;text-decoration:none;padding:10px 24px;border-radius:6px;font-size:14px;margin:5px;">${s.whatsappBtn}</a>

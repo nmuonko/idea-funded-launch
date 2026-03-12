@@ -1,6 +1,8 @@
 project_id = "ecqpqtirhpumfgbdtvhh"
 
 [functions]
+  [functions.app-bootstrap]
+    verify_jwt = false
   [functions.admin-service]
     verify_jwt = false
   [functions.auth-email-hook]

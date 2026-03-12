@@ -89,6 +89,8 @@ export default function AdminUsers() {
   const [inviting, setInviting] = useState(false);
   const [resending, setResending] = useState<string | null>(null);
   const [deletingInvite, setDeletingInvite] = useState<string | null>(null);
+  const [selectedInvites, setSelectedInvites] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   
   // Filters for profiles
   const [filterCountry, setFilterCountry] = useState<string>('all');

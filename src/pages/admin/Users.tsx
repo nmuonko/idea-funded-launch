@@ -194,6 +194,7 @@ export default function AdminUsers() {
       const { data, error } = await supabase
         .from('admin_invitations')
         .select('*')
+        .neq('status', 'accepted')
         .order('created_at', { ascending: false });
 
       if (error) {

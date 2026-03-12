@@ -30,19 +30,18 @@ interface CampaignProduct {
 const LOGO_URL = "https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo-white.png";
 
 function buildEmailHtml(products: CampaignProduct[]): string {
-  const productCards = products.map(p => `
-    <tr><td align="center" style="padding:8px;">
-      <table width="260" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#ffffff;">
-        ${p.image_url ? `<tr><td><img src="${p.image_url}" alt="${p.title}" width="260" height="220" style="display:block;width:260px;height:220px;object-fit:cover;" /></td></tr>` : ''}
-        <tr><td style="padding:12px;text-align:center;">
-          <p style="font-weight:600;font-size:13px;margin:0 0 4px;color:#1a1a1a;line-height:1.3;">${p.title.length > 50 ? p.title.slice(0, 50) + '…' : p.title}</p>
-          <p style="font-size:22px;font-weight:800;color:#e63946;margin:6px 0 2px;">$${p.total_price_usd.toFixed(2)}</p>
-          <p style="font-size:10px;color:#666;margin:0 0 10px;">Tout inclus</p>
-          <a href="${p.product_url}" style="display:inline-block;background:#e63946;color:#ffffff;padding:10px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">🛒 Commander</a>
-        </td></tr>
-      </table>
-    </td></tr>
-  `).join('');
+  const productCells = products.map(p => `
+      <td align="center" valign="top" style="padding:8px;width:${Math.floor(100/products.length)}%;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#ffffff;">
+          ${p.image_url ? `<tr><td><img src="${p.image_url}" alt="${p.title}" width="180" style="display:block;width:100%;height:180px;object-fit:cover;" /></td></tr>` : ''}
+          <tr><td style="padding:10px;text-align:center;">
+            <p style="font-weight:600;font-size:12px;margin:0 0 4px;color:#1a1a1a;line-height:1.3;">${p.title.length > 45 ? p.title.slice(0, 45) + '…' : p.title}</p>
+            <p style="font-size:20px;font-weight:800;color:#e63946;margin:4px 0 2px;">$${p.total_price_usd.toFixed(2)}</p>
+            <p style="font-size:9px;color:#666;margin:0 0 8px;">Tout inclus · All-inclusive</p>
+            <a href="${p.product_url}" style="display:inline-block;background:#e63946;color:#ffffff;padding:8px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;">Commander</a>
+          </td></tr>
+        </table>
+      </td>`).join('');
 
   return `<!DOCTYPE html>
 <html lang="fr">
@@ -54,26 +53,31 @@ function buildEmailHtml(products: CampaignProduct[]): string {
     <tr><td style="text-align:center;padding:20px;background-color:#1a1a1a;">
       <img src="${LOGO_URL}" width="140" height="auto" alt="AfriShop USA" style="display:inline-block;max-width:140px;" />
     </td></tr>
-    <!-- Intro -->
-    <tr><td style="padding:20px 24px 8px;font-family:Arial,Helvetica,sans-serif;">
+    <!-- Intro FR -->
+    <tr><td style="padding:20px 24px 4px;font-family:Arial,Helvetica,sans-serif;">
       <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Bonjour,</p>
-      <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Voici une s&eacute;lection de produits disponibles cette semaine. Les prix incluent la livraison en RDC (2 &agrave; 4 semaines).</p>
+      <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Nous avons s&eacute;lectionn&eacute; ces produits pour vous cette semaine. Les prix incluent la livraison en RDC (2 &agrave; 4 semaines).</p>
     </td></tr>
-    <!-- Products -->
-    <tr><td style="padding:8px 16px;">
+    <!-- Intro EN -->
+    <tr><td style="padding:0 24px 8px;font-family:Arial,Helvetica,sans-serif;">
+      <p style="font-size:13px;color:#888;margin:0;line-height:1.5;">We picked these products for you this week. Prices include delivery to DRC (2-4 weeks).</p>
+    </td></tr>
+    <!-- Products side by side -->
+    <tr><td style="padding:8px 12px;">
       <table width="100%" cellpadding="0" cellspacing="0" border="0">
-        ${productCards}
+        <tr>${productCells}</tr>
       </table>
     </td></tr>
     <!-- CTA -->
     <tr><td style="padding:12px 24px 20px;font-family:Arial,Helvetica,sans-serif;">
-      <p style="font-size:12px;color:#555;margin:0;line-height:1.5;">Vous cherchez un autre produit? Visitez <a href="https://afrishop-usa.com/paste-link" style="color:#e63946;text-decoration:underline;">afrishop-usa.com</a> et collez le lien de n'importe quel produit am&eacute;ricain.</p>
+      <p style="font-size:12px;color:#555;margin:0 0 4px;line-height:1.5;">Vous cherchez un autre produit ? Visitez <a href="https://afrishop-usa.com/paste-link" style="color:#e63946;text-decoration:underline;">afrishop-usa.com</a> et collez le lien de n'importe quel produit am&eacute;ricain.</p>
+      <p style="font-size:11px;color:#888;margin:0;line-height:1.5;">Looking for something else? Visit <a href="https://afrishop-usa.com/paste-link" style="color:#e63946;text-decoration:underline;">afrishop-usa.com</a> and paste any US product link.</p>
     </td></tr>
     <!-- Footer -->
     <tr><td style="text-align:center;padding:16px 24px;background-color:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
       <p style="margin:0 0 4px;font-size:11px;color:#999;">AfriShop USA - Achetez aux USA, livr&eacute; en Afrique</p>
       <p style="margin:0 0 4px;font-size:10px;color:#bbb;">&copy; ${new Date().getFullYear()} AfriShop USA</p>
-      <p style="margin:0;font-size:10px;color:#bbb;">Vous recevez cet email car vous avez un compte AfriShop USA.</p>
+      <p style="margin:0;font-size:10px;color:#bbb;">Vous recevez cet email car vous avez un compte AfriShop USA.<br/>You are receiving this email because you have an AfriShop USA account.</p>
     </td></tr>
   </table>
 </td></tr></table>

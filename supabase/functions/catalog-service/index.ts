@@ -281,11 +281,8 @@ async function handleNav(req: Request): Promise<Response> {
 }
 
 function getNavEnv(req: Request): "production" | "staging" {
-  const h = req.headers.get("x-afrishop-environment");
-  if (h === "staging") return "staging";
-  const u = new URL(req.url);
-  if (u.searchParams.get("env") === "staging") return "staging";
-  return "production";
+  const resolved = getEnvironmentFromRequest(req);
+  return resolved === "staging" ? "staging" : "production";
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -706,6 +706,14 @@ export function buildOrderAssistanceEmail(params: {
             📲 ${t.appInstruction}
           </p>
         </div>
+
+        <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin-top: 20px; border: 1px solid #bae6fd;">
+          <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #0369a1;">${t.pasteLinkTitle}</p>
+          <p style="margin: 0 0 15px 0; font-size: 14px; color: #555; line-height: 1.5;">${t.pasteLinkBody}</p>
+          <div style="text-align: center;">
+            <a href="${frontendBaseUrl}/paste-link" style="display:inline-block;background:#0369a1;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:15px;font-weight:600;">${t.pasteLinkCta}</a>
+          </div>
+        </div>
       </div>
     `;
   };

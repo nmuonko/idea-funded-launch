@@ -854,6 +854,8 @@ serve(async (req) => {
         return handleUpdateItemStatus(auth, body);
       case 'invite_user':
         return handleInviteUser(auth, body);
+      case 'delete_invitation':
+        return handleDeleteInvitation(auth, body);
       case 'system_health':
         return handleSystemHealth(auth);
       case 'get_carts':

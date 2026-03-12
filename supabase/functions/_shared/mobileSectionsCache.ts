@@ -542,7 +542,7 @@ export function emptyMobileSectionsResponse(
     meta: {
       client: "mobile",
       detectedBy,
-      envUsed: envRequested,
+      envUsed: "production",
       envRequested,
       source,
       isStale: true,

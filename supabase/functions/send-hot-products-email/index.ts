@@ -86,14 +86,16 @@ function buildEmailHtml(products: CampaignProduct[]): string {
 
 function buildPlainText(products: CampaignProduct[]): string {
   let text = "Bonjour,\n\n";
-  text += "Voici une sélection de produits disponibles cette semaine.\n";
+  text += "Nous avons sélectionné ces produits pour vous cette semaine.\n";
   text += "Les prix incluent la livraison en RDC (2 à 4 semaines).\n\n";
+  text += "We picked these products for you this week. Prices include delivery to DRC (2-4 weeks).\n\n";
   text += "---\n\n";
   for (const p of products) {
-    text += `${p.title}\n$${p.total_price_usd.toFixed(2)} (tout inclus)\nCommander: ${p.product_url}\n\n`;
+    text += `${p.title}\n$${p.total_price_usd.toFixed(2)} (tout inclus / all-inclusive)\nCommander: ${p.product_url}\n\n`;
   }
   text += "---\n\n";
-  text += "Vous cherchez un autre produit? Visitez afrishop-usa.com/paste-link\n\n";
+  text += "Vous cherchez un autre produit? Visitez afrishop-usa.com/paste-link\n";
+  text += "Looking for something else? Visit afrishop-usa.com/paste-link\n\n";
   text += "AfriShop USA - Achetez aux USA, livré en Afrique\n";
   text += `© ${new Date().getFullYear()} AfriShop USA\n`;
   return text;

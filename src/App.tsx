@@ -58,6 +58,7 @@ const AdminReferrals = lazy(() => import("./pages/admin/Referrals"));
 const PaymentsSettings = lazy(() => import("./pages/admin/PaymentsSettings"));
 const ServiceZones = lazy(() => import("./pages/admin/ServiceZones"));
 const AdminDelivery = lazy(() => import("./pages/admin/Delivery"));
+const AdminHotProducts = lazy(() => import("./pages/admin/HotProducts"));
 
 // Lazy-loaded secondary pages
 const Cars = lazy(() => import("./pages/Cars"));
@@ -389,6 +390,11 @@ const App = () => {
               <Route path="referrals" element={
                 <AdminRouteGuard requiredPermission="can_view_payments">
                   <AdminReferrals />
+                </AdminRouteGuard>
+              } />
+              <Route path="hot-products" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <AdminHotProducts />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

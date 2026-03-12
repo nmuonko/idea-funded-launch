@@ -12,7 +12,7 @@ import {
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, Home,
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
   Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe,
-  ChevronDown, Database, Store, Gift, Archive, Brain, MapPin
+  ChevronDown, Database, Store, Gift, Archive, Brain, MapPin, Flame
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AdminNotificationsBell } from '@/components/admin/AdminNotificationsBell';
@@ -71,6 +71,12 @@ export function AdminLayout() {
         { to: '/admin/support-inbox', icon: Headphones, label: t.sidebar.supportInbox || 'Live Chat', permission: 'can_view_tickets' as const },
         { to: '/admin/support-contact', icon: MessageSquare, label: language === 'fr' ? 'Contact Support' : 'Support Contact', permission: 'can_view_tickets' as const },
         { to: '/admin/chat-routing', icon: BarChart3, label: language === 'fr' ? 'Routage Chat' : 'Chat Routing', permission: 'can_view_ticket_analytics' as const },
+      ]
+    },
+    {
+      title: language === 'fr' ? 'Marketing' : 'Marketing',
+      items: [
+        { to: '/admin/hot-products', icon: Flame, label: language === 'fr' ? 'Produits Vedettes' : 'Hot Products', permission: 'can_view_settings' as const },
       ]
     },
     {

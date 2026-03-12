@@ -816,6 +816,30 @@ async function proxyAdminToFunction(functionName: string, req: Request, body: an
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// ACTION: delete_invitation
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function handleDeleteInvitation(auth: any, body: any) {
+  const { invitationId } = body;
+  if (!invitationId || typeof invitationId !== 'string') {
+    return jsonRes({ error: 'Missing invitationId' }, 400);
+  }
+
+  const { error } = await serviceSupabase
+    .from('admin_invitations')
+    .delete()
+    .eq('id', invitationId);
+
+  if (error) {
+    console.error('[admin-service] Delete invitation error:', error);
+    return jsonRes({ error: 'Failed to delete invitation' }, 500);
+  }
+
+  console.log(`[admin-service] Invitation ${invitationId} deleted by ${auth.user.email}`);
+  return jsonRes({ success: true });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // MAIN ROUTER
 // ═══════════════════════════════════════════════════════════════════════════════
 

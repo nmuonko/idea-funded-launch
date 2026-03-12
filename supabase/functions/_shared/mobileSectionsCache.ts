@@ -443,7 +443,7 @@ export async function serveMobileSections(
         meta: {
           client: "mobile",
           detectedBy,
-          envUsed: envRequested,
+          envUsed: "production",
           envRequested,
           source: "staging_to_production_fallback",
           isStale: false,

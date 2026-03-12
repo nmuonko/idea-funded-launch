@@ -6301,7 +6301,9 @@ export type Database = {
         Args: { p_limit?: number; p_provider: string; p_window_type: string }
         Returns: Json
       }
-      is_admin: { Args: never; Returns: boolean }
+      is_admin:
+        | { Args: never; Returns: boolean }
+        | { Args: { check_user_id: string }; Returns: boolean }
       is_admin_cached: { Args: never; Returns: boolean }
       is_admin_role: { Args: never; Returns: boolean }
       is_email_verified: { Args: never; Returns: boolean }

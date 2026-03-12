@@ -7,7 +7,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { coalesce, CACHE_TTL, makeCacheKey } from "../_shared/responseCache.ts";
 import { withLoadShedding, getEndpointPriority, LoadSheddingError, loadSheddingResponse } from "../_shared/loadShedding.ts";
-import { getEnvironmentFromRequest, getEnvironmentConfig, EnvironmentConfig } from "../_shared/environmentResolver.ts";
+import { getEnvironmentFromRequest, getRequestedEnv, getEnvironmentConfig, EnvironmentConfig } from "../_shared/environmentResolver.ts";
 
 import { buildCorsHeaders, corsPreflightResponse, logStartupRequest } from "../_shared/mobileCors.ts";
 

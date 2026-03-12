@@ -43,7 +43,28 @@ function isLikelyMobileRequest(req: Request): boolean {
 }
 
 /**
- * Detect environment from request
+ * Return the raw environment string the client ASKED for (before any override).
+ * Used to echo back in response bodies so frozen mobile builds see env:"staging".
+ */
+export function getRequestedEnv(req: Request): EnvironmentName {
+  try {
+    const url = new URL(req.url);
+    const envParam = url.searchParams.get("env")?.toLowerCase().trim();
+    if (envParam === "staging") return "staging";
+    if (envParam === "production") return "production";
+
+    const header = req.headers.get("x-afrishop-environment")?.toLowerCase().trim();
+    if (header === "staging") return "staging";
+    if (header === "production") return "production";
+
+    return "production";
+  } catch {
+    return "production";
+  }
+}
+
+/**
+ * Detect environment from request (used for DB queries — always production for mobile)
  * Priority: Query param > Header > Default production
  */
 export function getEnvironmentFromRequest(req: Request): EnvironmentName {

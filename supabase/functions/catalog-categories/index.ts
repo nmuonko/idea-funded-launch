@@ -8,7 +8,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
+import { getEnvironmentFromRequest, getRequestedEnv } from "../_shared/environmentResolver.ts";
 import { buildCorsHeaders, corsPreflightResponse, logStartupRequest } from "../_shared/mobileCors.ts";
 
 Deno.serve(async (req: Request) => {

@@ -141,6 +141,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   // --- Sync lock: prevent overlapping syncCart() calls ---
   const syncInProgressRef = useRef(false);
   const pendingSyncRef = useRef(false);
+  // --- Race condition guard: delay syncCart if addItem was just called ---
+  const lastAddTimestampRef = useRef(0);
+  const ADD_SYNC_DELAY_MS = 2000; // Don't sync within 2s of an add
 
   // --- Only force loading=true on first server hydration, not on token refresh ---
   const didInitialServerHydrateRef = useRef(false);

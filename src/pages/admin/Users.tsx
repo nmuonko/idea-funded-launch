@@ -89,6 +89,8 @@ export default function AdminUsers() {
   const [inviting, setInviting] = useState(false);
   const [resending, setResending] = useState<string | null>(null);
   const [deletingInvite, setDeletingInvite] = useState<string | null>(null);
+  const [selectedInvites, setSelectedInvites] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   
   // Filters for profiles
   const [filterCountry, setFilterCountry] = useState<string>('all');
@@ -323,11 +325,46 @@ export default function AdminUsers() {
       });
       if (error) throw error;
       toast({ title: 'Invitation deleted' });
+      setSelectedInvites(prev => { const n = new Set(prev); n.delete(invitationId); return n; });
       await loadInvitations();
     } catch (error: any) {
       toast({ title: 'Error deleting invitation', description: error.message, variant: 'destructive' });
     } finally {
       setDeletingInvite(null);
+    }
+  };
+
+  const bulkDeleteInvitations = async () => {
+    if (selectedInvites.size === 0) return;
+    try {
+      setBulkDeleting(true);
+      const { data, error } = await supabase.functions.invoke('admin-service', {
+        body: { action: 'delete_invitation', invitationIds: Array.from(selectedInvites) },
+      });
+      if (error) throw error;
+      toast({ title: `${selectedInvites.size} invitation(s) deleted` });
+      setSelectedInvites(new Set());
+      await loadInvitations();
+    } catch (error: any) {
+      toast({ title: 'Error deleting invitations', description: error.message, variant: 'destructive' });
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const toggleInviteSelection = (id: string) => {
+    setSelectedInvites(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+
+  const toggleAllInvites = () => {
+    if (selectedInvites.size === invitations.length) {
+      setSelectedInvites(new Set());
+    } else {
+      setSelectedInvites(new Set(invitations.map(i => i.id)));
     }
   };
 
@@ -640,6 +677,34 @@ export default function AdminUsers() {
               <CardDescription>Admin invitations sent to users</CardDescription>
             </CardHeader>
             <CardContent>
+              {invitations.length > 0 && (
+                <div className="flex items-center justify-between mb-4">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedInvites.size === invitations.length}
+                      onChange={toggleAllInvites}
+                      className="rounded border-border"
+                    />
+                    Select all ({selectedInvites.size}/{invitations.length})
+                  </label>
+                  {selectedInvites.size > 0 && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={bulkDeleteInvitations}
+                      disabled={bulkDeleting}
+                    >
+                      {bulkDeleting ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                      ) : (
+                        <Trash2 className="h-3 w-3 mr-1" />
+                      )}
+                      Delete {selectedInvites.size} selected
+                    </Button>
+                  )}
+                </div>
+              )}
               {invitations.length === 0 ? (
                 <p className="text-center py-8 text-muted-foreground">No invitations sent yet</p>
               ) : (
@@ -661,9 +726,15 @@ export default function AdminUsers() {
                     return (
                       <div
                         key={invite.id}
-                        className="flex items-center justify-between p-4 border rounded-lg"
+                        className={`flex items-center justify-between p-4 border rounded-lg ${selectedInvites.has(invite.id) ? 'border-primary bg-primary/5' : ''}`}
                       >
                         <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedInvites.has(invite.id)}
+                            onChange={() => toggleInviteSelection(invite.id)}
+                            className="rounded border-border"
+                          />
                           <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
                             <Mail className="h-5 w-5 text-muted-foreground" />
                           </div>

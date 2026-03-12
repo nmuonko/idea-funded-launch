@@ -819,13 +819,31 @@ async function proxyAdminToFunction(functionName: string, req: Request, body: an
 // ACTION: delete_invitation
 // ═══════════════════════════════════════════════════════════════════════════════
 
-async function handleDeleteInvitation(auth: any, body: any) {
-  const { invitationId } = body;
-  if (!invitationId || typeof invitationId !== 'string') {
-    return jsonRes({ error: 'Missing invitationId' }, 400);
+async function handleDeleteInvitation(auth: AdminAuth, body: any) {
+  const { invitationId, invitationIds } = body;
+  const supabase = auth.supabaseAdmin;
+
+  // Bulk delete
+  if (Array.isArray(invitationIds) && invitationIds.length > 0) {
+    const { error } = await supabase
+      .from('admin_invitations')
+      .delete()
+      .in('id', invitationIds);
+
+    if (error) {
+      console.error('[admin-service] Bulk delete invitations error:', error);
+      return jsonRes({ error: 'Failed to delete invitations' }, 500);
+    }
+    console.log(`[admin-service] ${invitationIds.length} invitations deleted by ${auth.supabaseUser?.email}`);
+    return jsonRes({ success: true, deleted: invitationIds.length });
   }
 
-  const { error } = await serviceSupabase
+  // Single delete
+  if (!invitationId || typeof invitationId !== 'string') {
+    return jsonRes({ error: 'Missing invitationId or invitationIds' }, 400);
+  }
+
+  const { error } = await supabase
     .from('admin_invitations')
     .delete()
     .eq('id', invitationId);
@@ -835,7 +853,7 @@ async function handleDeleteInvitation(auth: any, body: any) {
     return jsonRes({ error: 'Failed to delete invitation' }, 500);
   }
 
-  console.log(`[admin-service] Invitation ${invitationId} deleted by ${auth.user.email}`);
+  console.log(`[admin-service] Invitation ${invitationId} deleted by ${auth.supabaseUser?.email}`);
   return jsonRes({ success: true });
 }
 

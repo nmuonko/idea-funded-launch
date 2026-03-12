@@ -249,7 +249,11 @@ export default function HotProducts() {
     if (!campaignTitle.trim()) { toast.error('Enter a campaign title'); return; }
     if (selectedProducts.length === 0) { toast.error('Add at least 1 product'); return; }
     setSaving(true);
-    const payload = { title: campaignTitle, status: 'draft', products: selectedProducts as any, created_by: user?.id, updated_at: new Date().toISOString() };
+    // Refresh session to avoid stale tokens
+    await supabase.auth.refreshSession();
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    if (!currentUser) { toast.error('Session expired – please sign in again'); setSaving(false); return; }
+    const payload = { title: campaignTitle, status: 'draft', products: selectedProducts as any, created_by: currentUser.id, updated_at: new Date().toISOString() };
     let error;
     if (editingCampaignId) {
       ({ error } = await supabase.from('hot_product_campaigns').update(payload).eq('id', editingCampaignId));

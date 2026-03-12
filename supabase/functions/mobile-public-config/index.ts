@@ -833,15 +833,23 @@ Deno.serve(async (req: Request) => {
   try {
     // Detect environment from request
     const envName = getEnvironmentFromRequest(req);
+    const requestedEnv = getRequestedEnv(req);
     const cacheKey = `public-config:${envName}`;
 
     const response = await withLoadShedding(priority, async () => {
       return coalesce(cacheKey, () => fetchConfig(envName), CACHE_TTL.PUBLIC_CONFIG);
     });
 
-    console.log("[mobile-public-config] Returning config for env:", envName, "version:", response.version, "runtimeVersion:", response.runtime.version);
+    // Echo the REQUESTED env in the response body so frozen mobile builds
+    // that sent ?env=staging see env:"staging" and don't reject the response.
+    const responseBody = { ...response, env: requestedEnv };
+    if (responseBody.envDetails) {
+      responseBody.envDetails = { ...responseBody.envDetails, name: requestedEnv };
+    }
 
-    return new Response(JSON.stringify(response), {
+    console.log("[mobile-public-config] Returning config for env:", envName, "responseEnv:", requestedEnv, "version:", response.version);
+
+    return new Response(JSON.stringify(responseBody), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -168,7 +168,7 @@ export default function HotProducts() {
     setExtracting(true);
     try {
       const { data, error } = await supabase.functions.invoke('extract-price', {
-        body: { url: pasteUrl.trim() },
+        body: { url: pasteUrl.trim(), forceRefresh: true },
       });
       if (error || !data) {
         toast.error('Failed to extract product info');

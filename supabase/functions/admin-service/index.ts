@@ -343,14 +343,20 @@ async function sendInvitationEmail(email: string, role: string, token: string): 
   const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
   const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
   const inviteUrl = `${frontendUrl}/accept-invite?token=${token}`;
-  if (!RESEND_API_KEY) return { sent: false, error: 'Email service not configured' };
+  if (!RESEND_API_KEY) {
+    console.error('[invite] RESEND_API_KEY not set');
+    return { sent: false, error: 'Email service not configured' };
+  }
   const roleLabel = roleLabels[role] || role;
+  // Use the verified Resend sender — must match domain verified in Resend
+  const fromAddress = 'AfriShop USA <nkadimisha@afrishop-usa.com>';
+  console.log(`[invite] Sending invitation email to ${email} from ${fromAddress}`);
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: Deno.env.get('EMAIL_FROM_ADDRESS') || 'AfriShop <noreply@afrishop.com>',
+        from: fromAddress,
         to: [email],
         subject: 'AfriShop — You\'ve been invited to join the admin team',
         html: `
@@ -384,9 +390,14 @@ async function sendInvitationEmail(email: string, role: string, token: string): 
         `,
       }),
     });
-    if (!response.ok) { const t = await response.text(); return { sent: false, error: t }; }
+    const responseText = await response.text();
+    console.log(`[invite] Resend response status=${response.status} body=${responseText}`);
+    if (!response.ok) { return { sent: false, error: responseText }; }
     return { sent: true };
-  } catch (err: any) { return { sent: false, error: err.message }; }
+  } catch (err: any) {
+    console.error(`[invite] Email send error:`, err.message);
+    return { sent: false, error: err.message };
+  }
 }
 
 async function handleInviteUser(auth: AdminAuth, body: any): Promise<Response> {

@@ -9,14 +9,7 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-afrishop-client, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-device-id, x-supabase-client-info, x-supabase-client-version, x-supabase-client-name',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-  'Pragma': 'no-cache',
-};
+import { buildCorsHeaders, corsPreflightResponse, logStartupRequest } from "../_shared/mobileCors.ts";
 
 // ==================== Types ====================
 
@@ -167,14 +160,14 @@ function buildBankTransferConfig(
 // ==================== Main Handler ====================
 
 serve(async (req) => {
-  // Handle CORS preflight
+  // Dynamic CORS — echoes whatever headers the client requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
 
-  const requestId = crypto.randomUUID();
+  const corsHeaders = buildCorsHeaders(req);
+  const requestId = logStartupRequest("APP_BOOTSTRAP", req);
   const timestamp = new Date().toISOString();
-  console.log(`[${requestId}] app-bootstrap: Start`);
 
   // Default safe response - NEVER throw from this function
   const safeResponse: BootstrapResponse = {

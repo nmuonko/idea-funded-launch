@@ -1,55 +1,40 @@
+## Edge Function Consolidation Refactor — Phase 3 Complete
 
-Goal: stop persistent mobile “Catalogue Indisponible” and false backend/payment warning on installed phone builds by fixing startup-chain compatibility (not just individual endpoints).
+### Phase 3: Orphan Deletion — 10 Functions Deleted
+- **`create-referrer`** — routed via auth-service
+- **`execute-ai-action`** — routed via admin-service
+- **`get-ai-actions-for-review`** — routed via admin-service
+- **`predict-customer-ltv`** — routed via admin-service
+- **`ai-order-assistant`** — routed via admin-service
+- **`catalog-categories`** — inlined into catalog-service
+- **`catalog-tabs`** — inlined into catalog-service
+- **`catalog-nav`** — inlined into catalog-service
+- **`catalog-providers`** — inlined into catalog-service
+- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-What I verified from the current backend:
-- `catalog-home` mobile requests are reaching backend and resolving `envRequested=staging` -> `envUsed=production` (logs confirm).
-- `catalog-categories` also resolves to production for mobile (logs confirm).
-- `mobile-public-config` returns production for mobile in many requests, but still sees mixed staging traffic from non-mobile callers.
-- `app-bootstrap` has no runtime logs, which strongly suggests phone GET is not reaching handler (likely preflight/header mismatch or legacy path mismatch).
-- The legacy `catalog` proxy function has a narrower CORS header allow-list than other mobile endpoints.
+### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
+- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
+- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
+- **`auth-service`** — added `create_referrer`
+- **`email-service`** — added `saved_cart_reminders`
 
-Do I know what the issue is?
-- Partially yes: the environment override is working in some endpoints, but the real phone still fails because at least one startup call in its exact chain is still incompatible (most likely legacy route/CORS contract mismatch and/or response-shape mismatch for frozen app expectations).
+### Batches 1–10: Inlined — 32 Functions Deleted
+- **Batch 10**: auth-service (8 functions)
+- **Batch 9**: mobile-cart (7), mobile-orders (4)
+- **Batch 8**: admin-service (10), support-service (3)
+- **Batch 7**: catalog-service (5 metadata endpoints)
 
-Implementation plan (next execution pass):
-1) Add hard startup diagnostics to every startup endpoint
-- Files:  
-  - `supabase/functions/app-bootstrap/index.ts`  
-  - `supabase/functions/mobile-public-config/index.ts`  
-  - `supabase/functions/catalog/index.ts`  
-  - `supabase/functions/catalog-home/index.ts`  
-  - `supabase/functions/catalog-categories/index.ts`
-- Log per request: method, path, query, user-agent, `x-device-id`, `x-afrishop-*`, `access-control-request-headers`, resolved env, status, and compact response summary.
-- Include a shared correlation/request ID propagated across forwarded calls.
+**Total reduction: 42 Edge Functions deleted**
 
-2) CORS hardening for frozen mobile builds (all startup endpoints)
-- Replace static fragile allow-lists with dynamic allow-headers handling:
-  - Echo `Access-Control-Request-Headers` when present.
-  - Keep broad fallback list including current custom mobile headers.
-- Ensure OPTIONS always returns 200/204 with the same CORS policy as GET/POST.
+### Kept as Proxy (by decision)
+- **`payments-core`** — proxies 9 functions (complex payment logic)
+- **`payments-provider`** — proxies 10 functions (payment provider logic)
+- **`email-service`** — proxies 25 send-* functions (HTML template code)
 
-3) Legacy-route compatibility hardening
-- In `catalog/index.ts`, forward all startup-relevant legacy paths used by frozen builds (not just `/home` etc.) and preserve env/device headers.
-- Add explicit logs in this proxy to prove whether phone is hitting `/catalog/...` vs direct function routes.
-
-4) Response-contract compatibility for old mobile validators
-- Extend startup payloads with compatibility aliases (without removing current fields), e.g. explicit production booleans and legacy env fields expected by older app logic.
-- Keep catalog usable even when payment diagnostics are degraded (payment warning must not collapse catalog availability).
-
-5) End-to-end proof protocol after deploy
-- Capture phone-triggered logs for one retry cycle and produce endpoint-by-endpoint table:
-  - URL path actually called
-  - request headers received
-  - preflight pass/fail
-  - response status/body key fields
-  - resolved environment
-  - catalog readiness vs payment readiness outcomes
-- Confirm acceptance criteria: no “Catalogue Indisponible”, no false backend warning, catalog loads, production detected, retry recovers without manual DB steps.
-
-Files to change in implementation:
-- `supabase/functions/app-bootstrap/index.ts`
-- `supabase/functions/mobile-public-config/index.ts`
-- `supabase/functions/catalog/index.ts`
-- `supabase/functions/catalog-home/index.ts`
-- `supabase/functions/catalog-categories/index.ts`
-- (optional shared helper) `supabase/functions/_shared/*` for common CORS + request diagnostics
+### Remaining Standalone (active, not orphaned)
+- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
+- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
+- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
+- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
+- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
+- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment

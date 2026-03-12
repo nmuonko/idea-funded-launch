@@ -9,6 +9,8 @@ import { coalesce, CACHE_TTL, makeCacheKey } from "../_shared/responseCache.ts";
 import { withLoadShedding, getEndpointPriority, LoadSheddingError, loadSheddingResponse } from "../_shared/loadShedding.ts";
 import { getEnvironmentFromRequest, getEnvironmentConfig, EnvironmentConfig } from "../_shared/environmentResolver.ts";
 
+import { buildCorsHeaders, corsPreflightResponse, logStartupRequest } from "../_shared/mobileCors.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-afrishop-client, x-device-id, x-supabase-client-info, x-supabase-client-version, x-supabase-client-name, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
@@ -822,9 +824,10 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
 
+  logStartupRequest("MOBILE_PUBLIC_CONFIG", req);
   const priority = getEndpointPriority("mobile-public-config");
 
   try {

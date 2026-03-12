@@ -1,12 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-afrishop-environment, x-device-id",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Cache-Control": "no-store, no-cache, must-revalidate",
-  "Pragma": "no-cache",
-};
+import { buildCorsHeaders, corsPreflightResponse, logStartupRequest } from "../_shared/mobileCors.ts";
 
 const ROUTE_MAP: Record<string, string> = {
   "/": "catalog-home",
@@ -18,26 +11,23 @@ const ROUTE_MAP: Record<string, string> = {
   "/categories": "catalog-categories",
 };
 
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: {
-      ...corsHeaders,
-      "Content-Type": "application/json; charset=utf-8",
-    },
-  });
-}
-
 serve(async (req: Request) => {
+  // Dynamic CORS — echoes whatever headers the client requests
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 200, headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
+
+  const corsHeaders = buildCorsHeaders(req);
+  const rid = logStartupRequest("CATALOG_PROXY", req);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
 
   if (!supabaseUrl) {
-    return jsonResponse({ ok: false, error: "SUPABASE_URL not configured" }, 500);
+    return new Response(JSON.stringify({ ok: false, error: "SUPABASE_URL not configured" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" },
+    });
   }
 
   const url = new URL(req.url);
@@ -48,27 +38,38 @@ serve(async (req: Request) => {
 
   const targetFunction = ROUTE_MAP[route];
   if (!targetFunction) {
-    return jsonResponse({ ok: false, error: `Unknown legacy route: ${route}` }, 404);
+    console.log(`[CATALOG_PROXY] ${rid} unknown route=${route}`);
+    return new Response(JSON.stringify({ ok: false, error: `Unknown legacy route: ${route}` }), {
+      status: 404,
+      headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" },
+    });
   }
 
   const targetUrl = `${supabaseUrl}/functions/v1/${targetFunction}${url.search}`;
+  console.log(`[CATALOG_PROXY] ${rid} route=${route} → ${targetFunction}`);
 
+  // Forward ALL request headers to the target function
   const headers = new Headers();
   headers.set("apikey", anonKey);
   headers.set("Content-Type", req.headers.get("Content-Type") || "application/json");
 
-  const auth = req.headers.get("Authorization");
-  if (auth) headers.set("Authorization", auth);
-
+  // Forward every known mobile/custom header
   for (const h of [
+    "authorization",
     "x-device-id",
     "x-afrishop-environment",
+    "x-afrishop-client",
     "x-client-info",
+    "x-supabase-client-info",
+    "x-supabase-client-version",
+    "x-supabase-client-name",
     "x-supabase-client-platform",
     "x-supabase-client-platform-version",
     "x-supabase-client-runtime",
     "x-supabase-client-runtime-version",
     "user-agent",
+    "accept",
+    "accept-language",
   ]) {
     const value = req.headers.get(h);
     if (value) headers.set(h, value);
@@ -84,16 +85,27 @@ serve(async (req: Request) => {
     if (bodyText) requestInit.body = bodyText;
   }
 
-  const upstream = await fetch(targetUrl, requestInit);
-  const text = await upstream.text();
+  try {
+    const upstream = await fetch(targetUrl, requestInit);
+    const text = await upstream.text();
 
-  return new Response(text, {
-    status: upstream.status,
-    headers: {
-      ...corsHeaders,
-      "Content-Type": upstream.headers.get("Content-Type") || "application/json; charset=utf-8",
-      "x-catalog-compat-route": route,
-      "x-catalog-compat-target": targetFunction,
-    },
-  });
+    console.log(`[CATALOG_PROXY] ${rid} upstream status=${upstream.status} bodyLen=${text.length}`);
+
+    return new Response(text, {
+      status: upstream.status,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": upstream.headers.get("Content-Type") || "application/json; charset=utf-8",
+        "x-catalog-compat-route": route,
+        "x-catalog-compat-target": targetFunction,
+        "x-catalog-proxy-rid": rid,
+      },
+    });
+  } catch (err: any) {
+    console.error(`[CATALOG_PROXY] ${rid} fetch error: ${err.message}`);
+    return new Response(JSON.stringify({ ok: false, error: "Proxy fetch failed", rid }), {
+      status: 502,
+      headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" },
+    });
+  }
 });

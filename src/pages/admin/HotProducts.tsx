@@ -357,7 +357,12 @@ export default function HotProducts() {
                   <div className="flex items-start gap-3">
                     {p.image_url && <img src={p.image_url} alt="" className="w-16 h-16 rounded object-cover shrink-0" />}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{p.title}</p>
+                      <Input 
+                        value={p.title} 
+                        onChange={e => updateTitle(p.id, e.target.value)} 
+                        className="text-sm font-medium h-7 mb-1" 
+                        placeholder="Product title"
+                      />
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1 text-xs text-muted-foreground">
                         <span>{language === 'fr' ? 'Prix de base' : 'Base'}:</span>
                         <span className="font-medium text-foreground">${p.price_usd.toFixed(2)}</span>

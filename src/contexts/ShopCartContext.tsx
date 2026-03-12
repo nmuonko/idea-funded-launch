@@ -360,6 +360,14 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const syncCart = useCallback(async () => {
     if (!user || !sessionRef.current) return;
 
+    // Race condition guard: if addItem just ran, delay sync so server has time to persist
+    const msSinceLastAdd = Date.now() - lastAddTimestampRef.current;
+    if (msSinceLastAdd < ADD_SYNC_DELAY_MS) {
+      const waitMs = ADD_SYNC_DELAY_MS - msSinceLastAdd;
+      console.log(`[CART] syncCart delayed ${waitMs}ms (addItem was ${msSinceLastAdd}ms ago)`);
+      await new Promise(r => setTimeout(r, waitMs));
+    }
+
     // Lock: avoid overlapping syncs
     if (syncInProgressRef.current) {
       pendingSyncRef.current = true;

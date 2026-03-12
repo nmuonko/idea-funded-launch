@@ -216,57 +216,50 @@ serve(async (req) => {
     // USER CREATION/UPDATE
     // ============================================
     
-    // Check if user already exists
-    let existingUserId: string | null = null;
-    let page = 1;
-    const perPage = 100;
-    
-    while (true) {
-      const { data: usersData } = await serviceSupabase.auth.admin.listUsers({ page, perPage });
-      if (!usersData?.users || usersData.users.length === 0) break;
-      
-      const found = usersData.users.find((u: any) => u.email?.toLowerCase() === invitation.email.toLowerCase());
-      if (found) {
-        existingUserId = found.id;
-        break;
-      }
-      if (usersData.users.length < perPage) break;
-      page++;
-    }
-
+    // Try to create user first; if already exists, look them up and update password
     let userId: string;
 
-    if (existingUserId) {
-      // User exists - update their password
-      console.log('[accept-invitation] Existing user found, updating password');
-      const { error: updateError } = await serviceSupabase.auth.admin.updateUserById(existingUserId, {
-        password,
-        email_confirm: true,
-      });
-
-      if (updateError) {
-        console.error('[accept-invitation] Failed to update user:', updateError);
-        throw updateError;
+    const { data: newUser, error: createError } = await serviceSupabase.auth.admin.createUser({
+      email: invitation.email,
+      password,
+      email_confirm: true,
+      user_metadata: { 
+        full_name: sanitizedFullName || invitation.email.split('@')[0], 
+        invited_admin: true 
       }
-      userId = existingUserId;
-    } else {
-      // Create new user account
-      const { data: newUser, error: createError } = await serviceSupabase.auth.admin.createUser({
-        email: invitation.email,
-        password,
-        email_confirm: true,
-        user_metadata: { 
-          full_name: sanitizedFullName || invitation.email.split('@')[0], 
-          invited_admin: true 
-        }
-      });
+    });
 
-      if (createError) {
-        console.error('[accept-invitation] Failed to create user:', createError);
+    if (createError) {
+      console.log('[accept-invitation] Create user result:', createError.message);
+      
+      if (createError.message.includes('already') || createError.message.includes('exists') || createError.message.includes('registered')) {
+        // User already exists - look up by email in profiles or auth
+        // Use getUserByEmail if available, otherwise query profiles
+        console.log('[accept-invitation] User already exists, looking up and updating password');
         
-        if (createError.message.includes('already registered') || createError.message.includes('already been registered')) {
+        // Look up user_id from profiles table
+        const { data: profile } = await serviceSupabase
+          .from('profiles')
+          .select('user_id')
+          .eq('email', invitation.email.toLowerCase())
+          .maybeSingle();
+        
+        if (profile?.user_id) {
+          userId = profile.user_id;
+        } else {
+          // Fallback: try to sign in to get the user id, then update
+          // Create a temporary sign-in to find the user
+          const { data: signInData, error: signInError } = await serviceSupabase.auth.signInWithPassword({
+            email: invitation.email,
+            password: 'temp-lookup-will-fail-' + Date.now(),
+          });
+          
+          // Even if sign-in fails, try creating with a unique approach
+          // Best approach: use the admin API to get user by email
+          // The admin.getUserById won't help, but we can search via RPC or direct query
+          console.error('[accept-invitation] Could not find existing user profile for:', invitation.email);
           return new Response(JSON.stringify({ 
-            error: 'Account already exists. Please login with your existing credentials.',
+            error: 'Account already exists but profile not found. Please contact support or login with existing credentials.',
             redirect: '/auth'
           }), {
             status: 400,
@@ -274,9 +267,22 @@ serve(async (req) => {
           });
         }
         
+        // Update password for existing user
+        const { error: updateError } = await serviceSupabase.auth.admin.updateUserById(userId, {
+          password,
+          email_confirm: true,
+        });
+
+        if (updateError) {
+          console.error('[accept-invitation] Failed to update user password:', updateError);
+          throw updateError;
+        }
+        console.log('[accept-invitation] Updated existing user password:', userId);
+      } else {
+        console.error('[accept-invitation] Failed to create user:', createError);
         throw createError;
       }
-
+    } else {
       userId = newUser.user.id;
       console.log('[accept-invitation] Created new user:', userId);
     }

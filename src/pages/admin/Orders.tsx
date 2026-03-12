@@ -955,54 +955,53 @@ export default function AdminOrders() {
             <Loader2 className="h-8 w-8 animate-spin" />
           </div>
         ) : (
-          <Table>
+          <div className="overflow-x-auto">
+          <Table className="text-xs">
             <TableHeader>
               <TableRow>
-              <TableHead className="w-12">
+              <TableHead className="w-8 px-2">
                   <Checkbox
                     checked={selectedOrders.size === filteredOrders.length && filteredOrders.length > 0}
                     onCheckedChange={toggleSelectAll}
                   />
                 </TableHead>
-                <TableHead>Order ID</TableHead>
-                <TableHead>Customer Name</TableHead>
-                <TableHead>Customer Email</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>City</TableHead>
-                <TableHead>Items</TableHead>
-                <TableHead>Total (USD)</TableHead>
-                <TableHead>Payment</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Actions</TableHead>
+                <TableHead className="px-2">Order ID</TableHead>
+                <TableHead className="px-2">Customer</TableHead>
+                <TableHead className="px-2">Phone</TableHead>
+                <TableHead className="px-2">City</TableHead>
+                <TableHead className="px-2">Items</TableHead>
+                <TableHead className="px-2 text-right">Total</TableHead>
+                <TableHead className="px-2">Payment</TableHead>
+                <TableHead className="px-2">Status</TableHead>
+                <TableHead className="px-2">Date</TableHead>
+                <TableHead className="px-2">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOrders.map((order) => (
+              {filteredOrders.map((order) => {
+                const customerCity = order.shipping_city || order.profiles?.city || order.profiles?.state_province || order.profiles?.country || '—';
+                return (
                 <TableRow key={order.id}>
-                  <TableCell>
+                  <TableCell className="px-2">
                     <Checkbox
                       checked={selectedOrders.has(order.id)}
                       onCheckedChange={() => toggleSelectOrder(order.id)}
                     />
                   </TableCell>
-                  <TableCell className="font-mono text-xs whitespace-nowrap">
+                  <TableCell className="font-mono text-[11px] px-2 whitespace-nowrap">
                     {formatOrderId(order.id, order.profiles?.name || order.profiles?.full_name)}
                   </TableCell>
-                  <TableCell>
-                    <div className="font-medium whitespace-nowrap">{order.profiles?.name || order.profiles?.full_name || 'N/A'}</div>
+                  <TableCell className="px-2">
+                    <div className="font-medium whitespace-nowrap text-[11px]">{order.profiles?.name || order.profiles?.full_name || '—'}</div>
+                    <div className="text-[10px] text-muted-foreground truncate max-w-[140px]">{order.profiles?.email || ''}</div>
                   </TableCell>
-                  <TableCell>
-                    <div className="text-sm text-muted-foreground whitespace-nowrap">{order.profiles?.email || 'N/A'}</div>
+                  <TableCell className="px-2">
+                    <div className="text-[11px] whitespace-nowrap">{order.profiles?.phone || '—'}</div>
                   </TableCell>
-                  <TableCell>
-                    <div className="text-sm whitespace-nowrap">{order.profiles?.phone || 'N/A'}</div>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">{order.shipping_city || 'N/A'}</TableCell>
-                  <TableCell>
+                  <TableCell className="px-2 whitespace-nowrap text-[11px]">{customerCity}</TableCell>
+                  <TableCell className="px-2">
                     {(() => {
                       const items = order.order_items || [];
-                      // Group items by date
                       const dateGroups = new Map<string, any[]>();
                       items.forEach((item: any) => {
                         const date = new Date(item.created_at).toLocaleDateString();
@@ -1013,13 +1012,13 @@ export default function AdminOrders() {
                       const groupEntries = Array.from(dateGroups.entries());
                       
                       return (
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-1 max-w-[180px]">
                           {groupEntries.map(([date, groupItems], idx) => (
-                            <div key={date} className={cn("flex flex-col gap-1", idx > 0 && "border-t pt-1")}>
-                              <span className="text-xs text-muted-foreground font-medium">
-                                {date} ({groupItems.length} item{groupItems.length > 1 ? 's' : ''})
+                            <div key={date} className={cn("flex flex-col gap-0.5", idx > 0 && "border-t pt-0.5")}>
+                              <span className="text-[10px] text-muted-foreground font-medium">
+                                {date} ({groupItems.length})
                               </span>
-                              <div className="flex flex-wrap gap-1">
+                              <div className="flex flex-wrap gap-0.5">
                                 {groupItems.slice(0, 2).map((item: any) => {
                                   const itemLink = getAdminOrderProductLink(item);
                                   const isAmazon = item.store === 'AMAZON';
@@ -1029,26 +1028,26 @@ export default function AdminOrders() {
                                       href={itemLink}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="text-xs text-primary hover:underline flex items-center gap-1"
+                                      className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
                                       title={item.title || 'View product'}
                                     >
                                       {item.product_image_url && (
                                         <img 
                                           src={item.product_image_url} 
                                           alt="" 
-                                          className="h-4 w-4 object-cover rounded"
+                                          className="h-3.5 w-3.5 object-cover rounded"
                                           onError={(e) => e.currentTarget.style.display = 'none'}
                                         />
                                       )}
-                                      <span className="line-clamp-1">{item.title?.slice(0, 15) || 'Product'}</span>
+                                      <span className="line-clamp-1 max-w-[80px]">{item.title?.slice(0, 12) || 'Product'}</span>
                                       {isAmazon && item.provider_product_id && (
-                                        <span className="text-[10px] text-muted-foreground font-mono">({item.provider_product_id})</span>
+                                        <span className="text-[9px] text-muted-foreground font-mono">({item.provider_product_id})</span>
                                       )}
                                     </a>
                                   ) : null;
                                 })}
                                 {groupItems.length > 2 && (
-                                  <span className="text-xs text-muted-foreground">+{groupItems.length - 2} more</span>
+                                  <span className="text-[10px] text-muted-foreground">+{groupItems.length - 2} more</span>
                                 )}
                               </div>
                             </div>
@@ -1057,10 +1056,10 @@ export default function AdminOrders() {
                       );
                     })()}
                   </TableCell>
-                  <TableCell className="font-semibold whitespace-nowrap">${Number(order.total_usd || 0).toFixed(2)}</TableCell>
-                  <TableCell className="whitespace-nowrap">{getPaymentBadge(order)}</TableCell>
-                  <TableCell className="whitespace-nowrap">{getStatusBadge(order.status)}</TableCell>
-                  <TableCell className="whitespace-nowrap">{new Date(order.created_at).toLocaleDateString()}</TableCell>
+                  <TableCell className="font-semibold whitespace-nowrap px-2 text-right text-[11px]">${Number(order.total_usd || 0).toFixed(2)}</TableCell>
+                  <TableCell className="whitespace-nowrap px-2">{getPaymentBadge(order)}</TableCell>
+                  <TableCell className="whitespace-nowrap px-2">{getStatusBadge(order.status)}</TableCell>
+                  <TableCell className="whitespace-nowrap px-2 text-[11px]">{new Date(order.created_at).toLocaleDateString()}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2 whitespace-nowrap">
                       <Button

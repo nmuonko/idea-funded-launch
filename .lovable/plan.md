@@ -1,43 +1,40 @@
+## Edge Function Consolidation Refactor — Phase 3 Complete
 
+### Phase 3: Orphan Deletion — 10 Functions Deleted
+- **`create-referrer`** — routed via auth-service
+- **`execute-ai-action`** — routed via admin-service
+- **`get-ai-actions-for-review`** — routed via admin-service
+- **`predict-customer-ltv`** — routed via admin-service
+- **`ai-order-assistant`** — routed via admin-service
+- **`catalog-categories`** — inlined into catalog-service
+- **`catalog-tabs`** — inlined into catalog-service
+- **`catalog-nav`** — inlined into catalog-service
+- **`catalog-providers`** — inlined into catalog-service
+- **`catalog-refresh`** — inlined into catalog-service (prewarm action)
 
-# Root Cause: Backend Returns `env: "production"` but Mobile App Expects `env: "staging"`
+### Phase 2: Standalone Frontend Calls Routed — 11 calls redirected
+- **`mobile-orders`** — added `checkout` (→ mobile-checkout) and `request_quote` (→ mobile-request-quote)
+- **`admin-service`** — added `predict_ltv`, `ai_actions_review`, `execute_ai_action`, `ai_order_assistant`, `reloadly_topup`
+- **`auth-service`** — added `create_referrer`
+- **`email-service`** — added `saved_cart_reminders`
 
-## Evidence
+### Batches 1–10: Inlined — 32 Functions Deleted
+- **Batch 10**: auth-service (8 functions)
+- **Batch 9**: mobile-cart (7), mobile-orders (4)
+- **Batch 8**: admin-service (10), support-service (3)
+- **Batch 7**: catalog-service (5 metadata endpoints)
 
-The logs prove ALL endpoints are working and returning 200 OK with valid data:
-- `catalog-home`: 327 items in 10 sections, `envUsed=production`
-- `catalog-categories`: 10 tabs, 22 subtabs, `env=production`
-- `mobile-public-config`: full config with `catalogEnabled=true`, `env=production`
+**Total reduction: 42 Edge Functions deleted**
 
-Yet the mobile app still shows "Catalogue Indisponible." The Replit audit confirms the mobile app has `ENV_OVERRIDE = 'staging'` **hardcoded** and sends `?env=staging` with every request.
+### Kept as Proxy (by decision)
+- **`payments-core`** — proxies 9 functions (complex payment logic)
+- **`payments-provider`** — proxies 10 functions (payment provider logic)
+- **`email-service`** — proxies 25 send-* functions (HTML template code)
 
-**The mismatch**: The mobile app sends `env=staging` and likely validates that the response contains `env: "staging"`. Our backend override forces production data but ALSO changes the response `env` field to `"production"`. The mobile app sees `env: "production"` when it expected `"staging"` and rejects the response.
-
-## Fix: Echo `env: "staging"` in Response Bodies for Mobile Requests
-
-Use production data internally, but label the response as `"staging"` to match the frozen mobile app's contract. The data is identical (production data), only the label changes.
-
-### Step 1: `environmentResolver.ts` — Return both internal env and response env
-
-Add a new function `getResponseEnvForMobile()` that returns the original requested env (staging) for use in response bodies, while `getEnvironmentFromRequest()` continues returning "production" for DB queries.
-
-### Step 2: `mobile-public-config/index.ts` — Use "staging" in response body
-
-Change `env: envName` in the response to echo the originally-requested env for mobile clients, so the response contains `env: "staging"` while data comes from production.
-
-### Step 3: `catalog-home` — `serveMobileSections` uses `envRequested` in response meta
-
-The `envRequested` is already passed through but `envUsed` in `meta` shows "production". For mobile, set `meta.envUsed` to `envRequested` so the mobile app sees consistency.
-
-### Step 4: `catalog-categories/index.ts` — Echo requested env in response
-
-Return `env: "staging"` (the requested value) instead of the resolved production env.
-
-### Files to Change
-
-- `supabase/functions/_shared/environmentResolver.ts` — add helper to track original requested env
-- `supabase/functions/mobile-public-config/index.ts` — echo requested env in response
-- `supabase/functions/_shared/mobileSectionsCache.ts` — use `envRequested` in response meta for mobile
-- `supabase/functions/catalog-categories/index.ts` — echo requested env in response
-- `supabase/functions/catalog-home/index.ts` — pass through requested env for response labeling
-
+### Remaining Standalone (active, not orphaned)
+- **Frontend-called**: extract-price, health, admin-apply-vehicle-quote, admin-rebuild-home, catalog-search, catalog-home, catalog-product, catalog-offers, catalog-collection, app-bootstrap, mobile-public-config, mobile-checkout, chat, referral-on-verify, catalog-data-sync, cars-search, cars-add-to-cart
+- **Mobile-only**: recently-viewed-*, register-device-token, track-store-visit, mobile-get-shipping-types, mobile-request-quote, request-vehicle-quote, submit-price-confirmation, get-my-price-confirmations, public-shipping-config, product-resolver, claim-guest-confirmations, submit-support-message, support-send-message
+- **Cron/webhooks**: auth-email-hook, payment-callback, pawapay-callback, payments-webhook, send-cart-reminder-emails, catalog-amazon-ingest-worker, catalog-car-scraper, catalog-shein-scraper, home-auto-refresh, cleanup-expired-*, escalate-tickets, saved-cart-reminders
+- **Admin utilities**: backfill-*, admin-seed-default-catalog, admin-catalog-items, admin-home-*, admin-search-rewrites, admin-auto-learning, admin-confirm-price, admin-review-price-confirmation, admin-refresh-category, admin-set-product-image
+- **Internal/AI**: ai-command-center, smart-cart-recovery, smart-recommendations, smart-ticket-analysis, analyze-submission, notify-new-submission, transcribe-audio, invalidate-settings-cache, market-*-proxy, catalog-filters, catalog-category
+- **Proxy targets**: All send-* (25), payment-decision, payment-status, payments-check-intent, payments-create-intent, mobile-verify-payment, verify-payment, mobile-retry-payment, reconcile-payment-status, generate-payment-receipt, select-payment-provider, get-payment-providers, update-payment-provider, admin-set-active-provider, admin-test-provider, pawapay-create-payment, pawapay-verify-payment, stripe-create-checkout-session, stripe-verify-checkout-session, mobile-create-payment

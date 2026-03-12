@@ -400,7 +400,7 @@ export async function serveMobileSections(
       meta: {
         client: "mobile",
         detectedBy,
-        envUsed: env,
+        envUsed: envRequested,
         envRequested,
         source: "mobile_sections_cache",
         isStale: false,
@@ -443,7 +443,7 @@ export async function serveMobileSections(
         meta: {
           client: "mobile",
           detectedBy,
-          envUsed: "production",
+          envUsed: envRequested,
           envRequested,
           source: "staging_to_production_fallback",
           isStale: false,
@@ -491,7 +491,7 @@ export async function serveMobileSections(
     meta: {
       client: "mobile",
       detectedBy,
-      envUsed: env,
+      envUsed: envRequested,
       envRequested,
       source: "rebuilt",
       isStale: false,
@@ -542,7 +542,7 @@ export function emptyMobileSectionsResponse(
     meta: {
       client: "mobile",
       detectedBy,
-      envUsed: env,
+      envUsed: envRequested,
       envRequested,
       source,
       isStale: true,

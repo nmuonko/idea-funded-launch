@@ -7,7 +7,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { coalesce, CACHE_TTL, makeCacheKey } from "../_shared/responseCache.ts";
 import { withLoadShedding, getEndpointPriority, LoadSheddingError, loadSheddingResponse } from "../_shared/loadShedding.ts";
-import { getEnvironmentFromRequest, getEnvironmentConfig, EnvironmentConfig } from "../_shared/environmentResolver.ts";
+import { getEnvironmentFromRequest, getRequestedEnv, getEnvironmentConfig, EnvironmentConfig } from "../_shared/environmentResolver.ts";
 
 import { buildCorsHeaders, corsPreflightResponse, logStartupRequest } from "../_shared/mobileCors.ts";
 
@@ -833,15 +833,23 @@ Deno.serve(async (req: Request) => {
   try {
     // Detect environment from request
     const envName = getEnvironmentFromRequest(req);
+    const requestedEnv = getRequestedEnv(req);
     const cacheKey = `public-config:${envName}`;
 
     const response = await withLoadShedding(priority, async () => {
       return coalesce(cacheKey, () => fetchConfig(envName), CACHE_TTL.PUBLIC_CONFIG);
     });
 
-    console.log("[mobile-public-config] Returning config for env:", envName, "version:", response.version, "runtimeVersion:", response.runtime.version);
+    // Echo the REQUESTED env in the response body so frozen mobile builds
+    // that sent ?env=staging see env:"staging" and don't reject the response.
+    const responseBody = { ...response, env: requestedEnv };
+    if (responseBody.envDetails) {
+      responseBody.envDetails = { ...responseBody.envDetails, name: requestedEnv };
+    }
 
-    return new Response(JSON.stringify(response), {
+    console.log("[mobile-public-config] Returning config for env:", envName, "responseEnv:", requestedEnv, "version:", response.version);
+
+    return new Response(JSON.stringify(responseBody), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -858,14 +866,16 @@ Deno.serve(async (req: Request) => {
     
     console.log("[PUBLIC_CONFIG_ENV]", { env: "production", catalogEnabled: true, catalogMode: "native", storesEnabled: false, version: 0, error: true });
     
+    // Echo requested env even in error fallback
+    const errorEnv = getRequestedEnv(req);
     return new Response(
       JSON.stringify({
         success: false,
         configValid: false,
         reason: "INTERNAL_ERROR",
         error: err instanceof Error ? err.message : "Unknown error",
-        // Provide stable defaults even on error so mobile doesn't crash
-        env: "production",
+        // Echo requested env so mobile doesn't reject
+        env: errorEnv,
         catalogEnabled: true,
         catalogMode: "native",
         catalogApiBaseUrl: fallbackApiBaseUrl,

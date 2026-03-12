@@ -8,7 +8,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
+import { getEnvironmentFromRequest, getRequestedEnv } from "../_shared/environmentResolver.ts";
 import { buildCorsHeaders, corsPreflightResponse, logStartupRequest } from "../_shared/mobileCors.ts";
 
 Deno.serve(async (req: Request) => {
@@ -34,6 +34,7 @@ Deno.serve(async (req: Request) => {
     const url = new URL(req.url);
     const lang = url.searchParams.get("lang") || url.searchParams.get("language") || "en";
     const env = getEnvironmentFromRequest(req);
+    const responseEnv = getRequestedEnv(req);
 
     // Fetch tabs
     const { data: tabs, error: tabsError } = await supabase
@@ -97,7 +98,7 @@ Deno.serve(async (req: Request) => {
       ok: true,
       tabs: categories,
       categories,
-      env,
+      env: responseEnv,
       total: categories.length,
     });
 

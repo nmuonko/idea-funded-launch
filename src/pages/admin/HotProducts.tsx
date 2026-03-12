@@ -229,6 +229,10 @@ export default function HotProducts() {
     setSelectedProducts(prev => prev.filter(p => p.id !== id));
   }
 
+  function updateTitle(id: string, title: string) {
+    setSelectedProducts(prev => prev.map(p => p.id === id ? { ...p, title } : p));
+  }
+
   function updateShipping(id: string, shipping: number) {
     setSelectedProducts(prev => prev.map(p => {
       if (p.id !== id) return p;
@@ -245,7 +249,11 @@ export default function HotProducts() {
     if (!campaignTitle.trim()) { toast.error('Enter a campaign title'); return; }
     if (selectedProducts.length === 0) { toast.error('Add at least 1 product'); return; }
     setSaving(true);
-    const payload = { title: campaignTitle, status: 'draft', products: selectedProducts as any, created_by: user?.id, updated_at: new Date().toISOString() };
+    // Refresh session to avoid stale tokens
+    await supabase.auth.refreshSession();
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    if (!currentUser) { toast.error('Session expired – please sign in again'); setSaving(false); return; }
+    const payload = { title: campaignTitle, status: 'draft', products: selectedProducts as any, created_by: currentUser.id, updated_at: new Date().toISOString() };
     let error;
     if (editingCampaignId) {
       ({ error } = await supabase.from('hot_product_campaigns').update(payload).eq('id', editingCampaignId));
@@ -349,7 +357,12 @@ export default function HotProducts() {
                   <div className="flex items-start gap-3">
                     {p.image_url && <img src={p.image_url} alt="" className="w-16 h-16 rounded object-cover shrink-0" />}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{p.title}</p>
+                      <Input 
+                        value={p.title} 
+                        onChange={e => updateTitle(p.id, e.target.value)} 
+                        className="text-sm font-medium h-7 mb-1" 
+                        placeholder="Product title"
+                      />
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1 text-xs text-muted-foreground">
                         <span>{language === 'fr' ? 'Prix de base' : 'Base'}:</span>
                         <span className="font-medium text-foreground">${p.price_usd.toFixed(2)}</span>
@@ -443,16 +456,18 @@ export default function HotProducts() {
 }
 
 function buildPreviewHtml(products: SelectedProduct[]): string {
-  const productCards = products.map(p => `
-    <div style="text-align:center;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;max-width:260px;display:inline-block;vertical-align:top;margin:8px;">
-      ${p.image_url ? `<img src="${p.image_url}" alt="${p.title}" style="width:100%;height:220px;object-fit:cover;" />` : ''}
-      <div style="padding:10px;">
-        <p style="font-weight:600;font-size:13px;margin:0 0 2px;color:#1a1a1a;line-height:1.3;">${p.title.length > 50 ? p.title.slice(0, 50) + '…' : p.title}</p>
-        <p style="font-size:22px;font-weight:800;color:#e63946;margin:6px 0 2px;">$${p.total_price_usd.toFixed(2)}</p>
-        <p style="font-size:10px;color:#666;margin:0 0 8px;">Tout inclus</p>
-        <a href="${p.product_url}" style="display:inline-block;background:#e63946;color:#fff;padding:10px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">🛒 Commander</a>
+  const productCells = products.map(p => `
+    <td style="text-align:center;vertical-align:top;padding:8px;width:${Math.floor(100/products.length)}%;">
+      <div style="border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#ffffff;">
+        ${p.image_url ? `<img src="${p.image_url}" alt="${p.title}" style="width:100%;height:180px;object-fit:cover;display:block;" />` : ''}
+        <div style="padding:10px;">
+          <p style="font-weight:600;font-size:12px;margin:0 0 2px;color:#1a1a1a;line-height:1.3;">${p.title.length > 45 ? p.title.slice(0, 45) + '…' : p.title}</p>
+          <p style="font-size:20px;font-weight:800;color:#e63946;margin:4px 0 2px;">$${p.total_price_usd.toFixed(2)}</p>
+          <p style="font-size:9px;color:#666;margin:0 0 8px;">Tout inclus · All-inclusive</p>
+          <a href="${p.product_url}" style="display:inline-block;background:#e63946;color:#fff;padding:8px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;">Commander</a>
+        </div>
       </div>
-    </div>
+    </td>
   `).join('');
 
   return `
@@ -462,9 +477,11 @@ function buildPreviewHtml(products: SelectedProduct[]): string {
       </div>
       <div style="padding:20px;">
         <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Bonjour,</p>
-        <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Voici une sélection de produits disponibles cette semaine. Les prix incluent la livraison en RDC (2 à 4 semaines).</p>
-        <div style="text-align:center;">${productCards}</div>
-        <p style="font-size:12px;color:#555;margin:16px 0 0;line-height:1.5;">Vous cherchez un autre produit? Visitez <a href="https://afrishop-usa.com/paste-link" style="color:#e63946;text-decoration:underline;">afrishop-usa.com</a> et collez le lien de n'importe quel produit américain.</p>
+        <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Nous avons sélectionné ces produits pour vous cette semaine. Les prix incluent la livraison en RDC (2 à 4 semaines).</p>
+        <p style="font-size:13px;color:#888;margin:0 0 16px;line-height:1.5;">We picked these products for you this week. Prices include delivery to DRC (2-4 weeks).</p>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${productCells}</tr></table>
+        <p style="font-size:12px;color:#555;margin:16px 0 4px;line-height:1.5;">Vous cherchez un autre produit ? Visitez <a href="https://afrishop-usa.com/paste-link" style="color:#e63946;text-decoration:underline;">afrishop-usa.com</a> et collez le lien de n'importe quel produit américain.</p>
+        <p style="font-size:11px;color:#888;margin:0;line-height:1.5;">Looking for something else? Visit <a href="https://afrishop-usa.com/paste-link" style="color:#e63946;text-decoration:underline;">afrishop-usa.com</a> and paste any US product link.</p>
       </div>
       <div style="text-align:center;padding:12px;background:#f3f4f6;font-size:10px;color:#999;">
         <p style="margin:2px 0;">AfriShop USA - Achetez aux USA, livré en Afrique</p>

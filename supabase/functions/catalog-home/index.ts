@@ -35,13 +35,19 @@ import {
  * Cache TTL is admin-controlled via admin_settings table.
  */
 
-// Enhanced CORS headers - support ALL mobile headers
-const corsHeaders = {
+import { buildCorsHeaders, corsPreflightResponse, logStartupRequest } from "../_shared/mobileCors.ts";
+
+// Dynamic CORS headers — built per-request to echo Access-Control-Request-Headers
+// We keep a static fallback for non-preflight requests
+const staticCorsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-supabase-client-info, x-supabase-client-version, x-supabase-client-name, x-afrishop-environment, x-afrishop-client, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-device-id",
   "Access-Control-Expose-Headers": "content-type, x-correlation-id, x-env-used",
 };
+
+// Keep backward compat: corsHeaders used throughout the file
+const corsHeaders = staticCorsHeaders;
 
 // ===== CLIENT DETECTION =====
 type ClientType = "mobile" | "web";

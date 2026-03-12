@@ -160,14 +160,14 @@ function buildBankTransferConfig(
 // ==================== Main Handler ====================
 
 serve(async (req) => {
-  // Handle CORS preflight
+  // Dynamic CORS — echoes whatever headers the client requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
 
-  const requestId = crypto.randomUUID();
+  const corsHeaders = buildCorsHeaders(req);
+  const requestId = logStartupRequest("APP_BOOTSTRAP", req);
   const timestamp = new Date().toISOString();
-  console.log(`[${requestId}] app-bootstrap: Start`);
 
   // Default safe response - NEVER throw from this function
   const safeResponse: BootstrapResponse = {

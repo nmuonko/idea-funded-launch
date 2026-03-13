@@ -814,6 +814,10 @@ export default function ProductDetailsPage() {
                         alt={`${product.title} ${index + 1}`}
                         loading="lazy"
                         className="w-full h-full object-contain bg-white p-1"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = '/placeholder.svg';
+                        }}
                       />
                     </button>
                   ))}

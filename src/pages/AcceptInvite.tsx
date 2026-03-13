@@ -102,8 +102,7 @@ export default function AcceptInvite() {
           },
           body: JSON.stringify({
             token,
-            password: 'validation-check-only', // This will fail but give us the error message
-            fullName: 'validation-check',
+            validate_only: true,
           }),
         }
       );
@@ -111,9 +110,16 @@ export default function AcceptInvite() {
       const result = await response.json();
       console.log('[AcceptInvite] Server validation result:', result);
 
+      if (response.ok && result.valid) {
+        // Server confirmed the invitation is valid
+        setInvitation({ id: result.id, email: result.email, role: result.role, status: 'pending', expires_at: result.expires_at });
+        setLoading(false);
+        return;
+      }
+
       // Check the specific error from the server
       if (result.error) {
-        if (result.error.includes('already been used')) {
+        if (result.error.includes('already been used') || result.error.includes('already exists')) {
           setError('This invitation has already been used. Please login with your existing credentials.');
         } else if (result.error.includes('expired')) {
           setError('This invitation has expired. Please request a new one.');

@@ -251,6 +251,8 @@ export default function ProductDetailsPage() {
     didAutoSelectRef.current = false;
     userInteractedRef.current = false;
     retryAttemptedRef.current = false;
+    failedImageIndexesRef.current.clear();
+    triedOriginalSourceRef.current.clear();
     setSimilarProducts([]);
     setQuantity(1);
     setAdded(false);

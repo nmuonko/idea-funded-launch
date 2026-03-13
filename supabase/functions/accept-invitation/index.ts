@@ -105,13 +105,15 @@ serve(async (req) => {
 
     // For validate_only requests, skip password validation and just check the token
     if (validate_only) {
-      const tokenHashForValidation = await hashToken(token);
       console.log('[accept-invitation] Validate-only request from IP:', clientIp);
+      const encoder = new TextEncoder();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(token));
+      const fullHashForValidation = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 
       const { data: inv, error: invErr } = await serviceSupabase
         .from('admin_invitations')
         .select('id, email, role, status, expires_at')
-        .eq('token_hash', tokenHashForValidation)
+        .eq('token_hash', fullHashForValidation)
         .maybeSingle();
 
       if (invErr || !inv) {

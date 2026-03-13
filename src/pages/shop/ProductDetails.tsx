@@ -736,28 +736,28 @@ export default function ProductDetailsPage() {
                 }}
               >
                 <img
-                    key={safeImages[safeImageIndex]}
-                    src={resizeImageUrl(safeImages[safeImageIndex] || '/placeholder.svg', IMAGE_SIZE_HERO)}
-                    alt={product.title}
-                    loading="eager"
-                    fetchPriority="high"
-                    decoding="async"
-                    className="max-w-full max-h-full object-contain p-4 sm:p-8 pointer-events-none select-none"
-                    onLoad={(e) => {
-                      const img = e.currentTarget;
-                      const { naturalWidth: w, naturalHeight: h } = img;
-                      if (w > 0 && h > 0) {
-                        const ratio = w / h;
-                        if (ratio > 1.9 || ratio < 0.5 || (w < 80 && h < 80) || (w >= 900 && h <= 320)) {
-                          // Banner-shaped image slipped through URL filter — skip it
-                          const nextValid = safeImages.findIndex((_, i) => i !== safeImageIndex);
-                          if (nextValid >= 0 && nextValid !== safeImageIndex) {
-                            setCurrentImageIndex(nextValid);
-                          }
+                  key={safeImages[safeImageIndex]}
+                  src={resizeImageUrl(safeImages[safeImageIndex] || '/placeholder.svg', IMAGE_SIZE_HERO)}
+                  alt={product.title}
+                  loading="eager"
+                  fetchPriority="high"
+                  decoding="async"
+                  className="max-w-full max-h-full object-contain p-4 sm:p-8 pointer-events-none select-none"
+                  onLoad={(e) => {
+                    const img = e.currentTarget;
+                    const { naturalWidth: w, naturalHeight: h } = img;
+                    if (w > 0 && h > 0) {
+                      const ratio = w / h;
+                      if (ratio > 1.9 || ratio < 0.5 || (w < 80 && h < 80) || (w >= 900 && h <= 320)) {
+                        const switched = advanceToNextImage(safeImageIndex);
+                        if (!switched) {
+                          img.src = '/placeholder.svg';
                         }
                       }
-                    }}
-                  />
+                    }
+                  }}
+                  onError={handleHeroImageError}
+                />
 
                 {safeImages.length > 1 && (
                   <>

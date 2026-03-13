@@ -134,6 +134,8 @@ export default function ProductDetailsPage() {
   const didAutoSelectRef = useRef(false);
   const userInteractedRef = useRef(false);
   const retryAttemptedRef = useRef(false);
+  const failedImageIndexesRef = useRef<Set<number>>(new Set());
+  const triedOriginalSourceRef = useRef<Set<number>>(new Set());
 
   const isVehicleFromState = !!(
     (location.state as any)?.product?.isVehicle ||

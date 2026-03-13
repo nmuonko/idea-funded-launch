@@ -88,7 +88,7 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { token, password, fullName } = body;
+    const { token, password, fullName, validate_only } = body;
 
     // ============================================
     // INPUT VALIDATION
@@ -100,6 +100,39 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Invalid invitation link format' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // For validate_only requests, skip password validation and just check the token
+    if (validate_only) {
+      console.log('[accept-invitation] Validate-only request from IP:', clientIp);
+      const encoder = new TextEncoder();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(token));
+      const fullHashForValidation = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+      const { data: inv, error: invErr } = await serviceSupabase
+        .from('admin_invitations')
+        .select('id, email, role, status, expires_at')
+        .eq('token_hash', fullHashForValidation)
+        .maybeSingle();
+
+      if (invErr || !inv) {
+        return new Response(JSON.stringify({ error: 'Invalid or expired invitation link' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      if (inv.status !== 'pending') {
+        return new Response(JSON.stringify({ error: 'This invitation has already been used. Please login with your existing credentials.', redirect: '/auth?mode=admin' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      if (new Date(inv.expires_at) < new Date()) {
+        return new Response(JSON.stringify({ error: 'This invitation has expired. Please request a new one.' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ valid: true, email: inv.email, role: inv.role, id: inv.id, expires_at: inv.expires_at }), {
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 

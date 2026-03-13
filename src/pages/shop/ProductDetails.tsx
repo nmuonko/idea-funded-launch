@@ -156,8 +156,48 @@ export default function ProductDetailsPage() {
 
   const safeImageIndex = Math.min(currentImageIndex, safeImages.length - 1);
 
-  // Preload first 4 gallery images when data arrives
-  // Preload only the first image at hero size (not 4 full-res images)
+  const getNextAvailableImageIndex = useCallback((fromIndex: number) => {
+    if (safeImages.length <= 1) return -1;
+    for (let offset = 1; offset < safeImages.length; offset += 1) {
+      const candidate = (fromIndex + offset) % safeImages.length;
+      if (!failedImageIndexesRef.current.has(candidate)) return candidate;
+    }
+    return -1;
+  }, [safeImages.length]);
+
+  const advanceToNextImage = useCallback((failedIndex: number) => {
+    failedImageIndexesRef.current.add(failedIndex);
+    const nextIndex = getNextAvailableImageIndex(failedIndex);
+    if (nextIndex >= 0 && nextIndex !== safeImageIndex) {
+      setCurrentImageIndex(nextIndex);
+      return true;
+    }
+    return false;
+  }, [getNextAvailableImageIndex, safeImageIndex]);
+
+  const handleHeroImageError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    const activeUrl = safeImages[safeImageIndex] || '/placeholder.svg';
+    const currentSrc = e.currentTarget.currentSrc || e.currentTarget.src;
+    const triedOriginal = triedOriginalSourceRef.current.has(safeImageIndex);
+
+    if (!triedOriginal && activeUrl !== '/placeholder.svg' && currentSrc !== activeUrl) {
+      triedOriginalSourceRef.current.add(safeImageIndex);
+      e.currentTarget.src = activeUrl;
+      return;
+    }
+
+    const switched = advanceToNextImage(safeImageIndex);
+    if (!switched) {
+      e.currentTarget.src = '/placeholder.svg';
+    }
+  }, [safeImages, safeImageIndex, advanceToNextImage]);
+
+  useEffect(() => {
+    failedImageIndexesRef.current.clear();
+    triedOriginalSourceRef.current.clear();
+  }, [safeImages]);
+
+  // Preload only the first image at hero size
   useEffect(() => {
     if (!safeImages.length || safeImages[0] === '/placeholder.svg') return;
     const img = new Image();

@@ -37,6 +37,14 @@ export function imageQualityScore(url: string): number {
   return score;
 }
 
+/** Map requested eBay size to known reliable CDN sizes */
+function normalizeEbaySize(targetSize: number): number {
+  if (targetSize >= 1000) return 1600;
+  if (targetSize >= 700) return 960;
+  if (targetSize >= 400) return 500;
+  return 225;
+}
+
 /** Returns true if URL looks like a known low-res thumbnail */
 function isLowResThumbnail(url: string): boolean {
   return imageQualityScore(url) < -2;
@@ -57,15 +65,13 @@ export function resizeImageUrl(url: string, targetSize: number): string {
     url = url.replace(/_thumbnail_\d+x\d+/i, '');
   }
 
-  // eBay: always upgrade to at least the target size (server stores s-l225 thumbnails historically)
+  // eBay: use known reliable CDN size buckets to avoid broken links on some listings
   const ebayMatch = url.match(/s-l(\d+)/i);
   if (ebayMatch) {
-    const currentSize = parseInt(ebayMatch[1], 10);
-    // Always upgrade eBay images — they support s-l1600 universally
-    if (currentSize < targetSize) {
-      return url.replace(/s-l\d+/gi, `s-l${targetSize}`);
-    }
+    const target = normalizeEbaySize(targetSize);
+    return url.replace(/s-l\d+/gi, `s-l${target}`);
   }
+
   // Amazon: always try to upgrade — Amazon CDN supports arbitrary sizes
   // Don't block thumbnails; they are just URL tokens, not actual tiny images
 
@@ -78,8 +84,9 @@ export function resizeImageUrl(url: string, targetSize: number): string {
 
   if (amazonResized !== url) return amazonResized;
 
-  // eBay pattern: s-l1600, s-l1200, etc.
-  const ebayResized = url.replace(/s-l\d{3,4}/gi, `s-l${targetSize}`);
+  // eBay fallback (when URL was not matched earlier but still contains size token variant)
+  const ebayTarget = normalizeEbaySize(targetSize);
+  const ebayResized = url.replace(/s-l\d{3,4}/gi, `s-l${ebayTarget}`);
   if (ebayResized !== url) return ebayResized;
 
   return url;

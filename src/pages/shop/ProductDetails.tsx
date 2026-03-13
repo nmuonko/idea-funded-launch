@@ -134,6 +134,8 @@ export default function ProductDetailsPage() {
   const didAutoSelectRef = useRef(false);
   const userInteractedRef = useRef(false);
   const retryAttemptedRef = useRef(false);
+  const failedImageIndexesRef = useRef<Set<number>>(new Set());
+  const triedOriginalSourceRef = useRef<Set<number>>(new Set());
 
   const isVehicleFromState = !!(
     (location.state as any)?.product?.isVehicle ||
@@ -154,8 +156,48 @@ export default function ProductDetailsPage() {
 
   const safeImageIndex = Math.min(currentImageIndex, safeImages.length - 1);
 
-  // Preload first 4 gallery images when data arrives
-  // Preload only the first image at hero size (not 4 full-res images)
+  const getNextAvailableImageIndex = useCallback((fromIndex: number) => {
+    if (safeImages.length <= 1) return -1;
+    for (let offset = 1; offset < safeImages.length; offset += 1) {
+      const candidate = (fromIndex + offset) % safeImages.length;
+      if (!failedImageIndexesRef.current.has(candidate)) return candidate;
+    }
+    return -1;
+  }, [safeImages.length]);
+
+  const advanceToNextImage = useCallback((failedIndex: number) => {
+    failedImageIndexesRef.current.add(failedIndex);
+    const nextIndex = getNextAvailableImageIndex(failedIndex);
+    if (nextIndex >= 0 && nextIndex !== safeImageIndex) {
+      setCurrentImageIndex(nextIndex);
+      return true;
+    }
+    return false;
+  }, [getNextAvailableImageIndex, safeImageIndex]);
+
+  const handleHeroImageError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    const activeUrl = safeImages[safeImageIndex] || '/placeholder.svg';
+    const currentSrc = e.currentTarget.currentSrc || e.currentTarget.src;
+    const triedOriginal = triedOriginalSourceRef.current.has(safeImageIndex);
+
+    if (!triedOriginal && activeUrl !== '/placeholder.svg' && currentSrc !== activeUrl) {
+      triedOriginalSourceRef.current.add(safeImageIndex);
+      e.currentTarget.src = activeUrl;
+      return;
+    }
+
+    const switched = advanceToNextImage(safeImageIndex);
+    if (!switched) {
+      e.currentTarget.src = '/placeholder.svg';
+    }
+  }, [safeImages, safeImageIndex, advanceToNextImage]);
+
+  useEffect(() => {
+    failedImageIndexesRef.current.clear();
+    triedOriginalSourceRef.current.clear();
+  }, [safeImages]);
+
+  // Preload only the first image at hero size
   useEffect(() => {
     if (!safeImages.length || safeImages[0] === '/placeholder.svg') return;
     const img = new Image();
@@ -209,6 +251,8 @@ export default function ProductDetailsPage() {
     didAutoSelectRef.current = false;
     userInteractedRef.current = false;
     retryAttemptedRef.current = false;
+    failedImageIndexesRef.current.clear();
+    triedOriginalSourceRef.current.clear();
     setSimilarProducts([]);
     setQuantity(1);
     setAdded(false);
@@ -692,28 +736,28 @@ export default function ProductDetailsPage() {
                 }}
               >
                 <img
-                    key={safeImages[safeImageIndex]}
-                    src={resizeImageUrl(safeImages[safeImageIndex] || '/placeholder.svg', IMAGE_SIZE_HERO)}
-                    alt={product.title}
-                    loading="eager"
-                    fetchPriority="high"
-                    decoding="async"
-                    className="max-w-full max-h-full object-contain p-4 sm:p-8 pointer-events-none select-none"
-                    onLoad={(e) => {
-                      const img = e.currentTarget;
-                      const { naturalWidth: w, naturalHeight: h } = img;
-                      if (w > 0 && h > 0) {
-                        const ratio = w / h;
-                        if (ratio > 1.9 || ratio < 0.5 || (w < 80 && h < 80) || (w >= 900 && h <= 320)) {
-                          // Banner-shaped image slipped through URL filter — skip it
-                          const nextValid = safeImages.findIndex((_, i) => i !== safeImageIndex);
-                          if (nextValid >= 0 && nextValid !== safeImageIndex) {
-                            setCurrentImageIndex(nextValid);
-                          }
+                  key={safeImages[safeImageIndex]}
+                  src={resizeImageUrl(safeImages[safeImageIndex] || '/placeholder.svg', IMAGE_SIZE_HERO)}
+                  alt={product.title}
+                  loading="eager"
+                  fetchPriority="high"
+                  decoding="async"
+                  className="max-w-full max-h-full object-contain p-4 sm:p-8 pointer-events-none select-none"
+                  onLoad={(e) => {
+                    const img = e.currentTarget;
+                    const { naturalWidth: w, naturalHeight: h } = img;
+                    if (w > 0 && h > 0) {
+                      const ratio = w / h;
+                      if (ratio > 1.9 || ratio < 0.5 || (w < 80 && h < 80) || (w >= 900 && h <= 320)) {
+                        const switched = advanceToNextImage(safeImageIndex);
+                        if (!switched) {
+                          img.src = '/placeholder.svg';
                         }
                       }
-                    }}
-                  />
+                    }
+                  }}
+                  onError={handleHeroImageError}
+                />
 
                 {safeImages.length > 1 && (
                   <>
@@ -770,6 +814,10 @@ export default function ProductDetailsPage() {
                         alt={`${product.title} ${index + 1}`}
                         loading="lazy"
                         className="w-full h-full object-contain bg-white p-1"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = '/placeholder.svg';
+                        }}
                       />
                     </button>
                   ))}

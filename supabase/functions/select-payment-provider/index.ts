@@ -304,6 +304,7 @@ serve(async (req) => {
         amount,
         currency,
         cart_hash: cartHash,
+        payment_method: provider === 'stripe' ? 'CARD' : 'MOBILE_MONEY',
         idempotency_key: `${orderId}-${provider}-${Date.now()}`,
         status: 'pending',
         expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // 30 min

@@ -976,6 +976,44 @@ Deno.serve(async (req: Request) => {
           if (!dbFallbackItems) {
             dbFallbackItems = dbResult.fallbackItems;
           }
+
+          // ── SERVER-SIDE BROADENING: when device intent has a specific model ──
+          // If "iphone 17" returns < 10 DB items, auto-fetch adjacent models (16, 15, etc.)
+          const DB_BROADEN_THRESHOLD = 10;
+          if (deviceIntent.hasStrongFamilyIntent && deviceIntent.generation && deviceIntent.line === "iphone" &&
+              (dbFallbackItems?.length ?? 0) < DB_BROADEN_THRESHOLD) {
+            const genNum = parseInt(deviceIntent.generation);
+            if (!isNaN(genNum)) {
+              const adjacentGens = [genNum - 1, genNum - 2, genNum + 1].filter(g => g >= 6 && g <= 20);
+              const broadenedDbItems: any[] = [];
+              const existingDbIds = new Set((dbFallbackItems || []).map((i: any) => i.id));
+
+              for (const adjGen of adjacentGens) {
+                if (broadenedDbItems.length + (dbFallbackItems?.length ?? 0) >= 50) break;
+                if (Date.now() - dbFirstStart > (isFirstPage ? DB_BUDGET_MS_P0 : DB_BUDGET_MS) - 200) break;
+                const adjQuery = `${deviceIntent.line} ${adjGen}`;
+                try {
+                  const adjResult = await Promise.race([
+                    searchDbFirst({ supabase, qNorm: adjQuery, aiExpandedTerms: null, limit: 50, offset: 0, categoryKey: null, requestId: requestId + "-dbadj" }),
+                    new Promise<null>(r => setTimeout(() => r(null), 500)),
+                  ]);
+                  if (adjResult?.items?.length) {
+                    const newItems = adjResult.items.filter((i: any) => !existingDbIds.has(i.id));
+                    newItems.forEach((i: any) => existingDbIds.add(i.id));
+                    broadenedDbItems.push(...newItems);
+                    console.log(`[CATALOG_SEARCH] requestId=${requestId} db_broaden_device: q="${adjQuery}" new=${newItems.length}`);
+                  }
+                } catch (e) {
+                  console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_broaden_error: ${(e as Error).message}`);
+                }
+              }
+
+              if (broadenedDbItems.length > 0) {
+                dbFallbackItems = [...(dbFallbackItems || []), ...broadenedDbItems];
+                console.log(`[CATALOG_SEARCH] requestId=${requestId} db_broaden_done: added ${broadenedDbItems.length} adjacent-model items (total=${dbFallbackItems.length})`);
+              }
+            }
+          }
         } else {
           dbTimedOut = true;
           console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_first_timeout after ${dbBudgetMs}ms`);

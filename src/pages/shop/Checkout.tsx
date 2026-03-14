@@ -263,6 +263,7 @@ export default function Checkout() {
         
         let providerData: any = null;
         try {
+          console.log('[WEB_CHECKOUT] Invoking payments-provider with payload:', { action: 'select', ...selectPayload });
           const providerResponse = await supabase.functions.invoke(
             'payments-provider',
             { body: { action: 'select', ...selectPayload } }
@@ -270,17 +271,17 @@ export default function Checkout() {
           providerData = providerResponse.data;
           const providerError = providerResponse.error;
           
-          console.log('[WEB_CHECKOUT] Provider selection response:', { providerData, providerError });
+          console.log('[WEB_CHECKOUT] Provider selection response:', JSON.stringify({ providerData, providerError }));
           
           if (providerError) {
-            console.error('[WEB_CHECKOUT] Provider invoke error:', providerError);
+            console.error('[WEB_CHECKOUT] Provider invoke error:', JSON.stringify(providerError));
             // Don't throw - the USSD may have been sent. Check if we got usable data.
             if (!providerData?.order_id && !providerData?.success) {
               throw new Error(providerData?.message || providerError?.message || 'Failed to initiate payment');
             }
           }
         } catch (invokeErr: any) {
-          console.error('[WEB_CHECKOUT] Provider invoke exception:', invokeErr);
+          console.error('[WEB_CHECKOUT] Provider invoke exception:', invokeErr?.message, invokeErr?.stack);
           // If we have no provider data at all, show error gracefully via toast, don't crash
           if (!providerData) {
             toast({

@@ -215,11 +215,11 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       isCompleted,
     });
 
-    // Find payment by checkout session ID (stored as provider_deposit_id with provider_key 'stripe_checkout')
+    // Find payment by checkout session ID — try both provider_key values for robustness
     const { data: payment, error: paymentError } = await supabase
       .from('payments')
       .select('*')
-      .eq('provider_key', 'stripe_checkout')
+      .or('provider_key.eq.stripe,provider_key.eq.stripe_checkout')
       .eq('provider_deposit_id', sessionId)
       .maybeSingle();
 

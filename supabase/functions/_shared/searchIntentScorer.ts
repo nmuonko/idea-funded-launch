@@ -683,6 +683,10 @@ function scoreOne(
  * Score, filter, and sort items by intent relevance.
  * Now accepts optional deviceIntent for family-aware scoring.
  */
+// Minimum result floor: when intent filtering drops too aggressively,
+// keep some items to avoid empty results (especially for rare/unreleased models).
+const MIN_RESULT_FLOOR = 5;
+
 export function scoreAndRankItems<T extends Record<string, unknown>>(
   items: T[],
   intent: SearchIntent,
@@ -691,15 +695,30 @@ export function scoreAndRankItems<T extends Record<string, unknown>>(
   deviceIntent?: DeviceIntent,
 ): { items: T[]; dropped: number; topScores: number[] } {
   const scored: Array<{ item: T; score: number }> = [];
+  const droppedItems: Array<{ item: T; score: number }> = [];
   let dropped = 0;
 
   for (const item of items) {
     const s = scoreOne(item, intent, queryTokens, deviceIntent);
     if (s === null) {
       dropped++;
+      // Track dropped items for potential rescue
+      droppedItems.push({ item, score: -100 });
       continue;
     }
     scored.push({ item, score: s });
+  }
+
+  // If intent filtering was too aggressive (dropped >80% AND fewer than MIN_RESULT_FLOOR remain),
+  // rescue some dropped items as low-scored fallbacks
+  const dropRate = items.length > 0 ? dropped / items.length : 0;
+  if (scored.length < MIN_RESULT_FLOOR && dropRate > 0.8 && droppedItems.length > 0) {
+    const rescueCount = Math.min(MIN_RESULT_FLOOR - scored.length, droppedItems.length);
+    // Sort dropped items by title relevance (basic token match) to rescue the best ones
+    const rescueItems = droppedItems.slice(0, rescueCount);
+    scored.push(...rescueItems);
+    dropped -= rescueCount;
+    console.log(`[SCORER] intent_floor_rescue: rescued ${rescueCount} items (dropRate=${(dropRate * 100).toFixed(0)}%, had=${scored.length - rescueCount}, floor=${MIN_RESULT_FLOOR})`);
   }
 
   // Sort descending

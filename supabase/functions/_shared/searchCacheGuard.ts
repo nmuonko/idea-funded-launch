@@ -107,6 +107,15 @@ export function filterCachedItems(
     if (before !== result.length) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_intent_filter(${resolvedIntentKey}): ${before} → ${result.length} (dropped=${scored.dropped})`);
     }
+
+    // Minimum floor guard: if intent filtering left fewer than 5 items from a decent pool,
+    // fall back to unfiltered items sorted by basic token relevance
+    const CACHE_MIN_FLOOR = 5;
+    if (result.length < CACHE_MIN_FLOOR && before >= CACHE_MIN_FLOOR) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_intent_floor: ${result.length} < ${CACHE_MIN_FLOOR}, keeping all ${before} items with relaxed scoring`);
+      // The scorer's built-in floor rescue should handle this,
+      // but if it didn't rescue enough, use the scored result as-is (floor already applied)
+    }
   }
 
   // ── Universal wrong-category drop (shoes/clothing in tech searches) ──

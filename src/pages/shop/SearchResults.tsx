@@ -530,7 +530,7 @@ export default function SearchResults() {
   };
 
   // Derived: only show empty state when truly done
-  const showEmpty = hasSearched && !loading && !loadingMore && !prefetchingNext && !isRevalidating && !incomplete && !isBroadening && products.length === 0;
+  const showEmpty = hasSearched && !loading && !loadingMore && !prefetchingNext && !isRevalidating && !incomplete && products.length === 0;
 
   return (
     <div className="min-h-screen bg-black pb-safe-nav">

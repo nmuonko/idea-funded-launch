@@ -73,7 +73,7 @@ function sanitizeItemImageUrl(rawUrl: string | null | undefined): string | null 
 
 const DEFAULT_LIMIT = 500;   // Default page size
 const MAX_LIMIT = 500;       // Max page size
-const MIN_TARGET_RESULTS = 200; // Minimum results target for strong commercial queries
+const MIN_TARGET_RESULTS = 500; // Minimum results target — unified for web + mobile parity
 const SESSION_LIMIT = 1000;  // Max items per search session
 const MAX_PAGES = 5;         // Maximum number of pages per search session
 
@@ -993,41 +993,68 @@ Deno.serve(async (req: Request) => {
             dbFallbackItems = dbResult.fallbackItems;
           }
 
-          // ── SERVER-SIDE BROADENING: when device intent has a specific model ──
-          // If "iphone 17" returns < 10 DB items, auto-fetch adjacent models (16, 15, etc.)
-          const DB_BROADEN_THRESHOLD = 10;
-          if (deviceIntent.hasStrongFamilyIntent && deviceIntent.generation && deviceIntent.line &&
-              (dbFallbackItems?.length ?? 0) < DB_BROADEN_THRESHOLD) {
-            const genNum = parseInt(deviceIntent.generation);
-            if (!isNaN(genNum)) {
-              const adjacentGens = [genNum - 1, genNum - 2, genNum + 1].filter(g => g >= 6 && g <= 20);
-              const broadenedDbItems: any[] = [];
-              const existingDbIds = new Set((dbFallbackItems || []).map((i: any) => i.id));
+          // ── SERVER-SIDE DB BROADENING (all queries, not just device-intent) ──
+          // Broadens DB results when primary query returns sparse results.
+          // For device-intent: fetch adjacent model generations.
+          // For general queries: use generateBroadenedQueries for year/qualifier stripping.
+          const DB_BROADEN_THRESHOLD = 50;
+          if ((dbFallbackItems?.length ?? 0) < DB_BROADEN_THRESHOLD) {
+            const broadenedDbItems: any[] = [];
+            const existingDbIds = new Set((dbFallbackItems || []).map((i: any) => i.id));
 
-              for (const adjGen of adjacentGens) {
-                if (broadenedDbItems.length + (dbFallbackItems?.length ?? 0) >= 50) break;
-                if (Date.now() - dbFirstStart > (isFirstPage ? DB_BUDGET_MS_P0 : DB_BUDGET_MS) - 200) break;
-                const adjQuery = `${deviceIntent.line} ${adjGen}`;
-                try {
-                  const adjResult = await Promise.race([
-                    searchDbFirst({ supabase, qNorm: adjQuery, aiExpandedTerms: null, limit: 50, offset: 0, categoryKey: null, requestId: requestId + "-dbadj" }),
-                    new Promise<null>(r => setTimeout(() => r(null), 500)),
-                  ]);
-                  if (adjResult?.items?.length) {
-                    const newItems = adjResult.items.filter((i: any) => !existingDbIds.has(i.id));
-                    newItems.forEach((i: any) => existingDbIds.add(i.id));
-                    broadenedDbItems.push(...newItems);
-                    console.log(`[CATALOG_SEARCH] requestId=${requestId} db_broaden_device: q="${adjQuery}" new=${newItems.length}`);
+            // Phase A: Device-intent broadening (adjacent model generations)
+            if (deviceIntent.hasStrongFamilyIntent && deviceIntent.generation && deviceIntent.line) {
+              const genNum = parseInt(deviceIntent.generation);
+              if (!isNaN(genNum)) {
+                const adjacentGens = [genNum - 1, genNum - 2, genNum + 1].filter(g => g >= 6 && g <= 20);
+                for (const adjGen of adjacentGens) {
+                  if (broadenedDbItems.length + (dbFallbackItems?.length ?? 0) >= 200) break;
+                  if (Date.now() - dbFirstStart > (isFirstPage ? DB_BUDGET_MS_P0 : DB_BUDGET_MS) - 200) break;
+                  const adjQuery = `${deviceIntent.line} ${adjGen}`;
+                  try {
+                    const adjResult = await Promise.race([
+                      searchDbFirst({ supabase, qNorm: adjQuery, aiExpandedTerms: null, limit: 100, offset: 0, categoryKey: null, requestId: requestId + "-dbadj" }),
+                      new Promise<null>(r => setTimeout(() => r(null), 500)),
+                    ]);
+                    if (adjResult?.items?.length) {
+                      const newItems = adjResult.items.filter((i: any) => !existingDbIds.has(i.id));
+                      newItems.forEach((i: any) => existingDbIds.add(i.id));
+                      broadenedDbItems.push(...newItems);
+                      console.log(`[CATALOG_SEARCH] requestId=${requestId} db_broaden_device: q="${adjQuery}" new=${newItems.length}`);
+                    }
+                  } catch (e) {
+                    console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_broaden_error: ${(e as Error).message}`);
                   }
-                } catch (e) {
-                  console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_broaden_error: ${(e as Error).message}`);
                 }
               }
+            }
 
-              if (broadenedDbItems.length > 0) {
-                dbFallbackItems = [...(dbFallbackItems || []), ...broadenedDbItems];
-                console.log(`[CATALOG_SEARCH] requestId=${requestId} db_broaden_done: added ${broadenedDbItems.length} adjacent-model items (total=${dbFallbackItems.length})`);
+            // Phase B: General broadening (year-stripped, qualifier-stripped, progressive shortening)
+            if (broadenedDbItems.length + (dbFallbackItems?.length ?? 0) < 200) {
+              const dbBroadenQueries = generateBroadenedQueries(dbQuery);
+              for (const bq of dbBroadenQueries) {
+                if (broadenedDbItems.length + (dbFallbackItems?.length ?? 0) >= 200) break;
+                if (Date.now() - dbFirstStart > (isFirstPage ? DB_BUDGET_MS_P0 : DB_BUDGET_MS) - 200) break;
+                try {
+                  const bqResult = await Promise.race([
+                    searchDbFirst({ supabase, qNorm: bq, aiExpandedTerms: null, limit: 100, offset: 0, categoryKey: categoryKey, requestId: requestId + "-dbbrd" }),
+                    new Promise<null>(r => setTimeout(() => r(null), 500)),
+                  ]);
+                  if (bqResult?.items?.length) {
+                    const newItems = bqResult.items.filter((i: any) => !existingDbIds.has(i.id));
+                    newItems.forEach((i: any) => existingDbIds.add(i.id));
+                    broadenedDbItems.push(...newItems);
+                    console.log(`[CATALOG_SEARCH] requestId=${requestId} db_broaden_general: q="${bq}" new=${newItems.length}`);
+                  }
+                } catch (e) {
+                  console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_broaden_general_error: ${(e as Error).message}`);
+                }
               }
+            }
+
+            if (broadenedDbItems.length > 0) {
+              dbFallbackItems = [...(dbFallbackItems || []), ...broadenedDbItems];
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} db_broaden_done: added ${broadenedDbItems.length} broadened items (total=${dbFallbackItems.length})`);
             }
           }
         } else {
@@ -1389,8 +1416,8 @@ Deno.serve(async (req: Request) => {
     // ─── DIRECT QUERY BROADENING (eBay-style, fills sparse results) ────────
     // When a specific query like "2024 tesla model x" returns few results,
     // broaden by stripping year/qualifiers to fetch related items.
-    const BROADEN_THRESHOLD = 60;
-    const BROADEN_TARGET = 200;
+    const BROADEN_THRESHOLD = 200;
+    const BROADEN_TARGET = 500;
     const totalAfterPrimary = amazonItems.length + ebayItems.length;
     if (totalAfterPrimary < BROADEN_THRESHOLD && !providerTimedOut) {
       const broadenBudgetMs = isFirstPage ? 3000 : 4000;
@@ -1655,9 +1682,9 @@ Deno.serve(async (req: Request) => {
     // When scored results are below 200, return them immediately to the user
     // AND fire a background eBay fetch to cache more items for future queries.
     // Below 200, do BLOCKING multi-variant enrichment to reach target.
-    const BG_ENRICHMENT_THRESHOLD = MIN_TARGET_RESULTS;
-    const BLOCKING_ENRICHMENT_THRESHOLD = MIN_TARGET_RESULTS;
-    const SPARSE_ENRICHMENT_TARGET = MIN_TARGET_RESULTS;
+    const BG_ENRICHMENT_THRESHOLD = 500;
+    const BLOCKING_ENRICHMENT_THRESHOLD = 500;
+    const SPARSE_ENRICHMENT_TARGET = 500;
 
     if (finalItems.length < BLOCKING_ENRICHMENT_THRESHOLD && !providerTimedOut) {
       // BLOCKING: not enough results, try multi-variant fetching to reach target

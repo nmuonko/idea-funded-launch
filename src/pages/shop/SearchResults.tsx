@@ -15,13 +15,9 @@ import { normalizeQuery, stableStringify, cachedCatalogFetchWithSwr, cachedCatal
 import { isRenderableImageUrl } from '@/lib/imageValidation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
-import { expandQuery, relevanceScore } from '@/lib/expandQuery';
-
 const PAGE_SIZE = 500;
 const HARD_MAX_ITEMS = 2000;
 const MAX_PAGES = Math.ceil(HARD_MAX_ITEMS / PAGE_SIZE); // 4
-const BROADEN_THRESHOLD = 30;
-const BROADEN_TARGET = 800;
 
 /** Generate a unique key per product for deduplication — provider-aware */
 function productKey(p: Product): string {
@@ -92,7 +88,6 @@ export default function SearchResults() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [cursorMode, setCursorMode] = useState(false);
   const [providersStatus, setProvidersStatus] = useState<any>(null);
-  const [isBroadening, setIsBroadening] = useState(false);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeSearchTokenRef = useRef(0);
@@ -172,62 +167,8 @@ export default function SearchResults() {
 
   const searchIdentityRef = useRef('');
 
-  /**
-   * Tier 2: Background broadening — fetch similar queries and append results.
-   * Runs after primary results are shown, in the background.
-   */
-  const runBroadening = useCallback(async (
-    primaryQuery: string,
-    token: number,
-    existingSeenIds: Set<string>,
-    signal: AbortSignal
-  ) => {
-    const expanded = expandQuery(primaryQuery);
-    if (expanded.similars.length === 0) return;
-
-    setIsBroadening(true);
-    console.log('[BROADEN] Starting broadening with queries:', expanded.similars);
-
-    for (const sq of expanded.similars) {
-      if (signal.aborted || token !== activeSearchTokenRef.current) break;
-
-      try {
-        const params = buildSearchParams(0, null, sq);
-        const data = await cachedCatalogFetch<any>('catalog-search', params);
-        if (signal.aborted || token !== activeSearchTokenRef.current) break;
-
-        const mapped = mapItems(data?.items || []);
-        const newUnique = dedupeWithSet(mapped, existingSeenIds);
-
-        if (newUnique.length > 0) {
-          // Score and sort the new items by relevance to original query
-          const scored = newUnique.map(p => ({
-            product: p,
-            score: relevanceScore(p.title || '', expanded.tokens, expanded.year),
-          }));
-          scored.sort((a, b) => b.score - a.score);
-
-          const sortedProducts = scored.map(s => s.product);
-          console.log(`[BROADEN] "${sq}" added ${sortedProducts.length} new items`);
-
-          setAllProducts(prev => [...prev, ...sortedProducts]);
-        }
-
-        // Check if we've reached the target
-        if (existingSeenIds.size >= BROADEN_TARGET) {
-          console.log('[BROADEN] Reached target, stopping');
-          break;
-        }
-      } catch (err) {
-        if ((err as any)?.name === 'AbortError') break;
-        console.warn(`[BROADEN] Query "${sq}" failed:`, err);
-      }
-    }
-
-    if (token === activeSearchTokenRef.current) {
-      setIsBroadening(false);
-    }
-  }, [buildSearchParams]);
+  // Client-side broadening removed — server-side catalog-search handles all broadening
+  // for unified web + mobile parity.
 
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false, cursorVal?: string | null): Promise<{ returnedCount: number; backendHasMore: boolean; incomplete: boolean } | null> => {
     if (pageNum === 0 && abortControllerRef.current) {
@@ -267,7 +208,7 @@ export default function SearchResults() {
       setPrefetchingNext(false);
       setNextCursor(null);
       setCursorMode(false);
-      setIsBroadening(false);
+      
     } else if (pageNum > 0) {
       setLoadingMore(true);
     }
@@ -424,13 +365,7 @@ export default function SearchResults() {
         setLoadingMore(false);
       }
 
-      // ── TIER 2: Auto-broaden if primary returned few results ──
-      if (pageNum === 0 && !append && query && returnedCount < BROADEN_THRESHOLD) {
-        const capturedToken = token ?? activeSearchTokenRef.current;
-        console.log(`[BROADEN] Primary returned ${returnedCount} < ${BROADEN_THRESHOLD}, starting broadening`);
-        // Fire broadening in background (non-blocking)
-        runBroadening(query, capturedToken, seenIdsRef.current, controller.signal);
-      }
+      // Broadening is now handled server-side in catalog-search for web+mobile parity.
       
       return fetchResult;
     } catch (err: any) {
@@ -450,7 +385,7 @@ export default function SearchResults() {
       
       return null;
     }
-  }, [buildSearchParams, query, category, sort, runBroadening]);
+  }, [buildSearchParams, query, category, sort]);
 
   /** Background revalidation to enrich incomplete page-0 results */
   const revalidateInBackground = useCallback(async (token: number) => {
@@ -595,7 +530,7 @@ export default function SearchResults() {
   };
 
   // Derived: only show empty state when truly done
-  const showEmpty = hasSearched && !loading && !loadingMore && !prefetchingNext && !isRevalidating && !incomplete && !isBroadening && products.length === 0;
+  const showEmpty = hasSearched && !loading && !loadingMore && !prefetchingNext && !isRevalidating && !incomplete && products.length === 0;
 
   return (
     <div className="min-h-screen bg-black pb-safe-nav">
@@ -633,7 +568,7 @@ export default function SearchResults() {
                 {!loading && hasSearched && (
                   <p className="text-sm text-white/60 whitespace-normal break-words leading-snug">
                     {products.length} {language === 'fr' ? 'produits affichés' : 'products shown'}
-                    {(hasMore || incomplete || isBroadening) && (
+                    {(hasMore || incomplete) && (
                       <span className="ml-2 text-xs text-white/40">
                         — {language === 'fr' ? 'Plus de résultats disponibles…' : 'More results available…'}
                       </span>
@@ -646,13 +581,7 @@ export default function SearchResults() {
                     {shop.updating || 'Updating…'}
                   </span>
                 )}
-                {isBroadening && !loading && (
-                  <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 whitespace-normal">
-                    <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
-                    {language === 'fr' ? 'Recherche de résultats similaires…' : 'Finding similar results…'}
-                  </span>
-                )}
-                {prefetchingNext && !loading && !isBroadening && (
+                {prefetchingNext && !loading && (
                   <span className="inline-flex items-center gap-1.5 text-xs text-amber-400 whitespace-normal">
                     <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
                     {shop.fetchingMoreSources || 'Loading more sources…'}
@@ -718,14 +647,14 @@ export default function SearchResults() {
           <div ref={sentinelRef} style={{ height: 1 }} />
 
           {/* Loading more indicator */}
-          {(loadingMore || prefetchingNext || isBroadening) && (
+          {(loadingMore || prefetchingNext) && (
             <div className="flex justify-center mt-8">
               <Loader2 className="h-6 w-6 animate-spin text-white/60" />
             </div>
           )}
 
           {/* Load More fallback button */}
-          {!loading && hasMore && products.length > 0 && !loadingMore && !prefetchingNext && !isBroadening && (
+          {!loading && hasMore && products.length > 0 && !loadingMore && !prefetchingNext && (
             <div className="text-center mt-4">
               <Button
                 onClick={handleLoadMore}

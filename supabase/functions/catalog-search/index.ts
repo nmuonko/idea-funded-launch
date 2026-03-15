@@ -788,7 +788,10 @@ Deno.serve(async (req: Request) => {
 
       if (nearMatch.hit && nearMatch.data) {
         const nearItems = filterCachedItems(nearMatch.data.items || [], hasBuyingIntent, catalogFilters, requestId, effectiveIntent.intentKey, qNorm);
-        if (nearItems.length > 0) {
+        // Sparse near-match gate: bypass if device intent + too few results
+        if (deviceIntent.hasStrongFamilyIntent && nearItems.length < CACHE_SPARSE_THRESHOLD) {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} NEAR_MATCH_SPARSE_BYPASS: "${qNorm}" near-match has only ${nearItems.length} items, falling through to broadening`);
+        } else if (nearItems.length > 0) {
           finalCacheStatus = "NEAR_HIT";
           cacheMatchedQuery = nearMatch.matchedQuery;
           const nearHeaders = buildResponseHeaders(nearItems.length, 3600, { cacheStatus: "NEAR_HIT", cacheAgeSec: nearMatch.cacheAgeSec, responseTimeMs: Date.now() - startTime });

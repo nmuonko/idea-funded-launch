@@ -385,7 +385,7 @@ export default function SearchResults() {
       
       return null;
     }
-  }, [buildSearchParams, query, category, sort, runBroadening]);
+  }, [buildSearchParams, query, category, sort]);
 
   /** Background revalidation to enrich incomplete page-0 results */
   const revalidateInBackground = useCallback(async (token: number) => {

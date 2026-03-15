@@ -1389,8 +1389,8 @@ Deno.serve(async (req: Request) => {
     // ─── DIRECT QUERY BROADENING (eBay-style, fills sparse results) ────────
     // When a specific query like "2024 tesla model x" returns few results,
     // broaden by stripping year/qualifiers to fetch related items.
-    const BROADEN_THRESHOLD = 60;
-    const BROADEN_TARGET = 200;
+    const BROADEN_THRESHOLD = 200;
+    const BROADEN_TARGET = 500;
     const totalAfterPrimary = amazonItems.length + ebayItems.length;
     if (totalAfterPrimary < BROADEN_THRESHOLD && !providerTimedOut) {
       const broadenBudgetMs = isFirstPage ? 3000 : 4000;

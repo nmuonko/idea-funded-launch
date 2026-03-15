@@ -1655,9 +1655,9 @@ Deno.serve(async (req: Request) => {
     // When scored results are below 200, return them immediately to the user
     // AND fire a background eBay fetch to cache more items for future queries.
     // Below 200, do BLOCKING multi-variant enrichment to reach target.
-    const BG_ENRICHMENT_THRESHOLD = MIN_TARGET_RESULTS;
-    const BLOCKING_ENRICHMENT_THRESHOLD = MIN_TARGET_RESULTS;
-    const SPARSE_ENRICHMENT_TARGET = MIN_TARGET_RESULTS;
+    const BG_ENRICHMENT_THRESHOLD = 500;
+    const BLOCKING_ENRICHMENT_THRESHOLD = 500;
+    const SPARSE_ENRICHMENT_TARGET = 500;
 
     if (finalItems.length < BLOCKING_ENRICHMENT_THRESHOLD && !providerTimedOut) {
       // BLOCKING: not enough results, try multi-variant fetching to reach target

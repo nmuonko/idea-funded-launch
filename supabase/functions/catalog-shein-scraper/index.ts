@@ -549,14 +549,24 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = req.method === "POST" ? await req.json() : {};
-    const queriesPerRun = body.queries_per_run || body.categories_per_run || DEFAULT_QUERIES_PER_RUN;
-    const dryRun = body.dry_run || false;
-    const useFullScrape = body.full_scrape !== false; // Default: scrape pages for images/prices
-    const customQuery = body.custom_query?.trim() || undefined;
-
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
+
+    // ── BACKFILL ACTION ──────────────────────────────────────────────────
+    if (body.action === "backfill-prices") {
+      const batchSize = body.batch_size || 50;
+      const result = await backfillSheinPrices(supabase, batchSize, supabaseUrl, serviceKey);
+      return new Response(JSON.stringify({ ok: true, ...result }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const queriesPerRun = body.queries_per_run || body.categories_per_run || DEFAULT_QUERIES_PER_RUN;
+    const dryRun = body.dry_run || false;
+    const useFullScrape = body.full_scrape !== false;
+    const customQuery = body.custom_query?.trim() || undefined;
+
     const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY") || "";
 
     if (!firecrawlKey) {

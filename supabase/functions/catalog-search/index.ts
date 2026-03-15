@@ -245,7 +245,9 @@ Deno.serve(async (req: Request) => {
   const rawQuery = url.searchParams.get("q") || "";
   const qOriginal = rawQuery.trim();
   const cursor = url.searchParams.get("cursor") || null;
-  const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get("limit") || url.searchParams.get("pageSize") || String(DEFAULT_LIMIT), 10)));
+  const clientLimit = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get("limit") || url.searchParams.get("pageSize") || String(DEFAULT_LIMIT), 10)));
+  // Internal scoring limit: always use at least 200 to avoid truncating results for mobile clients sending small limits
+  const limit = Math.max(clientLimit, MIN_TARGET_RESULTS);
   const pageParam = Math.max(0, parseInt(url.searchParams.get("page") || "0", 10));
   const isFirstPage = pageParam === 0;
   const providerParam = url.searchParams.get("provider") || null;

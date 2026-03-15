@@ -581,13 +581,7 @@ export default function SearchResults() {
                     {shop.updating || 'Updating…'}
                   </span>
                 )}
-                {isBroadening && !loading && (
-                  <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 whitespace-normal">
-                    <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
-                    {language === 'fr' ? 'Recherche de résultats similaires…' : 'Finding similar results…'}
-                  </span>
-                )}
-                {prefetchingNext && !loading && !isBroadening && (
+                {prefetchingNext && !loading && (
                   <span className="inline-flex items-center gap-1.5 text-xs text-amber-400 whitespace-normal">
                     <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
                     {shop.fetchingMoreSources || 'Loading more sources…'}

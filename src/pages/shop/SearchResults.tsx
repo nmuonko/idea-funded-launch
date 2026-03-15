@@ -647,7 +647,7 @@ export default function SearchResults() {
           <div ref={sentinelRef} style={{ height: 1 }} />
 
           {/* Loading more indicator */}
-          {(loadingMore || prefetchingNext || isBroadening) && (
+          {(loadingMore || prefetchingNext) && (
             <div className="flex justify-center mt-8">
               <Loader2 className="h-6 w-6 animate-spin text-white/60" />
             </div>

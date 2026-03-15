@@ -208,7 +208,7 @@ export default function SearchResults() {
       setPrefetchingNext(false);
       setNextCursor(null);
       setCursorMode(false);
-      setIsBroadening(false);
+      
     } else if (pageNum > 0) {
       setLoadingMore(true);
     }

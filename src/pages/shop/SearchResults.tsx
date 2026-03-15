@@ -654,7 +654,7 @@ export default function SearchResults() {
           )}
 
           {/* Load More fallback button */}
-          {!loading && hasMore && products.length > 0 && !loadingMore && !prefetchingNext && !isBroadening && (
+          {!loading && hasMore && products.length > 0 && !loadingMore && !prefetchingNext && (
             <div className="text-center mt-4">
               <Button
                 onClick={handleLoadMore}

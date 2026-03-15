@@ -568,7 +568,7 @@ export default function SearchResults() {
                 {!loading && hasSearched && (
                   <p className="text-sm text-white/60 whitespace-normal break-words leading-snug">
                     {products.length} {language === 'fr' ? 'produits affichés' : 'products shown'}
-                    {(hasMore || incomplete || isBroadening) && (
+                    {(hasMore || incomplete) && (
                       <span className="ml-2 text-xs text-white/40">
                         — {language === 'fr' ? 'Plus de résultats disponibles…' : 'More results available…'}
                       </span>

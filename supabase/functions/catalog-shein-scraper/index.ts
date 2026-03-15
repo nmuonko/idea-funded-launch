@@ -659,6 +659,14 @@ Deno.serve(async (req: Request) => {
     // Upsert
     const upsertedCount = await upsertProducts(supabase, allProducts, dryRun);
 
+    // ── Auto-backfill pass: fix priceless items if time allows ────────
+    let backfillResult = null;
+    const timeLeft = HARD_FUNCTION_CAP_MS - (Date.now() - startTime);
+    if (!dryRun && timeLeft > 30000) {
+      // Backfill up to 10 items per regular run
+      backfillResult = await backfillSheinPrices(supabase, 10, supabaseUrl, serviceKey);
+    }
+
     const elapsedMs = Date.now() - startTime;
     const result = {
       ok: true,

@@ -88,7 +88,6 @@ export default function SearchResults() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [cursorMode, setCursorMode] = useState(false);
   const [providersStatus, setProvidersStatus] = useState<any>(null);
-  const [isBroadening, setIsBroadening] = useState(false);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeSearchTokenRef = useRef(0);

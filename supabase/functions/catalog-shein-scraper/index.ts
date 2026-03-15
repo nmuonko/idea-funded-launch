@@ -691,6 +691,7 @@ Deno.serve(async (req: Request) => {
       })),
       elapsed_ms: elapsedMs,
       dry_run: dryRun,
+      backfill: backfillResult,
     };
 
     console.log(`[SHEIN_SCRAPER] DONE ${elapsedMs}ms found=${allProducts.length} upserted=${upsertedCount} credits=${totalCreditsUsed}`);

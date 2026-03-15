@@ -167,62 +167,8 @@ export default function SearchResults() {
 
   const searchIdentityRef = useRef('');
 
-  /**
-   * Tier 2: Background broadening — fetch similar queries and append results.
-   * Runs after primary results are shown, in the background.
-   */
-  const runBroadening = useCallback(async (
-    primaryQuery: string,
-    token: number,
-    existingSeenIds: Set<string>,
-    signal: AbortSignal
-  ) => {
-    const expanded = expandQuery(primaryQuery);
-    if (expanded.similars.length === 0) return;
-
-    setIsBroadening(true);
-    console.log('[BROADEN] Starting broadening with queries:', expanded.similars);
-
-    for (const sq of expanded.similars) {
-      if (signal.aborted || token !== activeSearchTokenRef.current) break;
-
-      try {
-        const params = buildSearchParams(0, null, sq);
-        const data = await cachedCatalogFetch<any>('catalog-search', params);
-        if (signal.aborted || token !== activeSearchTokenRef.current) break;
-
-        const mapped = mapItems(data?.items || []);
-        const newUnique = dedupeWithSet(mapped, existingSeenIds);
-
-        if (newUnique.length > 0) {
-          // Score and sort the new items by relevance to original query
-          const scored = newUnique.map(p => ({
-            product: p,
-            score: relevanceScore(p.title || '', expanded.tokens, expanded.year),
-          }));
-          scored.sort((a, b) => b.score - a.score);
-
-          const sortedProducts = scored.map(s => s.product);
-          console.log(`[BROADEN] "${sq}" added ${sortedProducts.length} new items`);
-
-          setAllProducts(prev => [...prev, ...sortedProducts]);
-        }
-
-        // Check if we've reached the target
-        if (existingSeenIds.size >= BROADEN_TARGET) {
-          console.log('[BROADEN] Reached target, stopping');
-          break;
-        }
-      } catch (err) {
-        if ((err as any)?.name === 'AbortError') break;
-        console.warn(`[BROADEN] Query "${sq}" failed:`, err);
-      }
-    }
-
-    if (token === activeSearchTokenRef.current) {
-      setIsBroadening(false);
-    }
-  }, [buildSearchParams]);
+  // Client-side broadening removed — server-side catalog-search handles all broadening
+  // for unified web + mobile parity.
 
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false, cursorVal?: string | null): Promise<{ returnedCount: number; backendHasMore: boolean; incomplete: boolean } | null> => {
     if (pageNum === 0 && abortControllerRef.current) {

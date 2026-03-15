@@ -73,7 +73,7 @@ function sanitizeItemImageUrl(rawUrl: string | null | undefined): string | null 
 
 const DEFAULT_LIMIT = 500;   // Default page size
 const MAX_LIMIT = 500;       // Max page size
-const MIN_TARGET_RESULTS = 200; // Minimum results target for strong commercial queries
+const MIN_TARGET_RESULTS = 500; // Minimum results target — unified for web + mobile parity
 const SESSION_LIMIT = 1000;  // Max items per search session
 const MAX_PAGES = 5;         // Maximum number of pages per search session
 

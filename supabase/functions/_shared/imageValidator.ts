@@ -130,6 +130,27 @@ const BLOCKED_SUBSTRINGS = [
   "pixel.", "tracking.", "beacon.",
   "1x1.", "spacer.gif", "blank.gif",
 
+  // Amazon renewed/certified badge overlays
+  "renewed-badge", "renewed_badge", "certified-badge",
+  "amazon-certified", "premium-badge", "premium_badge",
+  "a]+-view", "lifestyle-image", "lifestyle_image",
+
+  // Common ad overlay / composite image patterns
+  "comparison-image", "comparison_image",
+  "before-after", "before_after",
+  "text-overlay", "text_overlay",
+  "promo-overlay", "promo_overlay",
+  "sale-overlay", "sale_overlay",
+  "badge-overlay", "badge_overlay",
+
+  // Amazon A+ content / brand story images (non-product photos)
+  "aplus-media", "aplus_media", "/aplus/",
+  "brand-story", "brand_story",
+  "fromthebrand", "from-the-brand", "from_the_brand",
+  "brandstory", "rich-product-description",
+  "editorial-", "editorial_",
+  "feature-callout", "feature_callout",
+
   // Shop Now / CTA overlays
   "shop-now", "shop_now", "shopnow",
   "buy-now", "buy_now", "buynow",

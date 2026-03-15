@@ -365,13 +365,7 @@ export default function SearchResults() {
         setLoadingMore(false);
       }
 
-      // ── TIER 2: Auto-broaden if primary returned few results ──
-      if (pageNum === 0 && !append && query && returnedCount < BROADEN_THRESHOLD) {
-        const capturedToken = token ?? activeSearchTokenRef.current;
-        console.log(`[BROADEN] Primary returned ${returnedCount} < ${BROADEN_THRESHOLD}, starting broadening`);
-        // Fire broadening in background (non-blocking)
-        runBroadening(query, capturedToken, seenIdsRef.current, controller.signal);
-      }
+      // Broadening is now handled server-side in catalog-search for web+mobile parity.
       
       return fetchResult;
     } catch (err: any) {

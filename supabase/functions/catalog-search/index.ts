@@ -993,11 +993,12 @@ Deno.serve(async (req: Request) => {
             dbFallbackItems = dbResult.fallbackItems;
           }
 
-          // ── SERVER-SIDE BROADENING: when device intent has a specific model ──
-          // If "iphone 17" returns < 10 DB items, auto-fetch adjacent models (16, 15, etc.)
-          const DB_BROADEN_THRESHOLD = 10;
-          if (deviceIntent.hasStrongFamilyIntent && deviceIntent.generation && deviceIntent.line &&
-              (dbFallbackItems?.length ?? 0) < DB_BROADEN_THRESHOLD) {
+          // ── SERVER-SIDE DB BROADENING (all queries, not just device-intent) ──
+          // Broadens DB results when primary query returns sparse results.
+          // For device-intent: fetch adjacent model generations.
+          // For general queries: use generateBroadenedQueries for year/qualifier stripping.
+          const DB_BROADEN_THRESHOLD = 50;
+          if ((dbFallbackItems?.length ?? 0) < DB_BROADEN_THRESHOLD) {
             const genNum = parseInt(deviceIntent.generation);
             if (!isNaN(genNum)) {
               const adjacentGens = [genNum - 1, genNum - 2, genNum + 1].filter(g => g >= 6 && g <= 20);

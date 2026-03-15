@@ -994,7 +994,7 @@ Deno.serve(async (req: Request) => {
           // ── SERVER-SIDE BROADENING: when device intent has a specific model ──
           // If "iphone 17" returns < 10 DB items, auto-fetch adjacent models (16, 15, etc.)
           const DB_BROADEN_THRESHOLD = 10;
-          if (deviceIntent.hasStrongFamilyIntent && deviceIntent.generation && deviceIntent.line === "iphone" &&
+          if (deviceIntent.hasStrongFamilyIntent && deviceIntent.generation && deviceIntent.line &&
               (dbFallbackItems?.length ?? 0) < DB_BROADEN_THRESHOLD) {
             const genNum = parseInt(deviceIntent.generation);
             if (!isNaN(genNum)) {

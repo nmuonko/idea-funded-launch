@@ -585,6 +585,38 @@ async function handleAction(req: Request, action: string) {
     return json({ success: true, worker_result: result, routed_to: scraperUrl });
   }
 
+  if (action === "backfill-shein-prices") {
+    const batchSize = body.batch_size || 50;
+    const { targetBaseUrl } = await resolveIngestionTarget(sb);
+    const scraperUrl = `${targetBaseUrl}/catalog-shein-scraper`;
+    console.log(`[backfill-shein-prices] Routing to: ${scraperUrl}`);
+
+    const res = await fetch(scraperUrl, {
+      method: "POST",
+      headers: buildWorkerHeaders(),
+      body: JSON.stringify({
+        action: "backfill-prices",
+        batch_size: Math.min(batchSize, 100),
+      }),
+    });
+
+    let result: any = null;
+    try {
+      result = await res.json();
+    } catch {
+      result = { ok: false, error: "Invalid response" };
+    }
+
+    if (!res.ok || result?.ok === false) {
+      return json(
+        { error: result?.error || "Backfill failed", worker_result: result },
+        res.status >= 400 ? res.status : 500
+      );
+    }
+
+    return json({ success: true, worker_result: result, routed_to: scraperUrl });
+  }
+
   return json({ error: "unknown action" }, 400);
 }
 

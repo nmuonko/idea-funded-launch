@@ -398,25 +398,41 @@ async function upsertProducts(supabase: any, products: SheinProduct[], dryRun: b
   if (validProducts.length === 0 || dryRun) return 0;
 
   const now = new Date().toISOString();
-  const rows = validProducts.map((p) => ({
-    provider: "shein",
-    provider_product_id: p.provider_product_id,
-    title: p.title.substring(0, 200),
-    price_usd: p.price_usd > 0 ? p.price_usd : null,
-    image_url: p.image_url || null,
-    product_url: p.product_url,
-    brand: p.brand || "SHEIN",
-    category_key: "clothing_shoes",
-    unified_category: "clothing_shoes_accessories",
-    currency: "USD",
-    in_stock: true,
-    is_active: true,
-    is_disallowed: false,
-    last_seen_at: now,
-    last_checked_at: now,
-    images: p.images.length > 0 ? p.images : p.image_url ? [p.image_url] : null,
-    metadata: { source: "firecrawl_search" },
-  }));
+
+  // Split into new-inserts vs updates to protect existing prices
+  const pids = validProducts.map(p => p.provider_product_id);
+  const { data: existing } = await supabase
+    .from("catalog_items")
+    .select("provider_product_id, price_usd, image_url")
+    .eq("provider", "shein")
+    .in("provider_product_id", pids);
+  const existingMap = new Map((existing || []).map((e: any) => [e.provider_product_id, e]));
+
+  const rows = validProducts.map((p) => {
+    const ex = existingMap.get(p.provider_product_id);
+    // COALESCE: never overwrite a valid price/image with null
+    const price = p.price_usd > 0 ? p.price_usd : (ex?.price_usd > 0 ? ex.price_usd : null);
+    const image = p.image_url || ex?.image_url || null;
+    return {
+      provider: "shein",
+      provider_product_id: p.provider_product_id,
+      title: p.title.substring(0, 200),
+      price_usd: price,
+      image_url: image,
+      product_url: p.product_url,
+      brand: p.brand || "SHEIN",
+      category_key: "clothing_shoes",
+      unified_category: "clothing_shoes_accessories",
+      currency: "USD",
+      in_stock: true,
+      is_active: true,
+      is_disallowed: false,
+      last_seen_at: now,
+      last_checked_at: now,
+      images: p.images.length > 0 ? p.images : image ? [image] : null,
+      metadata: { source: "firecrawl_search" },
+    };
+  });
 
   let upserted = 0;
   for (let i = 0; i < rows.length; i += 50) {
@@ -431,6 +447,95 @@ async function upsertProducts(supabase: any, products: SheinProduct[], dryRun: b
     }
   }
   return upserted;
+}
+
+// ── PRICE BACKFILL ─────────────────────────────────────────────────────────
+
+async function backfillSheinPrices(
+  supabase: any,
+  batchSize: number = 50,
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<{ processed: number; updated: number; failed: number; errors: string[] }> {
+  // Find SHEIN items missing price or image
+  const { data: items, error } = await supabase
+    .from("catalog_items")
+    .select("id, provider_product_id, product_url, price_usd, image_url")
+    .eq("provider", "shein")
+    .eq("is_active", true)
+    .or("price_usd.is.null,image_url.is.null")
+    .limit(batchSize);
+
+  if (error || !items || items.length === 0) {
+    console.log(`[SHEIN_BACKFILL] No items to backfill (${error?.message || "0 found"})`);
+    return { processed: 0, updated: 0, failed: 0, errors: [] };
+  }
+
+  console.log(`[SHEIN_BACKFILL] Processing ${items.length} items`);
+  let updated = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (const item of items) {
+    if (!item.product_url) {
+      failed++;
+      continue;
+    }
+    try {
+      const extractUrl = `${supabaseUrl}/functions/v1/extract-price`;
+      const resp = await fetch(extractUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${serviceKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ url: item.product_url }),
+      });
+
+      if (!resp.ok) {
+        failed++;
+        errors.push(`${item.provider_product_id}: HTTP ${resp.status}`);
+        continue;
+      }
+
+      const data = await resp.json();
+      const newPrice = data.price_usd || data.price || null;
+      const newImage = data.image_url || data.image || null;
+
+      if (!newPrice && !newImage) {
+        failed++;
+        continue;
+      }
+
+      const updates: Record<string, any> = { updated_at: new Date().toISOString() };
+      if (newPrice && newPrice > 0) updates.price_usd = newPrice;
+      if (newImage && !item.image_url) {
+        updates.image_url = newImage;
+        updates.images = [newImage];
+      }
+
+      const { error: upErr } = await supabase
+        .from("catalog_items")
+        .update(updates)
+        .eq("id", item.id);
+
+      if (upErr) {
+        failed++;
+        errors.push(`${item.provider_product_id}: ${upErr.message}`);
+      } else {
+        updated++;
+      }
+
+      // Rate limit: 500ms between extract-price calls
+      await new Promise(r => setTimeout(r, 500));
+    } catch (e) {
+      failed++;
+      errors.push(`${item.provider_product_id}: ${(e as Error).message}`);
+    }
+  }
+
+  console.log(`[SHEIN_BACKFILL] Done: processed=${items.length} updated=${updated} failed=${failed}`);
+  return { processed: items.length, updated, failed, errors: errors.slice(0, 10) };
 }
 
 // ── MAIN HANDLER ───────────────────────────────────────────────────────────

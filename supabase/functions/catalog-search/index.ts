@@ -739,29 +739,40 @@ Deno.serve(async (req: Request) => {
     let cacheTtlRemaining = 0;
 
     // ─── FRESH CACHE HIT ──────────────────────────────────────────────────────
+    // Quality gate: if cache has very few items for a device-intent query, treat as MISS
+    // so broadening logic runs and fills the results
+    const CACHE_SPARSE_THRESHOLD = 10;
     if (cacheResult.hit && !cacheResult.stale && !cacheResult.negativeCached) {
       const cachedResponse = cacheResult.data;
       const cachedItems = filterCachedItems(cachedResponse.items || [], hasBuyingIntent, catalogFilters, requestId, effectiveIntent.intentKey, qNorm);
-      finalCacheStatus = "HIT";
-      // Compute TTL remaining
-      const expiresAt = cacheResult.data?._meta?.cachedAt ? new Date(cacheResult.data._meta.cachedAt).getTime() + 7 * 24 * 60 * 60 * 1000 : 0;
-      cacheTtlRemaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
-      const hitHeaders = buildResponseHeaders(cachedItems.length, 3600, { cacheStatus: "HIT", cacheAgeSec: cacheResult.cacheAgeSec, responseTimeMs: Date.now() - startTime });
-      hitHeaders["X-Cache-TTL-Remaining"] = String(cacheTtlRemaining);
-      hitHeaders["X-Results-Count"] = String(cachedItems.length);
-      hitHeaders["X-Next-Cursor"] = cachedResponse.nextCursor ? "present" : "absent";
-      hitHeaders["X-Translate"] = translateStatus;
-      hitHeaders["X-Translate-Ms"] = String(translateMs);
-      if (translateProvider) hitHeaders["X-Translate-Provider"] = translateProvider;
-      hitHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Cache-TTL-Remaining, X-Results-Count, X-Next-Cursor, X-Cache-Match, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
-      // Structured log
-      console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "HIT", matchedQuery: null, provider: providerParam || "all", ttlRemaining: cacheTtlRemaining, resultsCount: cachedItems.length, totalMs: Date.now() - startTime, upstreamMs: 0, requestId }));
-      return new Response(JSON.stringify({
-        ...cachedResponse, items: cachedItems, total: cachedItems.length,
-        query: qOriginal, env: envName, durationMs: Date.now() - startTime,
-        _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
-        meta: { source: "cache", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
-      }), { status: 200, headers: hitHeaders });
+
+      // If device-intent query returned sparse results, bypass cache to trigger broadening
+      if (deviceIntent.hasStrongFamilyIntent && cachedItems.length < CACHE_SPARSE_THRESHOLD) {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} CACHE_SPARSE_BYPASS: device intent query "${qNorm}" cache has only ${cachedItems.length} items (< ${CACHE_SPARSE_THRESHOLD}), treating as MISS for broadening`);
+        cacheResult = { hit: false, stale: false, data: null, cacheAgeSec: 0 };
+        // fall through to DB-first + broadening path
+      } else {
+        finalCacheStatus = "HIT";
+        // Compute TTL remaining
+        const expiresAt = cacheResult.data?._meta?.cachedAt ? new Date(cacheResult.data._meta.cachedAt).getTime() + 7 * 24 * 60 * 60 * 1000 : 0;
+        cacheTtlRemaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+        const hitHeaders = buildResponseHeaders(cachedItems.length, 3600, { cacheStatus: "HIT", cacheAgeSec: cacheResult.cacheAgeSec, responseTimeMs: Date.now() - startTime });
+        hitHeaders["X-Cache-TTL-Remaining"] = String(cacheTtlRemaining);
+        hitHeaders["X-Results-Count"] = String(cachedItems.length);
+        hitHeaders["X-Next-Cursor"] = cachedResponse.nextCursor ? "present" : "absent";
+        hitHeaders["X-Translate"] = translateStatus;
+        hitHeaders["X-Translate-Ms"] = String(translateMs);
+        if (translateProvider) hitHeaders["X-Translate-Provider"] = translateProvider;
+        hitHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Cache-TTL-Remaining, X-Results-Count, X-Next-Cursor, X-Cache-Match, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
+        // Structured log
+        console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "HIT", matchedQuery: null, provider: providerParam || "all", ttlRemaining: cacheTtlRemaining, resultsCount: cachedItems.length, totalMs: Date.now() - startTime, upstreamMs: 0, requestId }));
+        return new Response(JSON.stringify({
+          ...cachedResponse, items: cachedItems, total: cachedItems.length,
+          query: qOriginal, env: envName, durationMs: Date.now() - startTime,
+          _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
+          meta: { source: "cache", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
+        }), { status: 200, headers: hitHeaders });
+      }
     }
 
     // ─── NEAR-MATCH LOOKUP (global similarity cache) ──────────────────────────

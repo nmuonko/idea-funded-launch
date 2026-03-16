@@ -180,6 +180,7 @@ const App = () => {
             <Route path="/product/:provider/:id" element={<ProductDetailErrorBoundary><ProductDetails /></ProductDetailErrorBoundary>} />
             <Route path="/cart" element={<ShopCart />} />
             <Route path="/paste-link" element={<PasteLink />} />
+            <Route path="/hot-products" element={<HotProducts />} />
             <Route path="/saved" element={<SavedItems />} />
             <Route path="/my-orders" element={
               <ShopProtectedRoute>

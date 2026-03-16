@@ -1,22 +1,40 @@
-## SHEIN Price Backfill System (Complete)
 
-### Problem
-Admin portal showed 2,428 SHEIN items but frontend only displayed 957. Root cause: 1,408 items had `NULL` prices and 11 had no images, filtered out by frontend's `price_usd > 0 AND image_url IS NOT NULL` requirement.
 
-### Changes Made
+# Hot Products Public Page — Implementation Plan
 
-1. **`catalog-shein-scraper/index.ts`** — Three fixes:
-   - **COALESCE upsert**: `upsertProducts` now checks existing items before upsert. Never overwrites a valid `price_usd` or `image_url` with null/0.
-   - **Auto-backfill pass**: After each regular scrape run, if time allows (>30s left), backfills up to 10 priceless items via `extract-price` edge function.
-   - **`backfill-prices` action**: New action handler processes up to 100 priceless items per call via `extract-price`.
+## Summary
+Create a public `/hot-products` page that displays the latest sent campaign's products with total prices. Add an RLS policy so anonymous/authenticated users can read sent campaigns. Everything is done here in Lovable — fully OTA-friendly, no Replit needed, no new mobile build required.
 
-2. **`admin-catalog-items/index.ts`** — New `backfill-shein-prices` admin action routes to the scraper's backfill action for manual batch processing.
+## Changes
 
-### Usage
-- **Automatic**: Every 15-minute cron run now auto-backfills ~10 priceless items
-- **Manual**: Admin can trigger `POST ?action=backfill-shein-prices` with `{ batch_size: 50 }` to process larger batches
+### 1. Database Migration — Public RLS Policy
+Add a SELECT policy on `hot_product_campaigns` allowing anyone to read rows where `status = 'sent'`:
+```sql
+CREATE POLICY "Public can view sent campaigns"
+ON public.hot_product_campaigns
+FOR SELECT
+TO anon, authenticated
+USING (status = 'sent');
+```
 
-### Previous Work
-- Unified Search Pipeline (web + mobile parity)
-- Edge Function Consolidation (42 functions deleted)
-- Payment flow RLS fixes
+### 2. New Page — `src/pages/shop/HotProducts.tsx`
+- Query latest `hot_product_campaigns` where `status = 'sent'`, ordered by `sent_at desc`, limit 1
+- Parse `products` JSON array (typed as `SelectedProduct` with `title`, `image_url`, `total_price_usd`, `provider`, `provider_product_id`)
+- Display up to 10 products in a responsive grid matching the dark shop theme
+- Each product card: image, title, total price (formatted via `formatCurrency`), "Order" button → `/product/{provider}/{provider_product_id}`
+- Campaign title as page header
+- "Return to Homepage" button at top
+- Uses `ShopHeader` + `BottomNavigation` + `ShopFooter` for consistent layout
+- No auth required — public page
+
+### 3. Route — `src/App.tsx`
+- Lazy-load `HotProducts` and add `<Route path="/hot-products" element={<HotProducts />} />`
+- Place alongside other public shop routes (no `ShopProtectedRoute` wrapper)
+
+### Files
+| File | Action |
+|------|--------|
+| `src/pages/shop/HotProducts.tsx` | Create |
+| `src/App.tsx` | Add lazy import + route |
+| Database migration | Add public SELECT RLS policy |
+

@@ -106,6 +106,7 @@ import PaymentPending from "./pages/shop/PaymentPending";
 import CardPayment from "./pages/shop/CardPayment";
 import PasteLink from "./pages/shop/PasteLink";
 import ShopPaymentSuccess from "./pages/shop/PaymentSuccess";
+import HotProducts from "./pages/shop/HotProducts";
 
 // Suspense fallback for lazy-loaded routes
 function LazyFallback() {
@@ -179,6 +180,7 @@ const App = () => {
             <Route path="/product/:provider/:id" element={<ProductDetailErrorBoundary><ProductDetails /></ProductDetailErrorBoundary>} />
             <Route path="/cart" element={<ShopCart />} />
             <Route path="/paste-link" element={<PasteLink />} />
+            <Route path="/hot-products" element={<HotProducts />} />
             <Route path="/saved" element={<SavedItems />} />
             <Route path="/my-orders" element={
               <ShopProtectedRoute>

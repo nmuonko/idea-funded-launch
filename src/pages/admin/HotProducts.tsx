@@ -185,7 +185,7 @@ export default function HotProducts() {
 
   async function extractFromLink() {
     if (!pasteUrl.trim()) return;
-    if (selectedProducts.length >= 3) { toast.error('Maximum 3 products'); return; }
+    if (selectedProducts.length >= 10) { toast.error('Maximum 10 products'); return; }
     setExtracting(true);
     try {
       const { data, error } = await supabase.functions.invoke('extract-price', {

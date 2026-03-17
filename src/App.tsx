@@ -329,6 +329,11 @@ const App = () => {
                   <AdminAnalytics />
                 </AdminRouteGuard>
               } />
+              <Route path="demand-insights" element={
+                <AdminRouteGuard requiredPermission="can_view_analytics">
+                  <DemandInsights />
+                </AdminRouteGuard>
+              } />
               <Route path="settings" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <AdminFeesSettings />

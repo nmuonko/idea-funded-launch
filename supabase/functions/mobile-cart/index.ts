@@ -500,11 +500,13 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       order_id: draft.id, product_url: productUrl, title: productTitle, product_image_url: productImageUrl,
       store, quantity, base_price_usd: productPrice, shipping_item_type_id: finalShippingTypeId,
       est_weight_kg: estWeightKg, is_vehicle: isVehicleDetected, requires_manual_quote: requiresManualQuote,
-      is_saved_for_later: false, price_source: userEdited ? "manual_user" : "auto",
+      is_saved_for_later: false, price_source: isFixedPrice ? "hot_product" : (userEdited ? "manual_user" : "auto"),
       price_confirmation_status: userEdited ? "pending" : null,
       captured_price: userEdited ? (addBody.capturedPrice ?? addBody.captured_price ?? null) : null,
       provider_product_id: providerProductId,
       canonical_url: canonicalUrl,
+      // For fixed-price items, store 0 markup so updateOrderTotals uses stored values
+      ...(isFixedPrice ? { markup_fee_usd: 0, shipping_fee_usd: 0 } : {}),
     };
     const insertResult = await insertCartItem(db, newItem, correlationId);
     if (insertResult.error || !insertResult.data) return errorResponse("Failed to add item to cart", 500);

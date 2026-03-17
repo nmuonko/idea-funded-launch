@@ -373,6 +373,15 @@ export async function updateOrderTotals(
   (items || []).forEach((item: any) => {
     if (item.is_saved_for_later) return; // Skip saved items
 
+    // Fixed-price items (hot products): price is all-inclusive, no markup/shipping
+    if (item.price_source === 'hot_product') {
+      const basePrice = Number(item.base_price_usd || 0);
+      fixedPriceBaseTotal += basePrice;
+      fixedPriceItemCount++;
+      console.log('[updateOrderTotals] Fixed-price (hot product) item:', { base: basePrice });
+      return;
+    }
+
     const isVehicle = item.is_vehicle === true;
     const vehicleQuoteApplied = item.vehicle_quote_applied === true;
 
@@ -410,13 +419,10 @@ export async function updateOrderTotals(
       // Regular item
       const basePrice = Number(item.base_price_usd || item.subtotal_usd || 0);
       const margin = Number(item.markup_fee_usd || 0);
-      // FIXED: Only vehicles require manual quote, NOT heavy items
-      // Regular products never block checkout regardless of weight
 
       regularItemBaseTotal += basePrice;
       regularItemMarginTotal += margin;
       regularItemCount++;
-      // Regular items never require manual quote - removed weight-based check
     }
   });
 

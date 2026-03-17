@@ -351,7 +351,7 @@ export default function HotProducts() {
           {/* Selected Products with price breakdown */}
           {selectedProducts.length > 0 && (
             <div className="space-y-3">
-              <p className="text-sm font-medium">{language === 'fr' ? 'Produits' : 'Products'} ({selectedProducts.length}/3)</p>
+              <p className="text-sm font-medium">{language === 'fr' ? 'Produits' : 'Products'} ({selectedProducts.length}/10)</p>
               {selectedProducts.map(p => (
                 <div key={p.id} className="p-3 border rounded-lg space-y-2">
                   <div className="flex items-start gap-3">

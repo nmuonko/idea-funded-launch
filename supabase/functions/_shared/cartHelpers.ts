@@ -352,11 +352,15 @@ export async function updateOrderTotals(
     return null;
   }
 
-  // Track regular items and vehicles separately
+  // Track regular items, vehicles, and fixed-price items separately
   let regularItemBaseTotal = 0;    // Sum of regular item base prices
   let regularItemMarginTotal = 0;  // Sum of regular item margins
   let regularRequiresQuote = false;
   let regularItemCount = 0;
+
+  // Fixed-price items (hot products): use stored values, no recalculation
+  let fixedPriceBaseTotal = 0;
+  let fixedPriceItemCount = 0;
 
   // Vehicle totals - vehicles with applied quotes use STORED values
   let vehicleBasePriceTotal = 0;   // Sum of vehicle base prices

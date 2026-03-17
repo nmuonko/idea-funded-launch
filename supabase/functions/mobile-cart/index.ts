@@ -399,6 +399,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   const { productUrl, productPrice, quantity, shippingItemTypeId, productTitle: inputTitle, productImageUrl: inputImageUrl } = validation.data;
   const deviceId = addBody.deviceId ?? addBody.device_id ?? null;
   const userEdited = addCartIsUserEdited(addBody);
+  const isFixedPrice = addBody.isFixedPrice === true || addBody.is_fixed_price === true;
 
   if (userEdited && isGuest) {
     return jsonResponse({ ok: false, code: "AUTH_REQUIRED_FOR_MANUAL_PRICE", error: "Authentication required to submit modified prices." }, 401);
@@ -408,7 +409,8 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   if (settingsResult.error || !settingsResult.data) return errorResponse("Failed to load settings", 500);
   const settings = settingsResult.data;
 
-  let effectiveMarkup = settings.markupPercent;
+  // Fixed-price items (hot products): no markup, price is final
+  let effectiveMarkup = isFixedPrice ? 0 : settings.markupPercent;
   let pricing = cartPricingCalc(productPrice, quantity, effectiveMarkup, settings.exchangeRate);
   const store = addCartDetectStore(productUrl);
 

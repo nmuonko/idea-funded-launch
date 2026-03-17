@@ -344,7 +344,7 @@ export async function updateOrderTotals(
   // Query all items including vehicle flags and stored shipping
   const { data: items, error: itemsError } = await supabase
     .from('order_items')
-    .select('base_price_usd, subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later, is_vehicle, vehicle_quote_applied')
+    .select('base_price_usd, subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later, is_vehicle, vehicle_quote_applied, price_source')
     .eq('order_id', orderId);
 
   if (itemsError) {

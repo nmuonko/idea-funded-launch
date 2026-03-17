@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, Flame, ShoppingCart, Check } from 'lucide-react';
+import { ArrowLeft, Loader2, Flame, Zap, Check } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
@@ -10,6 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency } from '@/lib/formatCurrency';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/hooks/useShopCart';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
 interface HotProduct {
@@ -29,9 +30,10 @@ export default function HotProducts() {
   const navigate = useNavigate();
   const { language } = useLanguage();
   const { addItem } = useShopCart();
+  const { user, session } = useAuth();
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
+  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     async function fetchProducts() {
@@ -54,11 +56,21 @@ export default function HotProducts() {
     fetchProducts();
   }, []);
 
-  const handleAddToCart = async (product: HotProduct) => {
+  const handleBuyNow = async (product: HotProduct) => {
     const key = `${product.provider}-${product.provider_product_id}`;
-    if (addingIds.has(key)) return;
-    setAddingIds(prev => new Set(prev).add(key));
+    if (processingIds.has(key)) return;
+
+    // If not logged in, redirect to auth with return URL
+    if (!session || !user) {
+      // Encode product info in the redirect so we can auto-buy after login
+      const returnUrl = encodeURIComponent(`/hot-products?buy=${product.id}`);
+      navigate(`/shop-auth?redirect=${returnUrl}`);
+      return;
+    }
+
+    setProcessingIds(prev => new Set(prev).add(key));
     try {
+      // Add to cart with admin-set price, then immediately go to checkout
       await addItem({
         productId: product.provider_product_id,
         provider: product.provider,
@@ -68,27 +80,34 @@ export default function HotProducts() {
         quantity: 1,
         productUrl: product.product_url || `https://afrishop-usa.com/product/${product.provider}/${product.provider_product_id}`,
       });
-      toast.success(
-        language === 'fr' ? 'Ajouté au panier !' : 'Added to cart!',
-        {
-          action: {
-            label: language === 'fr' ? 'Voir panier' : 'View Cart',
-            onClick: () => navigate('/cart'),
-          },
-        }
-      );
+
+      // Navigate directly to checkout
+      navigate('/checkout');
     } catch {
-      toast.error(language === 'fr' ? 'Erreur' : 'Failed to add');
+      toast.error(locale === 'fr' ? 'Erreur, réessayez' : 'Error, please retry');
     } finally {
-      setTimeout(() => {
-        setAddingIds(prev => {
-          const next = new Set(prev);
-          next.delete(key);
-          return next;
-        });
-      }, 1500);
+      setProcessingIds(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     }
   };
+
+  // After login redirect: auto-trigger buy if ?buy= param exists
+  useEffect(() => {
+    if (!session || !user || products.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const buyId = params.get('buy');
+    if (!buyId) return;
+
+    const product = products.find(p => p.id === buyId);
+    if (product) {
+      // Clean the URL param first
+      window.history.replaceState({}, '', '/hot-products');
+      handleBuyNow(product);
+    }
+  }, [session, user, products]);
 
   const locale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
 
@@ -142,7 +161,7 @@ export default function HotProducts() {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
               {products.map((product, index) => {
                 const key = `${product.provider}-${product.provider_product_id}`;
-                const isAdding = addingIds.has(key);
+                const isProcessing = processingIds.has(key);
 
                 return (
                   <motion.div
@@ -189,21 +208,17 @@ export default function HotProducts() {
 
                       <Button
                         size="sm"
-                        className={`w-full text-xs h-9 font-bold transition-all ${
-                          isAdding
-                            ? 'bg-emerald-600 hover:bg-emerald-600 text-white'
-                            : 'bg-orange-500 hover:bg-orange-600 text-white'
-                        }`}
+                        className="w-full text-xs h-9 font-bold transition-all bg-emerald-600 hover:bg-emerald-700 text-white"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleAddToCart(product);
+                          handleBuyNow(product);
                         }}
-                        disabled={isAdding}
+                        disabled={isProcessing}
                       >
-                        {isAdding ? (
-                          <><Check className="w-4 h-4 mr-1" /> {locale === 'fr' ? 'Ajouté !' : 'Added!'}</>
+                        {isProcessing ? (
+                          <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> {locale === 'fr' ? 'Chargement...' : 'Loading...'}</>
                         ) : (
-                          <><ShoppingCart className="w-4 h-4 mr-1" /> {locale === 'fr' ? 'Ajouter au panier' : 'Add to Cart'}</>
+                          <><Zap className="w-4 h-4 mr-1" /> {locale === 'fr' ? 'Payer maintenant' : 'Pay Now'}</>
                         )}
                       </Button>
                     </div>

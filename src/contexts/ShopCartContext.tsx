@@ -24,6 +24,7 @@ export interface CartItem {
   isVehicle?: boolean;
   requiresManualQuote?: boolean;
   vehicleQuoteApplied?: boolean;
+  isFixedPrice?: boolean; // Hot products: price is final, no markup/shipping added
   // Server-calculated breakdown (populated for quoted vehicles)
   itemMarginUsd?: number;
   itemShippingUsd?: number;

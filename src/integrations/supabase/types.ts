@@ -2819,6 +2819,60 @@ export type Database = {
         }
         Relationships: []
       }
+      hot_products_showcase: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          id: string
+          image_url: string | null
+          is_active: boolean | null
+          markup_usd: number | null
+          price_usd: number | null
+          product_url: string | null
+          provider: string | null
+          provider_product_id: string | null
+          shipping_usd: number | null
+          sort_order: number | null
+          title: string | null
+          total_price_usd: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          image_url?: string | null
+          is_active?: boolean | null
+          markup_usd?: number | null
+          price_usd?: number | null
+          product_url?: string | null
+          provider?: string | null
+          provider_product_id?: string | null
+          shipping_usd?: number | null
+          sort_order?: number | null
+          title?: string | null
+          total_price_usd?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          image_url?: string | null
+          is_active?: boolean | null
+          markup_usd?: number | null
+          price_usd?: number | null
+          product_url?: string | null
+          provider?: string | null
+          provider_product_id?: string | null
+          shipping_usd?: number | null
+          sort_order?: number | null
+          title?: string | null
+          total_price_usd?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       invitation_attempts: {
         Row: {
           attempted_at: string | null

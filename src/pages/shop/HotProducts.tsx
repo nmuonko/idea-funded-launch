@@ -13,6 +13,7 @@ import { useShopCart } from '@/hooks/useShopCart';
 import { toast } from 'sonner';
 
 interface HotProduct {
+  id: string;
   title: string;
   image_url: string;
   total_price_usd: number;
@@ -24,49 +25,33 @@ interface HotProduct {
   product_url?: string;
 }
 
-interface Campaign {
-  id: string;
-  title: string;
-  status: string;
-  sent_at: string;
-  products: HotProduct[];
-}
-
 export default function HotProducts() {
   const navigate = useNavigate();
   const { language } = useLanguage();
   const { addItem } = useShopCart();
-  const [campaign, setCampaign] = useState<Campaign | null>(null);
+  const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    async function fetchCampaign() {
+    async function fetchProducts() {
       try {
-        const { data, error: fetchError } = await supabase
-          .from('hot_product_campaigns')
-          .select('id, title, status, sent_at, products')
-          .eq('status', 'sent')
-          .order('sent_at', { ascending: false })
-          .limit(1)
-          .single();
+        const { data, error } = await supabase
+          .from('hot_products_showcase')
+          .select('*')
+          .eq('is_active', true)
+          .order('sort_order', { ascending: true })
+          .limit(10);
 
-        if (fetchError) throw fetchError;
-        if (data) {
-          setCampaign({
-            ...data,
-            products: (data.products as unknown as HotProduct[]) || [],
-          });
-        }
+        if (error) throw error;
+        if (data) setProducts(data as any);
       } catch (err: any) {
-        console.error('Failed to fetch hot products campaign:', err);
-        setError(err.message || 'Failed to load hot products');
+        console.error('Failed to fetch hot products:', err);
       } finally {
         setLoading(false);
       }
     }
-    fetchCampaign();
+    fetchProducts();
   }, []);
 
   const handleAddToCart = async (product: HotProduct) => {
@@ -105,7 +90,6 @@ export default function HotProducts() {
     }
   };
 
-  const products = campaign?.products?.slice(0, 10) || [];
   const locale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
 
   return (
@@ -114,7 +98,6 @@ export default function HotProducts() {
 
       <main className="pt-20 px-3 sm:px-4 pb-24">
         <div className="mx-auto max-w-6xl">
-          {/* Back button */}
           <Button
             variant="ghost"
             size="sm"
@@ -149,29 +132,13 @@ export default function HotProducts() {
             </div>
           </motion.div>
 
-          {/* Loading */}
           {loading && (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="w-8 h-8 text-white/50 animate-spin" />
             </div>
           )}
 
-          {/* Error */}
-          {error && !loading && (
-            <div className="text-center py-20">
-              <p className="text-white/50 mb-4">
-                {locale === 'fr'
-                  ? 'Aucune campagne disponible pour le moment.'
-                  : 'No hot products available right now.'}
-              </p>
-              <Button onClick={() => navigate('/')} variant="outline" className="border-white/20 text-white">
-                {locale === 'fr' ? 'Voir la boutique' : 'Browse Shop'}
-              </Button>
-            </div>
-          )}
-
-          {/* Products Grid */}
-          {!loading && !error && products.length > 0 && (
+          {!loading && products.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
               {products.map((product, index) => {
                 const key = `${product.provider}-${product.provider_product_id}`;
@@ -179,20 +146,18 @@ export default function HotProducts() {
 
                 return (
                   <motion.div
-                    key={`${product.provider_product_id}-${index}`}
+                    key={product.id}
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: index * 0.04 }}
                     className="relative bg-[#1a1d23] border border-white/[0.08] rounded-xl overflow-hidden group hover:border-orange-500/40 transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.15)]"
                   >
-                    {/* Deal Badge */}
                     <div className="absolute top-2 left-2 z-10">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wide shadow-lg">
                         <Flame className="w-3 h-3" /> Deal
                       </span>
                     </div>
 
-                    {/* Image - clickable to product page */}
                     <div
                       className="aspect-square bg-white overflow-hidden cursor-pointer"
                       onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`)}
@@ -205,7 +170,6 @@ export default function HotProducts() {
                       />
                     </div>
 
-                    {/* Info */}
                     <div className="p-3 space-y-2">
                       <p
                         className="text-white text-xs sm:text-sm font-medium line-clamp-2 min-h-[2.5rem] cursor-pointer hover:text-orange-300 transition-colors"
@@ -249,8 +213,7 @@ export default function HotProducts() {
             </div>
           )}
 
-          {/* Empty state */}
-          {!loading && !error && products.length === 0 && (
+          {!loading && products.length === 0 && (
             <div className="text-center py-20">
               <Flame className="w-12 h-12 text-white/20 mx-auto mb-4" />
               <p className="text-white/50">

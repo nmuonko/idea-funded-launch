@@ -65,6 +65,38 @@ export function PriceBreakdown({
     );
   }
 
+  // Fixed-price items (hot products): show only the total, no markup/shipping breakdown
+  if (isFixedPrice) {
+    const fixedTotal = itemPriceUsd * quantity;
+    return (
+      <div className={cn("space-y-3", className)}>
+        {showDetails && (
+          <>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/60 min-w-0">
+                {shop.orderSummaryItem || 'Item'}{quantity > 1 ? ` (×${quantity})` : ''}
+              </span>
+              <span className="text-white/90 flex-shrink-0">${fixedTotal.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/60">{shop.markupFee || 'Markup Fee'}</span>
+              <span className="text-green-400 text-xs">{language === 'fr' ? 'Inclus' : 'Included'}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/60">{shop.shippingFee || 'Shipping Fee'}</span>
+              <span className="text-green-400 text-xs">{language === 'fr' ? 'Inclus' : 'Included'}</span>
+            </div>
+            <div className="border-t border-white/10 pt-3" />
+          </>
+        )}
+        <div className="flex items-center justify-between">
+          <span className="text-white font-medium">{shop.total || 'Total'}</span>
+          <span className="text-xl font-bold text-white">${fixedTotal.toFixed(2)}</span>
+        </div>
+      </div>
+    );
+  }
+
   const subtotal = itemPriceUsd * quantity;
 
   const isDetailVehicle = isVehicle && ctx === 'product-detail';

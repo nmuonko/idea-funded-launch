@@ -344,7 +344,7 @@ export async function updateOrderTotals(
   // Query all items including vehicle flags and stored shipping
   const { data: items, error: itemsError } = await supabase
     .from('order_items')
-    .select('base_price_usd, subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later, is_vehicle, vehicle_quote_applied')
+    .select('base_price_usd, subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later, is_vehicle, vehicle_quote_applied, price_source')
     .eq('order_id', orderId);
 
   if (itemsError) {
@@ -352,11 +352,15 @@ export async function updateOrderTotals(
     return null;
   }
 
-  // Track regular items and vehicles separately
+  // Track regular items, vehicles, and fixed-price items separately
   let regularItemBaseTotal = 0;    // Sum of regular item base prices
   let regularItemMarginTotal = 0;  // Sum of regular item margins
   let regularRequiresQuote = false;
   let regularItemCount = 0;
+
+  // Fixed-price items (hot products): use stored values, no recalculation
+  let fixedPriceBaseTotal = 0;
+  let fixedPriceItemCount = 0;
 
   // Vehicle totals - vehicles with applied quotes use STORED values
   let vehicleBasePriceTotal = 0;   // Sum of vehicle base prices
@@ -368,6 +372,15 @@ export async function updateOrderTotals(
   // Calculate totals from ACTIVE items only (not saved for later)
   (items || []).forEach((item: any) => {
     if (item.is_saved_for_later) return; // Skip saved items
+
+    // Fixed-price items (hot products): price is all-inclusive, no markup/shipping
+    if (item.price_source === 'hot_product') {
+      const basePrice = Number(item.base_price_usd || 0);
+      fixedPriceBaseTotal += basePrice;
+      fixedPriceItemCount++;
+      console.log('[updateOrderTotals] Fixed-price (hot product) item:', { base: basePrice });
+      return;
+    }
 
     const isVehicle = item.is_vehicle === true;
     const vehicleQuoteApplied = item.vehicle_quote_applied === true;
@@ -406,13 +419,10 @@ export async function updateOrderTotals(
       // Regular item
       const basePrice = Number(item.base_price_usd || item.subtotal_usd || 0);
       const margin = Number(item.markup_fee_usd || 0);
-      // FIXED: Only vehicles require manual quote, NOT heavy items
-      // Regular products never block checkout regardless of weight
 
       regularItemBaseTotal += basePrice;
       regularItemMarginTotal += margin;
       regularItemCount++;
-      // Regular items never require manual quote - removed weight-based check
     }
   });
 
@@ -422,17 +432,18 @@ export async function updateOrderTotals(
     regularShippingFeeUsd = calculateShipping(regularItemBaseTotal, shippingBaseFeeUsd, shippingPercent);
   }
 
-  // Combined totals - INCLUDE BOTH regular AND vehicle values
-  const activeItemCount = regularItemCount + vehicleItemCount;
+  // Combined totals - INCLUDE regular, vehicle, AND fixed-price values
+  const activeItemCount = regularItemCount + vehicleItemCount + fixedPriceItemCount;
   const requiresManualQuote = regularRequiresQuote || hasVehiclePendingQuote;
   
-  // Item totals = base prices from regular items + vehicle base prices
-  const itemTotalUsd = round2(regularItemBaseTotal + vehicleBasePriceTotal);
+  // Item totals = base prices from regular items + vehicle base prices + fixed-price base prices
+  // Fixed-price items: base_price IS the final price (markup & shipping already included by admin)
+  const itemTotalUsd = round2(regularItemBaseTotal + vehicleBasePriceTotal + fixedPriceBaseTotal);
   
-  // Service/margin fee = regular margins + vehicle margins
+  // Service/margin fee = regular margins + vehicle margins (fixed-price items have 0 margin)
   const serviceFeeUsd = round2(regularItemMarginTotal + vehicleMarginTotal);
   
-  // Total shipping = regular shipping + vehicle shipping
+  // Total shipping = regular shipping + vehicle shipping (fixed-price items have 0 shipping)
   const shippingFeeUsd = round2(regularShippingFeeUsd + vehicleShippingTotal);
   
   // Grand total = items + margins + shipping
@@ -445,6 +456,7 @@ export async function updateOrderTotals(
     totalItemsInOrder: items?.length || 0,
     regularItems: { base: regularItemBaseTotal, margin: regularItemMarginTotal, shipping: regularShippingFeeUsd },
     vehicleItems: { base: vehicleBasePriceTotal, margin: vehicleMarginTotal, shipping: vehicleShippingTotal },
+    fixedPriceItems: { base: fixedPriceBaseTotal, count: fixedPriceItemCount },
     combined: { items: itemTotalUsd, margin: serviceFeeUsd, shipping: shippingFeeUsd, total: totalUsd },
     requiresManualQuote,
   });

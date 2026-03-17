@@ -79,6 +79,7 @@ export default function HotProducts() {
         priceUsd: product.total_price_usd,
         quantity: 1,
         productUrl: product.product_url || `https://afrishop-usa.com/product/${product.provider}/${product.provider_product_id}`,
+        isFixedPrice: true, // Hot products use admin-set final price, no extra markup/shipping
       });
 
       // Navigate directly to checkout

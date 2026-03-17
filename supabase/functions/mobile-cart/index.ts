@@ -399,6 +399,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   const { productUrl, productPrice, quantity, shippingItemTypeId, productTitle: inputTitle, productImageUrl: inputImageUrl } = validation.data;
   const deviceId = addBody.deviceId ?? addBody.device_id ?? null;
   const userEdited = addCartIsUserEdited(addBody);
+  const isFixedPrice = addBody.isFixedPrice === true || addBody.is_fixed_price === true;
 
   if (userEdited && isGuest) {
     return jsonResponse({ ok: false, code: "AUTH_REQUIRED_FOR_MANUAL_PRICE", error: "Authentication required to submit modified prices." }, 401);
@@ -408,7 +409,8 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   if (settingsResult.error || !settingsResult.data) return errorResponse("Failed to load settings", 500);
   const settings = settingsResult.data;
 
-  let effectiveMarkup = settings.markupPercent;
+  // Fixed-price items (hot products): no markup, price is final
+  let effectiveMarkup = isFixedPrice ? 0 : settings.markupPercent;
   let pricing = cartPricingCalc(productPrice, quantity, effectiveMarkup, settings.exchangeRate);
   const store = addCartDetectStore(productUrl);
 
@@ -442,7 +444,8 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     if (catTypeResult.data) { finalShippingTypeId = catTypeResult.data.id; estWeightKg = catTypeResult.data.estWeightKg; }
   }
 
-  const shippingFeeUsd = calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, settings.shippingPercent, requiresManualQuote);
+  // Fixed-price items: no shipping fee added (price is all-inclusive)
+  const shippingFeeUsd = isFixedPrice ? 0 : calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, settings.shippingPercent, requiresManualQuote);
 
   if (isGuest) {
     const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup);
@@ -497,11 +500,13 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       order_id: draft.id, product_url: productUrl, title: productTitle, product_image_url: productImageUrl,
       store, quantity, base_price_usd: productPrice, shipping_item_type_id: finalShippingTypeId,
       est_weight_kg: estWeightKg, is_vehicle: isVehicleDetected, requires_manual_quote: requiresManualQuote,
-      is_saved_for_later: false, price_source: userEdited ? "manual_user" : "auto",
+      is_saved_for_later: false, price_source: isFixedPrice ? "hot_product" : (userEdited ? "manual_user" : "auto"),
       price_confirmation_status: userEdited ? "pending" : null,
       captured_price: userEdited ? (addBody.capturedPrice ?? addBody.captured_price ?? null) : null,
       provider_product_id: providerProductId,
       canonical_url: canonicalUrl,
+      // For fixed-price items, store 0 markup so updateOrderTotals uses stored values
+      ...(isFixedPrice ? { markup_fee_usd: 0, shipping_fee_usd: 0 } : {}),
     };
     const insertResult = await insertCartItem(db, newItem, correlationId);
     if (insertResult.error || !insertResult.data) return errorResponse("Failed to add item to cart", 500);

@@ -24,6 +24,7 @@ export interface CartItem {
   isVehicle?: boolean;
   requiresManualQuote?: boolean;
   vehicleQuoteApplied?: boolean;
+  isFixedPrice?: boolean; // Hot products: price is final, no markup/shipping added
   // Server-calculated breakdown (populated for quoted vehicles)
   itemMarginUsd?: number;
   itemShippingUsd?: number;
@@ -389,6 +390,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           const serverShipping = item.itemShippingUsd || item.shippingFeeUsd || item.shipping_fee_usd || item.shippingCost || 0;
           const serverTotal = item.itemTotalUsd || item.lineTotalUsd || item.total_price_usd || 0;
           const basePriceUsd = item.basePriceUsd || item.base_price_usd || 0;
+          const isFixed = (item.priceSource || item.price_source) === 'hot_product';
 
           return {
             id: item.id,
@@ -397,12 +399,14 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
             title: item.title || item.productTitle || 'Product',
             imageUrl: item.image_url || item.mainImageUrl || '',
             // For quoted vehicles, use the full line total so cart totals are accurate
+            // For fixed-price items, use basePriceUsd (which IS the final price)
             priceUsd: (isQuotedVehicle && serverTotal > 0) ? serverTotal : basePriceUsd,
             quantity: item.quantity || 1,
             productUrl: item.productUrl || item.product_url,
             isVehicle: item.isVehicle || item.is_vehicle || false,
             requiresManualQuote: item.requiresManualQuote || item.requires_manual_quote || false,
             vehicleQuoteApplied: isQuotedVehicle,
+            isFixedPrice: isFixed,
             // Server-calculated breakdown
             itemMarginUsd: serverMargin,
             itemShippingUsd: serverShipping,
@@ -519,6 +523,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
             quantity: item.quantity,
             productTitle: item.title,
             productImageUrl: item.imageUrl,
+            ...(item.isFixedPrice ? { isFixedPrice: true } : {}),
           },
         });
         if (error) throw error;

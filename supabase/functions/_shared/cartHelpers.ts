@@ -456,6 +456,7 @@ export async function updateOrderTotals(
     totalItemsInOrder: items?.length || 0,
     regularItems: { base: regularItemBaseTotal, margin: regularItemMarginTotal, shipping: regularShippingFeeUsd },
     vehicleItems: { base: vehicleBasePriceTotal, margin: vehicleMarginTotal, shipping: vehicleShippingTotal },
+    fixedPriceItems: { base: fixedPriceBaseTotal, count: fixedPriceItemCount },
     combined: { items: itemTotalUsd, margin: serviceFeeUsd, shipping: shippingFeeUsd, total: totalUsd },
     requiresManualQuote,
   });

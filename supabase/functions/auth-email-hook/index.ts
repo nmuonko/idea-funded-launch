@@ -60,21 +60,24 @@ const SENDER_DOMAIN = "notify.afrishop-usa.com"
 const ROOT_DOMAIN = "afrishop-usa.com"
 const FROM_DOMAIN = "afrishop-usa.com" // Domain shown in From address (may be root or sender subdomain)
 
-// Rewrite any Supabase/preview confirmation URLs to use the custom domain
-function rewriteConfirmationUrl(originalUrl: string): string {
-  if (!originalUrl) return originalUrl;
-  try {
-    const url = new URL(originalUrl);
-    // If the URL points to a preview/lovable domain, rewrite to custom domain
-    if (url.hostname.includes('lovable.app') || url.hostname.includes('lovable.dev') || url.hostname.includes('supabase.co')) {
-      url.hostname = ROOT_DOMAIN;
-      url.port = '';
-      url.protocol = 'https:';
-    }
-    return url.toString();
-  } catch {
-    return originalUrl;
+function getFrontendBaseUrl(): string {
+  return (Deno.env.get('FRONTEND_BASE_URL') || `https://${ROOT_DOMAIN}`).replace(/\/$/, '')
+}
+
+function buildConfirmationUrl(emailType: string, payloadData: Record<string, any>): string {
+  const authBaseUrl = (Deno.env.get('SUPABASE_URL') || '').replace(/\/$/, '')
+  const frontendBaseUrl = getFrontendBaseUrl()
+  const redirectTo = payloadData.redirect_to || `${frontendBaseUrl}/auth/reset-password`
+
+  if (emailType === 'recovery' && authBaseUrl && payloadData.token_hash) {
+    const verifyUrl = new URL(`${authBaseUrl}/auth/v1/verify`)
+    verifyUrl.searchParams.set('token', payloadData.token_hash)
+    verifyUrl.searchParams.set('type', 'recovery')
+    verifyUrl.searchParams.set('redirect_to', redirectTo)
+    return verifyUrl.toString()
   }
+
+  return payloadData.url || `${frontendBaseUrl}/auth/reset-password`
 }
 
 // Sample data for preview mode ONLY (not used in actual email sending).
@@ -260,9 +263,9 @@ async function handleWebhook(req: Request): Promise<Response> {
   // Build template props from payload.data (HookData structure)
   const templateProps = {
     siteName: SITE_NAME,
-    siteUrl: `https://${ROOT_DOMAIN}`,
+    siteUrl: getFrontendBaseUrl(),
     recipient: payload.data.email,
-    confirmationUrl: rewriteConfirmationUrl(payload.data.url),
+    confirmationUrl: buildConfirmationUrl(emailType, payload.data),
     token: payload.data.token,
     email: payload.data.email,
     newEmail: payload.data.new_email,

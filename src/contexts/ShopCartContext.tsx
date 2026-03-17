@@ -520,6 +520,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
             quantity: item.quantity,
             productTitle: item.title,
             productImageUrl: item.imageUrl,
+            ...(item.isFixedPrice ? { isFixedPrice: true } : {}),
           },
         });
         if (error) throw error;

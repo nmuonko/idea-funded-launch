@@ -668,7 +668,11 @@ export default function Checkout() {
                     )}
                   </div>
                   
-                  <PriceBreakdown itemPriceUsd={checkoutTotal} serverTotal={orderServerTotal ?? serverTotalUsd} />
+                  <PriceBreakdown 
+                    itemPriceUsd={checkoutTotal} 
+                    serverTotal={orderServerTotal ?? serverTotalUsd} 
+                    isFixedPrice={checkoutItems.length > 0 && checkoutItems.every(item => item.isFixedPrice)}
+                  />
 
                   <Button
                     type="submit"

@@ -12,7 +12,7 @@ import {
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, Home,
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
   Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe,
-  ChevronDown, Database, Store, Gift, Archive, Brain, MapPin, Flame
+  ChevronDown, Database, Store, Gift, Archive, Brain, MapPin, Flame, TrendingUp
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AdminNotificationsBell } from '@/components/admin/AdminNotificationsBell';
@@ -83,6 +83,7 @@ export function AdminLayout() {
       title: language === 'fr' ? 'Insights' : 'Insights',
       items: [
         { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics, permission: 'can_view_analytics' as const },
+        { to: '/admin/demand-insights', icon: TrendingUp, label: language === 'fr' ? 'Demand Insights' : 'Demand Insights', permission: 'can_view_analytics' as const },
         { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'can_view_ab_results' as const },
       ]
     },

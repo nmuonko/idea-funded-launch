@@ -432,17 +432,18 @@ export async function updateOrderTotals(
     regularShippingFeeUsd = calculateShipping(regularItemBaseTotal, shippingBaseFeeUsd, shippingPercent);
   }
 
-  // Combined totals - INCLUDE BOTH regular AND vehicle values
-  const activeItemCount = regularItemCount + vehicleItemCount;
+  // Combined totals - INCLUDE regular, vehicle, AND fixed-price values
+  const activeItemCount = regularItemCount + vehicleItemCount + fixedPriceItemCount;
   const requiresManualQuote = regularRequiresQuote || hasVehiclePendingQuote;
   
-  // Item totals = base prices from regular items + vehicle base prices
-  const itemTotalUsd = round2(regularItemBaseTotal + vehicleBasePriceTotal);
+  // Item totals = base prices from regular items + vehicle base prices + fixed-price base prices
+  // Fixed-price items: base_price IS the final price (markup & shipping already included by admin)
+  const itemTotalUsd = round2(regularItemBaseTotal + vehicleBasePriceTotal + fixedPriceBaseTotal);
   
-  // Service/margin fee = regular margins + vehicle margins
+  // Service/margin fee = regular margins + vehicle margins (fixed-price items have 0 margin)
   const serviceFeeUsd = round2(regularItemMarginTotal + vehicleMarginTotal);
   
-  // Total shipping = regular shipping + vehicle shipping
+  // Total shipping = regular shipping + vehicle shipping (fixed-price items have 0 shipping)
   const shippingFeeUsd = round2(regularShippingFeeUsd + vehicleShippingTotal);
   
   // Grand total = items + margins + shipping

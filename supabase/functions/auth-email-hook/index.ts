@@ -55,17 +55,30 @@ const EMAIL_TEMPLATES: Record<string, React.ComponentType<any>> = {
 }
 
 // Configuration
-const SITE_NAME = "idea-funded-launch"
+const SITE_NAME = "AfriShop USA"
 const SENDER_DOMAIN = "notify.afrishop-usa.com"
 const ROOT_DOMAIN = "afrishop-usa.com"
 const FROM_DOMAIN = "afrishop-usa.com" // Domain shown in From address (may be root or sender subdomain)
 
+// Rewrite any Supabase/preview confirmation URLs to use the custom domain
+function rewriteConfirmationUrl(originalUrl: string): string {
+  if (!originalUrl) return originalUrl;
+  try {
+    const url = new URL(originalUrl);
+    // If the URL points to a preview/lovable domain, rewrite to custom domain
+    if (url.hostname.includes('lovable.app') || url.hostname.includes('lovable.dev') || url.hostname.includes('supabase.co')) {
+      url.hostname = ROOT_DOMAIN;
+      url.port = '';
+      url.protocol = 'https:';
+    }
+    return url.toString();
+  } catch {
+    return originalUrl;
+  }
+}
+
 // Sample data for preview mode ONLY (not used in actual email sending).
-// URLs are baked in at scaffold time from the project's real data.
-// The sample email uses a fixed placeholder (RFC 6761 .test TLD) so the Go backend
-// can always find-and-replace it with the actual recipient when sending test emails,
-// even if the project's domain has changed since the template was scaffolded.
-const SAMPLE_PROJECT_URL = "https://idea-funded-launch.lovable.app"
+const SAMPLE_PROJECT_URL = "https://afrishop-usa.com"
 const SAMPLE_EMAIL = "user@example.test"
 const SAMPLE_DATA: Record<string, object> = {
   signup: {

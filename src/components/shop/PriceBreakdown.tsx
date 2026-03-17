@@ -13,6 +13,7 @@ interface PriceBreakdownProps {
   showDetails?: boolean;
   serverTotal?: number | null;
   isVehicle?: boolean;
+  isFixedPrice?: boolean; // Hot products: price is final, no markup/shipping
   context?: 'product-detail' | 'cart';
   // Server-provided breakdown for quoted vehicles
   serverMarginUsd?: number;
@@ -27,6 +28,7 @@ export function PriceBreakdown({
   showDetails = true,
   serverTotal,
   isVehicle = false,
+  isFixedPrice = false,
   context,
   serverMarginUsd,
   serverShippingUsd,

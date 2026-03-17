@@ -1,22 +1,40 @@
-## SHEIN Price Backfill System (Complete)
 
-### Problem
-Admin portal showed 2,428 SHEIN items but frontend only displayed 957. Root cause: 1,408 items had `NULL` prices and 11 had no images, filtered out by frontend's `price_usd > 0 AND image_url IS NOT NULL` requirement.
 
-### Changes Made
+# Demand Insights — Admin Feature
 
-1. **`catalog-shein-scraper/index.ts`** — Three fixes:
-   - **COALESCE upsert**: `upsertProducts` now checks existing items before upsert. Never overwrites a valid `price_usd` or `image_url` with null/0.
-   - **Auto-backfill pass**: After each regular scrape run, if time allows (>30s left), backfills up to 10 priceless items via `extract-price` edge function.
-   - **`backfill-prices` action**: New action handler processes up to 100 priceless items per call via `extract-price`.
+## What It Does
+A new admin page ("Demand Insights") showing two ranked tables:
+1. **Top Searched Terms** — aggregated from `search_query_log` (last 7/30/90 days selectable)
+2. **Most Added/Ordered Items** — aggregated from `order_items` (by title, with total quantity and order count)
 
-2. **`admin-catalog-items/index.ts`** — New `backfill-shein-prices` admin action routes to the scraper's backfill action for manual batch processing.
+Both tables show rank, item/term, count, and a trend indicator. A date range selector (7d / 30d / 90d) filters both tables. This gives you a single view to identify what customers want most, directly informing your Hot Products campaigns.
 
-### Usage
-- **Automatic**: Every 15-minute cron run now auto-backfills ~10 priceless items
-- **Manual**: Admin can trigger `POST ?action=backfill-shein-prices` with `{ batch_size: 50 }` to process larger batches
+## Data Sources (Already Exist)
+- `search_query_log` — has `q_norm`, `created_at`, `category_guess` (already populated with real data)
+- `order_items` — has `title`, `quantity`, `store`, `product_image_url`, `created_at` (already populated)
 
-### Previous Work
-- Unified Search Pipeline (web + mobile parity)
-- Edge Function Consolidation (42 functions deleted)
-- Payment flow RLS fixes
+No new tables or migrations needed. Both tables already have admin-accessible RLS policies.
+
+## Changes
+
+### 1. New Page — `src/pages/admin/DemandInsights.tsx`
+- Date range selector (7d / 30d / 90d)
+- **Top Searches** card: Query `search_query_log`, group by `q_norm`, count occurrences, order desc, limit 20. Show rank, search term, count, category guess.
+- **Most Ordered Items** card: Query `order_items` joined with `orders` (excluding DRAFT), group by `title`, sum quantity & count distinct orders, order desc, limit 20. Show rank, product image thumbnail, title, store badge, total quantity, order count.
+- Styled with existing admin Card/Table components, matching the dark admin theme.
+- Bilingual labels (EN/FR) using existing `getAdminTranslation` pattern.
+
+### 2. Route — `src/App.tsx`
+- Add route under admin: `path="demand-insights"` with `AdminRouteGuard` (`can_view_analytics` permission)
+- Lazy-load the component
+
+### 3. Admin Sidebar Navigation
+- Add "Demand Insights" link with a TrendingUp icon, placed near the Analytics menu item
+
+### Files
+| File | Action |
+|------|--------|
+| `src/pages/admin/DemandInsights.tsx` | Create |
+| `src/App.tsx` | Add route |
+| Admin sidebar/nav component | Add menu link |
+

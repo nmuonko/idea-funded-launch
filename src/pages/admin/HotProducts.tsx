@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -7,11 +7,12 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, Edit2 } from 'lucide-react';
+import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { calculateShippingUsd } from '@/lib/shippingCalculation';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 
 function inferProvider(url: string): string | null {
   if (/amazon\.\w/.test(url)) return 'amazon';
@@ -30,7 +31,7 @@ function inferProductId(url: string): string | null {
   return null;
 }
 
-interface SelectedProduct {
+interface ShowcaseProduct {
   id: string;
   title: string;
   image_url: string;
@@ -41,6 +42,8 @@ interface SelectedProduct {
   product_url: string;
   provider: string;
   provider_product_id: string;
+  sort_order: number;
+  is_active: boolean;
 }
 
 interface FeeSettings {
@@ -54,24 +57,21 @@ interface Campaign {
   id: string;
   title: string;
   status: string;
-  products: SelectedProduct[];
+  products: any[];
   sent_count: number;
   failed_count: number;
   created_at: string;
   sent_at: string | null;
 }
 
-/** Upgrade image URL to highest resolution */
 function toHighResImage(url: string): string {
   if (!url) return url;
-  // Amazon: replace size tokens with full-res
   if (url.includes('amazon.com') || url.includes('media-amazon.com')) {
     return url
       .replace(/\._[A-Z]{2}_[A-Z0-9_]+_\./, '._SL1500_.')
       .replace(/\._S[SXLY]\d+_\./, '._SL1500_.')
       .replace(/\._AC_[A-Z0-9_]+_\./, '._SL1500_.');
   }
-  // eBay: use full size
   if (url.includes('ebayimg.com')) {
     return url.replace(/\/s-l\d+\./, '/s-l1600.');
   }
@@ -87,22 +87,31 @@ function calcProductTotals(basePrice: number, fees: FeeSettings): { markup: numb
 export default function HotProducts() {
   const { user } = useAuth();
   const { language } = useLanguage();
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [loading, setLoading] = useState(true);
+  const t = (en: string, fr: string) => language === 'fr' ? fr : en;
+
+  // Showcase state
+  const [showcaseProducts, setShowcaseProducts] = useState<ShowcaseProduct[]>([]);
+  const [loadingShowcase, setLoadingShowcase] = useState(true);
+  const [savingShowcase, setSavingShowcase] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
-  const [selectedProducts, setSelectedProducts] = useState<SelectedProduct[]>([]);
-  const [campaignTitle, setCampaignTitle] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
-  const [feeSettings, setFeeSettings] = useState<FeeSettings>({ markupPercent: 15, vehicleMarkupPercent: 15, shippingBaseFeeUsd: 20, shippingPercent: 10 });
   const [pasteUrl, setPasteUrl] = useState('');
   const [extracting, setExtracting] = useState(false);
+  const [feeSettings, setFeeSettings] = useState<FeeSettings>({ markupPercent: 15, vehicleMarkupPercent: 15, shippingBaseFeeUsd: 20, shippingPercent: 10 });
+
+  // Campaign state
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [loadingCampaigns, setLoadingCampaigns] = useState(true);
+  const [selectedForCampaign, setSelectedForCampaign] = useState<Set<string>>(new Set());
+  const [campaignTitle, setCampaignTitle] = useState('');
+  const [sending, setSending] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('storefront');
 
   useEffect(() => {
+    loadShowcase();
     loadCampaigns();
     loadFeeSettings();
   }, []);
@@ -120,17 +129,25 @@ export default function HotProducts() {
     }
   }
 
+  async function loadShowcase() {
+    setLoadingShowcase(true);
+    const { data } = await supabase
+      .from('hot_products_showcase')
+      .select('*')
+      .order('sort_order', { ascending: true });
+    if (data) setShowcaseProducts(data as any);
+    setLoadingShowcase(false);
+  }
+
   async function loadCampaigns() {
-    setLoading(true);
+    setLoadingCampaigns(true);
     const { data } = await supabase
       .from('hot_product_campaigns')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(20);
-    if (data) {
-      setCampaigns(data.map(c => ({ ...c, products: (c.products as any) || [] })));
-    }
-    setLoading(false);
+    if (data) setCampaigns(data.map(c => ({ ...c, products: (c.products as any) || [] })));
+    setLoadingCampaigns(false);
   }
 
   async function searchProducts() {
@@ -151,7 +168,6 @@ export default function HotProducts() {
   }
 
   function getBestImage(item: any): string {
-    // Try to get highest quality image from images array or image_url
     const images = item.images as any;
     let candidates: string[] = [];
     if (Array.isArray(images)) {
@@ -160,17 +176,16 @@ export default function HotProducts() {
       candidates = Object.values(images).flat().filter((u: any) => typeof u === 'string') as string[];
     }
     candidates = [item.image_url, ...candidates].filter(Boolean);
-    // Pick first and upgrade to high-res
     return toHighResImage(candidates[0] || '');
   }
 
   function addProduct(item: any) {
-    if (selectedProducts.length >= 10) { toast.error('Maximum 10 products'); return; }
-    if (selectedProducts.find(p => p.id === item.id)) { toast.error('Already added'); return; }
+    if (showcaseProducts.length >= 10) { toast.error('Maximum 10 products'); return; }
+    if (showcaseProducts.find(p => p.provider_product_id === item.provider_product_id && p.provider === item.provider)) { toast.error('Already added'); return; }
     const basePrice = item.price_usd || 0;
     const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings);
-    setSelectedProducts(prev => [...prev, {
-      id: item.id,
+    setShowcaseProducts(prev => [...prev, {
+      id: `new-${Date.now()}`,
       title: item.title || 'Untitled',
       image_url: getBestImage(item),
       price_usd: basePrice,
@@ -180,42 +195,40 @@ export default function HotProducts() {
       product_url: `https://afrishop-usa.com/product/${item.provider}/${item.provider_product_id}`,
       provider: item.provider || '',
       provider_product_id: item.provider_product_id || '',
+      sort_order: prev.length,
+      is_active: true,
     }]);
   }
 
   async function extractFromLink() {
     if (!pasteUrl.trim()) return;
-    if (selectedProducts.length >= 10) { toast.error('Maximum 10 products'); return; }
+    if (showcaseProducts.length >= 10) { toast.error('Maximum 10 products'); return; }
     setExtracting(true);
     try {
       const { data, error } = await supabase.functions.invoke('extract-price', {
         body: { url: pasteUrl.trim(), forceRefresh: true },
       });
-      if (error || !data) {
-        toast.error('Failed to extract product info');
-        setExtracting(false);
-        return;
-      }
+      if (error || !data) { toast.error('Failed to extract'); setExtracting(false); return; }
       const basePrice = data.basePrice || data.price || data.priceUsd || 0;
       const imageUrl = toHighResImage(data.imageUrl || data.image || '');
       const title = data.title || data.name || 'Product';
       const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings);
+      const prov = data.provider || inferProvider(pasteUrl.trim()) || 'external';
+      const pid = data.providerId || inferProductId(pasteUrl.trim()) || '';
 
-      setSelectedProducts(prev => [...prev, {
-        id: `paste-${Date.now()}`,
+      setShowcaseProducts(prev => [...prev, {
+        id: `new-${Date.now()}`,
         title,
         image_url: imageUrl,
         price_usd: basePrice,
         markup_usd: Math.round(markup * 100) / 100,
         shipping_usd: Math.round(shipping * 100) / 100,
         total_price_usd: total,
-        product_url: (() => {
-          const prov = data.provider || inferProvider(pasteUrl.trim());
-          const pid = data.providerId || inferProductId(pasteUrl.trim());
-          return (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : `https://afrishop-usa.com/paste-link`;
-        })(),
-        provider: data.provider || inferProvider(pasteUrl.trim()) || 'external',
-        provider_product_id: data.providerId || inferProductId(pasteUrl.trim()) || '',
+        product_url: (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : `https://afrishop-usa.com/paste-link`,
+        provider: prov,
+        provider_product_id: pid,
+        sort_order: prev.length,
+        is_active: true,
       }]);
       setPasteUrl('');
       toast.success('Product extracted!');
@@ -226,42 +239,99 @@ export default function HotProducts() {
   }
 
   function removeProduct(id: string) {
-    setSelectedProducts(prev => prev.filter(p => p.id !== id));
+    setShowcaseProducts(prev => prev.filter(p => p.id !== id));
   }
 
-  function updateTitle(id: string, title: string) {
-    setSelectedProducts(prev => prev.map(p => p.id === id ? { ...p, title } : p));
-  }
-
-  function updateShipping(id: string, shipping: number) {
-    setSelectedProducts(prev => prev.map(p => {
+  function updateField(id: string, field: keyof ShowcaseProduct, value: any) {
+    setShowcaseProducts(prev => prev.map(p => {
       if (p.id !== id) return p;
-      const newTotal = Math.round((p.price_usd + p.markup_usd + shipping) * 100) / 100;
-      return { ...p, shipping_usd: shipping, total_price_usd: newTotal };
+      const updated = { ...p, [field]: value };
+      // Recalculate total when individual fields change
+      if (field === 'price_usd' || field === 'markup_usd' || field === 'shipping_usd') {
+        const price = field === 'price_usd' ? value : p.price_usd;
+        const markup = field === 'markup_usd' ? value : p.markup_usd;
+        const ship = field === 'shipping_usd' ? value : p.shipping_usd;
+        updated.total_price_usd = Math.round((price + markup + ship) * 100) / 100;
+      }
+      return updated;
     }));
   }
 
-  function updateTotalPrice(id: string, total: number) {
-    setSelectedProducts(prev => prev.map(p => p.id === id ? { ...p, total_price_usd: total } : p));
+  function recalcDefaults(id: string) {
+    setShowcaseProducts(prev => prev.map(p => {
+      if (p.id !== id) return p;
+      const { markup, shipping, total } = calcProductTotals(p.price_usd, feeSettings);
+      return { ...p, markup_usd: Math.round(markup * 100) / 100, shipping_usd: Math.round(shipping * 100) / 100, total_price_usd: total };
+    }));
   }
 
-  async function saveDraft() {
-    if (!campaignTitle.trim()) { toast.error('Enter a campaign title'); return; }
-    if (selectedProducts.length === 0) { toast.error('Add at least 1 product'); return; }
-    setSaving(true);
-    // Refresh session to avoid stale tokens
+  async function saveShowcase() {
+    setSavingShowcase(true);
     await supabase.auth.refreshSession();
     const { data: { user: currentUser } } = await supabase.auth.getUser();
-    if (!currentUser) { toast.error('Session expired – please sign in again'); setSaving(false); return; }
-    const payload = { title: campaignTitle, status: 'draft', products: selectedProducts as any, created_by: currentUser.id, updated_at: new Date().toISOString() };
-    let error;
-    if (editingCampaignId) {
-      ({ error } = await supabase.from('hot_product_campaigns').update(payload).eq('id', editingCampaignId));
-    } else {
-      ({ error } = await supabase.from('hot_product_campaigns').insert(payload));
+    if (!currentUser) { toast.error('Session expired'); setSavingShowcase(false); return; }
+
+    // Delete all existing showcase products and re-insert
+    await supabase.from('hot_products_showcase').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+    if (showcaseProducts.length > 0) {
+      const rows = showcaseProducts.map((p, i) => ({
+        title: p.title,
+        image_url: p.image_url,
+        price_usd: p.price_usd,
+        markup_usd: p.markup_usd,
+        shipping_usd: p.shipping_usd,
+        total_price_usd: p.total_price_usd,
+        product_url: p.product_url,
+        provider: p.provider,
+        provider_product_id: p.provider_product_id,
+        sort_order: i,
+        is_active: true,
+        created_by: currentUser.id,
+      }));
+      const { error } = await supabase.from('hot_products_showcase').insert(rows);
+      if (error) { toast.error('Failed: ' + error.message); setSavingShowcase(false); return; }
     }
+
+    toast.success(t('Storefront products saved!', 'Produits vitrine sauvegardés !'));
+    loadShowcase();
+    setSavingShowcase(false);
+  }
+
+  // Campaign functions
+  function toggleCampaignProduct(id: string) {
+    setSelectedForCampaign(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAllForCampaign() {
+    if (selectedForCampaign.size === showcaseProducts.length) {
+      setSelectedForCampaign(new Set());
+    } else {
+      setSelectedForCampaign(new Set(showcaseProducts.map(p => p.id)));
+    }
+  }
+
+  async function saveCampaignDraft() {
+    if (!campaignTitle.trim()) { toast.error('Enter a campaign title'); return; }
+    if (selectedForCampaign.size === 0) { toast.error('Select at least 1 product'); return; }
+    setSaving(true);
+    await supabase.auth.refreshSession();
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    if (!currentUser) { toast.error('Session expired'); setSaving(false); return; }
+
+    const products = showcaseProducts.filter(p => selectedForCampaign.has(p.id));
+    const { error } = await supabase.from('hot_product_campaigns').insert({
+      title: campaignTitle,
+      status: 'draft',
+      products: products as any,
+      created_by: currentUser.id,
+    });
     if (error) toast.error('Failed: ' + error.message);
-    else { toast.success('Draft saved'); resetForm(); loadCampaigns(); }
+    else { toast.success('Campaign draft saved'); setCampaignTitle(''); setSelectedForCampaign(new Set()); loadCampaigns(); }
     setSaving(false);
   }
 
@@ -275,8 +345,12 @@ export default function HotProducts() {
     setSending(false);
   }
 
-  function editCampaign(c: Campaign) { setEditingCampaignId(c.id); setCampaignTitle(c.title); setSelectedProducts(c.products); }
-  function resetForm() { setEditingCampaignId(null); setCampaignTitle(''); setSelectedProducts([]); setSearchQuery(''); setSearchResults([]); setPasteUrl(''); }
+  const goToCampaignTab = () => {
+    setSelectedForCampaign(new Set(showcaseProducts.map(p => p.id)));
+    setActiveTab('campaigns');
+  };
+
+  const selectedCampaignProducts = showcaseProducts.filter(p => selectedForCampaign.has(p.id));
 
   const statusColor: Record<string, string> = {
     draft: 'bg-yellow-100 text-yellow-800', approved: 'bg-blue-100 text-blue-800',
@@ -286,177 +360,300 @@ export default function HotProducts() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">{language === 'fr' ? 'Produits Vedettes' : 'Hot Products'}</h1>
+        <h1 className="text-2xl font-bold">{t('Hot Products', 'Produits Vedettes')}</h1>
         <p className="text-sm text-muted-foreground">
-          {language === 'fr' ? 'Campagnes email – prix auto-calculé (base + marge + livraison)' : 'Email campaigns – auto-calculated pricing (base + markup + shipping)'}
+          {t('Manage storefront products & email campaigns separately', 'Gérez les produits vitrine et les campagnes email séparément')}
         </p>
       </div>
 
-      {/* Campaign Builder */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Mail className="h-5 w-5" />
-            {editingCampaignId ? (language === 'fr' ? 'Modifier' : 'Edit Campaign') : (language === 'fr' ? 'Nouvelle Campagne' : 'New Campaign')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Input
-            placeholder={language === 'fr' ? 'Titre (ex: Semaine du 12 mars)' : 'Title (e.g. Week of March 12)'}
-            value={campaignTitle}
-            onChange={e => setCampaignTitle(e.target.value)}
-          />
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="storefront" className="gap-2">
+            <ShoppingBag className="h-4 w-4" />
+            {t('Storefront Products', 'Produits Vitrine')}
+          </TabsTrigger>
+          <TabsTrigger value="campaigns" className="gap-2">
+            <Mail className="h-4 w-4" />
+            {t('Email Campaigns', 'Campagnes Email')}
+          </TabsTrigger>
+        </TabsList>
 
-          {/* Product Add Methods */}
-          <Tabs defaultValue="catalog" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="catalog"><Search className="h-3.5 w-3.5 mr-1.5" />{language === 'fr' ? 'Catalogue' : 'Catalog'}</TabsTrigger>
-              <TabsTrigger value="paste"><Link2 className="h-3.5 w-3.5 mr-1.5" />{language === 'fr' ? 'Coller un lien' : 'Paste Link'}</TabsTrigger>
-            </TabsList>
+        {/* ====== TAB 1: STOREFRONT PRODUCTS ====== */}
+        <TabsContent value="storefront" className="space-y-4 mt-4">
+          {/* Add products section */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Plus className="h-5 w-5" />
+                {t('Add Products', 'Ajouter des Produits')} ({showcaseProducts.length}/10)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Tabs defaultValue="catalog" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="catalog"><Search className="h-3.5 w-3.5 mr-1.5" />{t('Catalog', 'Catalogue')}</TabsTrigger>
+                  <TabsTrigger value="paste"><Link2 className="h-3.5 w-3.5 mr-1.5" />{t('Paste Link', 'Coller un lien')}</TabsTrigger>
+                </TabsList>
 
-            <TabsContent value="catalog" className="space-y-2 mt-3">
-              <div className="flex gap-2">
-                <Input placeholder={language === 'fr' ? 'Rechercher...' : 'Search products...'} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchProducts()} />
-                <Button onClick={searchProducts} disabled={searching} size="sm">
-                  {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                </Button>
-              </div>
-              {searchResults.length > 0 && (
-                <div className="border rounded-md max-h-48 overflow-y-auto divide-y">
-                  {searchResults.map(item => (
-                    <div key={item.id} className="flex items-center gap-3 p-2 hover:bg-muted/50 cursor-pointer" onClick={() => addProduct(item)}>
-                      {item.image_url && <img src={toHighResImage(item.image_url)} alt="" className="w-10 h-10 rounded object-cover" />}
+                <TabsContent value="catalog" className="space-y-2 mt-3">
+                  <div className="flex gap-2">
+                    <Input placeholder={t('Search products...', 'Rechercher...')} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchProducts()} />
+                    <Button onClick={searchProducts} disabled={searching} size="sm">
+                      {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  {searchResults.length > 0 && (
+                    <div className="border rounded-md max-h-48 overflow-y-auto divide-y">
+                      {searchResults.map(item => (
+                        <div key={item.id} className="flex items-center gap-3 p-2 hover:bg-muted/50 cursor-pointer" onClick={() => addProduct(item)}>
+                          {item.image_url && <img src={toHighResImage(item.image_url)} alt="" className="w-10 h-10 rounded object-cover" />}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm truncate">{item.title}</p>
+                            <p className="text-xs text-muted-foreground">${item.price_usd?.toFixed(2) || '0.00'}</p>
+                          </div>
+                          <Plus className="h-4 w-4 text-primary shrink-0" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="paste" className="space-y-2 mt-3">
+                  <p className="text-xs text-muted-foreground">{t('Paste a link from Amazon, Walmart, SHEIN, etc.', 'Collez un lien Amazon, Walmart, SHEIN, etc.')}</p>
+                  <div className="flex gap-2">
+                    <Input placeholder="https://www.amazon.com/dp/..." value={pasteUrl} onChange={e => setPasteUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && extractFromLink()} />
+                    <Button onClick={extractFromLink} disabled={extracting} size="sm">
+                      {extracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+
+          {/* Product list with editable price fields */}
+          {showcaseProducts.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Flame className="h-5 w-5 text-orange-500" />
+                    {t('Showcase Products', 'Produits en Vitrine')}
+                  </span>
+                  <Badge variant="secondary">{showcaseProducts.length}/10</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {showcaseProducts.map((p, idx) => (
+                  <div key={p.id} className="p-3 border rounded-lg space-y-3">
+                    <div className="flex items-start gap-3">
+                      {p.image_url && <img src={p.image_url} alt="" className="w-16 h-16 rounded object-cover shrink-0" />}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm truncate">{item.title}</p>
-                        <p className="text-xs text-muted-foreground">${item.price_usd?.toFixed(2) || '0.00'}</p>
+                        <Input
+                          value={p.title}
+                          onChange={e => updateField(p.id, 'title', e.target.value)}
+                          className="text-sm font-medium h-7 mb-1"
+                          placeholder="Product title"
+                        />
+                        <p className="text-[10px] text-muted-foreground">{p.provider} · {p.provider_product_id}</p>
                       </div>
-                      <Plus className="h-4 w-4 text-primary shrink-0" />
+                      <Button variant="ghost" size="icon" className="shrink-0" onClick={() => removeProduct(p.id)}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+
+                    {/* Editable price breakdown */}
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">{t('Item Price', 'Prix article')}</Label>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-muted-foreground">$</span>
+                          <Input
+                            type="number"
+                            className="h-8 text-sm"
+                            value={p.price_usd}
+                            onChange={e => updateField(p.id, 'price_usd', parseFloat(e.target.value) || 0)}
+                            step="0.01"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">{t('Markup', 'Marge')}</Label>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-muted-foreground">$</span>
+                          <Input
+                            type="number"
+                            className="h-8 text-sm"
+                            value={p.markup_usd}
+                            onChange={e => updateField(p.id, 'markup_usd', parseFloat(e.target.value) || 0)}
+                            step="0.01"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">{t('Shipping', 'Livraison')}</Label>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-muted-foreground">$</span>
+                          <Input
+                            type="number"
+                            className="h-8 text-sm"
+                            value={p.shipping_usd}
+                            onChange={e => updateField(p.id, 'shipping_usd', parseFloat(e.target.value) || 0)}
+                            step="0.01"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => recalcDefaults(p.id)}>
+                        ↻ {t('Reset to defaults', 'Réinitialiser')}
+                      </Button>
+                      <div className="flex items-center gap-2 bg-primary/10 rounded px-3 py-1.5 border border-primary/20">
+                        <Label className="text-sm font-bold">{t('Total', 'Total')}:</Label>
+                        <span className="text-lg font-bold text-primary">${p.total_price_usd.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="flex gap-2 flex-wrap pt-2">
+                  <Button onClick={saveShowcase} disabled={savingShowcase}>
+                    {savingShowcase ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                    {t('Save to Storefront', 'Sauvegarder en Vitrine')}
+                  </Button>
+                  <Button variant="outline" onClick={goToCampaignTab}>
+                    <Send className="h-4 w-4 mr-2" />
+                    {t('Send as Campaign', 'Envoyer en Campagne')}
+                    <ArrowRight className="h-4 w-4 ml-1" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ====== TAB 2: EMAIL CAMPAIGNS ====== */}
+        <TabsContent value="campaigns" className="space-y-4 mt-4">
+          {/* New Campaign Builder */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Mail className="h-5 w-5" />
+                {t('New Campaign', 'Nouvelle Campagne')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {showcaseProducts.length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  <ShoppingBag className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">{t('Add products in the Storefront tab first', 'Ajoutez des produits dans l\'onglet Vitrine d\'abord')}</p>
+                  <Button variant="link" className="mt-2" onClick={() => setActiveTab('storefront')}>
+                    {t('Go to Storefront', 'Aller à la Vitrine')} →
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Input
+                    placeholder={t('Campaign title (e.g. Week of March 17)', 'Titre de la campagne (ex: Semaine du 17 mars)')}
+                    value={campaignTitle}
+                    onChange={e => setCampaignTitle(e.target.value)}
+                  />
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium">
+                        {t('Select products to include', 'Sélectionnez les produits à inclure')} ({selectedForCampaign.size}/{showcaseProducts.length})
+                      </Label>
+                      <Button variant="ghost" size="sm" className="text-xs h-7" onClick={selectAllForCampaign}>
+                        <CheckSquare className="h-3.5 w-3.5 mr-1" />
+                        {selectedForCampaign.size === showcaseProducts.length ? t('Deselect All', 'Tout décocher') : t('Select All', 'Tout cocher')}
+                      </Button>
+                    </div>
+
+                    <div className="border rounded-md divide-y max-h-72 overflow-y-auto">
+                      {showcaseProducts.map(p => (
+                        <label key={p.id} className="flex items-center gap-3 p-2.5 hover:bg-muted/50 cursor-pointer">
+                          <Checkbox
+                            checked={selectedForCampaign.has(p.id)}
+                            onCheckedChange={() => toggleCampaignProduct(p.id)}
+                          />
+                          {p.image_url && <img src={p.image_url} alt="" className="w-10 h-10 rounded object-cover" />}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm truncate">{p.title}</p>
+                            <p className="text-xs text-muted-foreground">${p.total_price_usd.toFixed(2)}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 flex-wrap">
+                    <Button onClick={saveCampaignDraft} disabled={saving || selectedForCampaign.size === 0} variant="outline">
+                      {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                      {t('Save Draft', 'Brouillon')}
+                    </Button>
+                    {selectedForCampaign.size > 0 && (
+                      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+                        <DialogTrigger asChild>
+                          <Button variant="outline"><Eye className="h-4 w-4 mr-2" />{t('Preview', 'Aperçu')}</Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                          <DialogHeader><DialogTitle>{t('Email Preview', 'Aperçu Email')}</DialogTitle></DialogHeader>
+                          <div className="border rounded-lg p-4" dangerouslySetInnerHTML={{ __html: buildPreviewHtml(selectedCampaignProducts) }} />
+                        </DialogContent>
+                      </Dialog>
+                    )}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Campaign History */}
+          <Card>
+            <CardHeader><CardTitle className="text-lg">{t('Campaign History', 'Historique')}</CardTitle></CardHeader>
+            <CardContent>
+              {loadingCampaigns ? <p className="text-sm text-muted-foreground">Loading...</p> : campaigns.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t('No campaigns yet', 'Aucune campagne')}</p>
+              ) : (
+                <div className="space-y-3">
+                  {campaigns.map(c => (
+                    <div key={c.id} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-sm">{c.title || 'Untitled'}</p>
+                          <Badge className={statusColor[c.status] || ''}>{c.status}</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {c.products.length} {t('products', 'produits')}
+                          {c.status === 'sent' && ` • ${c.sent_count} sent, ${c.failed_count} failed`}
+                          {' • '}{new Date(c.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        {c.status === 'draft' && (
+                          <Button size="sm" onClick={() => approveAndSend(c.id)} disabled={sending}>
+                            {sending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
+                            {t('Send', 'Envoyer')}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
-            </TabsContent>
-
-            <TabsContent value="paste" className="space-y-2 mt-3">
-              <p className="text-xs text-muted-foreground">{language === 'fr' ? 'Collez un lien Amazon, Walmart, SHEIN, etc.' : 'Paste a link from Amazon, Walmart, SHEIN, etc.'}</p>
-              <div className="flex gap-2">
-                <Input placeholder="https://www.amazon.com/dp/..." value={pasteUrl} onChange={e => setPasteUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && extractFromLink()} />
-                <Button onClick={extractFromLink} disabled={extracting} size="sm">
-                  {extracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                </Button>
-              </div>
-            </TabsContent>
-          </Tabs>
-
-          {/* Selected Products with price breakdown */}
-          {selectedProducts.length > 0 && (
-            <div className="space-y-3">
-              <p className="text-sm font-medium">{language === 'fr' ? 'Produits' : 'Products'} ({selectedProducts.length}/10)</p>
-              {selectedProducts.map(p => (
-                <div key={p.id} className="p-3 border rounded-lg space-y-2">
-                  <div className="flex items-start gap-3">
-                    {p.image_url && <img src={p.image_url} alt="" className="w-16 h-16 rounded object-cover shrink-0" />}
-                    <div className="flex-1 min-w-0">
-                      <Input 
-                        value={p.title} 
-                        onChange={e => updateTitle(p.id, e.target.value)} 
-                        className="text-sm font-medium h-7 mb-1" 
-                        placeholder="Product title"
-                      />
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        {language === 'fr' ? 'Base' : 'Base'}: ${p.price_usd.toFixed(2)} · 
-                        {language === 'fr' ? ' Marge' : ' Markup'}: ${p.markup_usd.toFixed(2)} · 
-                        {language === 'fr' ? ' Livraison' : ' Ship'}: ${p.shipping_usd.toFixed(2)}
-                      </p>
-                    </div>
-                    <Button variant="ghost" size="icon" className="shrink-0" onClick={() => removeProduct(p.id)}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                  <div className="flex items-center justify-between bg-primary/10 rounded px-3 py-2 border border-primary/20">
-                    <Label className="text-sm font-bold">{language === 'fr' ? '💰 Prix final (tout inclus)' : '💰 Final Price (all-inclusive)'}:</Label>
-                    <div className="flex items-center gap-1">
-                      <span className="text-sm text-muted-foreground">$</span>
-                      <Input 
-                        type="number" 
-                        className="h-8 w-28 text-base font-bold text-primary" 
-                        value={p.total_price_usd} 
-                        onChange={e => updateTotalPrice(p.id, parseFloat(e.target.value) || 0)} 
-                      />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex gap-2 flex-wrap">
-            <Button onClick={saveDraft} disabled={saving} variant="outline">
-              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-              {language === 'fr' ? 'Brouillon' : 'Save Draft'}
-            </Button>
-            {selectedProducts.length > 0 && (
-              <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline"><Eye className="h-4 w-4 mr-2" />{language === 'fr' ? 'Aperçu' : 'Preview'}</Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                  <DialogHeader><DialogTitle>{language === 'fr' ? 'Aperçu Email' : 'Email Preview'}</DialogTitle></DialogHeader>
-                  <div className="border rounded-lg p-4" dangerouslySetInnerHTML={{ __html: buildPreviewHtml(selectedProducts) }} />
-                </DialogContent>
-              </Dialog>
-            )}
-            {editingCampaignId && <Button variant="ghost" onClick={resetForm}>{language === 'fr' ? 'Annuler' : 'Cancel'}</Button>}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Campaign History */}
-      <Card>
-        <CardHeader><CardTitle className="text-lg">{language === 'fr' ? 'Historique' : 'Campaign History'}</CardTitle></CardHeader>
-        <CardContent>
-          {loading ? <p className="text-sm text-muted-foreground">Loading...</p> : campaigns.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{language === 'fr' ? 'Aucune campagne' : 'No campaigns yet'}</p>
-          ) : (
-            <div className="space-y-3">
-              {campaigns.map(c => (
-                <div key={c.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-sm">{c.title || 'Untitled'}</p>
-                      <Badge className={statusColor[c.status] || ''}>{c.status}</Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {c.products.length} {language === 'fr' ? 'produits' : 'products'}
-                      {c.status === 'sent' && ` • ${c.sent_count} sent, ${c.failed_count} failed`}
-                      {' • '}{new Date(c.created_at).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    {c.status === 'draft' && (
-                      <>
-                        <Button size="sm" variant="outline" onClick={() => editCampaign(c)}>{language === 'fr' ? 'Modifier' : 'Edit'}</Button>
-                        <Button size="sm" onClick={() => approveAndSend(c.id)} disabled={sending}>
-                          {sending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
-                          {language === 'fr' ? 'Envoyer' : 'Send'}
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
 
-function buildPreviewHtml(products: SelectedProduct[]): string {
+function buildPreviewHtml(products: ShowcaseProduct[]): string {
   const productCells = products.map(p => `
-    <td style="text-align:center;vertical-align:top;padding:8px;width:${Math.floor(100/products.length)}%;">
+    <td style="text-align:center;vertical-align:top;padding:8px;width:${Math.floor(100/Math.min(products.length, 3))}%;">
       <div style="border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#ffffff;">
         ${p.image_url ? `<img src="${p.image_url}" alt="${p.title}" style="width:100%;height:180px;object-fit:cover;display:block;" />` : ''}
         <div style="padding:10px;">
@@ -479,8 +676,6 @@ function buildPreviewHtml(products: SelectedProduct[]): string {
         <p style="font-size:14px;color:#333;margin:0 0 6px;line-height:1.5;">Nous avons sélectionné ces produits pour vous cette semaine. Les prix incluent la livraison en RDC (2 à 4 semaines).</p>
         <p style="font-size:13px;color:#888;margin:0 0 16px;line-height:1.5;">We picked these products for you this week. Prices include delivery to DRC (2-4 weeks).</p>
         <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${productCells}</tr></table>
-        <p style="font-size:12px;color:#555;margin:16px 0 4px;line-height:1.5;">Vous cherchez un autre produit ? Visitez <a href="https://afrishop-usa.com/paste-link" style="color:#e63946;text-decoration:underline;">afrishop-usa.com</a> et collez le lien de n'importe quel produit américain.</p>
-        <p style="font-size:11px;color:#888;margin:0;line-height:1.5;">Looking for something else? Visit <a href="https://afrishop-usa.com/paste-link" style="color:#e63946;text-decoration:underline;">afrishop-usa.com</a> and paste any US product link.</p>
       </div>
       <div style="text-align:center;padding:12px;background:#f3f4f6;font-size:10px;color:#999;">
         <p style="margin:2px 0;">AfriShop USA - Achetez aux USA, livré en Afrique</p>

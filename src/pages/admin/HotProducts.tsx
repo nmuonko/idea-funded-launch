@@ -165,7 +165,7 @@ export default function HotProducts() {
   }
 
   function addProduct(item: any) {
-    if (selectedProducts.length >= 3) { toast.error('Maximum 3 products'); return; }
+    if (selectedProducts.length >= 10) { toast.error('Maximum 10 products'); return; }
     if (selectedProducts.find(p => p.id === item.id)) { toast.error('Already added'); return; }
     const basePrice = item.price_usd || 0;
     const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings);

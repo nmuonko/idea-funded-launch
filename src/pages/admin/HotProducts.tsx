@@ -363,27 +363,26 @@ export default function HotProducts() {
                         className="text-sm font-medium h-7 mb-1" 
                         placeholder="Product title"
                       />
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1 text-xs text-muted-foreground">
-                        <span>{language === 'fr' ? 'Prix de base' : 'Base'}:</span>
-                        <span className="font-medium text-foreground">${p.price_usd.toFixed(2)}</span>
-                        <span>{language === 'fr' ? 'Marge' : 'Markup'} ({feeSettings.markupPercent}%):</span>
-                        <span className="font-medium text-foreground">${p.markup_usd.toFixed(2)}</span>
-                        <span className="flex items-center gap-1">
-                          {language === 'fr' ? 'Livraison' : 'Shipping'}:
-                          <Edit2 className="h-3 w-3 text-primary" />
-                        </span>
-                        <Input type="number" className="h-5 w-20 text-xs px-1" value={p.shipping_usd} onChange={e => updateShipping(p.id, parseFloat(e.target.value) || 0)} />
-                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {language === 'fr' ? 'Base' : 'Base'}: ${p.price_usd.toFixed(2)} · 
+                        {language === 'fr' ? ' Marge' : ' Markup'}: ${p.markup_usd.toFixed(2)} · 
+                        {language === 'fr' ? ' Livraison' : ' Ship'}: ${p.shipping_usd.toFixed(2)}
+                      </p>
                     </div>
                     <Button variant="ghost" size="icon" className="shrink-0" onClick={() => removeProduct(p.id)}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
-                  <div className="flex items-center justify-between bg-muted/50 rounded px-3 py-1.5">
-                    <span className="text-sm font-semibold">{language === 'fr' ? 'Prix total affiché' : 'Displayed total'}:</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg font-bold text-primary">${p.total_price_usd.toFixed(2)}</span>
-                      <Input type="number" className="h-7 w-24 text-sm" value={p.total_price_usd} onChange={e => updateTotalPrice(p.id, parseFloat(e.target.value) || 0)} />
+                  <div className="flex items-center justify-between bg-primary/10 rounded px-3 py-2 border border-primary/20">
+                    <Label className="text-sm font-bold">{language === 'fr' ? '💰 Prix final (tout inclus)' : '💰 Final Price (all-inclusive)'}:</Label>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm text-muted-foreground">$</span>
+                      <Input 
+                        type="number" 
+                        className="h-8 w-28 text-base font-bold text-primary" 
+                        value={p.total_price_usd} 
+                        onChange={e => updateTotalPrice(p.id, parseFloat(e.target.value) || 0)} 
+                      />
                     </div>
                   </div>
                 </div>

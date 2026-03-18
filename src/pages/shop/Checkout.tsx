@@ -489,6 +489,36 @@ export default function Checkout() {
           
           <h1 className="text-2xl font-bold text-white mb-8">{shop.checkoutTitle || 'Checkout'}</h1>
 
+          {/* Checkout Error Banner */}
+          {checkoutError && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-4 rounded-xl border border-red-500/30 bg-red-500/10 flex items-start gap-3"
+            >
+              <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-red-300 font-medium text-sm">
+                  {language === 'fr' ? 'Erreur de paiement' : 'Payment Error'}
+                </p>
+                <p className="text-red-200/70 text-sm mt-1">{checkoutError}</p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setCheckoutError(null);
+                  processCheckout();
+                }}
+                className="border-red-500/30 text-red-300 hover:bg-red-500/20 flex-shrink-0"
+              >
+                <RefreshCw className="h-3 w-3 mr-1" />
+                {language === 'fr' ? 'Réessayer' : 'Retry'}
+              </Button>
+            </motion.div>
+          )}
+
           <form onSubmit={handleSubmit}>
             <div className="grid lg:grid-cols-3 gap-8">
               {/* Left Column - Forms */}

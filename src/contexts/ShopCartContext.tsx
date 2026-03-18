@@ -144,7 +144,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const pendingSyncRef = useRef(false);
   // --- Race condition guard: delay syncCart if addItem was just called ---
   const lastAddTimestampRef = useRef(0);
-  const ADD_SYNC_DELAY_MS = 2000; // Don't sync within 2s of an add
+  const ADD_SYNC_DELAY_MS = 3000; // Don't sync within 3s of an add (extended for slow mobile)
+  // --- Track in-flight add operations to prevent sync from dropping optimistic items ---
+  const addInFlightRef = useRef(0);
 
   // --- Only force loading=true on first server hydration, not on token refresh ---
   const didInitialServerHydrateRef = useRef(false);

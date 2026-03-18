@@ -20,6 +20,7 @@ import {
   resolveAndLogStripeKey, 
   getKeyDiagnostics 
 } from "../_shared/stripeKeyResolver.ts";
+import { createReferralCommission } from "../_shared/referralCommission.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

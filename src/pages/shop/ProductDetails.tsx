@@ -130,7 +130,11 @@ export default function ProductDetailsPage() {
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [hotProductPrice, setHotProductPrice] = useState<number | null>(null);
+  const [hotProductPrice, setHotProductPrice] = useState<number | null>(
+    typeof (location.state as any)?.hotProductPrice === 'number'
+      ? (location.state as any).hotProductPrice
+      : null
+  );
   const navProductRef = useRef<ProductData | null>(null);
   const didAutoSelectRef = useRef(false);
   const userInteractedRef = useRef(false);
@@ -138,7 +142,7 @@ export default function ProductDetailsPage() {
   const failedImageIndexesRef = useRef<Set<number>>(new Set());
   const triedOriginalSourceRef = useRef<Set<number>>(new Set());
 
-  const isFixedPrice = hotProductPrice !== null;
+  const isFixedPrice = !!(location.state as any)?.isFixedPrice || hotProductPrice !== null;
 
   const isVehicleFromState = !!(
     (location.state as any)?.product?.isVehicle ||
@@ -516,22 +520,23 @@ export default function ProductDetailsPage() {
 
   // Check if this product is a hot product (fixed price, no extra markup/shipping)
   useEffect(() => {
+    if ((location.state as any)?.isFixedPrice && typeof (location.state as any)?.hotProductPrice === 'number') {
+      setHotProductPrice((location.state as any).hotProductPrice);
+      return;
+    }
     if (!product?.id || !product?.provider) return;
-    const normalizedProvider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider;
+
     supabase
       .from('hot_products_showcase')
       .select('total_price_usd')
       .eq('provider_product_id', product.id)
+      .eq('provider', product.provider)
       .eq('is_active', true)
       .maybeSingle()
       .then(({ data }) => {
-        if (data?.total_price_usd) {
-          setHotProductPrice(data.total_price_usd);
-        } else {
-          setHotProductPrice(null);
-        }
+        setHotProductPrice(typeof data?.total_price_usd === 'number' ? data.total_price_usd : null);
       });
-  }, [product?.id, product?.provider]);
+  }, [location.state, product?.id, product?.provider]);
 
   // Check if this vehicle product is already in the user's cart
   const isInCart = product && items.some(item => {

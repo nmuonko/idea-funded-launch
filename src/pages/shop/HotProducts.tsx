@@ -180,7 +180,13 @@ export default function HotProducts() {
 
                     <div
                       className="aspect-square bg-white overflow-hidden cursor-pointer"
-                      onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`)}
+                      onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`, {
+                        state: {
+                          isFixedPrice: true,
+                          hotProductPrice: product.total_price_usd,
+                          hotProductId: product.id,
+                        },
+                      })}
                     >
                       <img
                         src={product.image_url}
@@ -193,7 +199,13 @@ export default function HotProducts() {
                     <div className="p-3 space-y-2">
                       <p
                         className="text-white text-xs sm:text-sm font-medium line-clamp-2 min-h-[2.5rem] cursor-pointer hover:text-orange-300 transition-colors"
-                        onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`)}
+                        onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`, {
+                          state: {
+                            isFixedPrice: true,
+                            hotProductPrice: product.total_price_usd,
+                            hotProductId: product.id,
+                          },
+                        })}
                       >
                         {product.title}
                       </p>

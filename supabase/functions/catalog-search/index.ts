@@ -1312,7 +1312,7 @@ Deno.serve(async (req: Request) => {
     // ─── ALT QUERIES (max 1, with time budget) ──────────────────────────────
     const altQueriesStart = Date.now();
     const totalProviderItems = amazonItems.length + ebayItems.length;
-    const altQueries = aiRewriteExpansions.length > 0 ? aiRewriteExpansions.slice(1) : (aiRefineResult?.alt || []);
+    const altQueries = aiRewriteExpansions.length > 0 ? aiRewriteExpansions.slice(1) : [];
     const elapsedSoFar = Date.now() - startTime;
     const activeBudget = isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS;
     const budgetExceeded = elapsedSoFar > activeBudget;

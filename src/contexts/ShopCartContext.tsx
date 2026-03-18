@@ -462,14 +462,19 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         syncCart();
       }
     }
-  }, [user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Stabilized sync trigger: only fires on userId/initialized changes, NOT on syncCart recreation
+  const syncCartRef = useRef(syncCart);
+  useEffect(() => { syncCartRef.current = syncCart; }, [syncCart]);
 
   const userId = user?.id;
   useEffect(() => {
     if (userId && initialized) {
-      syncCart();
+      syncCartRef.current();
     }
-  }, [userId, initialized, syncCart]);
+  }, [userId, initialized]);
 
   // Build the canonical product URL that the server will store
   const buildServerProductUrl = useCallback((item: Omit<CartItem, 'id'>) => {

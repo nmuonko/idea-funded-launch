@@ -23,7 +23,7 @@ const t = {
   },
   fr: {
     title: 'Partager & Gagner',
-    description: 'Inscrivez-vous, partagez votre lien. Quand votre ami vérifie son email — vous gagnez une récompense !',
+    description: 'Inscrivez-vous, partagez votre lien. Quand votre ami achète — vous gagnez une commission !',
     copyLink: 'Copier le lien de parrainage',
     copied: 'Copié !',
     register: 'Obtenir mon lien',

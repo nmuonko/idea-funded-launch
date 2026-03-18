@@ -238,12 +238,11 @@ export async function interpretQuery(
       return { ...cached[0].payload, cached: true } as AiInterpretation;
     }
 
-    // ─── Build provider list ─────────────────────────────────────────────────
+    // ─── Build provider list (single provider only — Phase 1 cost optimization) ─
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
-    if (!LOVABLE_API_KEY && !OPENAI_API_KEY) {
-      console.warn(`[AI_INTERP] requestId=${requestId} NO AI keys configured`);
+    if (!LOVABLE_API_KEY) {
+      console.warn(`[AI_INTERP] requestId=${requestId} LOVABLE_API_KEY not configured`);
       return null;
     }
 
@@ -251,33 +250,16 @@ export async function interpretQuery(
       ? `Query: "${rawQuery}"\nUser language: "${lang}"\nCategory context: "${categoryHint}"\nFirst-pass search returned insufficient results. Interpret this query for a second-pass search.`
       : `Query: "${rawQuery}"\nUser language: "${lang}"\nFirst-pass search returned insufficient results. Interpret this query for a second-pass search.`;
 
-    const providers: Promise<AiInterpretation>[] = [];
-
-    if (LOVABLE_API_KEY) {
-      providers.push(
-        callProvider(LOVABLE_AI_URL, LOVABLE_API_KEY, "google/gemini-2.5-flash-lite", "lovable", userContent, qNorm, requestId)
-      );
-    }
-    if (OPENAI_API_KEY) {
-      providers.push(
-        callProvider(OPENAI_URL, OPENAI_API_KEY, "gpt-4o-mini", "openai", userContent, qNorm, requestId)
-      );
-    }
-
-    // ─── Race: first successful response wins ────────────────────────────────
+    // Single provider call — removed dual-race pattern (OpenAI) to cut AI costs
     let result: AiInterpretation;
     try {
-      result = await Promise.any(providers);
-    } catch (aggErr) {
-      // All providers failed
-      const errors = (aggErr as AggregateError).errors || [];
-      for (const e of errors) {
-        const errName = (e as Error).name;
-        if (errName === "AbortError") {
-          console.warn(`[AI_INTERP] requestId=${requestId} provider timeout after ${INTERPRETER_TIMEOUT_MS}ms`);
-        } else {
-          console.warn(`[AI_INTERP] requestId=${requestId} provider error: ${(e as Error).message}`);
-        }
+      result = await callProvider(LOVABLE_AI_URL, LOVABLE_API_KEY, "google/gemini-2.5-flash-lite", "lovable", userContent, qNorm, requestId);
+    } catch (err) {
+      const errName = (err as Error).name;
+      if (errName === "AbortError") {
+        console.warn(`[AI_INTERP] requestId=${requestId} provider timeout after ${INTERPRETER_TIMEOUT_MS}ms`);
+      } else {
+        console.warn(`[AI_INTERP] requestId=${requestId} provider error: ${(err as Error).message}`);
       }
       return null;
     }

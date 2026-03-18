@@ -2,15 +2,11 @@
  * AI Query Interpreter — Structured fallback for weak/ambiguous search queries.
  *
  * Called ONLY when the fallback gate determines first-pass results are insufficient.
- * Uses DUAL AI providers (Lovable AI + OpenAI) in a race pattern:
- *  - Both fire simultaneously via Promise.any()
- *  - Whichever responds first wins — zero added latency
- *  - If one fails/times out, the other is the automatic fallback
- *  - If both fail, returns null (graceful degradation)
+ * Uses single Lovable AI provider (Phase 1 cost optimization — removed dual-race pattern).
  *
  * Key design:
- *  - Cache-first (search_rewrite_cache, 14-day TTL)
- *  - 1.5s hard timeout per provider
+ *  - Cache-first (search_rewrite_cache, 30-day TTL)
+ *  - 1.5s hard timeout
  *  - Preserves protected entities (brands, models, product codes)
  *  - Returns structured interpretation, NOT final search results
  */
@@ -18,7 +14,6 @@
 import { createAdminPostgrestClient } from "./postgrest.ts";
 
 const LOVABLE_AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 const INTERPRETER_TIMEOUT_MS = 1500;
 
 export interface AiInterpretation {

@@ -208,6 +208,16 @@ export async function aiQueryRewrite(
 
     console.log(`[AI_REWRITE] requestId=${requestId} q="${qOriginal}" → en="${result.query_en}" cat=${result.category_guess} dym="${result.did_you_mean}" expansions=${result.expansions.length} exclude=${result.must_exclude.length} conf=${result.confidence}`);
 
+    // Increment daily AI budget counter (fire-and-forget)
+    supabase
+      .rpc("increment_provider_budget", {
+        p_provider: "lovable_ai",
+        p_window_type: "daily",
+        p_limit: 500,
+      })
+      .then(() => {})
+      .catch((e: any) => console.warn(`[AI_REWRITE] budget_increment_error: ${e?.message}`));
+
     // 3. Cache result (fire-and-forget, 30-day TTL — Phase 4 cost optimization)
     const cachePayload = { ...result };
     delete (cachePayload as any).cached;

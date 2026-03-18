@@ -81,11 +81,29 @@ export async function aiQueryRewrite(
       return { ...cached.payload, cached: true } as AiRewriteResult;
     }
 
-    // 2. Call Lovable AI with tool calling (structured output)
+    // 2. Budget gate — enforce daily AI call limit (Phase 5 cost optimization)
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       console.warn(`[AI_REWRITE] requestId=${requestId} LOVABLE_API_KEY not configured`);
       return null;
+    }
+
+    // Check daily AI budget (500 calls/day hard cap)
+    const AI_DAILY_CAP = 500;
+    try {
+      const { data: budgetData } = await supabase
+        .rpc("check_provider_budget", {
+          p_provider: "lovable_ai",
+          p_window_type: "daily",
+          p_limit: AI_DAILY_CAP,
+        });
+      if (budgetData && !budgetData.allowed) {
+        console.warn(`[AI_REWRITE] requestId=${requestId} BUDGET_EXCEEDED: daily AI cap hit (${budgetData.count}/${AI_DAILY_CAP}) — falling back to deterministic`);
+        return null;
+      }
+    } catch (e) {
+      // Budget check failed — allow through (fail-open)
+      console.warn(`[AI_REWRITE] requestId=${requestId} budget_check_error: ${(e as Error).message}`);
     }
 
     const controller = new AbortController();

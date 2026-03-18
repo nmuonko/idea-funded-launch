@@ -130,12 +130,15 @@ export default function ProductDetailsPage() {
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [hotProductPrice, setHotProductPrice] = useState<number | null>(null);
   const navProductRef = useRef<ProductData | null>(null);
   const didAutoSelectRef = useRef(false);
   const userInteractedRef = useRef(false);
   const retryAttemptedRef = useRef(false);
   const failedImageIndexesRef = useRef<Set<number>>(new Set());
   const triedOriginalSourceRef = useRef<Set<number>>(new Set());
+
+  const isFixedPrice = hotProductPrice !== null;
 
   const isVehicleFromState = !!(
     (location.state as any)?.product?.isVehicle ||
@@ -511,6 +514,25 @@ export default function ProductDetailsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product?.title, provider, id]);
 
+  // Check if this product is a hot product (fixed price, no extra markup/shipping)
+  useEffect(() => {
+    if (!product?.id || !product?.provider) return;
+    const normalizedProvider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider;
+    supabase
+      .from('hot_products_showcase')
+      .select('total_price_usd')
+      .eq('provider_product_id', product.id)
+      .eq('is_active', true)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.total_price_usd) {
+          setHotProductPrice(data.total_price_usd);
+        } else {
+          setHotProductPrice(null);
+        }
+      });
+  }, [product?.id, product?.provider]);
+
   // Check if this vehicle product is already in the user's cart
   const isInCart = product && items.some(item => {
     if (item.productUrl && product.productUrl && item.productUrl === product.productUrl) return true;
@@ -530,9 +552,10 @@ export default function ProductDetailsPage() {
         provider: product.provider,
         title: product.title,
         imageUrl: safeImages[0] || '',
-        priceUsd: product.priceUsd,
+        priceUsd: isFixedPrice ? hotProductPrice! : product.priceUsd,
         quantity,
         productUrl: product.productUrl,
+        ...(isFixedPrice ? { isFixedPrice: true } : {}),
       });
       setAdded(true);
       setTimeout(() => setAdded(false), 3000);
@@ -907,9 +930,10 @@ export default function ProductDetailsPage() {
               {/* Price Breakdown */}
               <div className="bg-white/5 rounded-2xl p-4 sm:p-6 border border-white/10 min-w-0">
                 <PriceBreakdown
-                  itemPriceUsd={displayPrice}
+                  itemPriceUsd={isFixedPrice ? hotProductPrice! : displayPrice}
                   quantity={quantity}
                   isVehicle={isVehicle}
+                  isFixedPrice={isFixedPrice}
                   context="product-detail"
                 />
               </div>

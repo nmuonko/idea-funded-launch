@@ -675,15 +675,12 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ─── AI QUERY REFINER ──────────────────────────────────────────────────────
-    // Skip AI entirely when preNormalizer matched (deterministic fast path)
-    // On page 0: race AI with AI_TIMEOUT_P0 to never block
+    // ─── AI QUERY REFINER (REMOVED — Phase 1 cost optimization) ───────────────
+    // refineQueryWithAi was redundant with aiQueryRewrite which already provides
+    // expansions. Removing this saves 1 AI call per search.
     const directQuery = isDirectQuery(qNorm) || preNormSkipAI;
-    const aiRefinePromise = preNormSkipAI
-      ? Promise.resolve(null)
-      : refineQueryWithAi(supabase, qNorm, qOriginal, lang, requestId);
     if (directQuery) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} FAST_PATH: directQuery=${isDirectQuery(qNorm)} preNormSkipAI=${preNormSkipAI}, skipping AI refiner await + DB-first`);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} FAST_PATH: directQuery=${isDirectQuery(qNorm)} preNormSkipAI=${preNormSkipAI}, skipping AI + DB-first`);
     }
 
     // ─── EFFECTIVE MODE ───────────────────────────────────────────────────────

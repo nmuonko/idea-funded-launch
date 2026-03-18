@@ -81,11 +81,29 @@ export async function aiQueryRewrite(
       return { ...cached.payload, cached: true } as AiRewriteResult;
     }
 
-    // 2. Call Lovable AI with tool calling (structured output)
+    // 2. Budget gate — enforce daily AI call limit (Phase 5 cost optimization)
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       console.warn(`[AI_REWRITE] requestId=${requestId} LOVABLE_API_KEY not configured`);
       return null;
+    }
+
+    // Check daily AI budget (500 calls/day hard cap)
+    const AI_DAILY_CAP = 500;
+    try {
+      const { data: budgetData } = await supabase
+        .rpc("check_provider_budget", {
+          p_provider: "lovable_ai",
+          p_window_type: "daily",
+          p_limit: AI_DAILY_CAP,
+        });
+      if (budgetData && !budgetData.allowed) {
+        console.warn(`[AI_REWRITE] requestId=${requestId} BUDGET_EXCEEDED: daily AI cap hit (${budgetData.count}/${AI_DAILY_CAP}) — falling back to deterministic`);
+        return null;
+      }
+    } catch (e) {
+      // Budget check failed — allow through (fail-open)
+      console.warn(`[AI_REWRITE] requestId=${requestId} budget_check_error: ${(e as Error).message}`);
     }
 
     const controller = new AbortController();
@@ -190,7 +208,17 @@ export async function aiQueryRewrite(
 
     console.log(`[AI_REWRITE] requestId=${requestId} q="${qOriginal}" → en="${result.query_en}" cat=${result.category_guess} dym="${result.did_you_mean}" expansions=${result.expansions.length} exclude=${result.must_exclude.length} conf=${result.confidence}`);
 
-    // 3. Cache result (fire-and-forget, 14-day TTL)
+    // Increment daily AI budget counter (fire-and-forget)
+    supabase
+      .rpc("increment_provider_budget", {
+        p_provider: "lovable_ai",
+        p_window_type: "daily",
+        p_limit: 500,
+      })
+      .then(() => {})
+      .catch((e: any) => console.warn(`[AI_REWRITE] budget_increment_error: ${e?.message}`));
+
+    // 3. Cache result (fire-and-forget, 30-day TTL — Phase 4 cost optimization)
     const cachePayload = { ...result };
     delete (cachePayload as any).cached;
     supabase
@@ -200,7 +228,7 @@ export async function aiQueryRewrite(
         lang,
         category_hint: result.category_guess,
         payload: cachePayload,
-        expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       }, { onConflict: "q_norm,lang" })
       .then(({ error }: { error: any }) => {
         if (error) console.warn(`[AI_REWRITE] requestId=${requestId} cache_write_error: ${error.message}`);

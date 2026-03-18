@@ -17,7 +17,7 @@ export const AMAZON_CACHE_VERSION = "search_fast_v5_relevance"; // v22: word-bou
 // TTL configuration per cache type (in minutes) - POSITIVE results
 export const CACHE_TTL = {
   home: { stale: 15, expire: 60 },
-  search: { stale: 1440, expire: 10080 }, // 24h stale, 7 days expire (hotfix: fast mobile search)
+  search: { stale: 2880, expire: 20160 }, // 2 days stale, 14 days expire (Phase 4 cost optimization)
   product: { stale: 1440 * 7, expire: 1440 * 30 }, // 7 days stale, 30 days expire
   offers: { stale: 60, expire: 360 }, // 1 hour stale, 6 hours expire
 } as const;

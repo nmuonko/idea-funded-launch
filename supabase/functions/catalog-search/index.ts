@@ -33,7 +33,7 @@ import {
 } from "../_shared/vehicleDetection.ts";
 import type { SearchIntent } from "../_shared/vehicleDetection.ts";
 import { scoreAndRankItems, parseDeviceIntent, type DeviceIntent } from "../_shared/searchIntentScorer.ts";
-import { refineQueryWithAi, AiRefineResult } from "../_shared/searchAiExpand.ts";
+// REMOVED: refineQueryWithAi — redundant with aiQueryRewrite (cost optimization Phase 1)
 import { aiQueryRewrite, AiRewriteResult } from "../_shared/aiQueryRewrite.ts";
 import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";
 import { isProviderHealthy, recordProviderFailure, recordProviderSuccess, getProviderHealthSummary } from "../_shared/providerHealth.ts";
@@ -51,7 +51,7 @@ import { evaluateFallbackGate, shouldAttemptEagerAiRewrite, type FallbackGateRes
 import { interpretQuery, type AiInterpretation } from "../_shared/aiQueryInterpreter.ts";
 
 // Extracted modules
-import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";
+// REMOVED: expandQueryWithAi — redundant with aiQueryRewrite (cost optimization Phase 1)
 import { CatalogItem } from "../_shared/catalogItemMapper.ts";
 import { searchDbFirst } from "../_shared/searchDbFirst.ts";
 import { validateCacheHit, filterCachedItems } from "../_shared/searchCacheGuard.ts";
@@ -675,15 +675,12 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ─── AI QUERY REFINER ──────────────────────────────────────────────────────
-    // Skip AI entirely when preNormalizer matched (deterministic fast path)
-    // On page 0: race AI with AI_TIMEOUT_P0 to never block
+    // ─── AI QUERY REFINER (REMOVED — Phase 1 cost optimization) ───────────────
+    // refineQueryWithAi was redundant with aiQueryRewrite which already provides
+    // expansions. Removing this saves 1 AI call per search.
     const directQuery = isDirectQuery(qNorm) || preNormSkipAI;
-    const aiRefinePromise = preNormSkipAI
-      ? Promise.resolve(null)
-      : refineQueryWithAi(supabase, qNorm, qOriginal, lang, requestId);
     if (directQuery) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} FAST_PATH: directQuery=${isDirectQuery(qNorm)} preNormSkipAI=${preNormSkipAI}, skipping AI refiner await + DB-first`);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} FAST_PATH: directQuery=${isDirectQuery(qNorm)} preNormSkipAI=${preNormSkipAI}, skipping AI + DB-first`);
     }
 
     // ─── EFFECTIVE MODE ───────────────────────────────────────────────────────
@@ -871,52 +868,14 @@ Deno.serve(async (req: Request) => {
     const isVehicle = isVehicleQuery(qNorm);
     const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;
 
-    // ─── RESOLVE AI REFINER (skip await for fast path / page 0) ─────────────
-    const aiRefineStart = Date.now();
-    let aiRefineResult: AiRefineResult | null = null;
-    let aiExpandedTerms: string[] | null = null;
-
-    if (!directQuery && !isFirstPage) {
-      // Page > 0: await AI refiner normally (already has internal timeout)
-      aiRefineResult = await aiRefinePromise;
-      aiExpandedTerms = aiRefineResult?.expandedTerms || null;
-    } else {
-      // Fast path OR page 0: race AI with short timeout, never block
-      const raceTimeout = isFirstPage ? AI_TIMEOUT_P0 : 50;
-      const raceResult = await Promise.race([
-        aiRefinePromise,
-        new Promise<null>((r) => setTimeout(() => r(null), raceTimeout)),
-      ]);
-      if (raceResult) {
-        aiRefineResult = raceResult;
-        aiExpandedTerms = raceResult.expandedTerms || null;
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} fast_path_ai_resolved_early (${Date.now() - aiRefineStart}ms)`);
-      } else if (isFirstPage) {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} page0_ai_skipped (>${raceTimeout}ms) — using raw query`);
-      }
-    }
-    timings.aiRefine = Date.now() - aiRefineStart;
+    // ─── AI EXPANDED TERMS (from aiQueryRewrite, no separate AI call) ────────
+    // Phase 1 cost optimization: reuse expansions from aiQueryRewrite instead of
+    // firing a separate refineQueryWithAi + search-expand-query call.
+    let aiExpandedTerms: string[] | null = aiRewriteExpansions?.length ? aiRewriteExpansions : null;
+    timings.aiRefine = 0; // No separate AI refine call anymore
     
-    // Use AI refined query as primary, with vehicle poison safety check
-    const POISON_SUFFIXES = ["accessories", "parts", "floor mats", "car parts", "case", "cover", "phone", "charger", "floor mat"];
-    if (aiRefineResult && aiRefineResult.refined && aiRefineResult.refined !== qNorm) {
-      if (isVehicleLikeQueryGuardrail(qOriginal)) {
-        const addedWords = aiRefineResult.refined.toLowerCase().replace(qNorm.toLowerCase(), "").trim();
-        if (POISON_SUFFIXES.some(p => addedWords.includes(p))) {
-          console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_BLOCKED_vehicle_poison: "${aiRefineResult.refined}" (added="${addedWords}")`);
-        } else {
-          console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_override: "${qNorm}" → "${aiRefineResult.refined}"`);
-          qNorm = aiRefineResult.refined;
-          searchMeta.rewrittenQuery = aiRefineResult.refined;
-          searchMeta.rewriteApplied = true;
-        }
-      } else {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_override: "${qNorm}" → "${aiRefineResult.refined}"`);
-        qNorm = aiRefineResult.refined;
-        searchMeta.rewrittenQuery = aiRefineResult.refined;
-        searchMeta.rewriteApplied = true;
-      }
-    }
+    // AI refine override block REMOVED (Phase 1 cost optimization)
+    // aiQueryRewrite already applies the rewrite at line ~599
 
     // ─── COMPUTE providerQuery — STRICT ENGLISH FOR PROVIDERS ─────────────────
     // Priority: FR_EN_FALLBACK rewrite > AI expansion > canonicalized > original
@@ -1353,7 +1312,7 @@ Deno.serve(async (req: Request) => {
     // ─── ALT QUERIES (max 1, with time budget) ──────────────────────────────
     const altQueriesStart = Date.now();
     const totalProviderItems = amazonItems.length + ebayItems.length;
-    const altQueries = aiRewriteExpansions.length > 0 ? aiRewriteExpansions.slice(1) : (aiRefineResult?.alt || []);
+    const altQueries = aiRewriteExpansions.length > 0 ? aiRewriteExpansions.slice(1) : [];
     const elapsedSoFar = Date.now() - startTime;
     const activeBudget = isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS;
     const budgetExceeded = elapsedSoFar > activeBudget;

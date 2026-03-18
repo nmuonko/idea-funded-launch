@@ -4627,6 +4627,60 @@ export type Database = {
           },
         ]
       }
+      referral_commissions: {
+        Row: {
+          buyer_user_id: string
+          commission_amount_usd: number
+          commission_percent: number
+          created_at: string
+          id: string
+          order_id: string
+          order_total_usd: number
+          paid_at: string | null
+          referrer_id: string
+          status: string
+        }
+        Insert: {
+          buyer_user_id: string
+          commission_amount_usd?: number
+          commission_percent?: number
+          created_at?: string
+          id?: string
+          order_id: string
+          order_total_usd?: number
+          paid_at?: string | null
+          referrer_id: string
+          status?: string
+        }
+        Update: {
+          buyer_user_id?: string
+          commission_amount_usd?: number
+          commission_percent?: number
+          created_at?: string
+          id?: string
+          order_id?: string
+          order_total_usd?: number
+          paid_at?: string | null
+          referrer_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_commissions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_commissions_referrer_id_fkey"
+            columns: ["referrer_id"]
+            isOneToOne: false
+            referencedRelation: "referrers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       referral_events: {
         Row: {
           anon_session_id: string | null

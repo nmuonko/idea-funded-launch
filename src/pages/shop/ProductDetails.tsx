@@ -520,22 +520,23 @@ export default function ProductDetailsPage() {
 
   // Check if this product is a hot product (fixed price, no extra markup/shipping)
   useEffect(() => {
+    if ((location.state as any)?.isFixedPrice && typeof (location.state as any)?.hotProductPrice === 'number') {
+      setHotProductPrice((location.state as any).hotProductPrice);
+      return;
+    }
     if (!product?.id || !product?.provider) return;
-    const normalizedProvider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider;
+
     supabase
       .from('hot_products_showcase')
       .select('total_price_usd')
       .eq('provider_product_id', product.id)
+      .eq('provider', product.provider)
       .eq('is_active', true)
       .maybeSingle()
       .then(({ data }) => {
-        if (data?.total_price_usd) {
-          setHotProductPrice(data.total_price_usd);
-        } else {
-          setHotProductPrice(null);
-        }
+        setHotProductPrice(typeof data?.total_price_usd === 'number' ? data.total_price_usd : null);
       });
-  }, [product?.id, product?.provider]);
+  }, [location.state, product?.id, product?.provider]);
 
   // Check if this vehicle product is already in the user's cart
   const isInCart = product && items.some(item => {

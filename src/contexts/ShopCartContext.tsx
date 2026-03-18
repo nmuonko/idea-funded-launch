@@ -528,6 +528,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       }
 
       let addSucceeded = false;
+      addInFlightRef.current++;
       try {
         const { error } = await supabase.functions.invoke('mobile-cart', {
           body: {
@@ -544,12 +545,14 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         addSucceeded = true;
       } catch (error) {
         console.error('[CART] Failed to add item to server, keeping optimistic local item:', error);
+      } finally {
+        addInFlightRef.current--;
       }
 
       // IMPORTANT: only reconcile from server when add actually succeeded.
       // If add failed, keep optimistic local item so it doesn't "disappear".
       if (addSucceeded) {
-        syncCart();
+        syncCartRef.current();
       }
     }
   };

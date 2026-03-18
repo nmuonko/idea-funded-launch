@@ -713,7 +713,70 @@ serve(async (req) => {
     
     const validatedPayload = parseResult.data;
     
-    // ==================== Process Callback ====================
+    // ==================== Check if this is a PAYOUT callback ====================
+    // PawaPay sends payout callbacks with payoutId instead of depositId
+    if (validatedPayload.payoutId || (validatedPayload.metadata?.some?.((m: any) => m.fieldName === 'type' && m.fieldValue === 'referral_payout'))) {
+      const supabaseForPayout = createAdminClient();
+      const payoutId = validatedPayload.payoutId || validatedPayload.depositId;
+      const payoutStatus = validatedPayload.status;
+
+      console.log(`[${traceId}] [PAYOUT_CALLBACK] Referral payout callback:`, { payoutId, payoutStatus });
+
+      if (payoutStatus === 'COMPLETED') {
+        // Mark payout as completed
+        const { data: payout } = await supabaseForPayout
+          .from('referral_payouts')
+          .select('id, commission_ids')
+          .eq('pawapay_payout_id', payoutId)
+          .maybeSingle();
+
+        if (payout) {
+          await supabaseForPayout
+            .from('referral_payouts')
+            .update({ status: 'completed', completed_at: new Date().toISOString() })
+            .eq('id', payout.id);
+
+          // Mark commissions as paid
+          if (payout.commission_ids?.length) {
+            await supabaseForPayout
+              .from('referral_commissions')
+              .update({ status: 'paid', paid_at: new Date().toISOString() })
+              .in('id', payout.commission_ids);
+          }
+          console.log(`[${traceId}] [PAYOUT_CALLBACK] Payout completed:`, { payoutId });
+        }
+      } else if (payoutStatus === 'FAILED') {
+        const failReason = validatedPayload.failureReason?.failureMessage || 'Payout failed';
+        const { data: payout } = await supabaseForPayout
+          .from('referral_payouts')
+          .select('id, commission_ids')
+          .eq('pawapay_payout_id', payoutId)
+          .maybeSingle();
+
+        if (payout) {
+          await supabaseForPayout
+            .from('referral_payouts')
+            .update({ status: 'failed', failure_reason: failReason })
+            .eq('id', payout.id);
+
+          // Revert commissions to pending
+          if (payout.commission_ids?.length) {
+            await supabaseForPayout
+              .from('referral_commissions')
+              .update({ status: 'pending' })
+              .in('id', payout.commission_ids);
+          }
+          console.log(`[${traceId}] [PAYOUT_CALLBACK] Payout failed:`, { payoutId, failReason });
+        }
+      }
+
+      return new Response(JSON.stringify({ status: 'ok', type: 'payout_callback' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ==================== Process Deposit Callback ====================
     
     // Initialize admin client
     const supabase = createAdminClient();

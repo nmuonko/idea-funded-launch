@@ -51,7 +51,7 @@ import { evaluateFallbackGate, shouldAttemptEagerAiRewrite, type FallbackGateRes
 import { interpretQuery, type AiInterpretation } from "../_shared/aiQueryInterpreter.ts";
 
 // Extracted modules
-import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";
+// REMOVED: expandQueryWithAi — redundant with aiQueryRewrite (cost optimization Phase 1)
 import { CatalogItem } from "../_shared/catalogItemMapper.ts";
 import { searchDbFirst } from "../_shared/searchDbFirst.ts";
 import { validateCacheHit, filterCachedItems } from "../_shared/searchCacheGuard.ts";

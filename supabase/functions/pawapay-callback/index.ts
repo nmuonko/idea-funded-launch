@@ -22,6 +22,7 @@ import {
   logPaymentEvent,
   normalizePaymentStatus,
 } from "../_shared/paymentProviders.ts";
+import { createReferralCommission } from "../_shared/referralCommission.ts";
 
 // ==================== Zod Schemas for Input Validation ====================
 

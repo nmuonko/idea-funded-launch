@@ -7,9 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Users, MousePointerClick, ShoppingCart, DollarSign, Loader2, Check, Percent } from 'lucide-react';
+import { Users, MousePointerClick, ShoppingCart, DollarSign, Loader2, Percent, Send, History, Zap } from 'lucide-react';
 
 interface Referrer {
   id: string;
@@ -21,6 +22,7 @@ interface Referrer {
   created_at: string;
   purchase_count?: number;
   total_commission?: number;
+  pending_commission?: number;
 }
 
 interface Commission {
@@ -38,15 +40,33 @@ interface Commission {
   referrer_code?: string;
 }
 
+interface Payout {
+  id: string;
+  referrer_id: string;
+  amount_usd: number;
+  phone: string;
+  correspondent: string;
+  pawapay_payout_id: string | null;
+  status: string;
+  created_at: string;
+  completed_at: string | null;
+  failure_reason: string | null;
+  referrer_name?: string;
+}
+
 export default function AdminReferrals() {
   const { language } = useLanguage();
   const { toast } = useToast();
   const [referrers, setReferrers] = useState<Referrer[]>([]);
   const [commissions, setCommissions] = useState<Commission[]>([]);
+  const [payouts, setPayouts] = useState<Payout[]>([]);
   const [stats, setStats] = useState({ clicks: 0, signups: 0, purchases: 0, pendingCommissions: 0 });
   const [loading, setLoading] = useState(true);
   const [commissionPercent, setCommissionPercent] = useState('10');
-  const [savingPercent, setSavingPercent] = useState(false);
+  const [payoutMode, setPayoutMode] = useState<'automatic' | 'manual'>('manual');
+  const [minPayoutUsd, setMinPayoutUsd] = useState('5');
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [payingOut, setPayingOut] = useState<string | null>(null);
   const isFr = language === 'fr';
 
   const loadData = async () => {
@@ -63,13 +83,14 @@ export default function AdminReferrals() {
         for (const r of refData) {
           const { data: commData } = await supabase
             .from('referral_commissions')
-            .select('commission_amount_usd')
+            .select('commission_amount_usd, status')
             .eq('referrer_id', r.id);
           
           enriched.push({
             ...r,
             purchase_count: commData?.length || 0,
             total_commission: commData?.reduce((sum, c) => sum + (c.commission_amount_usd || 0), 0) || 0,
+            pending_commission: commData?.filter(c => c.status === 'pending').reduce((sum, c) => sum + (c.commission_amount_usd || 0), 0) || 0,
           });
         }
         setReferrers(enriched);
@@ -96,13 +117,38 @@ export default function AdminReferrals() {
         })));
       }
 
-      // Load commission percent setting
-      const { data: setting } = await supabase
+      // Load payouts
+      const { data: payoutData } = await supabase
+        .from('referral_payouts')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (payoutData) {
+        const referrerIds = [...new Set(payoutData.map((p: any) => p.referrer_id))];
+        const { data: refs } = await supabase
+          .from('referrers')
+          .select('id, full_name')
+          .in('id', referrerIds.length ? referrerIds : ['none']);
+        const refMap = new Map(refs?.map(r => [r.id, r.full_name]) || []);
+        setPayouts((payoutData as any[]).map(p => ({
+          ...p,
+          referrer_name: refMap.get(p.referrer_id) || 'Unknown',
+        })));
+      }
+
+      // Load settings
+      const { data: settings } = await supabase
         .from('admin_settings')
-        .select('value')
-        .eq('key', 'REFERRAL_COMMISSION_PERCENT')
-        .maybeSingle();
-      if (setting) setCommissionPercent(setting.value);
+        .select('key, value')
+        .in('key', ['REFERRAL_COMMISSION_PERCENT', 'REFERRAL_PAYOUT_MODE', 'REFERRAL_PAYOUT_MIN_USD']);
+
+      if (settings) {
+        for (const s of settings) {
+          if (s.key === 'REFERRAL_COMMISSION_PERCENT') setCommissionPercent(s.value);
+          if (s.key === 'REFERRAL_PAYOUT_MODE') setPayoutMode(s.value as 'automatic' | 'manual');
+          if (s.key === 'REFERRAL_PAYOUT_MIN_USD') setMinPayoutUsd(s.value);
+        }
+      }
 
       // Stats
       const { count: clickCount } = await supabase
@@ -133,28 +179,72 @@ export default function AdminReferrals() {
 
   useEffect(() => { loadData(); }, []);
 
-  const saveCommissionPercent = async () => {
-    setSavingPercent(true);
+  const saveSettings = async () => {
+    setSavingSettings(true);
     try {
       await supabase.from('admin_settings').upsert(
         { key: 'REFERRAL_COMMISSION_PERCENT', value: commissionPercent },
         { onConflict: 'key' }
       );
-      toast({ title: isFr ? 'Sauvegardé' : 'Saved' });
+      await supabase.from('admin_settings').upsert(
+        { key: 'REFERRAL_PAYOUT_MODE', value: payoutMode },
+        { onConflict: 'key' }
+      );
+      await supabase.from('admin_settings').upsert(
+        { key: 'REFERRAL_PAYOUT_MIN_USD', value: minPayoutUsd },
+        { onConflict: 'key' }
+      );
+      toast({ title: isFr ? 'Paramètres sauvegardés' : 'Settings saved' });
     } catch {
       toast({ title: 'Error', variant: 'destructive' });
     } finally {
-      setSavingPercent(false);
+      setSavingSettings(false);
     }
   };
 
-  const markCommissionPaid = async (id: string) => {
-    await supabase.from('referral_commissions').update({
-      status: 'paid',
-      paid_at: new Date().toISOString(),
-    }).eq('id', id);
-    toast({ title: isFr ? 'Marqué payé' : 'Marked as paid' });
-    loadData();
+  const triggerPayout = async (referrerId: string) => {
+    setPayingOut(referrerId);
+    try {
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/referral-payout`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ action: 'process', referrer_id: referrerId }),
+        }
+      );
+      const result = await res.json();
+
+      if (result.success) {
+        toast({ title: isFr ? 'Paiement envoyé !' : 'Payout sent!' });
+        loadData();
+      } else {
+        toast({ title: result.message || 'Error', variant: 'destructive' });
+      }
+    } catch (err: any) {
+      toast({ title: err.message, variant: 'destructive' });
+    } finally {
+      setPayingOut(null);
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    const variants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+      paid: 'default',
+      completed: 'default',
+      sent: 'outline',
+      pending: 'secondary',
+      processing: 'outline',
+      failed: 'destructive',
+    };
+    return <Badge variant={variants[status] || 'secondary'}>{status}</Badge>;
   };
 
   return (
@@ -185,6 +275,7 @@ export default function AdminReferrals() {
         <TabsList>
           <TabsTrigger value="referrers">{isFr ? 'Parrains' : 'Referrers'}</TabsTrigger>
           <TabsTrigger value="commissions">{isFr ? 'Commissions' : 'Commissions'}</TabsTrigger>
+          <TabsTrigger value="payouts">{isFr ? 'Paiements' : 'Payouts'}</TabsTrigger>
           <TabsTrigger value="settings">{isFr ? 'Paramètres' : 'Settings'}</TabsTrigger>
         </TabsList>
 
@@ -207,7 +298,9 @@ export default function AdminReferrals() {
                       <TableHead>Code</TableHead>
                       <TableHead>{isFr ? 'Achats' : 'Purchases'}</TableHead>
                       <TableHead>{isFr ? 'Commission totale' : 'Total Commission'}</TableHead>
+                      <TableHead>{isFr ? 'En attente' : 'Pending'}</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -219,8 +312,26 @@ export default function AdminReferrals() {
                         <TableCell><code className="text-xs">{r.ref_code}</code></TableCell>
                         <TableCell className="font-bold">{r.purchase_count || 0}</TableCell>
                         <TableCell className="font-bold text-green-600">${(r.total_commission || 0).toFixed(2)}</TableCell>
+                        <TableCell className="font-bold text-yellow-600">${(r.pending_commission || 0).toFixed(2)}</TableCell>
                         <TableCell>
                           <Badge variant={r.status === 'active' ? 'default' : 'destructive'}>{r.status}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {(r.pending_commission || 0) >= parseFloat(minPayoutUsd) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => triggerPayout(r.id)}
+                              disabled={payingOut === r.id}
+                            >
+                              {payingOut === r.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                              ) : (
+                                <Send className="h-3 w-3 mr-1" />
+                              )}
+                              {isFr ? 'Payer' : 'Pay Now'}
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -250,7 +361,6 @@ export default function AdminReferrals() {
                       <TableHead>{isFr ? 'Commission' : 'Commission'}</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Date</TableHead>
-                      <TableHead></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -262,21 +372,58 @@ export default function AdminReferrals() {
                         <TableCell>${c.order_total_usd.toFixed(2)}</TableCell>
                         <TableCell>{c.commission_percent}%</TableCell>
                         <TableCell className="font-bold text-green-600">${c.commission_amount_usd.toFixed(2)}</TableCell>
-                        <TableCell>
-                          <Badge variant={c.status === 'paid' ? 'default' : 'secondary'}>
-                            {c.status}
-                          </Badge>
-                        </TableCell>
+                        <TableCell>{getStatusBadge(c.status)}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {new Date(c.created_at).toLocaleDateString()}
                         </TableCell>
-                        <TableCell>
-                          {c.status === 'pending' && (
-                            <Button size="sm" variant="outline" onClick={() => markCommissionPaid(c.id)}>
-                              <Check className="h-3 w-3 mr-1" />{isFr ? 'Payé' : 'Mark Paid'}
-                            </Button>
-                          )}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Payouts Tab */}
+        <TabsContent value="payouts">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <History className="h-5 w-5" />
+                {isFr ? 'Historique des paiements' : 'Payout History'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {payouts.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">{isFr ? 'Aucun paiement' : 'No payouts yet'}</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{isFr ? 'Parrain' : 'Referrer'}</TableHead>
+                      <TableHead>{isFr ? 'Montant' : 'Amount'}</TableHead>
+                      <TableHead>{isFr ? 'Téléphone' : 'Phone'}</TableHead>
+                      <TableHead>{isFr ? 'Opérateur' : 'Operator'}</TableHead>
+                      <TableHead>PawaPay ID</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>{isFr ? 'Erreur' : 'Error'}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {payouts.map(p => (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-medium">{p.referrer_name}</TableCell>
+                        <TableCell className="font-bold text-green-600">${p.amount_usd.toFixed(2)}</TableCell>
+                        <TableCell className="text-sm">{p.phone}</TableCell>
+                        <TableCell className="text-sm">{p.correspondent}</TableCell>
+                        <TableCell className="text-xs font-mono">{p.pawapay_payout_id?.slice(0, 8) || '-'}...</TableCell>
+                        <TableCell>{getStatusBadge(p.status)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {new Date(p.created_at).toLocaleDateString()}
                         </TableCell>
+                        <TableCell className="text-xs text-destructive">{p.failure_reason || '-'}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -288,38 +435,103 @@ export default function AdminReferrals() {
 
         {/* Settings Tab */}
         <TabsContent value="settings">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Percent className="h-5 w-5" />
-                {isFr ? 'Pourcentage de commission' : 'Commission Percentage'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex gap-2 max-w-sm">
-                <div className="relative flex-1">
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={0.5}
-                    value={commissionPercent}
-                    onChange={e => setCommissionPercent(e.target.value)}
-                    className="pr-8"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
+          <div className="space-y-6">
+            {/* Commission Percentage */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Percent className="h-5 w-5" />
+                  {isFr ? 'Pourcentage de commission' : 'Commission Percentage'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-2 max-w-sm">
+                  <div className="relative flex-1">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.5}
+                      value={commissionPercent}
+                      onChange={e => setCommissionPercent(e.target.value)}
+                      className="pr-8"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
+                  </div>
                 </div>
-                <Button onClick={saveCommissionPercent} disabled={savingPercent}>
-                  {savingPercent ? <Loader2 className="h-4 w-4 animate-spin" /> : (isFr ? 'Sauvegarder' : 'Save')}
-                </Button>
-              </div>
-              <p className="text-sm text-muted-foreground mt-3">
-                {isFr
-                  ? 'Ce pourcentage sera appliqué sur chaque achat effectué via un lien de parrainage. Le parrain gagnera ce pourcentage du total de la commande.'
-                  : 'This percentage will be applied to every purchase made through a referral link. The referrer will earn this percentage of the order total.'}
-              </p>
-            </CardContent>
-          </Card>
+                <p className="text-sm text-muted-foreground mt-3">
+                  {isFr
+                    ? 'Ce pourcentage sera appliqué sur chaque achat effectué via un lien de parrainage.'
+                    : 'This percentage will be applied to every purchase made through a referral link.'}
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Payout Mode */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Zap className="h-5 w-5" />
+                  {isFr ? 'Mode de paiement' : 'Payout Mode'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between max-w-sm">
+                  <div>
+                    <Label className="font-medium">
+                      {payoutMode === 'automatic'
+                        ? (isFr ? 'Automatique' : 'Automatic')
+                        : (isFr ? 'Approbation manuelle' : 'One-Click Approval')}
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      {payoutMode === 'automatic'
+                        ? (isFr ? 'Les paiements sont envoyés automatiquement via Mobile Money' : 'Payouts are sent automatically via Mobile Money')
+                        : (isFr ? 'Vous approuvez chaque paiement manuellement' : 'You approve each payout manually')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={payoutMode === 'automatic'}
+                    onCheckedChange={(checked) => setPayoutMode(checked ? 'automatic' : 'manual')}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Minimum Payout */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5" />
+                  {isFr ? 'Paiement minimum' : 'Minimum Payout'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-2 max-w-sm">
+                  <div className="relative flex-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={minPayoutUsd}
+                      onChange={e => setMinPayoutUsd(e.target.value)}
+                      className="pl-7"
+                    />
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground mt-3">
+                  {isFr
+                    ? 'Les paiements ne seront envoyés que lorsque le solde du parrain atteindra ce montant minimum.'
+                    : 'Payouts will only be sent when the referrer\'s balance reaches this minimum amount.'}
+                </p>
+              </CardContent>
+            </Card>
+
+            <Button onClick={saveSettings} disabled={savingSettings} className="w-full max-w-sm">
+              {savingSettings ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {isFr ? 'Sauvegarder les paramètres' : 'Save Settings'}
+            </Button>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

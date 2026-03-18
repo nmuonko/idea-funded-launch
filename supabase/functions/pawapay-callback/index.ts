@@ -46,7 +46,8 @@ const correspondentIdsSchema = z.object({
  * Based on pawaPay API documentation
  */
 const pawaPayCallbackSchema = z.object({
-  depositId: z.string().uuid({ message: 'Invalid depositId format' }),
+  depositId: z.string().uuid({ message: 'Invalid depositId format' }).optional(),
+  payoutId: z.string().uuid().optional(),
   status: z.enum(['ACCEPTED', 'COMPLETED', 'FAILED', 'SUBMITTED', 'ENQUEUED'], {
     errorMap: () => ({ message: 'Invalid status value' }),
   }),

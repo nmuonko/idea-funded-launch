@@ -4819,6 +4819,56 @@ export type Database = {
         }
         Relationships: []
       }
+      referral_payouts: {
+        Row: {
+          amount_usd: number
+          commission_ids: string[]
+          completed_at: string | null
+          correspondent: string
+          created_at: string
+          failure_reason: string | null
+          id: string
+          pawapay_payout_id: string | null
+          phone: string
+          referrer_id: string
+          status: string
+        }
+        Insert: {
+          amount_usd: number
+          commission_ids?: string[]
+          completed_at?: string | null
+          correspondent: string
+          created_at?: string
+          failure_reason?: string | null
+          id?: string
+          pawapay_payout_id?: string | null
+          phone: string
+          referrer_id: string
+          status?: string
+        }
+        Update: {
+          amount_usd?: number
+          commission_ids?: string[]
+          completed_at?: string | null
+          correspondent?: string
+          created_at?: string
+          failure_reason?: string | null
+          id?: string
+          pawapay_payout_id?: string | null
+          phone?: string
+          referrer_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_payouts_referrer_id_fkey"
+            columns: ["referrer_id"]
+            isOneToOne: false
+            referencedRelation: "referrers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       referral_rewards: {
         Row: {
           amount_usd: number | null

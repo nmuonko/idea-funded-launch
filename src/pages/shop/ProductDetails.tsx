@@ -514,6 +514,25 @@ export default function ProductDetailsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product?.title, provider, id]);
 
+  // Check if this product is a hot product (fixed price, no extra markup/shipping)
+  useEffect(() => {
+    if (!product?.id || !product?.provider) return;
+    const normalizedProvider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider;
+    supabase
+      .from('hot_products_showcase')
+      .select('total_price_usd')
+      .eq('provider_product_id', product.id)
+      .eq('is_active', true)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.total_price_usd) {
+          setHotProductPrice(data.total_price_usd);
+        } else {
+          setHotProductPrice(null);
+        }
+      });
+  }, [product?.id, product?.provider]);
+
   // Check if this vehicle product is already in the user's cart
   const isInCart = product && items.some(item => {
     if (item.productUrl && product.productUrl && item.productUrl === product.productUrl) return true;

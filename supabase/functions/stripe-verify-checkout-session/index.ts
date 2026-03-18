@@ -297,6 +297,12 @@ serve(async (req: Request): Promise<Response> => {
       }
 
       console.log(`[STRIPE_VERIFY] DB updated successfully`, { requestId, orderId: order_id });
+
+      // Referral commission (fire-and-forget)
+      const { data: paidOrder } = await supabase.from('orders').select('user_id, total_amount').eq('id', order_id).maybeSingle();
+      if (paidOrder?.user_id) {
+        createReferralCommission(supabase, order_id, paidOrder.user_id, paidOrder.total_amount || 0, 'stripe-verify').catch(() => {});
+      }
     }
 
     // Log verification summary

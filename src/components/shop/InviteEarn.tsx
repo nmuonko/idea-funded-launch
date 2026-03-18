@@ -45,7 +45,7 @@ const t = {
   },
   ln: {
     title: 'Kabola & Zwa',
-    description: 'Komisa nkombo, kabola lien na yo. Moninga na yo avérifie email — ozwi mbongo!',
+    description: 'Komisa nkombo, kabola lien na yo. Moninga na yo asombi — ozwi commission!',
     copyLink: 'Kopya lien ya parrainage',
     copied: 'Ekopiami!',
     register: 'Kozwa lien na ngai',

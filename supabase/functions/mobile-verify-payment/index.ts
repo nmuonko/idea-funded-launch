@@ -584,6 +584,12 @@ async function markOrderPaidAndNotify(
   
   // Send payment confirmation email (idempotent)
   await sendPaymentConfirmationEmailIfNeeded(supabase, order.id, log);
+
+  // Referral commission (fire-and-forget)
+  const { data: paidOrderData } = await supabase.from('orders').select('user_id, total_amount').eq('id', order.id).maybeSingle();
+  if (paidOrderData?.user_id) {
+    createReferralCommission(supabase, order.id, paidOrderData.user_id, paidOrderData.total_amount || 0, 'mobile-verify-payment').catch(() => {});
+  }
 }
 
 /**

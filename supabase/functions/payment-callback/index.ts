@@ -186,6 +186,12 @@ serve(async (req: Request): Promise<Response> => {
       // Send payment confirmation email (idempotent - checks if already sent)
       await sendPaymentConfirmationEmailIfNeeded(supabase, orderId);
 
+      // Referral commission (fire-and-forget)
+      const { data: paidOrder } = await supabase.from('orders').select('user_id, total_amount').eq('id', orderId).maybeSingle();
+      if (paidOrder?.user_id) {
+        createReferralCommission(supabase, orderId, paidOrder.user_id, paidOrder.total_amount || 0, 'payment-callback').catch(() => {});
+      }
+
       console.log('[payment-callback] Redirecting to app with success', { orderId });
       return returnAppRedirect('success', orderId);
     }

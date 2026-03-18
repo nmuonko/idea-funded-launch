@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createReferralCommission } from "../_shared/referralCommission.ts";
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 

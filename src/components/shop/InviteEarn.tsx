@@ -34,7 +34,7 @@ const t = {
   },
   sw: {
     title: 'Shiriki & Pata',
-    description: 'Jisajili, shiriki kiungo chako. Rafiki yako anapothibitisha barua pepe — unapata tuzo!',
+    description: 'Jisajili, shiriki kiungo chako. Rafiki yako anaponunua — unapata kamisheni!',
     copyLink: 'Nakili Kiungo cha Rufaa',
     copied: 'Imekopiwa!',
     register: 'Pata Kiungo Changu',

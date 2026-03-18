@@ -6,6 +6,7 @@ import {
   errorResponse, 
   jsonResponse,
 } from "../_shared/auth.ts";
+import { createReferralCommission } from "../_shared/referralCommission.ts";
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from "../_shared/rateLimiter.ts";
 import { generateTraceId, createTracedLogger } from "../_shared/auditLog.ts";
 import { 

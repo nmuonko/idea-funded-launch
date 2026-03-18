@@ -130,7 +130,11 @@ export default function ProductDetailsPage() {
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [hotProductPrice, setHotProductPrice] = useState<number | null>(null);
+  const [hotProductPrice, setHotProductPrice] = useState<number | null>(
+    typeof (location.state as any)?.hotProductPrice === 'number'
+      ? (location.state as any).hotProductPrice
+      : null
+  );
   const navProductRef = useRef<ProductData | null>(null);
   const didAutoSelectRef = useRef(false);
   const userInteractedRef = useRef(false);
@@ -138,7 +142,7 @@ export default function ProductDetailsPage() {
   const failedImageIndexesRef = useRef<Set<number>>(new Set());
   const triedOriginalSourceRef = useRef<Set<number>>(new Set());
 
-  const isFixedPrice = hotProductPrice !== null;
+  const isFixedPrice = !!(location.state as any)?.isFixedPrice || hotProductPrice !== null;
 
   const isVehicleFromState = !!(
     (location.state as any)?.product?.isVehicle ||

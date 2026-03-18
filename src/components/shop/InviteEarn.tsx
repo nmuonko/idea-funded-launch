@@ -12,7 +12,7 @@ interface InviteEarnProps {
 const t = {
   en: {
     title: 'Share & Earn',
-    description: 'Register, share your link. When your friend verifies their email — you earn a reward!',
+    description: 'Register, share your link. When your friend makes a purchase — you earn a commission!',
     copyLink: 'Copy Referral Link',
     copied: 'Copied!',
     register: 'Get My Link',
@@ -23,7 +23,7 @@ const t = {
   },
   fr: {
     title: 'Partager & Gagner',
-    description: 'Inscrivez-vous, partagez votre lien. Quand votre ami vérifie son email — vous gagnez une récompense !',
+    description: 'Inscrivez-vous, partagez votre lien. Quand votre ami achète — vous gagnez une commission !',
     copyLink: 'Copier le lien de parrainage',
     copied: 'Copié !',
     register: 'Obtenir mon lien',
@@ -34,7 +34,7 @@ const t = {
   },
   sw: {
     title: 'Shiriki & Pata',
-    description: 'Jisajili, shiriki kiungo chako. Rafiki yako anapothibitisha barua pepe — unapata tuzo!',
+    description: 'Jisajili, shiriki kiungo chako. Rafiki yako anaponunua — unapata kamisheni!',
     copyLink: 'Nakili Kiungo cha Rufaa',
     copied: 'Imekopiwa!',
     register: 'Pata Kiungo Changu',
@@ -45,7 +45,7 @@ const t = {
   },
   ln: {
     title: 'Kabola & Zwa',
-    description: 'Komisa nkombo, kabola lien na yo. Moninga na yo avérifie email — ozwi mbongo!',
+    description: 'Komisa nkombo, kabola lien na yo. Moninga na yo asombi — ozwi commission!',
     copyLink: 'Kopya lien ya parrainage',
     copied: 'Ekopiami!',
     register: 'Kozwa lien na ngai',

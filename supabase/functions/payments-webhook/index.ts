@@ -11,6 +11,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { getCorsHeaders } from "../_shared/http.ts";
+import { createReferralCommission } from "../_shared/referralCommission.ts";
 
 const corsHeaders = getCorsHeaders();
 import {
@@ -309,6 +310,12 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       
       // Send payment confirmation email (idempotent)
       await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, 'stripe-checkout-webhook');
+
+      // Referral commission (fire-and-forget)
+      const { data: paidOrder } = await supabase.from('orders').select('user_id, total_amount').eq('id', payment.order_id).maybeSingle();
+      if (paidOrder?.user_id) {
+        createReferralCommission(supabase, payment.order_id, paidOrder.user_id, paidOrder.total_amount || 0, 'stripe-checkout-webhook').catch(() => {});
+      }
     }
 
     return new Response(
@@ -460,6 +467,12 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       
       // Send payment confirmation email (idempotent)
       await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, 'stripe-webhook');
+
+      // Referral commission (fire-and-forget)
+      const { data: paidOrder2 } = await supabase.from('orders').select('user_id, total_amount').eq('id', payment.order_id).maybeSingle();
+      if (paidOrder2?.user_id) {
+        createReferralCommission(supabase, payment.order_id, paidOrder2.user_id, paidOrder2.total_amount || 0, 'stripe-webhook').catch(() => {});
+      }
     }
   }
 

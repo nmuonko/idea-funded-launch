@@ -22,6 +22,7 @@ import {
   logPaymentEvent,
   normalizePaymentStatus,
 } from "../_shared/paymentProviders.ts";
+import { createReferralCommission } from "../_shared/referralCommission.ts";
 
 // ==================== Zod Schemas for Input Validation ====================
 
@@ -809,6 +810,12 @@ serve(async (req) => {
 
       // Send confirmation email (idempotent)
       await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, traceId);
+
+      // Referral commission (fire-and-forget)
+      const { data: paidOrder } = await supabase.from('orders').select('user_id, total_amount').eq('id', payment.order_id).maybeSingle();
+      if (paidOrder?.user_id) {
+        createReferralCommission(supabase, payment.order_id, paidOrder.user_id, paidOrder.total_amount || 0, 'pawapay-callback').catch(() => {});
+      }
 
     } else if (normalizedStatus === 'failed') {
       console.log(`[${traceId}] [PAYMENT_VERIFY] Payment FAILED - order stays PENDING_PAYMENT`);

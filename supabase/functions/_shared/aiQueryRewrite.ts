@@ -190,7 +190,7 @@ export async function aiQueryRewrite(
 
     console.log(`[AI_REWRITE] requestId=${requestId} q="${qOriginal}" → en="${result.query_en}" cat=${result.category_guess} dym="${result.did_you_mean}" expansions=${result.expansions.length} exclude=${result.must_exclude.length} conf=${result.confidence}`);
 
-    // 3. Cache result (fire-and-forget, 14-day TTL)
+    // 3. Cache result (fire-and-forget, 30-day TTL — Phase 4 cost optimization)
     const cachePayload = { ...result };
     delete (cachePayload as any).cached;
     supabase
@@ -200,7 +200,7 @@ export async function aiQueryRewrite(
         lang,
         category_hint: result.category_guess,
         payload: cachePayload,
-        expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       }, { onConflict: "q_norm,lang" })
       .then(({ error }: { error: any }) => {
         if (error) console.warn(`[AI_REWRITE] requestId=${requestId} cache_write_error: ${error.message}`);

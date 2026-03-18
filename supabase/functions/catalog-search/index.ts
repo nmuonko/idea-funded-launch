@@ -874,26 +874,8 @@ Deno.serve(async (req: Request) => {
     let aiExpandedTerms: string[] | null = aiRewriteExpansions?.length ? aiRewriteExpansions : null;
     timings.aiRefine = 0; // No separate AI refine call anymore
     
-    // Use AI refined query as primary, with vehicle poison safety check
-    const POISON_SUFFIXES = ["accessories", "parts", "floor mats", "car parts", "case", "cover", "phone", "charger", "floor mat"];
-    if (aiRefineResult && aiRefineResult.refined && aiRefineResult.refined !== qNorm) {
-      if (isVehicleLikeQueryGuardrail(qOriginal)) {
-        const addedWords = aiRefineResult.refined.toLowerCase().replace(qNorm.toLowerCase(), "").trim();
-        if (POISON_SUFFIXES.some(p => addedWords.includes(p))) {
-          console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_BLOCKED_vehicle_poison: "${aiRefineResult.refined}" (added="${addedWords}")`);
-        } else {
-          console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_override: "${qNorm}" → "${aiRefineResult.refined}"`);
-          qNorm = aiRefineResult.refined;
-          searchMeta.rewrittenQuery = aiRefineResult.refined;
-          searchMeta.rewriteApplied = true;
-        }
-      } else {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_override: "${qNorm}" → "${aiRefineResult.refined}"`);
-        qNorm = aiRefineResult.refined;
-        searchMeta.rewrittenQuery = aiRefineResult.refined;
-        searchMeta.rewriteApplied = true;
-      }
-    }
+    // AI refine override block REMOVED (Phase 1 cost optimization)
+    // aiQueryRewrite already applies the rewrite at line ~599
 
     // ─── COMPUTE providerQuery — STRICT ENGLISH FOR PROVIDERS ─────────────────
     // Priority: FR_EN_FALLBACK rewrite > AI expansion > canonicalized > original

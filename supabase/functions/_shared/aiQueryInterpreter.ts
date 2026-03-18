@@ -266,7 +266,7 @@ export async function interpretQuery(
 
     console.log(`[AI_INTERP] requestId=${requestId} q="${rawQuery}" → normalized="${result.normalized_query}" intent=${result.intent} strategy=${result.search_strategy} expansions=${result.expanded_queries.length} conf=${result.confidence} provider=${result.ai_provider}`);
 
-    // ─── Cache result (fire-and-forget, 14-day TTL) ──────────────────────────
+    // ─── Cache result (fire-and-forget, 30-day TTL — Phase 4 cost optimization) ─
     const cachePayload = { ...result };
     delete (cachePayload as any).cached;
     client
@@ -276,7 +276,7 @@ export async function interpretQuery(
         lang,
         category_hint: result.attributes.category || null,
         payload: cachePayload,
-        expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       }, { onConflict: "q_norm,lang" })
       .execute()
       .catch((err: any) => {

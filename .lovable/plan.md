@@ -1,69 +1,72 @@
-## Checkout Payment Fix — Zero Purchases (Complete)
 
-### Problem
-53 checkout sessions stuck at `awaiting_provider_selection` with 0 payment attempts. Step 3 (`payments-provider` call) silently fails on mobile WebView.
 
-### Changes Made
+# Referral Commission: Notifications + Automated Mobile Money Payouts
 
-#### 1. Merged Steps 2+3 into Single Backend Call (Primary Fix)
-- **`mobile-checkout/index.ts`**: After creating checkout session, if `provider`, `phone`, `operator` are in the request body, calls `select-payment-provider` server-to-server inline
-- Returns PawaPay USSD confirmation or Stripe `clientSecret` directly — no separate frontend call needed
-- Falls back to `awaiting_provider_selection` if inline call fails (backward compatible with mobile app)
+## What You'll Get
 
-#### 2. Updated Frontend Flow
-- **`Checkout.tsx`**: Now passes `provider`, `phone`, `operator` in the checkout payload
-- Handles inline provider response directly (pawapay → `/payment-pending`, stripe → `/card-payment`)
-- Keeps fallback path for old backend or if inline fails
-- Added visible error banner with "Retry" button (replaces silent toast-only errors)
-- Added `checkoutError` state for persistent error display
+1. **Referrers get an email** every time someone they referred makes a purchase (with order details and commission earned)
+2. **Automated payouts** via PawaPay to referrers' Airtel/Orange/Vodacom wallets when their balance hits $5+
+3. **Admin toggle** in the Referrals settings to switch between "Fully Automatic" and "One-Click Approval" payout modes
+4. **One-click "Pay Now"** button in admin dashboard that triggers the PawaPay payout instantly
 
-#### 3. Checkout Funnel Analytics
-- Created `checkout_funnel_log` table: `(id, user_id, session_id, step, status, error_message, metadata, created_at)`
-- Frontend logs: `order_created`, `checkout_started`, `payment_initiated`, `provider_failed`, `provider_exception`
-- RLS policies for authenticated users + service role
+## Database Changes
 
-### Result
-| Before | After |
-|--------|-------|
-| 3 frontend API calls (any can fail silently) | 2 calls, provider handled server-side |
-| Silent toast on failure | Visible error banner + Retry button |
-| 0 payment tracking | Full funnel analytics |
+### New table: `referral_payouts`
+Tracks each mobile money payout sent:
+- `id`, `referrer_id`, `amount_usd`, `phone`, `correspondent`, `pawapay_payout_id`
+- `status` (pending/completed/failed), `commission_ids` (array of commission IDs included)
+- `created_at`, `completed_at`, `failure_reason`
 
----
+### New admin settings keys
+- `REFERRAL_PAYOUT_MODE` — `automatic` or `manual` (default: `manual`)
+- `REFERRAL_PAYOUT_MIN_USD` — minimum balance before payout (default: `5`)
 
-## Backend Cost Optimization (Complete)
+## Backend Changes
 
-### Problem
-~$480 in ~1.5 months on Cloud/AI.
+### 1. Commission notification email
+In `_shared/referralCommission.ts`, after successfully inserting a commission, send an email to the referrer via the existing `email-service` with:
+- Referrer name, the order total, their commission amount, and running total balance
+- Bilingual (French-first, matching the app's pattern)
 
-### Changes Made
-- Removed redundant AI calls, dual-provider race
-- Changed cron from */10 to */30 minutes
-- Deleted 35 unused edge functions
-- Extended cache TTLs
-- Added 500 calls/day AI budget cap
+### 2. New edge function: `referral-payout`
+Handles payout execution:
+- **Action `process`**: Called after commission is created (if mode = `automatic`) or by admin click (if mode = `manual`)
+- Aggregates all `pending` commissions for a referrer, checks if total >= minimum threshold
+- Calls PawaPay `POST /v2/payouts` with the referrer's phone number (already stored in `referrers.phone`)
+- Uses the existing `detectCorrespondent` and `formatPhoneE164` helpers from `pawapayAdapter.ts`
+- Inserts a `referral_payouts` record, then updates the included commissions to `status: paid`
 
-### Estimated Savings: $170-240/month (35-50% reduction)
+### 3. PawaPay payout callback
+Add a `referral-payout-callback` endpoint (or handle in existing `pawapay-callback`) to receive payout status updates from PawaPay:
+- On `COMPLETED`: mark `referral_payouts.status = completed`, update commissions to `paid`
+- On `FAILED`: mark payout as failed, revert commissions back to `pending`
 
----
+### 4. Trigger flow
+In `_shared/referralCommission.ts`, after inserting commission:
+1. Send notification email to referrer
+2. If `REFERRAL_PAYOUT_MODE = automatic`: call `referral-payout` to attempt auto-payout
+3. If `manual`: do nothing (admin clicks "Pay Now" later)
 
-## Referral System: Sales Commission Model (Complete)
+## Frontend Changes
 
-### Problem
-Old system rewarded data/airtime when referred users verified email — zero engagement (2 referrers, 0 payouts).
+### Admin Referrals page (`src/pages/admin/Referrals.tsx`)
 
-### Changes Made
+**Settings tab** — add:
+- **Payout Mode** toggle: "Automatic" vs "One-Click Approval"
+- **Minimum Payout** input: defaults to $5
 
-#### 1. Database
-- Created `referral_commissions` table: `(referrer_id, order_id, buyer_user_id, order_total_usd, commission_percent, commission_amount_usd, status, paid_at)`
-- Added `REFERRAL_COMMISSION_PERCENT` admin setting (default 10%)
+**Commissions tab** — update:
+- Replace "Mark Paid" with **"Pay Now"** button that triggers the PawaPay payout via the edge function
+- Show payout status (pending → sending → completed/failed)
+- Add a "Payouts" sub-section showing payout history with PawaPay transaction IDs
 
-#### 2. Backend — Commission on Payment
-- Created `_shared/referralCommission.ts` helper: looks up buyer's `referred_by_code`, finds referrer, calculates commission, inserts with dedup
-- Wired into all 5 payment confirmation paths: `payments-webhook`, `pawapay-callback`, `payment-callback`, `stripe-verify-checkout-session`, `mobile-verify-payment`
-- Fire-and-forget — never blocks payment flow
+## Files Affected
 
-#### 3. Frontend
-- **InviteEarn.tsx**: Updated copy from "verify email = reward" → "friend buys = commission" (all 4 languages)
-- **EmailConfirmed.tsx**: Removed `triggerReferralReward` call (no more data/airtime on verify)
-- **Admin Referrals**: Complete rebuild — commission settings, commissions table with "Mark Paid", purchase-based stats
+| File | Change |
+|------|--------|
+| New migration | `referral_payouts` table + new admin settings |
+| `supabase/functions/referral-payout/index.ts` | New — executes PawaPay payout |
+| `supabase/functions/_shared/referralCommission.ts` | Add email notification + auto-payout trigger |
+| `supabase/functions/pawapay-callback/index.ts` | Handle payout callbacks |
+| `src/pages/admin/Referrals.tsx` | Add payout mode toggle, min payout, "Pay Now" button, payout history |
+

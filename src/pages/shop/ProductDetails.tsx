@@ -552,9 +552,10 @@ export default function ProductDetailsPage() {
         provider: product.provider,
         title: product.title,
         imageUrl: safeImages[0] || '',
-        priceUsd: product.priceUsd,
+        priceUsd: isFixedPrice ? hotProductPrice! : product.priceUsd,
         quantity,
         productUrl: product.productUrl,
+        ...(isFixedPrice ? { isFixedPrice: true } : {}),
       });
       setAdded(true);
       setTimeout(() => setAdded(false), 3000);

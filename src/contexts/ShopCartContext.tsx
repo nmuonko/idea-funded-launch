@@ -425,8 +425,15 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         persistDeletedIds();
         const serverFiltered = mappedItems.filter(item => !deletedItemIdsRef.current.has(item.id));
 
-        // CRITICAL: Server is sole source of truth — drop ALL local_ items unconditionally
-        setItems(() => {
+        // CRITICAL: If adds are in-flight, preserve local_ items so they don't vanish
+        setItems((prev) => {
+          if (addInFlightRef.current > 0) {
+            // Merge: keep local_ items that aren't yet on server
+            const serverKeys = new Set(serverFiltered.map(i => canonicalItemKey(i)));
+            const localItemsToKeep = prev.filter(i => isLocalId(i.id) && !serverKeys.has(canonicalItemKey(i)));
+            console.log('[CART] sync: server=', serverFiltered.length, 'preserving', localItemsToKeep.length, 'in-flight local items');
+            return [...serverFiltered, ...localItemsToKeep];
+          }
           console.log('[CART] sync: server=', serverFiltered.length, 'pendingDeletes=', deletedItemIdsRef.current.size, '(all local_ items dropped)');
           return serverFiltered;
         });

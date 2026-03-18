@@ -12,7 +12,7 @@ interface InviteEarnProps {
 const t = {
   en: {
     title: 'Share & Earn',
-    description: 'Register, share your link. When your friend verifies their email — you earn a reward!',
+    description: 'Register, share your link. When your friend makes a purchase — you earn a commission!',
     copyLink: 'Copy Referral Link',
     copied: 'Copied!',
     register: 'Get My Link',

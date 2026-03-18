@@ -47,6 +47,7 @@ export default function Checkout() {
   const [showTermsDialog, setShowTermsDialog] = useState(false);
   const [editingAddress, setEditingAddress] = useState(false);
   const [orderServerTotal, setOrderServerTotal] = useState<number | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [address, setAddress] = useState<ShippingAddress>({
     fullName: '',
     phone: '',

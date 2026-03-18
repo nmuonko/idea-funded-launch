@@ -1,22 +1,36 @@
-## SHEIN Price Backfill System (Complete)
+## Backend Cost Optimization (Complete)
 
 ### Problem
-Admin portal showed 2,428 SHEIN items but frontend only displayed 957. Root cause: 1,408 items had `NULL` prices and 11 had no images, filtered out by frontend's `price_usd > 0 AND image_url IS NOT NULL` requirement.
+~$480 in ~1.5 months on Cloud/AI. Three cost buckets: AI Gateway (~$180-220), Edge Function invocations (~$150-180), Database IO (~$80-100).
 
 ### Changes Made
 
-1. **`catalog-shein-scraper/index.ts`** — Three fixes:
-   - **COALESCE upsert**: `upsertProducts` now checks existing items before upsert. Never overwrites a valid `price_usd` or `image_url` with null/0.
-   - **Auto-backfill pass**: After each regular scrape run, if time allows (>30s left), backfills up to 10 priceless items via `extract-price` edge function.
-   - **`backfill-prices` action**: New action handler processes up to 100 priceless items per call via `extract-price`.
+#### Phase 1: Collapse AI Calls (saves ~$100-140/mo)
+- **Removed `refineQueryWithAi`** from `catalog-search/index.ts` — was redundant with `aiQueryRewrite` which already provides `expansions`
+- **Removed dual-provider race** from `aiQueryInterpreter.ts` — dropped OpenAI parallel call, uses only Lovable AI (single provider)
+- **Deleted `search-expand-query`** edge function — no longer called
+- **Result**: 1 AI call per search (cache miss) instead of 3-5
 
-2. **`admin-catalog-items/index.ts`** — New `backfill-shein-prices` admin action routes to the scraper's backfill action for manual batch processing.
+#### Phase 2: Reduce Catalog Builder Frequency (saves ~$30-40/mo)
+- Changed `catalog-builder-campaign` cron from `*/10` to `*/30` minutes
+- 2,880 fewer edge function invocations/month
 
-### Usage
-- **Automatic**: Every 15-minute cron run now auto-backfills ~10 priceless items
-- **Manual**: Admin can trigger `POST ?action=backfill-shein-prices` with `{ batch_size: 50 }` to process larger batches
+#### Phase 3: Delete Unused Edge Functions (saves ~$20-30/mo)
+- Deleted 35 redundant functions: `search-expand-query`, `backfill-cart-images`, `backfill-product-images`, `market-*-proxy`, `catalog/`, `analyze-submission`, `extract-price`, 22 `send-*` email functions (consolidated into `email-service`), `catalog-data-sync`, `catalog-prewarm-worker`, `cleanup-expired-*` (3), 6 `admin-*` standalone functions, `product-resolver`, `get-product-info`
+
+#### Phase 4: Extend Cache TTLs (saves ~$20-30/mo)
+- `search_rewrite_cache`: 14 days → 30 days
+- `catalog_cache` search: 7 days → 14 days (stale: 24h → 48h)
+
+#### Phase 5: AI Daily Budget Cap (prevents overruns)
+- Added 500 calls/day hard cap on `lovable_ai` provider in `aiQueryRewrite.ts`
+- Uses existing `provider_budget` infrastructure (`check_provider_budget` / `increment_provider_budget`)
+- Falls back to deterministic rewriting when cap hit
+
+### Estimated Savings: $170-240/month (35-50% reduction)
 
 ### Previous Work
-- Unified Search Pipeline (web + mobile parity)
+- SHEIN Price Backfill System
+- Unified Search Pipeline
 - Edge Function Consolidation (42 functions deleted)
 - Payment flow RLS fixes

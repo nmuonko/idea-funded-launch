@@ -11,6 +11,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { getCorsHeaders } from "../_shared/http.ts";
+import { createReferralCommission } from "../_shared/referralCommission.ts";
 
 const corsHeaders = getCorsHeaders();
 import {

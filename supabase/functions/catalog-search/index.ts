@@ -33,7 +33,7 @@ import {
 } from "../_shared/vehicleDetection.ts";
 import type { SearchIntent } from "../_shared/vehicleDetection.ts";
 import { scoreAndRankItems, parseDeviceIntent, type DeviceIntent } from "../_shared/searchIntentScorer.ts";
-import { refineQueryWithAi, AiRefineResult } from "../_shared/searchAiExpand.ts";
+// REMOVED: refineQueryWithAi — redundant with aiQueryRewrite (cost optimization Phase 1)
 import { aiQueryRewrite, AiRewriteResult } from "../_shared/aiQueryRewrite.ts";
 import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";
 import { isProviderHealthy, recordProviderFailure, recordProviderSuccess, getProviderHealthSummary } from "../_shared/providerHealth.ts";

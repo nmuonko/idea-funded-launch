@@ -1,46 +1,43 @@
-## Checkout Payment Fix — Zero Purchases (Complete)
 
-### Problem
-53 checkout sessions stuck at `awaiting_provider_selection` with 0 payment attempts. Step 3 (`payments-provider` call) silently fails on mobile WebView.
 
-### Changes Made
+# Fix: Cart Items Disappearing on Mobile
 
-#### 1. Merged Steps 2+3 into Single Backend Call (Primary Fix)
-- **`mobile-checkout/index.ts`**: After creating checkout session, if `provider`, `phone`, `operator` are in the request body, calls `select-payment-provider` server-to-server inline
-- Returns PawaPay USSD confirmation or Stripe `clientSecret` directly — no separate frontend call needed
-- Falls back to `awaiting_provider_selection` if inline call fails (backward compatible with mobile app)
+## Root Cause Analysis
 
-#### 2. Updated Frontend Flow
-- **`Checkout.tsx`**: Now passes `provider`, `phone`, `operator` in the checkout payload
-- Handles inline provider response directly (pawapay → `/payment-pending`, stripe → `/card-payment`)
-- Keeps fallback path for old backend or if inline fails
-- Added visible error banner with "Retry" button (replaces silent toast-only errors)
-- Added `checkoutError` state for persistent error display
+Two bugs cause items to vanish:
 
-#### 3. Checkout Funnel Analytics
-- Created `checkout_funnel_log` table: `(id, user_id, session_id, step, status, error_message, metadata, created_at)`
-- Frontend logs: `order_created`, `checkout_started`, `payment_initiated`, `provider_failed`, `provider_exception`
-- RLS policies for authenticated users + service role
+### Bug 1: In-flight add race condition
+When a user adds two items quickly:
+1. Item A added optimistically (`local_A`), server `add_item` starts
+2. Item B added optimistically (`local_B`), server `add_item` starts  
+3. A succeeds → `syncCart()` fires
+4. `syncCart` gets server data (has A, but B hasn't been persisted yet)
+5. Line 427: **"drop ALL local_ items unconditionally"** → `local_B` disappears
+6. B succeeds → another `syncCart()` → B reappears (but user already thinks it's gone)
 
-### Result
-| Before | After |
-|--------|-------|
-| 3 frontend API calls (any can fail silently) | 2 calls, provider handled server-side |
-| Silent toast on failure | Visible error banner + Retry button |
-| 0 payment tracking | Full funnel analytics |
+### Bug 2: Auth token refresh triggers full re-sync
+- `AuthContext` calls `setUser(session?.user)` on every auth event, including `TOKEN_REFRESHED`
+- This creates a new `user` object reference
+- `syncCart` is a `useCallback` with `[user]` dependency → gets recreated
+- The `useEffect` on line 459 depends on `[syncCart]` → re-triggers sync
+- On mobile WebView, token refreshes happen more frequently (app backgrounding/foregrounding)
+- Each unnecessary sync replaces all items with server data, dropping any in-flight optimistic items
 
----
+## Fix (all in `src/contexts/ShopCartContext.tsx`)
 
-## Backend Cost Optimization (Complete)
+### Fix 1: Track in-flight adds, preserve local items during sync
+- Add an `addInFlightRef = useRef(0)` counter
+- Increment before server `add_item` call, decrement in finally block
+- In `syncCart`, if `addInFlightRef.current > 0`: merge server items with existing local_ items instead of dropping them
+- This ensures `local_B` survives while its server call is still in progress
 
-### Problem
-~$480 in ~1.5 months on Cloud/AI.
+### Fix 2: Stop token refresh from triggering sync
+- Change `syncCart` dependency from `[user]` to `[]` (it already uses `sessionRef` and checks `user` via closure)
+- Or: change the useEffect trigger from `[userId, initialized, syncCart]` to `[userId, initialized]` and call `syncCart()` directly
+- This prevents token refreshes from triggering unnecessary full syncs
 
-### Changes Made
-- Removed redundant AI calls, dual-provider race
-- Changed cron from */10 to */30 minutes
-- Deleted 35 unused edge functions
-- Extended cache TTLs
-- Added 500 calls/day AI budget cap
+### Fix 3: Increase sync delay guard
+- Increase `ADD_SYNC_DELAY_MS` from 2000 to 3000ms as additional safety net for slow mobile connections
 
-### Estimated Savings: $170-240/month (35-50% reduction)
+These three changes together ensure items only disappear when deliberately deleted by the user.
+

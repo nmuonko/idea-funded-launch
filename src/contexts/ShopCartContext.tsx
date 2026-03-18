@@ -144,7 +144,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const pendingSyncRef = useRef(false);
   // --- Race condition guard: delay syncCart if addItem was just called ---
   const lastAddTimestampRef = useRef(0);
-  const ADD_SYNC_DELAY_MS = 2000; // Don't sync within 2s of an add
+  const ADD_SYNC_DELAY_MS = 3000; // Don't sync within 3s of an add (extended for slow mobile)
+  // --- Track in-flight add operations to prevent sync from dropping optimistic items ---
+  const addInFlightRef = useRef(0);
 
   // --- Only force loading=true on first server hydration, not on token refresh ---
   const didInitialServerHydrateRef = useRef(false);
@@ -423,8 +425,15 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         persistDeletedIds();
         const serverFiltered = mappedItems.filter(item => !deletedItemIdsRef.current.has(item.id));
 
-        // CRITICAL: Server is sole source of truth — drop ALL local_ items unconditionally
-        setItems(() => {
+        // CRITICAL: If adds are in-flight, preserve local_ items so they don't vanish
+        setItems((prev) => {
+          if (addInFlightRef.current > 0) {
+            // Merge: keep local_ items that aren't yet on server
+            const serverKeys = new Set(serverFiltered.map(i => canonicalItemKey(i)));
+            const localItemsToKeep = prev.filter(i => isLocalId(i.id) && !serverKeys.has(canonicalItemKey(i)));
+            console.log('[CART] sync: server=', serverFiltered.length, 'preserving', localItemsToKeep.length, 'in-flight local items');
+            return [...serverFiltered, ...localItemsToKeep];
+          }
           console.log('[CART] sync: server=', serverFiltered.length, 'pendingDeletes=', deletedItemIdsRef.current.size, '(all local_ items dropped)');
           return serverFiltered;
         });
@@ -453,14 +462,19 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         syncCart();
       }
     }
-  }, [user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Stabilized sync trigger: only fires on userId/initialized changes, NOT on syncCart recreation
+  const syncCartRef = useRef(syncCart);
+  useEffect(() => { syncCartRef.current = syncCart; }, [syncCart]);
 
   const userId = user?.id;
   useEffect(() => {
     if (userId && initialized) {
-      syncCart();
+      syncCartRef.current();
     }
-  }, [userId, initialized, syncCart]);
+  }, [userId, initialized]);
 
   // Build the canonical product URL that the server will store
   const buildServerProductUrl = useCallback((item: Omit<CartItem, 'id'>) => {
@@ -514,6 +528,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       }
 
       let addSucceeded = false;
+      addInFlightRef.current++;
       try {
         const { error } = await supabase.functions.invoke('mobile-cart', {
           body: {
@@ -530,12 +545,14 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         addSucceeded = true;
       } catch (error) {
         console.error('[CART] Failed to add item to server, keeping optimistic local item:', error);
+      } finally {
+        addInFlightRef.current--;
       }
 
       // IMPORTANT: only reconcile from server when add actually succeeded.
       // If add failed, keep optimistic local item so it doesn't "disappear".
       if (addSucceeded) {
-        syncCart();
+        syncCartRef.current();
       }
     }
   };

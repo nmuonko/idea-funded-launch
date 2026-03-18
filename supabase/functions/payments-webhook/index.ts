@@ -310,6 +310,12 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       
       // Send payment confirmation email (idempotent)
       await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, 'stripe-checkout-webhook');
+
+      // Referral commission (fire-and-forget)
+      const { data: paidOrder } = await supabase.from('orders').select('user_id, total_amount').eq('id', payment.order_id).maybeSingle();
+      if (paidOrder?.user_id) {
+        createReferralCommission(supabase, payment.order_id, paidOrder.user_id, paidOrder.total_amount || 0, 'stripe-checkout-webhook').catch(() => {});
+      }
     }
 
     return new Response(

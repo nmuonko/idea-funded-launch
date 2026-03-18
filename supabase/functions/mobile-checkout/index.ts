@@ -2045,12 +2045,132 @@ serve(async (req) => {
       amount: payable_amount,
       currency: payable_currency,
       status: 'awaiting_provider_selection',
-      provider_called: 'NONE', // CRITICAL: No provider touched yet
+      provider_called: 'NONE',
       endpoint: 'mobile-checkout',
     });
 
     // Generate confirmationId early for use in response
     const confirmationId = checkoutOrder.id.substring(0, 8).toUpperCase();
+
+    // ============================================
+    // INLINE PROVIDER SELECTION: If provider is specified in request body,
+    // call select-payment-provider server-to-server to eliminate fragile 3rd frontend call
+    // ============================================
+    const inlineProvider = (body.provider || '').toLowerCase();
+    const inlinePhone = body.phone || validatedPhone;
+    const inlineOperator = body.operator || '';
+
+    if (inlineProvider && checkoutSession?.id && (inlineProvider === 'pawapay' || inlineProvider === 'stripe')) {
+      console.log('[CHECKOUT_INLINE_PROVIDER] Initiating inline provider selection', {
+        provider: inlineProvider,
+        checkout_session_id: checkoutSession.id,
+        order_id: checkoutOrder.id,
+        has_phone: !!inlinePhone,
+        has_operator: !!inlineOperator,
+      });
+
+      perf.mark('inline_provider_start');
+
+      try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+        if (!supabaseUrl || !supabaseServiceKey) {
+          console.error('[CHECKOUT_INLINE_PROVIDER] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+          // Fall through to return awaiting_provider_selection
+        } else {
+          const selectProviderPayload = {
+            checkout_session_id: checkoutSession.id,
+            provider: inlineProvider,
+            ...(inlineProvider === 'pawapay' && inlinePhone ? { phone: inlinePhone } : {}),
+            ...(inlineProvider === 'pawapay' && inlineOperator ? { operator: inlineOperator } : {}),
+          };
+
+          const authHeader = req.headers.get('Authorization') || '';
+
+          const providerResponse = await fetch(`${supabaseUrl}/functions/v1/select-payment-provider`, {
+            method: 'POST',
+            headers: {
+              'Authorization': authHeader,
+              'Content-Type': 'application/json',
+              'apikey': Deno.env.get('SUPABASE_ANON_KEY') || '',
+            },
+            body: JSON.stringify(selectProviderPayload),
+          });
+
+          const providerData = await providerResponse.json();
+          perf.mark('inline_provider_done');
+
+          console.log('[CHECKOUT_INLINE_PROVIDER] Provider response', {
+            status: providerResponse.status,
+            success: providerData?.success,
+            provider: providerData?.provider,
+            has_clientSecret: !!providerData?.clientSecret,
+            has_deposit_id: !!providerData?.deposit_id,
+            total_ms: perf.total(),
+          });
+
+          // If provider selection succeeded, return the combined result
+          if (providerData?.success) {
+            return jsonResponse({
+              ...providerData,
+              // Ensure these fields are always present
+              order_id: providerData.order_id || checkoutOrder.id,
+              checkout_session_id: providerData.checkout_session_id || checkoutSession.id,
+              totals_breakdown: providerData.totals_breakdown || {
+                subtotal: totalsBreakdown.subtotal_items,
+                shipping: totalsBreakdown.shipping_fee,
+                markup: totalsBreakdown.markup_fee,
+                taxes: totalsBreakdown.taxes_fee,
+                grand_total: totalsBreakdown.grand_total,
+                currency: payable_currency,
+                cdf_equivalent: totalsBreakdown.cdf_equivalent,
+                exchange_rate: totalsBreakdown.exchange_rate,
+              },
+              inline_provider_used: true,
+            });
+          } else {
+            // Provider selection failed — include the error in the response
+            // but still return the session so frontend can retry
+            console.warn('[CHECKOUT_INLINE_PROVIDER] Provider selection failed, returning with error', {
+              code: providerData?.code,
+              message: providerData?.message,
+            });
+
+            return jsonResponse({
+              success: true,
+              order_id: checkoutOrder.id,
+              checkout_session_id: checkoutSession.id,
+              status: 'awaiting_provider_selection',
+              provider_error: {
+                code: providerData?.code || 'PROVIDER_FAILED',
+                message: providerData?.message || 'Payment provider failed',
+                message_fr: providerData?.message_fr || 'Le fournisseur de paiement a échoué',
+              },
+              amount: payable_amount,
+              currency: payable_currency,
+              confirmationId,
+              totals_breakdown: {
+                subtotal: totalsBreakdown.subtotal_items,
+                shipping: totalsBreakdown.shipping_fee,
+                markup: totalsBreakdown.markup_fee,
+                taxes: totalsBreakdown.taxes_fee,
+                grand_total: totalsBreakdown.grand_total,
+                currency: payable_currency,
+                cdf_equivalent: totalsBreakdown.cdf_equivalent,
+                exchange_rate: totalsBreakdown.exchange_rate,
+              },
+            });
+          }
+        }
+      } catch (inlineError: any) {
+        console.error('[CHECKOUT_INLINE_PROVIDER] Exception during inline provider call', {
+          error: inlineError.message,
+          stack: inlineError.stack?.slice(0, 200),
+        });
+        // Fall through to return awaiting_provider_selection (backward compatible)
+      }
+    }
 
     // ============================================
     // PROVIDER ROUTING: Check for active provider
@@ -2080,21 +2200,6 @@ serve(async (req) => {
       availableProviders.push('stripe');
     }
     
-    
-    // Log the payment flow decision
-    console.log('[PAYMENT_FLOW] AWAITING_PROVIDER_SELECTION', {
-      order_id: checkoutOrder.id,
-      checkout_session_id: checkoutSession?.id || null,
-      user_id: user.id.slice(0, 8) + '***',
-      amount: payable_amount,
-      currency: payable_currency,
-      is_large_order: isLargeOrder,
-      contains_vehicle: containsVehicle,
-      requested_method: REQUESTED_METHOD,
-      available_providers: availableProviders,
-      provider_called: 'NONE', // CRITICAL: No provider API called
-    });
-
     // Build structured available methods for frontend (eliminates secondary API call)
     const available_methods = buildAvailableMethods(
       paymentSettings,
@@ -2103,7 +2208,6 @@ serve(async (req) => {
     );
 
     // Return session ready for provider selection
-    // Mobile app should call /select-payment-provider with chosen provider
     return jsonResponse({
       success: true,
       order_id: checkoutOrder.id,
@@ -2114,12 +2218,12 @@ serve(async (req) => {
       currency: payable_currency,
       cdf_equivalent: totalsBreakdown.cdf_equivalent,
       available_providers: availableProviders,
-      available_methods, // NEW: Structured payment methods with enabled/disabled reasons
+      available_methods,
       is_large_order: isLargeOrder,
       reason: isLargeOrder 
         ? (containsVehicle ? 'vehicle_order' : 'over_mobile_money_limit')
         : 'standard_order',
-      confirmationId: checkoutOrder.id.substring(0, 8).toUpperCase(),
+      confirmationId,
       message: 'Please select your payment method.',
       message_fr: 'Veuillez sélectionner votre mode de paiement.',
       next_step: {
@@ -2145,17 +2249,13 @@ serve(async (req) => {
       integrity_hash: integrityHash,
       order: {
         id: checkoutOrder.id,
-        confirmationId: checkoutOrder.id.substring(0, 8).toUpperCase(),
+        confirmationId,
         status: 'PENDING_PAYMENT',
         itemCount: totalsBreakdown.item_count,
         totalUsd: totalsBreakdown.grand_total,
         totalCdf: totalsBreakdown.cdf_equivalent,
       },
     });
-
-    // ============================================
-    // REMOVED: Provider calls moved to select-payment-provider
-    // ============================================
 
   } catch (error: any) {
     const elapsedMs = typeof perf !== 'undefined' ? perf.total() : Date.now() - startTime;

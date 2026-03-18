@@ -2050,6 +2050,42 @@ export type Database = {
         }
         Relationships: []
       }
+      checkout_funnel_log: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          id: string
+          metadata: Json | null
+          order_id: string | null
+          session_id: string | null
+          status: string
+          step: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          metadata?: Json | null
+          order_id?: string | null
+          session_id?: string | null
+          status?: string
+          step: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          metadata?: Json | null
+          order_id?: string | null
+          session_id?: string | null
+          status?: string
+          step?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       checkout_sessions: {
         Row: {
           cart_snapshot: Json

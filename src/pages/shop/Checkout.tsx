@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, CreditCard, Building2, Smartphone, CheckCircle2, MapPin, Edit3, Car } from 'lucide-react';
+import { ArrowLeft, Loader2, CreditCard, Building2, Smartphone, CheckCircle2, MapPin, Edit3, Car, AlertTriangle, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
@@ -47,6 +47,7 @@ export default function Checkout() {
   const [showTermsDialog, setShowTermsDialog] = useState(false);
   const [editingAddress, setEditingAddress] = useState(false);
   const [orderServerTotal, setOrderServerTotal] = useState<number | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [address, setAddress] = useState<ShippingAddress>({
     fullName: '',
     phone: '',
@@ -138,6 +139,7 @@ export default function Checkout() {
     }
 
     setLoading(true);
+    setCheckoutError(null);
     try {
       // Update profile with shipping address
       await supabase
@@ -154,8 +156,20 @@ export default function Checkout() {
         })
         .eq('user_id', user?.id);
 
+      // Log funnel step: order_created
+      const logFunnel = async (step: string, status: string, errorMessage?: string, meta?: Record<string, any>) => {
+        try {
+          await supabase.from('checkout_funnel_log').insert({
+            user_id: user?.id,
+            step,
+            status,
+            error_message: errorMessage || null,
+            metadata: meta || {},
+          });
+        } catch { /* non-blocking */ }
+      };
+
       // Step 1: Create/update DRAFT order from cart items
-      // Pass only selected item IDs so the backend creates the order from the subset
       const selectedCartItemIds = checkoutItems.map(i => i.id).filter(id => !id.startsWith('local_'));
       console.log('[WEB_CHECKOUT] Step 1: Creating order from cart... selectedIds=', selectedCartItemIds.length);
       
@@ -192,20 +206,49 @@ export default function Checkout() {
       const effectiveTotal = srvTotal || checkoutTotal;
 
       console.log('[WEB_CHECKOUT] Order created:', orderId, 'items:', orderItemIds.length, 'serverTotal:', srvTotal);
+      await logFunnel('order_created', 'ok', undefined, { orderId, itemCount: orderItemIds.length });
 
-      // Step 2: Proceed to checkout with order item IDs
-      console.log('[WEB_CHECKOUT] Step 2: Starting checkout...');
+      // Step 2: Checkout WITH inline provider selection (merged steps 2+3)
+      // Determine provider and phone/operator to pass inline
+      const providerMap: Record<string, string> = {
+        'mobile_money': 'pawapay',
+        'card': 'stripe',
+      };
+      const selectedProvider = providerMap[paymentMethod] || 'pawapay';
       
       const checkoutPayload: Record<string, any> = {
         cart_item_ids: orderItemIds,
         cart_id: orderId,
+        provider: selectedProvider, // NEW: Pass provider for inline selection
       };
       
       if (paymentMethod === 'card') {
         checkoutPayload.payment_method_preference = 'CARD';
       }
+
+      // Pass phone and operator for pawapay
+      if (selectedProvider === 'pawapay' && address.phone) {
+        checkoutPayload.phone = address.phone;
+        const cleanPhone = address.phone.replace(/[\s\-+]/g, '');
+        let prefix = '';
+        if (cleanPhone.startsWith('243')) {
+          prefix = cleanPhone.slice(3, 5);
+        } else if (cleanPhone.startsWith('0')) {
+          prefix = cleanPhone.slice(1, 3);
+        } else {
+          prefix = cleanPhone.slice(0, 2);
+        }
+        const operatorMap: Record<string, string> = {
+          '81': 'VODACOM_MPESA_COD', '82': 'VODACOM_MPESA_COD', '83': 'VODACOM_MPESA_COD',
+          '97': 'AIRTEL_COD', '99': 'AIRTEL_COD',
+          '84': 'ORANGE_COD', '85': 'ORANGE_COD', '89': 'ORANGE_COD',
+        };
+        checkoutPayload.operator = operatorMap[prefix] || 'VODACOM_MPESA_COD';
+        console.log('[WEB_CHECKOUT] Detected operator:', checkoutPayload.operator, 'from prefix:', prefix);
+      }
       
-      console.log('[WEB_CHECKOUT] Checkout payload:', checkoutPayload);
+      console.log('[WEB_CHECKOUT] Step 2: Checkout with inline provider...', { provider: selectedProvider });
+      await logFunnel('checkout_started', 'ok', undefined, { provider: selectedProvider, orderId });
       
       const { data, error } = await supabase.functions.invoke('mobile-orders', {
         body: { action: 'checkout', ...checkoutPayload },
@@ -215,55 +258,73 @@ export default function Checkout() {
 
       if (error) {
         console.error('[WEB_CHECKOUT] Checkout error:', error);
+        await logFunnel('checkout_failed', 'error', error.message);
         throw new Error(error.message || 'Checkout failed');
       }
 
-      if (data?.error) {
+      if (data?.error && !data?.success) {
         console.error('[WEB_CHECKOUT] Checkout response error:', data);
+        await logFunnel('checkout_failed', 'error', data.message || data.error);
         throw new Error(data.message || data.error || 'Checkout failed');
       }
 
-      // Handle different payment flows
+      // Check for inline provider error (provider was attempted but failed)
+      if (data?.provider_error) {
+        console.warn('[WEB_CHECKOUT] Inline provider failed, showing error', data.provider_error);
+        await logFunnel('provider_failed', 'error', data.provider_error.message);
+        const errMsg = language === 'fr' 
+          ? (data.provider_error.message_fr || 'Le paiement a échoué. Veuillez réessayer.')
+          : (data.provider_error.message || 'Payment failed. Please try again.');
+        setCheckoutError(errMsg);
+        setLoading(false);
+        return;
+      }
+
+      // Handle PawaPay USSD response (inline provider succeeded)
+      if (data?.provider === 'pawapay' && data?.status === 'pending_user_confirmation') {
+        console.log('[WEB_CHECKOUT] PawaPay USSD push initiated (inline), redirecting to pending page');
+        await logFunnel('payment_initiated', 'ok', undefined, { provider: 'pawapay', orderId: data.order_id });
+        savePendingCheckout({ 
+          orderId: data.order_id, 
+          paymentMethod: 'mobile_money',
+          totalUsd: effectiveTotal 
+        });
+        navigate(`/payment-pending?order_id=${data.order_id}&provider=pawapay`);
+        return;
+      }
+
+      // Handle Stripe response (inline provider succeeded)
+      if (data?.provider === 'stripe' && data?.clientSecret) {
+        console.log('[WEB_CHECKOUT] Stripe clientSecret received (inline), redirecting to card payment');
+        await logFunnel('payment_initiated', 'ok', undefined, { provider: 'stripe', orderId: data.order_id });
+        savePendingCheckout({ 
+          orderId: data.order_id, 
+          paymentMethod: 'card',
+          totalUsd: effectiveTotal 
+        });
+        const cardPaymentUrl = `/card-payment?order_id=${data.order_id}&client_secret=${encodeURIComponent(data.clientSecret)}&amount=${data.amount || ''}&currency=${data.currency || 'USD'}`;
+        navigate(cardPaymentUrl);
+        return;
+      }
+
+      // Fallback: Handle awaiting_provider_selection (old backend or inline failed silently)
       if ((data?.status === 'awaiting_provider_selection' || data?.payment_flow === 'CHOICE_REQUIRED') && data?.checkout_session_id) {
-        console.log('[WEB_CHECKOUT] Step 3: Selecting payment provider...');
-        
-        const providerMap: Record<string, string> = {
-          'mobile_money': 'pawapay',
-          'card': 'stripe',
-        };
-        
-        const provider = providerMap[paymentMethod] || 'pawapay';
+        console.log('[WEB_CHECKOUT] Fallback: Step 3 selecting payment provider...');
+        await logFunnel('provider_fallback', 'ok', undefined, { checkout_session_id: data.checkout_session_id });
         
         const selectPayload: Record<string, any> = {
           checkout_session_id: data.checkout_session_id,
-          provider,
+          provider: selectedProvider,
         };
         
-        if (provider === 'pawapay' && address.phone) {
+        if (selectedProvider === 'pawapay' && address.phone) {
           selectPayload.phone = address.phone;
-          const cleanPhone = address.phone.replace(/[\s\-+]/g, '');
-          let prefix = '';
-          if (cleanPhone.startsWith('243')) {
-            prefix = cleanPhone.slice(3, 5);
-          } else if (cleanPhone.startsWith('0')) {
-            prefix = cleanPhone.slice(1, 3);
-          } else {
-            prefix = cleanPhone.slice(0, 2);
-          }
-          const operatorMap: Record<string, string> = {
-            '81': 'VODACOM_MPESA_COD', '82': 'VODACOM_MPESA_COD', '83': 'VODACOM_MPESA_COD',
-            '97': 'AIRTEL_COD', '99': 'AIRTEL_COD',
-            '84': 'ORANGE_COD', '85': 'ORANGE_COD', '89': 'ORANGE_COD',
-          };
-          selectPayload.operator = operatorMap[prefix] || 'VODACOM_MPESA_COD';
-          console.log('[WEB_CHECKOUT] Detected operator:', selectPayload.operator, 'from prefix:', prefix);
+          selectPayload.operator = checkoutPayload.operator;
         }
-        
-        console.log('[WEB_CHECKOUT] Select provider payload:', selectPayload);
         
         let providerData: any = null;
         try {
-          console.log('[WEB_CHECKOUT] Invoking payments-provider with payload:', { action: 'select', ...selectPayload });
+          console.log('[WEB_CHECKOUT] Invoking payments-provider fallback');
           const providerResponse = await supabase.functions.invoke(
             'payments-provider',
             { body: { action: 'select', ...selectPayload } }
@@ -271,24 +332,19 @@ export default function Checkout() {
           providerData = providerResponse.data;
           const providerError = providerResponse.error;
           
-          console.log('[WEB_CHECKOUT] Provider selection response:', JSON.stringify({ providerData, providerError }));
+          console.log('[WEB_CHECKOUT] Provider fallback response:', JSON.stringify({ providerData, providerError }));
           
           if (providerError) {
-            console.error('[WEB_CHECKOUT] Provider invoke error:', JSON.stringify(providerError));
-            // Don't throw - the USSD may have been sent. Check if we got usable data.
+            console.error('[WEB_CHECKOUT] Provider fallback error:', JSON.stringify(providerError));
             if (!providerData?.order_id && !providerData?.success) {
               throw new Error(providerData?.message || providerError?.message || 'Failed to initiate payment');
             }
           }
         } catch (invokeErr: any) {
-          console.error('[WEB_CHECKOUT] Provider invoke exception:', invokeErr?.message, invokeErr?.stack);
-          // If we have no provider data at all, show error gracefully via toast, don't crash
+          console.error('[WEB_CHECKOUT] Provider fallback exception:', invokeErr?.message);
+          await logFunnel('provider_exception', 'error', invokeErr?.message);
           if (!providerData) {
-            toast({
-              title: shop.paymentError || 'Payment Error',
-              description: invokeErr?.message || 'Failed to contact payment provider. Please try again.',
-              variant: 'destructive',
-            });
+            setCheckoutError(invokeErr?.message || 'Failed to contact payment provider. Please try again.');
             setLoading(false);
             return;
           }
@@ -300,28 +356,19 @@ export default function Checkout() {
         }
         
         if (providerData?.provider === 'pawapay' && providerData?.status === 'pending_user_confirmation') {
-          console.log('[WEB_CHECKOUT] PawaPay USSD push initiated, redirecting to pending page');
-          savePendingCheckout({ 
-            orderId: providerData.order_id, 
-            paymentMethod: 'mobile_money',
-            totalUsd: effectiveTotal 
-          });
+          await logFunnel('payment_initiated', 'ok', undefined, { provider: 'pawapay', orderId: providerData.order_id });
+          savePendingCheckout({ orderId: providerData.order_id, paymentMethod: 'mobile_money', totalUsd: effectiveTotal });
           navigate(`/payment-pending?order_id=${providerData.order_id}&provider=pawapay`);
           return;
         }
         
         if (providerData?.provider === 'stripe' && providerData?.clientSecret) {
-          console.log('[WEB_CHECKOUT] Stripe clientSecret received, redirecting to card payment page');
-          savePendingCheckout({ 
-            orderId: providerData.order_id, 
-            paymentMethod: 'card',
-            totalUsd: effectiveTotal 
-          });
+          await logFunnel('payment_initiated', 'ok', undefined, { provider: 'stripe', orderId: providerData.order_id });
+          savePendingCheckout({ orderId: providerData.order_id, paymentMethod: 'card', totalUsd: effectiveTotal });
           const cardPaymentUrl = `/card-payment?order_id=${providerData.order_id}&client_secret=${encodeURIComponent(providerData.clientSecret)}&amount=${providerData.amount || data.amount}&currency=${providerData.currency || 'USD'}`;
           navigate(cardPaymentUrl);
           return;
         }
-        
         
         if (providerData?.order_id) {
           savePendingCheckout({ orderId: providerData.order_id, totalUsd: effectiveTotal });
@@ -342,6 +389,7 @@ export default function Checkout() {
       }
     } catch (error: any) {
       console.error('[WEB_CHECKOUT] Error:', error);
+      setCheckoutError(error.message || shop.failedToProcess || 'Failed to process your order');
       toast({
         title: shop.checkoutFailed || 'Checkout Failed',
         description: error.message || shop.failedToProcess || 'Failed to process your order',
@@ -350,7 +398,7 @@ export default function Checkout() {
     } finally {
       setLoading(false);
     }
-  }, [checkoutItems, checkoutTotal, paymentMethod, address, user, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal]);
+  }, [checkoutItems, checkoutTotal, paymentMethod, address, user, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal, language]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -440,6 +488,36 @@ export default function Checkout() {
           </Link>
           
           <h1 className="text-2xl font-bold text-white mb-8">{shop.checkoutTitle || 'Checkout'}</h1>
+
+          {/* Checkout Error Banner */}
+          {checkoutError && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-4 rounded-xl border border-red-500/30 bg-red-500/10 flex items-start gap-3"
+            >
+              <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-red-300 font-medium text-sm">
+                  {language === 'fr' ? 'Erreur de paiement' : 'Payment Error'}
+                </p>
+                <p className="text-red-200/70 text-sm mt-1">{checkoutError}</p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setCheckoutError(null);
+                  processCheckout();
+                }}
+                className="border-red-500/30 text-red-300 hover:bg-red-500/20 flex-shrink-0"
+              >
+                <RefreshCw className="h-3 w-3 mr-1" />
+                {language === 'fr' ? 'Réessayer' : 'Retry'}
+              </Button>
+            </motion.div>
+          )}
 
           <form onSubmit={handleSubmit}>
             <div className="grid lg:grid-cols-3 gap-8">

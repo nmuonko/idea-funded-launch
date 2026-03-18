@@ -130,12 +130,15 @@ export default function ProductDetailsPage() {
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [hotProductPrice, setHotProductPrice] = useState<number | null>(null);
   const navProductRef = useRef<ProductData | null>(null);
   const didAutoSelectRef = useRef(false);
   const userInteractedRef = useRef(false);
   const retryAttemptedRef = useRef(false);
   const failedImageIndexesRef = useRef<Set<number>>(new Set());
   const triedOriginalSourceRef = useRef<Set<number>>(new Set());
+
+  const isFixedPrice = hotProductPrice !== null;
 
   const isVehicleFromState = !!(
     (location.state as any)?.product?.isVehicle ||

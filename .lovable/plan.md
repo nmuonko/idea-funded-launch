@@ -1,36 +1,46 @@
-## Backend Cost Optimization (Complete)
+## Checkout Payment Fix — Zero Purchases (Complete)
 
 ### Problem
-~$480 in ~1.5 months on Cloud/AI. Three cost buckets: AI Gateway (~$180-220), Edge Function invocations (~$150-180), Database IO (~$80-100).
+53 checkout sessions stuck at `awaiting_provider_selection` with 0 payment attempts. Step 3 (`payments-provider` call) silently fails on mobile WebView.
 
 ### Changes Made
 
-#### Phase 1: Collapse AI Calls (saves ~$100-140/mo)
-- **Removed `refineQueryWithAi`** from `catalog-search/index.ts` — was redundant with `aiQueryRewrite` which already provides `expansions`
-- **Removed dual-provider race** from `aiQueryInterpreter.ts` — dropped OpenAI parallel call, uses only Lovable AI (single provider)
-- **Deleted `search-expand-query`** edge function — no longer called
-- **Result**: 1 AI call per search (cache miss) instead of 3-5
+#### 1. Merged Steps 2+3 into Single Backend Call (Primary Fix)
+- **`mobile-checkout/index.ts`**: After creating checkout session, if `provider`, `phone`, `operator` are in the request body, calls `select-payment-provider` server-to-server inline
+- Returns PawaPay USSD confirmation or Stripe `clientSecret` directly — no separate frontend call needed
+- Falls back to `awaiting_provider_selection` if inline call fails (backward compatible with mobile app)
 
-#### Phase 2: Reduce Catalog Builder Frequency (saves ~$30-40/mo)
-- Changed `catalog-builder-campaign` cron from `*/10` to `*/30` minutes
-- 2,880 fewer edge function invocations/month
+#### 2. Updated Frontend Flow
+- **`Checkout.tsx`**: Now passes `provider`, `phone`, `operator` in the checkout payload
+- Handles inline provider response directly (pawapay → `/payment-pending`, stripe → `/card-payment`)
+- Keeps fallback path for old backend or if inline fails
+- Added visible error banner with "Retry" button (replaces silent toast-only errors)
+- Added `checkoutError` state for persistent error display
 
-#### Phase 3: Delete Unused Edge Functions (saves ~$20-30/mo)
-- Deleted 35 redundant functions: `search-expand-query`, `backfill-cart-images`, `backfill-product-images`, `market-*-proxy`, `catalog/`, `analyze-submission`, `extract-price`, 22 `send-*` email functions (consolidated into `email-service`), `catalog-data-sync`, `catalog-prewarm-worker`, `cleanup-expired-*` (3), 6 `admin-*` standalone functions, `product-resolver`, `get-product-info`
+#### 3. Checkout Funnel Analytics
+- Created `checkout_funnel_log` table: `(id, user_id, session_id, step, status, error_message, metadata, created_at)`
+- Frontend logs: `order_created`, `checkout_started`, `payment_initiated`, `provider_failed`, `provider_exception`
+- RLS policies for authenticated users + service role
 
-#### Phase 4: Extend Cache TTLs (saves ~$20-30/mo)
-- `search_rewrite_cache`: 14 days → 30 days
-- `catalog_cache` search: 7 days → 14 days (stale: 24h → 48h)
+### Result
+| Before | After |
+|--------|-------|
+| 3 frontend API calls (any can fail silently) | 2 calls, provider handled server-side |
+| Silent toast on failure | Visible error banner + Retry button |
+| 0 payment tracking | Full funnel analytics |
 
-#### Phase 5: AI Daily Budget Cap (prevents overruns)
-- Added 500 calls/day hard cap on `lovable_ai` provider in `aiQueryRewrite.ts`
-- Uses existing `provider_budget` infrastructure (`check_provider_budget` / `increment_provider_budget`)
-- Falls back to deterministic rewriting when cap hit
+---
+
+## Backend Cost Optimization (Complete)
+
+### Problem
+~$480 in ~1.5 months on Cloud/AI.
+
+### Changes Made
+- Removed redundant AI calls, dual-provider race
+- Changed cron from */10 to */30 minutes
+- Deleted 35 unused edge functions
+- Extended cache TTLs
+- Added 500 calls/day AI budget cap
 
 ### Estimated Savings: $170-240/month (35-50% reduction)
-
-### Previous Work
-- SHEIN Price Backfill System
-- Unified Search Pipeline
-- Edge Function Consolidation (42 functions deleted)
-- Payment flow RLS fixes

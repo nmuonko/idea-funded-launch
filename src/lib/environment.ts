@@ -7,6 +7,11 @@ export const isLovablePreview = (): boolean => {
     window.location.hostname.includes('lovableproject.com');
 };
 
+export const isCapacitorApp = (): boolean => {
+  return typeof window !== 'undefined' && 
+    ((window as any).Capacitor !== undefined || navigator.userAgent.toLowerCase().includes('capacitor'));
+};
+
 export const isProduction = (): boolean => {
   return typeof window !== 'undefined' && 
     (window.location.hostname === 'afrishop-usa.com' || 

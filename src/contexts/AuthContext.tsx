@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { isLovablePreview } from '@/lib/environment';
+import { isLovablePreview, isCapacitorApp } from '@/lib/environment';
 import { runQuickDiagnostic } from '@/lib/supabaseHealth';
 
 export interface UserProfile {
@@ -242,7 +242,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const isEmailConfirmPage = window.location.pathname === '/email-confirmed';
         
         // Don't clear session if on email confirmation page
-        if (!rememberMe && !sessionActive && !isEmailConfirmPage) {
+        const isNativeApp = isCapacitorApp();
+        
+        if (!rememberMe && !sessionActive && !isEmailConfirmPage && !isNativeApp) {
           // New browser session and user didn't want to be remembered - clear auth
           console.log('[Auth] Clearing session - remember me was not selected');
           await supabase.auth.signOut();

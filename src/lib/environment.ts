@@ -8,8 +8,14 @@ export const isLovablePreview = (): boolean => {
 };
 
 export const isCapacitorApp = (): boolean => {
-  return typeof window !== 'undefined' && 
-    ((window as any).Capacitor !== undefined || navigator.userAgent.toLowerCase().includes('capacitor'));
+  if (typeof window === 'undefined') return false;
+  if ((window as any).Capacitor !== undefined) return true;
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes('capacitor')) return true;
+  if (ua.includes('wv') && ua.includes('android')) return true;
+  if ((window.navigator as any).standalone === true) return true;
+  if (window.matchMedia?.('(display-mode: standalone)')?.matches) return true;
+  return false;
 };
 
 export const isProduction = (): boolean => {

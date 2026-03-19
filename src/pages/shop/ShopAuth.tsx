@@ -26,7 +26,7 @@ export default function ShopAuth() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirect = searchParams.get('redirect') || '/';
-  const { signIn, signUp, user, checkAdminStatus } = useAuth();
+  const { signIn, signUp, user, isAuthReady, checkAdminStatus } = useAuth();
   const { language, setLanguage } = useLanguage();
   const { toast } = useToast();
   

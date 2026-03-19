@@ -308,6 +308,18 @@ export function InviteEarn({ language }: InviteEarnProps) {
       ) : (
         /* ── REGISTRATION VIEW ── */
         <div className="px-5 pb-6 space-y-5">
+          {/* Mobile Money payout notice */}
+          <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 px-4 py-3">
+            <p className="text-[12px] text-amber-300/90 leading-relaxed font-medium">
+              {lang.payoutNotice}
+            </p>
+            <div className="flex items-center gap-3 mt-2.5">
+              <span className="text-[10px] bg-white/10 text-white/70 px-2.5 py-1 rounded-full font-semibold">Airtel Money</span>
+              <span className="text-[10px] bg-white/10 text-white/70 px-2.5 py-1 rounded-full font-semibold">M-Pesa</span>
+              <span className="text-[10px] bg-white/10 text-white/70 px-2.5 py-1 rounded-full font-semibold">Orange Money</span>
+            </div>
+          </div>
+
           {/* How it works */}
           <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
             <p className="text-[11px] font-semibold text-white/40 uppercase tracking-widest mb-3">{lang.howIt}</p>

@@ -1,65 +1,48 @@
 
-Problem I’m fixing: on mobile, users with a valid persisted session are still being treated as logged out when they tap the cart checkout button.
 
-Do I know what the issue is? Yes.
+## Problem
 
-What the code is doing now:
-- `AuthContext` registers `onAuthStateChange` before auth hydration is fully settled.
-- The callback can set `loading=false` and `session/user=null` too early.
-- `ShopProtectedRoute` redirects as soon as `loading` is false and `session/user` are empty.
-- The backend auth logs show repeated successful `/user` calls (HTTP 200), so many affected users do have a real session; the redirect is happening in frontend timing/state, not because the backend rejected them.
-- The current mobile fixes improved session persistence, but they did not fully solve the auth-readiness race.
+The React Native mobile app is a **separate codebase** from this web project. All web frontend fixes (AuthContext, ShopProtectedRoute, etc.) have zero effect on the RN app. The .aab builds are frozen and cannot be updated.
 
-Actual root cause:
-- This is now primarily an auth initialization race, not an install/cache issue.
-- The app is making redirect decisions before auth restoration is definitively complete.
-- Some pages also check `!user` directly without an explicit “auth is ready” guard.
+### Root Cause Found
 
-Files to update:
-1. `src/contexts/AuthContext.tsx`
-2. `src/components/shop/ShopProtectedRoute.tsx`
-3. `src/pages/shop/Checkout.tsx`
-4. `src/pages/shop/ShopAuth.tsx`
-5. Review `src/contexts/ShopCartContext.tsx` for any guest/logged-in initialization that should wait for auth readiness
+The `auth-me` edge function has a **wrong column query** on line 73:
 
-Implementation plan:
-1. Add an explicit auth readiness flag in `AuthContext`
-- Add `isAuthReady` to the context value.
-- Hydrate auth with `supabase.auth.getSession()` first.
-- Mark auth ready only after the initial session restoration step completes.
-- Do not let a null early auth event force the app into a signed-out state before hydration finishes.
+```typescript
+// CURRENT (BROKEN):
+.eq("id", user.id)      // looks for profile.id = auth_user_id → always returns null
 
-2. Restructure auth initialization
-- Separate “session restoration” from “profile/admin loading”.
-- Restore `session` and `user` first, set `isAuthReady=true`, then run profile/admin side-effects afterward.
-- Keep `onAuthStateChange` lightweight and non-blocking.
-- Ignore or safely handle early `INITIAL_SESSION`/null-state behavior so it cannot trigger a checkout redirect.
+// CORRECT:
+.eq("user_id", user.id) // looks for profile.user_id = auth_user_id → returns the profile
+```
 
-3. Gate redirects with auth readiness
-- Update `ShopProtectedRoute` to wait for `isAuthReady` before redirecting.
-- Until auth is ready, show the loader.
-- Only redirect when `isAuthReady === true` and there is still no valid user/session.
+**Evidence:**
+- Profile table: `id = 3922dea2...`, `user_id = f212b025...`
+- Auth user ID: `f212b025...`
+- Query `.eq("id", "f212b025...")` returns null — profile not found
+- `auth-me` returns `profile: null` to the RN app for ALL users
+- The RN app receives `profile: null`, interprets this as "not fully set up", and redirects to login when the user tries to checkout
+- Backend logs confirm: the reporting user (`kadimisha@gmail.com`) successfully authenticates via `auth-me` but **never reaches** `mobile-orders` or `mobile-checkout` — the redirect happens client-side before any checkout API call
 
-4. Fix checkout page fallback behavior
-- `Checkout.tsx` currently shows “sign in” based on `!user` alone.
-- Change it to wait for auth readiness before showing any signed-out UI.
-- This prevents false login prompts during mobile hydration.
+### Why Previous Fixes Failed
 
-5. Fix auth page navigation
-- `ShopAuth.tsx` currently navigates during render when `user` exists.
-- Move that redirect into an effect gated by `isAuthReady && user`.
-- This avoids navigation side-effects during unstable auth initialization.
+Every fix so far modified web frontend files (`AuthContext.tsx`, `ShopProtectedRoute.tsx`, `Checkout.tsx`). The React Native app does not load any of these files. It calls backend edge functions directly via HTTP.
 
-6. Optional hardening in cart provider
-- If needed, make logged-in vs guest cart initialization wait for `isAuthReady`.
-- This avoids cart/provider state being initialized from the wrong auth state during mobile startup.
+## Fix
 
-Why this should fix the issue:
-- It removes the race where mobile users are redirected before their restored session is available to route guards.
-- It matches the evidence from the auth logs: users are authenticated in the backend, but the frontend is deciding too early.
-- It is compatible with the already-published mobile app because the fix is entirely in the web layer loaded inside the mobile shell.
+### 1. Fix `auth-me` edge function (the actual bug)
+Change line 73 from `.eq("id", user.id)` to `.eq("user_id", user.id)` so the RN app receives the user's actual profile data instead of `null`.
 
-Technical notes:
-- I will preserve the existing mobile session persistence guard.
-- I will avoid awaiting Supabase calls directly inside the auth state callback.
-- I will keep the route behavior unchanged once auth is actually resolved; only the timing of redirect decisions will change.
+### 2. Harden `mobile-orders` auth error handling
+Currently returns HTTP 401 on auth failures. The RN app's error handler catches 401 → signs out → redirects to login. Change to return HTTP 200 with JSON error body (matching `mobile-checkout`'s pattern), so expired tokens trigger a retry instead of a destructive sign-out.
+
+### Technical Details
+
+| Item | Detail |
+|------|--------|
+| Root cause | `auth-me` queries `.eq("id", user.id)` instead of `.eq("user_id", user.id)` |
+| Effect | ALL RN app users get `profile: null`, blocking checkout |
+| Files changed | `supabase/functions/auth-me/index.ts`, `supabase/functions/mobile-orders/index.ts` |
+| Deployment | Edge functions auto-deploy; works with frozen .aab builds |
+| Risk | Low — corrects a data query bug; no schema changes |
+

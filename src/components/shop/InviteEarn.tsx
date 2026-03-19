@@ -207,6 +207,8 @@ export function InviteEarn({ language }: InviteEarnProps) {
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ full_name: '', email: '', phone: '' });
+  const [mode, setMode] = useState<'register' | 'retrieve'>('register');
+  const [retrieveEmail, setRetrieveEmail] = useState('');
 
   const handleRegister = async () => {
     if (!form.full_name || !form.email || !form.phone) {
@@ -225,6 +227,31 @@ export function InviteEarn({ language }: InviteEarnProps) {
       setRefCode(data.ref_code);
       localStorage.setItem(REF_CODE_KEY, data.ref_code);
       toast({ title: lang.copied.replace('!', '') + ' ✓' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRetrieve = async () => {
+    if (!retrieveEmail) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('referrers')
+        .select('ref_code')
+        .eq('email', retrieveEmail.trim().toLowerCase())
+        .eq('status', 'active')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        toast({ title: lang.noLinkFound, variant: 'destructive' });
+        return;
+      }
+      setRefCode(data.ref_code);
+      localStorage.setItem(REF_CODE_KEY, data.ref_code);
+      toast({ title: '✓' });
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {

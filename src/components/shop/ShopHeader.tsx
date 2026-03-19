@@ -200,7 +200,7 @@ export function ShopHeader() {
                                 {language === 'fr' ? 'Partager & Gagner' : 'Share & Earn'}
                               </button>
                             </DrawerTrigger>
-                            <DrawerContent className="bg-[#1e2028] border-white/10 max-h-[85dvh]" onPointerDownOutside={e => e.preventDefault()} onInteractOutside={e => e.preventDefault()}>
+                            <DrawerContent className="bg-[#1e2028] border-white/10 max-h-[85dvh]" onInteractOutside={e => { if ((e.target as HTMLElement)?.closest?.('input, textarea, select')) e.preventDefault(); }}>
                               <div className="overflow-y-auto overscroll-contain px-4 pb-8 pt-2">
                                 <InviteEarn language={language} />
                               </div>

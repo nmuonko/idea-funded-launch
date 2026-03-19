@@ -416,9 +416,8 @@ export default function Checkout() {
     processCheckout();
   };
 
-  // CRITICAL: Wait for auth readiness before showing sign-in prompt.
-  // On mobile, getSession() may still be restoring the persisted token.
-  if (!isAuthReady || authLoading) {
+  // Wait only for auth hydration before evaluating checkout access.
+  if (!isAuthReady) {
     return (
       <div className="min-h-screen bg-black">
         <ShopHeader />
@@ -429,7 +428,7 @@ export default function Checkout() {
     );
   }
 
-  if (!user) {
+  if (!session) {
     return (
       <div className="min-h-screen bg-black">
         <ShopHeader />

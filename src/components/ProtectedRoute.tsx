@@ -8,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRouteProps) {
-  const { user, session, isAdmin, loading } = useAuth();
+  const { user, session, isAdmin, loading, isAuthReady } = useAuth();
   const location = useLocation();
 
   console.log('[ProtectedRoute] Render:', { 
@@ -16,14 +16,15 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
     userId: user?.id,
     hasSession: !!session,
     isAdmin, 
-    loading, 
+    loading,
+    isAuthReady,
     requireAdmin,
     path: location.pathname,
     timestamp: new Date().toISOString()
   });
 
-  // CRITICAL: Wait for auth to fully load before making any decisions
-  if (loading) {
+  // CRITICAL: Wait for auth to fully load AND be ready before making any decisions
+  if (!isAuthReady || loading) {
     console.log('[ProtectedRoute] Waiting for auth to load...');
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">

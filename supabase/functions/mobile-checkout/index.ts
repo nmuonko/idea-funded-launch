@@ -1026,7 +1026,7 @@ serve(async (req) => {
     perf.mark('order_fetched');
 
     // Fetch requested items from DB (server-side source of truth)
-    const { data: dbItems, error: itemsError } = await supabase
+    const { data: dbItemsRaw, error: itemsError } = await supabase
       .from('order_items')
       .select('*')
       .in('id', cart_item_ids)
@@ -1039,22 +1039,52 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: 'Failed to fetch cart items.' }, 500);
     }
 
-    const foundItemIds = new Set((dbItems || []).map(item => item.id));
+    const dbItems = Array.isArray(dbItemsRaw) ? [...dbItemsRaw] : [];
+    const foundItemIds = new Set(dbItems.map(item => item.id));
     const missingItemIds = cart_item_ids.filter((id: string) => !foundItemIds.has(id));
     
-    if (!dbItems || dbItems.length !== cart_item_ids.length) {
+    if (dbItems.length !== cart_item_ids.length) {
       console.warn('[mobile-checkout] CHECKOUT_CART_DESYNC', {
         requested: cart_item_ids.length,
-        found: dbItems?.length || 0,
+        found: dbItems.length,
         missing: missingItemIds,
+        fallback: 'reload_active_cart_items',
       });
-      return jsonResponse({
-        success: false,
-        code: 'CART_DESYNC',
-        message: 'Cart changed. Please refresh.',
-        missing_item_ids: missingItemIds,
+
+      const { data: activeCartItems, error: activeCartItemsError } = await supabase
+        .from('order_items')
+        .select('*')
+        .eq('order_id', existingOrder.id)
+        .eq('is_saved_for_later', false)
+        .order('created_at', { ascending: true });
+
+      if (activeCartItemsError) {
+        console.error('[mobile-checkout] Error fetching active cart items for desync recovery:', activeCartItemsError);
+        return jsonResponse({ success: false, error: 'Failed to fetch cart items.' }, 500);
+      }
+
+      if (!activeCartItems || activeCartItems.length === 0) {
+        return jsonResponse({
+          success: false,
+          code: 'EMPTY_CART',
+          message: 'Your cart is empty. Please add items before checkout.',
+          message_fr: 'Votre panier est vide. Veuillez ajouter des articles avant de payer.',
+          missing_item_ids: missingItemIds,
+          cart_id: existingOrder.id,
+        }, 200);
+      }
+
+      dbItems.length = 0;
+      dbItems.push(...activeCartItems);
+      cart_item_ids.length = 0;
+      cart_item_ids.push(...activeCartItems.map((item: any) => item.id));
+
+      console.log('[mobile-checkout] CHECKOUT_CART_DESYNC_RECOVERED', {
+        requested: foundItemIds.size + missingItemIds.length,
+        recovered: dbItems.length,
+        recovered_item_ids: cart_item_ids,
         cart_id: existingOrder.id,
-      }, 400);
+      });
     }
 
     // Check for saved items

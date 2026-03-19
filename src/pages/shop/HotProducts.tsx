@@ -61,7 +61,7 @@ export default function HotProducts() {
     if (processingIds.has(key)) return;
 
     // If not logged in, redirect to auth with return URL
-    if (!session || !user) {
+    if (!session) {
       // Encode product info in the redirect so we can auto-buy after login
       const returnUrl = encodeURIComponent(`/hot-products?buy=${product.id}`);
       navigate(`/shop-auth?redirect=${returnUrl}`);

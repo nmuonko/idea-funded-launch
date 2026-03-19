@@ -191,7 +191,7 @@ export function ShopHeader() {
                             <Link2 className="h-4 w-4" />
                             {language === 'fr' ? 'Coller un lien' : 'Paste a Link'}
                           </Link>
-                          <Drawer>
+                          <Drawer handleOnly>
                             <DrawerTrigger asChild>
                               <button
                                 className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors w-full text-left"

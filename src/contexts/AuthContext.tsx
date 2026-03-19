@@ -242,7 +242,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const isEmailConfirmPage = window.location.pathname === '/email-confirmed';
         
         // Don't clear session if on email confirmation page
-        if (!rememberMe && !sessionActive && !isEmailConfirmPage) {
+        const isNativeApp = isCapacitorApp();
+        
+        if (!rememberMe && !sessionActive && !isEmailConfirmPage && !isNativeApp) {
           // New browser session and user didn't want to be remembered - clear auth
           console.log('[Auth] Clearing session - remember me was not selected');
           await supabase.auth.signOut();

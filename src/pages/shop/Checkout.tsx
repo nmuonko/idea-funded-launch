@@ -87,14 +87,14 @@ export default function Checkout() {
   // Load profile data
   useEffect(() => {
     const loadProfile = async () => {
-      if (!user) return;
+      if (!sessionUser) return;
       
       try {
-        console.log('[CHECKOUT] Loading profile for user:', user.id);
+        console.log('[CHECKOUT] Loading profile for user:', sessionUser.id);
         const { data } = await supabase
           .from('profiles')
           .select('*')
-          .eq('user_id', user.id)
+          .eq('user_id', sessionUser.id)
           .single();
 
         if (data) {
@@ -118,7 +118,7 @@ export default function Checkout() {
     };
 
     loadProfile();
-  }, [user]);
+  }, [sessionUser]);
 
   // Check if user has a saved address
   const hasSavedAddress = useMemo(() => {

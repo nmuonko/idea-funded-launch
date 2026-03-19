@@ -30,7 +30,7 @@ export default function HotProducts() {
   const navigate = useNavigate();
   const { language } = useLanguage();
   const { addItem } = useShopCart();
-  const { user, session } = useAuth();
+  const { session } = useAuth();
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());

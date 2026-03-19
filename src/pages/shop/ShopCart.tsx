@@ -33,7 +33,7 @@ export default function ShopCart() {
     selectedItemIds, toggleItemSelection, selectAllItems, deselectAllItems,
     selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment
   } = useShopCart();
-  const { user } = useAuth();
+  const { user, session, isAuthReady } = useAuth();
   const { language } = useLanguage();
   const { toast } = useToast();
   const t = translations[language] || translations.en;
@@ -43,6 +43,16 @@ export default function ShopCart() {
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
   const allSelected = items.length > 0 && selectedItemIds.size === items.length;
   const noneSelected = selectedItemIds.size === 0;
+
+  const handlePayerButtonClick = () => {
+    console.log('[CART] Payer button pressed', {
+      hasSession: !!session,
+      hasUser: !!user,
+      isAuthReady,
+      selectedCount: selectedItemIds.size,
+      selectedCanProceedToPayment,
+    });
+  };
 
   // Try to restore cart from pending checkout if empty on mount
   useEffect(() => {

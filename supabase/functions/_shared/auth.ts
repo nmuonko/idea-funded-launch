@@ -513,9 +513,8 @@ const AUTH_CACHE_TTL = 30_000; // 30 seconds
  * Uses SERVICE_ROLE to validate the token server-side
  */
 export async function verifyAndGetUser(req: Request, _supabase?: any): Promise<{ user: User; supabase: SupabaseClient }> {
-  const authHeader = req.headers.get('Authorization');
-  const token = extractBearerToken(authHeader);
-  
+  const { token, source } = await extractRequestToken(req);
+
   if (!token) {
     throw new AuthError('Missing or invalid Authorization header', 401);
   }
@@ -528,21 +527,23 @@ export async function verifyAndGetUser(req: Request, _supabase?: any): Promise<{
 
   // Use admin client to verify the token
   const adminClient = createAdminClient();
-  
+
   const { data: { user }, error } = await adminClient.auth.getUser(token);
-  
+
   if (error) {
-    console.error('[Auth] Token verification failed:', error.message);
+    console.error('[Auth] Token verification failed:', error.message, 'source=', source);
     throw new AuthError('Invalid JWT', 401);
   }
-  
+
   if (!user) {
     throw new AuthError('Invalid JWT - no user found', 401);
   }
-  
+
+  console.log('[Auth] Authenticated request via', source || 'unknown');
+
   // Cache the result for 30 seconds
   authCache.set(token, { user, expiry: Date.now() + AUTH_CACHE_TTL });
-  
+
   // Clean up old cache entries periodically
   if (authCache.size > 100) {
     const now = Date.now();
@@ -552,7 +553,7 @@ export async function verifyAndGetUser(req: Request, _supabase?: any): Promise<{
       }
     }
   }
-  
+
   return { user, supabase: adminClient };
 }
 

@@ -469,6 +469,7 @@ serve(async (req) => {
       return jsonResponse({
         ok: false,
         success: false,
+        authenticated: false,
         error: 'UNAUTHENTICATED',
         message: 'Login required',
         message_fr: 'Connexion requise',

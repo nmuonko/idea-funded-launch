@@ -488,11 +488,12 @@ serve(async (req) => {
     if (error.name === 'AuthError') {
       return jsonResponse({ 
         success: false,
+        authenticated: false,
         status: 'failed',
         payment_status: 'failed',
-        error: error.message,
+        error: 'Authentication failed. Please sign in again.',
         error_code: 'AUTH_ERROR',
-      }, error.status);
+      }, 200);
     }
     
     return jsonResponse({ 

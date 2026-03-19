@@ -35,7 +35,7 @@ export default function Checkout() {
     vehicleQuoteStatus, serverTotalUsd,
     selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment
   } = useShopCart();
-  const { user } = useAuth();
+  const { user, isAuthReady, loading: authLoading } = useAuth();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;

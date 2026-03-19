@@ -234,30 +234,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         
-        // Check if session should be cleared (user didn't select "remember me" and this is a new browser session)
+        // Get session FIRST — never destroy a valid persisted session
+        const { data: { session } } = await supabase.auth.getSession();
+        
         const rememberMe = localStorage.getItem('rememberMe');
         const sessionActive = sessionStorage.getItem('sessionActive');
-        
-        // Also check if we're on the email confirmation page (verification link opens in new tab)
         const isEmailConfirmPage = window.location.pathname === '/email-confirmed';
-        
-        // Don't clear session if on email confirmation page
         const isNativeApp = isCapacitorApp();
         
-        if (!rememberMe && !sessionActive && !isEmailConfirmPage && !isNativeApp) {
-          // New browser session and user didn't want to be remembered - clear auth
-          console.log('[Auth] Clearing session - remember me was not selected');
-          await supabase.auth.signOut();
-          setSession(null);
-          setUser(null);
-          setProfile(null);
-          setIsAdmin(false);
+        // Only skip if no flags, not native, not email confirm, AND no existing session
+        if (!rememberMe && !sessionActive && !isEmailConfirmPage && !isNativeApp && !session) {
+          console.log('[Auth] No stored session and no remember-me — skipping');
           setLoading(false);
           return;
         }
         
-        // Get initial session
-        const { data: { session } } = await supabase.auth.getSession();
+        // If session exists but flags are missing (e.g. mobile WebView), restore the flag
+        if (session && !rememberMe && !sessionActive) {
+          sessionStorage.setItem('sessionActive', 'true');
+        }
         
         if (!mounted) return;
         

@@ -410,12 +410,16 @@ serve(async (req) => {
   } catch (error: any) {
     console.error('[mobile-create-payment] Unhandled error:', error.message);
     
+    // NEVER return raw 401/403 to the frozen RN app.
+    // Its global auth handler treats non-200 auth responses as a forced logout.
     if (error.name === 'AuthError') {
       return jsonResponse({ 
+        ok: false,
         success: false, 
+        authenticated: false,
         error: 'AUTH_ERROR', 
         message: 'Authentication failed. Please sign in again.' 
-      }, error.status || 401);
+      }, 200);
     }
     
     // Generic error - NEVER expose internal details

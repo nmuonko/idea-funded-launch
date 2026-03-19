@@ -30,7 +30,7 @@ export default function HotProducts() {
   const navigate = useNavigate();
   const { language } = useLanguage();
   const { addItem } = useShopCart();
-  const { user, session } = useAuth();
+  const { session } = useAuth();
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
@@ -61,7 +61,7 @@ export default function HotProducts() {
     if (processingIds.has(key)) return;
 
     // If not logged in, redirect to auth with return URL
-    if (!session || !user) {
+    if (!session) {
       // Encode product info in the redirect so we can auto-buy after login
       const returnUrl = encodeURIComponent(`/hot-products?buy=${product.id}`);
       navigate(`/shop-auth?redirect=${returnUrl}`);
@@ -97,7 +97,7 @@ export default function HotProducts() {
 
   // After login redirect: auto-trigger buy if ?buy= param exists
   useEffect(() => {
-    if (!session || !user || products.length === 0) return;
+    if (!session || products.length === 0) return;
     const params = new URLSearchParams(window.location.search);
     const buyId = params.get('buy');
     if (!buyId) return;
@@ -108,7 +108,7 @@ export default function HotProducts() {
       window.history.replaceState({}, '', '/hot-products');
       handleBuyNow(product);
     }
-  }, [session, user, products]);
+  }, [session, products]);
 
   const locale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
 

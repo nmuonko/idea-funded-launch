@@ -35,10 +35,11 @@ export default function Checkout() {
     vehicleQuoteStatus, serverTotalUsd,
     selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment
   } = useShopCart();
-  const { user, isAuthReady, loading: authLoading } = useAuth();
+  const { user, session, isAuthReady } = useAuth();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
+  const sessionUser = session?.user ?? user;
   
   const [loading, setLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -86,14 +87,14 @@ export default function Checkout() {
   // Load profile data
   useEffect(() => {
     const loadProfile = async () => {
-      if (!user) return;
+      if (!sessionUser) return;
       
       try {
-        console.log('[CHECKOUT] Loading profile for user:', user.id);
+        console.log('[CHECKOUT] Loading profile for user:', sessionUser.id);
         const { data } = await supabase
           .from('profiles')
           .select('*')
-          .eq('user_id', user.id)
+          .eq('user_id', sessionUser.id)
           .single();
 
         if (data) {
@@ -117,7 +118,7 @@ export default function Checkout() {
     };
 
     loadProfile();
-  }, [user]);
+  }, [sessionUser]);
 
   // Check if user has a saved address
   const hasSavedAddress = useMemo(() => {
@@ -154,13 +155,13 @@ export default function Checkout() {
           postal_code: address.postalCode,
           country: address.country,
         })
-        .eq('user_id', user?.id);
+        .eq('user_id', sessionUser?.id);
 
       // Log funnel step: order_created
       const logFunnel = async (step: string, status: string, errorMessage?: string, meta?: Record<string, any>) => {
         try {
           await supabase.from('checkout_funnel_log').insert({
-            user_id: user?.id,
+            user_id: sessionUser?.id,
             step,
             status,
             error_message: errorMessage || null,
@@ -398,7 +399,7 @@ export default function Checkout() {
     } finally {
       setLoading(false);
     }
-  }, [checkoutItems, checkoutTotal, paymentMethod, address, user, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal, language]);
+  }, [checkoutItems, checkoutTotal, paymentMethod, address, sessionUser, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal, language]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -415,9 +416,8 @@ export default function Checkout() {
     processCheckout();
   };
 
-  // CRITICAL: Wait for auth readiness before showing sign-in prompt.
-  // On mobile, getSession() may still be restoring the persisted token.
-  if (!isAuthReady || authLoading) {
+  // Wait only for auth hydration before evaluating checkout access.
+  if (!isAuthReady) {
     return (
       <div className="min-h-screen bg-black">
         <ShopHeader />
@@ -428,7 +428,7 @@ export default function Checkout() {
     );
   }
 
-  if (!user) {
+  if (!session) {
     return (
       <div className="min-h-screen bg-black">
         <ShopHeader />

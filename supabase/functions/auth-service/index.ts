@@ -650,6 +650,64 @@ async function handleCreateReferrer(payload: any): Promise<Response> {
   }
 
   console.log(`[create_referrer] Created referrer ${data.id} with code ${data.ref_code}`);
+
+  // Send referral link email (fire-and-forget)
+  const referralLink = `https://afrishop-usa.com/get?ref=${data.ref_code}`;
+  const apiKey = Deno.env.get("RESEND_API_KEY");
+  if (apiKey) {
+    fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: "AfriShop USA <nkadimisha@afrishop-usa.com>",
+        to: [email],
+        subject: "Votre lien de parrainage AfriShop / Your AfriShop Referral Link",
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#fff;border-radius:12px;">
+            <div style="text-align:center;margin-bottom:24px;">
+              <div style="font-size:40px;">🎁</div>
+              <h1 style="font-size:22px;color:#1e2028;margin:12px 0 4px;">Partager &amp; Gagner</h1>
+              <p style="color:#f59e0b;font-size:14px;font-weight:600;margin:0;">Share &amp; Earn</p>
+            </div>
+
+            <p style="color:#333;font-size:14px;line-height:1.6;">
+              Bonjour <strong>${full_name}</strong>,<br><br>
+              Merci de rejoindre le programme de parrainage AfriShop ! Voici votre lien unique :
+            </p>
+
+            <div style="background:#f8f5f0;border:2px solid #f59e0b;border-radius:10px;padding:16px;margin:20px 0;text-align:center;">
+              <a href="${referralLink}" style="color:#d97706;font-size:15px;font-weight:bold;word-break:break-all;text-decoration:none;">
+                ${referralLink}
+              </a>
+            </div>
+
+            <p style="color:#333;font-size:14px;line-height:1.6;">
+              Partagez ce lien avec vos amis. Chaque achat via votre lien vous rapporte une commission sur votre Mobile Money ! 💰
+            </p>
+
+            <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
+
+            <p style="color:#666;font-size:13px;line-height:1.6;">
+              Hello <strong>${full_name}</strong>,<br><br>
+              Thank you for joining the AfriShop referral program! Here is your unique referral link above.
+              Share it with friends — every purchase through your link earns you a commission paid to your Mobile Money! 💰
+            </p>
+
+            <div style="text-align:center;margin-top:24px;">
+              <p style="color:#999;font-size:11px;">AfriShop USA — African Products, Delivered Worldwide</p>
+            </div>
+          </div>
+        `,
+      }),
+    }).then(r => {
+      if (!r.ok) r.text().then(t => console.error("[create_referrer] Email send failed:", t));
+      else console.log("[create_referrer] Referral link email sent to", email);
+    }).catch(e => console.error("[create_referrer] Email send error:", e));
+  }
+
   return jsonRes({ ok: true, ref_code: data.ref_code });
 }
 

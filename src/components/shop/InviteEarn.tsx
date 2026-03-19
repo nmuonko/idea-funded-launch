@@ -35,6 +35,12 @@ const t = {
     step3title: 'Earn',
     step3desc: 'Get paid to your Mobile Money',
     payoutNotice: '💰 Commissions are paid directly to your Mobile Money wallet (Airtel Money, M-Pesa, or Orange Money). Make sure you register with the correct number!',
+    alreadyRegistered: 'Already registered?',
+    retrieveLink: 'Retrieve my link',
+    retrievePlaceholder: 'Enter your email',
+    retrieveBtn: 'Find my link',
+    noLinkFound: 'No referral link found for this email.',
+    backToRegister: 'Back to registration',
   },
   fr: {
     title: 'Partager & Gagner',
@@ -61,6 +67,12 @@ const t = {
     step3title: 'Gagnez',
     step3desc: 'Recevez sur votre Mobile Money',
     payoutNotice: '💰 Les commissions sont versées directement sur votre Mobile Money (Airtel Money, M-Pesa ou Orange Money). Inscrivez-vous avec le bon numéro !',
+    alreadyRegistered: 'Déjà inscrit(e) ?',
+    retrieveLink: 'Retrouver mon lien',
+    retrievePlaceholder: 'Entrez votre email',
+    retrieveBtn: 'Trouver mon lien',
+    noLinkFound: 'Aucun lien trouvé pour cet email.',
+    backToRegister: "Retour à l'inscription",
   },
   sw: {
     title: 'Shiriki & Pata',
@@ -87,6 +99,12 @@ const t = {
     step3title: 'Pata',
     step3desc: 'Lipa kwenye Mobile Money yako',
     payoutNotice: '💰 Kamisheni zinalipwa moja kwa moja kwenye Mobile Money yako (Airtel Money, M-Pesa au Orange Money). Jisajili na nambari sahihi!',
+    alreadyRegistered: 'Tayari umesajiliwa?',
+    retrieveLink: 'Pata kiungo changu',
+    retrievePlaceholder: 'Ingiza barua pepe yako',
+    retrieveBtn: 'Tafuta kiungo changu',
+    noLinkFound: 'Hakuna kiungo kilichopatikana kwa barua pepe hii.',
+    backToRegister: 'Rudi kwenye usajili',
   },
   ln: {
     title: 'Kabola & Zwa',
@@ -113,6 +131,12 @@ const t = {
     step3title: 'Zwa',
     step3desc: 'Futamá na Mobile Money na yo',
     payoutNotice: '💰 Commission ekofutama na Mobile Money na yo (Airtel Money, M-Pesa to Orange Money). Komisa nkombo na nambala ya solo!',
+    alreadyRegistered: 'Osi na nkombo?',
+    retrieveLink: 'Kozwa lien na ngai',
+    retrievePlaceholder: 'Kotia email na yo',
+    retrieveBtn: 'Koluka lien na ngai',
+    noLinkFound: 'Lien emonani te na email oyo.',
+    backToRegister: 'Kozonga na inscription',
   },
 };
 
@@ -183,6 +207,8 @@ export function InviteEarn({ language }: InviteEarnProps) {
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ full_name: '', email: '', phone: '' });
+  const [mode, setMode] = useState<'register' | 'retrieve'>('register');
+  const [retrieveEmail, setRetrieveEmail] = useState('');
 
   const handleRegister = async () => {
     if (!form.full_name || !form.email || !form.phone) {
@@ -201,6 +227,31 @@ export function InviteEarn({ language }: InviteEarnProps) {
       setRefCode(data.ref_code);
       localStorage.setItem(REF_CODE_KEY, data.ref_code);
       toast({ title: lang.copied.replace('!', '') + ' ✓' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRetrieve = async () => {
+    if (!retrieveEmail) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('referrers')
+        .select('ref_code')
+        .eq('email', retrieveEmail.trim().toLowerCase())
+        .eq('status', 'active')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        toast({ title: lang.noLinkFound, variant: 'destructive' });
+        return;
+      }
+      setRefCode(data.ref_code);
+      localStorage.setItem(REF_CODE_KEY, data.ref_code);
+      toast({ title: '✓' });
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {
@@ -305,6 +356,36 @@ export function InviteEarn({ language }: InviteEarnProps) {
             ))}
           </div>
         </div>
+      ) : mode === 'retrieve' ? (
+        /* ── RETRIEVE VIEW ── */
+        <div className="px-5 pb-6 space-y-4">
+          <p className="text-[13px] text-white/50 text-center">{lang.alreadyRegistered}</p>
+          <div className="relative">
+            <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-white/25" />
+            <Input
+              type="email"
+              value={retrieveEmail}
+              onChange={e => setRetrieveEmail(e.target.value)}
+              placeholder={lang.retrievePlaceholder}
+              className="pl-11 h-11 rounded-xl bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/20 text-sm"
+              onKeyDown={e => e.key === 'Enter' && handleRetrieve()}
+            />
+          </div>
+          <Button
+            onClick={handleRetrieve}
+            disabled={loading || !retrieveEmail}
+            className="w-full h-12 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-bold text-sm shadow-lg shadow-amber-500/15 transition-all active:scale-[0.98]"
+          >
+            {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ArrowRight className="h-4 w-4 mr-2" />}
+            {lang.retrieveBtn}
+          </Button>
+          <button
+            onClick={() => setMode('register')}
+            className="w-full text-center text-xs text-amber-400/70 hover:text-amber-400 transition-colors py-1"
+          >
+            {lang.backToRegister}
+          </button>
+        </div>
       ) : (
         /* ── REGISTRATION VIEW ── */
         <div className="px-5 pb-6 space-y-5">
@@ -382,6 +463,14 @@ export function InviteEarn({ language }: InviteEarnProps) {
             {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ArrowRight className="h-4 w-4 mr-2" />}
             {lang.register}
           </Button>
+
+          {/* Already registered link */}
+          <button
+            onClick={() => setMode('retrieve')}
+            className="w-full text-center text-xs text-amber-400/70 hover:text-amber-400 transition-colors py-1"
+          >
+            {lang.alreadyRegistered} <span className="underline">{lang.retrieveLink}</span>
+          </button>
         </div>
       )}
     </div>

@@ -356,6 +356,36 @@ export function InviteEarn({ language }: InviteEarnProps) {
             ))}
           </div>
         </div>
+      ) : mode === 'retrieve' ? (
+        /* ── RETRIEVE VIEW ── */
+        <div className="px-5 pb-6 space-y-4">
+          <p className="text-[13px] text-white/50 text-center">{lang.alreadyRegistered}</p>
+          <div className="relative">
+            <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-white/25" />
+            <Input
+              type="email"
+              value={retrieveEmail}
+              onChange={e => setRetrieveEmail(e.target.value)}
+              placeholder={lang.retrievePlaceholder}
+              className="pl-11 h-11 rounded-xl bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/20 text-sm"
+              onKeyDown={e => e.key === 'Enter' && handleRetrieve()}
+            />
+          </div>
+          <Button
+            onClick={handleRetrieve}
+            disabled={loading || !retrieveEmail}
+            className="w-full h-12 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-bold text-sm shadow-lg shadow-amber-500/15 transition-all active:scale-[0.98]"
+          >
+            {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ArrowRight className="h-4 w-4 mr-2" />}
+            {lang.retrieveBtn}
+          </Button>
+          <button
+            onClick={() => setMode('register')}
+            className="w-full text-center text-xs text-amber-400/70 hover:text-amber-400 transition-colors py-1"
+          >
+            {lang.backToRegister}
+          </button>
+        </div>
       ) : (
         /* ── REGISTRATION VIEW ── */
         <div className="px-5 pb-6 space-y-5">
@@ -433,6 +463,14 @@ export function InviteEarn({ language }: InviteEarnProps) {
             {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ArrowRight className="h-4 w-4 mr-2" />}
             {lang.register}
           </Button>
+
+          {/* Already registered link */}
+          <button
+            onClick={() => setMode('retrieve')}
+            className="w-full text-center text-xs text-amber-400/70 hover:text-amber-400 transition-colors py-1"
+          >
+            {lang.alreadyRegistered} <span className="underline">{lang.retrieveLink}</span>
+          </button>
         </div>
       )}
     </div>

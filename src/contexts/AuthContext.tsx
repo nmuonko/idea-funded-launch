@@ -27,6 +27,7 @@ interface AuthContextType {
   profile: UserProfile | null;
   isAdmin: boolean;
   loading: boolean;
+  isAuthReady: boolean;
   signIn: (email: string, password: string, rememberMe?: boolean) => Promise<{ error: any; userId: string | null }>;
   signUp: (email: string, password: string, fullName: string, phone?: string, profileData?: {
     country?: string;
@@ -52,6 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const { toast } = useToast();
 
   /**
@@ -207,6 +209,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    // Track whether initializeAuth has settled the session — prevents onAuthStateChange
+    // from prematurely clearing user/session before getSession() finishes (mobile race).
+    let initialSessionSettled = false;
 
     const initializeAuth = async () => {
       try {
@@ -223,6 +228,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (isRecoveryFlow) {
           console.log('[Auth] Recovery flow detected — redirecting to reset-password immediately');
           setLoading(false);
+          setIsAuthReady(true);
           window.location.href = '/auth/reset-password' + window.location.hash;
           return;
         }
@@ -231,6 +237,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (isResetPasswordPage) {
           console.log('[Auth] On reset-password page — skipping admin/profile init');
           setLoading(false);
+          setIsAuthReady(true);
           return;
         }
         
@@ -245,7 +252,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Only skip if no flags, not native, not email confirm, AND no existing session
         if (!rememberMe && !sessionActive && !isEmailConfirmPage && !isNativeApp && !session) {
           console.log('[Auth] No stored session and no remember-me — skipping');
+          initialSessionSettled = true;
           setLoading(false);
+          setIsAuthReady(true);
           return;
         }
         
@@ -260,6 +269,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         
+        // CRITICAL: Mark initial session as settled BEFORE async admin/profile work.
+        // This prevents onAuthStateChange from overwriting with null during hydration.
+        initialSessionSettled = true;
+        // Mark auth ready immediately — session & user are now resolved.
+        // Admin/profile loading happens after but should NOT block route guards.
+        setIsAuthReady(true);
+        
         if (session?.user) {
           console.log('[Auth] Checking admin status for:', session.user.id);
           await checkAdminStatus(session.user.id);
@@ -273,6 +289,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('[Auth] Init error:', error);
         setIsAdmin(false);
         setProfile(null);
+        initialSessionSettled = true;
+        setIsAuthReady(true);
       } finally {
         if (mounted) {
           console.log('[Auth] Setting loading to false');
@@ -286,7 +304,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (event, session) => {
         if (!mounted) return;
         
-        console.log('[Auth] State change event:', event, session?.user?.email);
+        console.log('[Auth] State change event:', event, session?.user?.email, 'settled:', initialSessionSettled);
+        
+        // CRITICAL FIX: If initializeAuth hasn't settled yet and this event has no session,
+        // IGNORE it — getSession() will provide the authoritative answer.
+        // This prevents the mobile race where onAuthStateChange fires INITIAL_SESSION with
+        // null before getSession() has finished restoring the persisted token.
+        if (!initialSessionSettled && !session) {
+          console.log('[Auth] Ignoring early null-session event (initial session not yet settled)');
+          return;
+        }
+        
         setSession(session);
         setUser(session?.user ?? null);
         
@@ -661,7 +689,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session,
         profile,
         isAdmin, 
-        loading, 
+        loading,
+        isAuthReady,
         signIn, 
         signUp, 
         signOut,

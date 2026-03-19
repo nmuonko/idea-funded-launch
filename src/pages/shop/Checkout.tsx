@@ -35,7 +35,7 @@ export default function Checkout() {
     vehicleQuoteStatus, serverTotalUsd,
     selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment
   } = useShopCart();
-  const { user } = useAuth();
+  const { user, isAuthReady, loading: authLoading } = useAuth();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
@@ -414,6 +414,19 @@ export default function Checkout() {
     setShowTermsDialog(false);
     processCheckout();
   };
+
+  // CRITICAL: Wait for auth readiness before showing sign-in prompt.
+  // On mobile, getSession() may still be restoring the persisted token.
+  if (!isAuthReady || authLoading) {
+    return (
+      <div className="min-h-screen bg-black">
+        <ShopHeader />
+        <div className="flex items-center justify-center pt-24">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+        </div>
+      </div>
+    );
+  }
 
   if (!user) {
     return (

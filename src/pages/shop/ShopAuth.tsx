@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Eye, EyeOff, Loader2, Mail, Lock, User, Phone, Check, MapPin, Building, Globe, ChevronDown } from 'lucide-react';
@@ -26,7 +26,7 @@ export default function ShopAuth() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirect = searchParams.get('redirect') || '/';
-  const { signIn, signUp, user, checkAdminStatus } = useAuth();
+  const { signIn, signUp, user, isAuthReady, checkAdminStatus } = useAuth();
   const { language, setLanguage } = useLanguage();
   const { toast } = useToast();
   
@@ -83,9 +83,15 @@ export default function ShopAuth() {
     'Haut-Katanga',
   ];
 
-  // Redirect if already logged in
-  if (user) {
-    navigate(redirect, { replace: true });
+  // Redirect if already logged in — but only after auth is fully ready
+  // to avoid navigating during the unstable hydration window on mobile
+  useEffect(() => {
+    if (isAuthReady && user) {
+      navigate(redirect, { replace: true });
+    }
+  }, [isAuthReady, user, redirect, navigate]);
+
+  if (isAuthReady && user) {
     return null;
   }
 

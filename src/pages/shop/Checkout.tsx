@@ -399,7 +399,7 @@ export default function Checkout() {
     } finally {
       setLoading(false);
     }
-  }, [checkoutItems, checkoutTotal, paymentMethod, address, user, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal, language]);
+  }, [checkoutItems, checkoutTotal, paymentMethod, address, sessionUser, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal, language]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

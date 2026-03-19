@@ -8,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRouteProps) {
-  const { user, session, isAdmin, loading, isAuthReady } = useAuth();
+  const { user, session, isAdmin, isAuthReady } = useAuth();
   const location = useLocation();
 
   console.log('[ProtectedRoute] Render:', { 
@@ -16,16 +16,15 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
     userId: user?.id,
     hasSession: !!session,
     isAdmin, 
-    loading,
     isAuthReady,
     requireAdmin,
     path: location.pathname,
     timestamp: new Date().toISOString()
   });
 
-  // CRITICAL: Wait for auth to fully load AND be ready before making any decisions
-  if (!isAuthReady || loading) {
-    console.log('[ProtectedRoute] Waiting for auth to load...');
+  // Route protection must depend only on auth hydration and session.
+  if (!isAuthReady) {
+    console.log('[ProtectedRoute] Waiting for auth hydration...');
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="text-center space-y-4">
@@ -36,9 +35,9 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
     );
   }
 
-  // Check 1: User must have a valid session
-  if (!session || !user) {
-    console.log('[ProtectedRoute] ❌ No session/user - Redirecting to auth');
+  // Check 1: Session alone determines authenticated access
+  if (!session) {
+    console.log('[ProtectedRoute] ❌ No session - Redirecting to auth');
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }
 

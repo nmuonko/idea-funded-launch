@@ -369,7 +369,7 @@ export default function ShopCart() {
 
                   <div className="mt-6 space-y-3">
                     {/* Vehicle quote warning — only if a vehicle is SELECTED */}
-                    {selectedHasVehicleItems && vehicleQuoteStatus !== 'quoted' && user ? (
+                    {selectedHasVehicleItems && vehicleQuoteStatus !== 'quoted' && session ? (
                       vehicleQuoteStatus === 'pending' ? (
                         <div className="text-center space-y-2">
                           <div className="flex items-center justify-center gap-2 text-amber-400 text-sm">
@@ -408,8 +408,16 @@ export default function ShopCart() {
                           </p>
                         </>
                       )
-                    ) : user ? (
-                      <Link to="/checkout" className="block">
+                    ) : !isAuthReady ? (
+                      <Button
+                        disabled
+                        className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full disabled:opacity-60"
+                      >
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        {language === 'fr' ? 'Chargement...' : 'Loading...'}
+                      </Button>
+                    ) : session ? (
+                      <Link to="/checkout" className="block" onClick={handlePayerButtonClick}>
                         <Button 
                           disabled={noneSelected || !selectedCanProceedToPayment}
                           className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full disabled:opacity-40"
@@ -420,7 +428,7 @@ export default function ShopCart() {
                       </Link>
                     ) : (
                       <>
-                        <Link to="/shop-auth?redirect=/checkout" className="block">
+                        <Link to="/shop-auth?redirect=/checkout" className="block" onClick={handlePayerButtonClick}>
                           <Button className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full">
                             {shop.signInToCheckout || 'Sign In to Checkout'}
                           </Button>

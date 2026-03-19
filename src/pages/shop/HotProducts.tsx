@@ -97,7 +97,7 @@ export default function HotProducts() {
 
   // After login redirect: auto-trigger buy if ?buy= param exists
   useEffect(() => {
-    if (!session || !user || products.length === 0) return;
+    if (!session || products.length === 0) return;
     const params = new URLSearchParams(window.location.search);
     const buyId = params.get('buy');
     if (!buyId) return;
@@ -108,7 +108,7 @@ export default function HotProducts() {
       window.history.replaceState({}, '', '/hot-products');
       handleBuyNow(product);
     }
-  }, [session, user, products]);
+  }, [session, products]);
 
   const locale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
 

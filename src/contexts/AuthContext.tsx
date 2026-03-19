@@ -275,6 +275,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Mark auth ready immediately — session & user are now resolved.
         // Admin/profile loading happens after but should NOT block route guards.
         setIsAuthReady(true);
+        console.log('[Auth] Hydration complete', {
+          hasSession: !!session,
+          userId: session?.user?.id ?? null,
+          isAuthReady: true,
+        });
         
         if (session?.user) {
           console.log('[Auth] Checking admin status for:', session.user.id);

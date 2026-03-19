@@ -31,13 +31,81 @@ export const corsHeaders = {
  */
 export function extractBearerToken(authHeader: string | null): string | null {
   if (!authHeader) return null;
-  
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') {
-    return null;
+
+  const trimmed = authHeader.trim();
+  const parts = trimmed.split(' ');
+  if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
+    return parts[1];
   }
-  
-  return parts[1];
+
+  // Frozen mobile builds may send the raw JWT without the Bearer prefix.
+  return trimmed.length > 20 ? trimmed : null;
+}
+
+function extractTokenFromPayload(payload: any): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const candidates = [
+    payload.access_token,
+    payload.accessToken,
+    payload.token,
+    payload.jwt,
+    payload.authToken,
+    payload.bearerToken,
+    payload.session?.access_token,
+    payload.session?.accessToken,
+    payload.data?.session?.access_token,
+    payload.data?.session?.accessToken,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string') {
+      const normalized = extractBearerToken(candidate);
+      if (normalized) return normalized;
+    }
+  }
+
+  return null;
+}
+
+export async function extractRequestToken(req: Request): Promise<{ token: string | null; source: string | null }> {
+  const headerCandidates = [
+    req.headers.get('Authorization'),
+    req.headers.get('authorization'),
+    req.headers.get('x-access-token'),
+    req.headers.get('x-auth-token'),
+    req.headers.get('x-supabase-auth'),
+    req.headers.get('x-jwt'),
+    req.headers.get('x-session-token'),
+  ];
+
+  for (const candidate of headerCandidates) {
+    const token = extractBearerToken(candidate);
+    if (token) return { token, source: 'header' };
+  }
+
+  try {
+    const url = new URL(req.url);
+    for (const key of ['access_token', 'accessToken', 'token', 'jwt']) {
+      const token = extractBearerToken(url.searchParams.get(key));
+      if (token) return { token, source: 'query' };
+    }
+  } catch {
+    // ignore malformed URL edge cases
+  }
+
+  const contentType = req.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      const payload = await req.clone().json();
+      const token = extractTokenFromPayload(payload);
+      if (token) return { token, source: 'body' };
+    } catch {
+      // ignore invalid JSON bodies
+    }
+  }
+
+  return { token: null, source: null };
 }
 
 /**

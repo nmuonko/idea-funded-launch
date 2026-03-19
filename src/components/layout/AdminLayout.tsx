@@ -62,7 +62,6 @@ export function AdminLayout() {
       items: [
         { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'can_view_payments' as const },
         { to: '/admin/payments-settings', icon: DollarSign, label: language === 'fr' ? 'Fournisseurs' : 'Providers', permission: 'can_view_payments' as const },
-        { to: '/admin/referrals', icon: Gift, label: language === 'fr' ? 'Parrainages' : 'Referrals', permission: 'can_view_payments' as const },
       ]
     },
     {

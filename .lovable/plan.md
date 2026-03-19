@@ -1,72 +1,65 @@
 
+Problem I’m fixing: on mobile, users with a valid persisted session are still being treated as logged out when they tap the cart checkout button.
 
-## Problem
+Do I know what the issue is? Yes.
 
-The `isCapacitorApp()` detection is unreliable. It checks for `window.Capacitor` and "capacitor" in the user agent, but:
-- `window.Capacitor` may not be injected yet when auth initializes (timing race)
-- Capacitor does NOT add "capacitor" to the user agent by default on all platforms
-- Result: mobile users still hit the `signOut()` path at line 250 and get redirected to login
+What the code is doing now:
+- `AuthContext` registers `onAuthStateChange` before auth hydration is fully settled.
+- The callback can set `loading=false` and `session/user=null` too early.
+- `ShopProtectedRoute` redirects as soon as `loading` is false and `session/user` are empty.
+- The backend auth logs show repeated successful `/user` calls (HTTP 200), so many affected users do have a real session; the redirect is happening in frontend timing/state, not because the backend rejected them.
+- The current mobile fixes improved session persistence, but they did not fully solve the auth-readiness race.
 
-The core design flaw: the code destroys a valid Supabase-persisted session based on app-level flags (`rememberMe`/`sessionActive`) that are inherently fragile in mobile WebViews.
+Actual root cause:
+- This is now primarily an auth initialization race, not an install/cache issue.
+- The app is making redirect decisions before auth restoration is definitively complete.
+- Some pages also check `!user` directly without an explicit “auth is ready” guard.
 
-## Fix
+Files to update:
+1. `src/contexts/AuthContext.tsx`
+2. `src/components/shop/ShopProtectedRoute.tsx`
+3. `src/pages/shop/Checkout.tsx`
+4. `src/pages/shop/ShopAuth.tsx`
+5. Review `src/contexts/ShopCartContext.tsx` for any guest/logged-in initialization that should wait for auth readiness
 
-**Restructure the auth init logic** to check for an existing valid session BEFORE deciding whether to clear it. Additionally, improve mobile detection with more WebView indicators.
+Implementation plan:
+1. Add an explicit auth readiness flag in `AuthContext`
+- Add `isAuthReady` to the context value.
+- Hydrate auth with `supabase.auth.getSession()` first.
+- Mark auth ready only after the initial session restoration step completes.
+- Do not let a null early auth event force the app into a signed-out state before hydration finishes.
 
-### File: `src/lib/environment.ts`
-Expand `isCapacitorApp()` to also detect common mobile WebView patterns (standalone display mode, Android WebView UA strings, iOS WebView indicators):
-```typescript
-export const isCapacitorApp = (): boolean => {
-  if (typeof window === 'undefined') return false;
-  // Capacitor bridge object
-  if ((window as any).Capacitor !== undefined) return true;
-  const ua = navigator.userAgent.toLowerCase();
-  if (ua.includes('capacitor')) return true;
-  // Android WebView indicators
-  if (ua.includes('wv') && ua.includes('android')) return true;
-  // iOS standalone (installed to home screen or WebView)
-  if ((window.navigator as any).standalone === true) return true;
-  // Display-mode standalone (PWA installed)
-  if (window.matchMedia?.('(display-mode: standalone)')?.matches) return true;
-  return false;
-};
-```
+2. Restructure auth initialization
+- Separate “session restoration” from “profile/admin loading”.
+- Restore `session` and `user` first, set `isAuthReady=true`, then run profile/admin side-effects afterward.
+- Keep `onAuthStateChange` lightweight and non-blocking.
+- Ignore or safely handle early `INITIAL_SESSION`/null-state behavior so it cannot trigger a checkout redirect.
 
-### File: `src/contexts/AuthContext.tsx`
-Move the session check BEFORE the remember-me clearing logic. If Supabase already has a valid session persisted, don't destroy it — just proceed:
+3. Gate redirects with auth readiness
+- Update `ShopProtectedRoute` to wait for `isAuthReady` before redirecting.
+- Until auth is ready, show the loader.
+- Only redirect when `isAuthReady === true` and there is still no valid user/session.
 
-```typescript
-// Get session first
-const { data: { session: existingSession } } = await supabase.auth.getSession();
+4. Fix checkout page fallback behavior
+- `Checkout.tsx` currently shows “sign in” based on `!user` alone.
+- Change it to wait for auth readiness before showing any signed-out UI.
+- This prevents false login prompts during mobile hydration.
 
-const rememberMe = localStorage.getItem('rememberMe');
-const sessionActive = sessionStorage.getItem('sessionActive');
-const isEmailConfirmPage = window.location.pathname === '/email-confirmed';
-const isNativeApp = isCapacitorApp();
+5. Fix auth page navigation
+- `ShopAuth.tsx` currently navigates during render when `user` exists.
+- Move that redirect into an effect gated by `isAuthReady && user`.
+- This avoids navigation side-effects during unstable auth initialization.
 
-// Only clear if: no remember-me, no session flag, not native, not email confirm,
-// AND no existing valid session (don't destroy what Supabase already persisted)
-if (!rememberMe && !sessionActive && !isEmailConfirmPage && !isNativeApp && !existingSession) {
-  console.log('[Auth] No stored session and no remember-me — skipping');
-  setLoading(false);
-  return;
-}
+6. Optional hardening in cart provider
+- If needed, make logged-in vs guest cart initialization wait for `isAuthReady`.
+- This avoids cart/provider state being initialized from the wrong auth state during mobile startup.
 
-// If flags are missing but session exists (e.g. mobile), just use the session
-if (existingSession && !rememberMe && !sessionActive) {
-  sessionStorage.setItem('sessionActive', 'true');
-}
-```
+Why this should fix the issue:
+- It removes the race where mobile users are redirected before their restored session is available to route guards.
+- It matches the evidence from the auth logs: users are authenticated in the backend, but the frontend is deciding too early.
+- It is compatible with the already-published mobile app because the fix is entirely in the web layer loaded inside the mobile shell.
 
-This removes the destructive `signOut()` call entirely for users who have a valid session. The remember-me logic only applies when there's truly no session at all.
-
-### Technical Details
-
-| Item | Detail |
-|------|--------|
-| Files changed | `src/lib/environment.ts`, `src/contexts/AuthContext.tsx` |
-| Root cause | `isCapacitorApp()` fails silently; valid sessions are destroyed |
-| Key change | Check for existing session before clearing; never sign out a user who has a valid persisted session |
-| Risk | Low — preserves existing behavior for web users without sessions |
-| Mobile build compatibility | No native changes needed — works with frozen .aab builds |
-
+Technical notes:
+- I will preserve the existing mobile session persistence guard.
+- I will avoid awaiting Supabase calls directly inside the auth state callback.
+- I will keep the route behavior unchanged once auth is actually resolved; only the timing of redirect decisions will change.

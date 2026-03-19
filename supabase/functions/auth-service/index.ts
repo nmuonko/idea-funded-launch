@@ -676,7 +676,7 @@ serve(async (req) => {
       case 'get_profile': return handleGetProfile(req);
       case 'update_profile': return handleUpdateProfile(payload, req);
       case 'update_profile_web': return handleUpdateProfileWeb(payload, req);
-      case 'create_referrer': return proxyAuthToFunction('create-referrer', req, body);
+      case 'create_referrer': return handleCreateReferrer(payload);
       case 'confirm_all_users': {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;

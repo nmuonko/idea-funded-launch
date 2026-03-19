@@ -83,9 +83,15 @@ export default function ShopAuth() {
     'Haut-Katanga',
   ];
 
-  // Redirect if already logged in
-  if (user) {
-    navigate(redirect, { replace: true });
+  // Redirect if already logged in — but only after auth is fully ready
+  // to avoid navigating during the unstable hydration window on mobile
+  useEffect(() => {
+    if (isAuthReady && user) {
+      navigate(redirect, { replace: true });
+    }
+  }, [isAuthReady, user, redirect, navigate]);
+
+  if (isAuthReady && user) {
     return null;
   }
 

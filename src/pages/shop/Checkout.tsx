@@ -415,6 +415,19 @@ export default function Checkout() {
     processCheckout();
   };
 
+  // CRITICAL: Wait for auth readiness before showing sign-in prompt.
+  // On mobile, getSession() may still be restoring the persisted token.
+  if (!isAuthReady || authLoading) {
+    return (
+      <div className="min-h-screen bg-black">
+        <ShopHeader />
+        <div className="flex items-center justify-center pt-24">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="min-h-screen bg-black">

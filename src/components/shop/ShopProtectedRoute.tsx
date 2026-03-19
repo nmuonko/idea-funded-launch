@@ -11,18 +11,21 @@ interface ShopProtectedRouteProps {
  * Redirects unauthenticated users to /shop/auth with a redirect parameter.
  */
 export function ShopProtectedRoute({ children }: ShopProtectedRouteProps) {
-  const { user, session, loading } = useAuth();
+  const { user, session, loading, isAuthReady } = useAuth();
   const location = useLocation();
 
   console.log('[ShopProtectedRoute] Render:', { 
     userEmail: user?.email, 
     hasSession: !!session,
-    loading, 
+    loading,
+    isAuthReady,
     path: location.pathname,
   });
 
-  // Wait for auth to fully load before making any decisions
-  if (loading) {
+  // CRITICAL: Wait for auth to be fully ready (session restoration complete)
+  // before making any redirect decisions. This prevents the mobile race condition
+  // where onAuthStateChange fires with null before getSession() finishes.
+  if (!isAuthReady || loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-black">
         <div className="text-center space-y-4">
@@ -33,7 +36,7 @@ export function ShopProtectedRoute({ children }: ShopProtectedRouteProps) {
     );
   }
 
-  // User must have a valid session
+  // User must have a valid session — only checked AFTER isAuthReady is true
   if (!session || !user) {
     console.log('[ShopProtectedRoute] ❌ No session - Redirecting to /shop-auth');
     // Encode the current path to redirect back after login

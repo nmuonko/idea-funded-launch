@@ -512,8 +512,17 @@ serve(async (req) => {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     console.error('[mobile-orders] Error:', msg);
     
+    // NEVER return raw 401/403 — the frozen RN app's global error handler
+    // catches non-200 auth responses → signs out → redirects to login.
+    // Return HTTP 200 with a JSON error body so the app can retry gracefully.
     if ((error as any)?.name === 'AuthError') {
-      return errorResponse(msg, (error as any)?.status || 401);
+      return jsonResponse({
+        ok: false,
+        success: false,
+        error: 'AUTH_REQUIRED',
+        message: msg,
+        authenticated: false,
+      }, 200);
     }
     
     return jsonResponse({ ok: false, error: msg }, 500);

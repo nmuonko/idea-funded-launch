@@ -70,7 +70,7 @@ Deno.serve(async (req: Request) => {
     const { data: profile } = await supabase
       .from("profiles")
       .select("*")
-      .eq("id", user.id)
+      .eq("user_id", user.id)
       .maybeSingle();
 
     console.log(`[auth-me] rid=${rid} authenticated user=${user.id} email=${user.email}`);

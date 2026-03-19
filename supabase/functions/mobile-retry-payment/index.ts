@@ -181,7 +181,13 @@ serve(async (req) => {
     console.error('[mobile-retry-payment] Error:', error.message);
     
     if (error.name === 'AuthError') {
-      return errorResponse(error.message, error.status);
+      return jsonResponse({
+        ok: false,
+        success: false,
+        authenticated: false,
+        error: 'AUTH_ERROR',
+        message: 'Authentication failed. Please sign in again.',
+      }, 200);
     }
     
     return jsonResponse({ 

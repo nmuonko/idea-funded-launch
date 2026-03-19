@@ -17,6 +17,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { getCorsHeaders } from "../_shared/http.ts";
+import { extractRequestToken } from "../_shared/auth.ts";
 
 const corsHeaders = getCorsHeaders();
 import {
@@ -119,11 +120,13 @@ Deno.serve(async (req) => {
       timestamp: new Date().toISOString(),
     });
 
+    const { token, source: tokenSource } = await extractRequestToken(req);
+
     // Auth check
-    if (!authHeader) {
+    if (!token) {
       return new Response(
-        JSON.stringify({ success: false, requestId, error: 'Authorization required', error_code: 'AUTH_REQUIRED' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, authenticated: false, requestId, error: 'Authorization required', error_code: 'AUTH_REQUIRED' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -156,6 +159,7 @@ Deno.serve(async (req) => {
       requestedProvider: requestedProvider || null,
       payment_method_preference: payment_method_preference || null,
       currency: normalizedCurrency,
+      tokenSource: tokenSource || 'missing',
     });
 
     console.log('[payments-create-intent] Request:', { 
@@ -169,19 +173,20 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const bearerAuthHeader = `Bearer ${token}`;
 
     const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
+      global: { headers: { Authorization: bearerAuthHeader } },
     });
     
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get user
-    const { data: { user }, error: userError } = await supabaseUser.auth.getUser();
+    const { data: { user }, error: userError } = await supabaseUser.auth.getUser(token);
     if (userError || !user) {
       return new Response(
-        JSON.stringify({ success: false, requestId, error: 'Invalid authentication', error_code: 'INVALID_AUTH' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, authenticated: false, requestId, error: 'Invalid authentication', error_code: 'INVALID_AUTH' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -211,8 +216,8 @@ Deno.serve(async (req) => {
     // Verify ownership
     if (order.user_id !== user.id) {
       return new Response(
-        JSON.stringify({ success: false, requestId, error: 'Not authorized to pay for this order', error_code: 'NOT_AUTHORIZED' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, authenticated: true, requestId, error: 'Not authorized to pay for this order', error_code: 'NOT_AUTHORIZED' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

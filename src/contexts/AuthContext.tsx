@@ -27,6 +27,7 @@ interface AuthContextType {
   profile: UserProfile | null;
   isAdmin: boolean;
   loading: boolean;
+  isAuthReady: boolean;
   signIn: (email: string, password: string, rememberMe?: boolean) => Promise<{ error: any; userId: string | null }>;
   signUp: (email: string, password: string, fullName: string, phone?: string, profileData?: {
     country?: string;

@@ -155,13 +155,13 @@ export default function Checkout() {
           postal_code: address.postalCode,
           country: address.country,
         })
-        .eq('user_id', user?.id);
+        .eq('user_id', sessionUser?.id);
 
       // Log funnel step: order_created
       const logFunnel = async (step: string, status: string, errorMessage?: string, meta?: Record<string, any>) => {
         try {
           await supabase.from('checkout_funnel_log').insert({
-            user_id: user?.id,
+            user_id: sessionUser?.id,
             step,
             status,
             error_message: errorMessage || null,

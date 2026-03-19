@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react";
+import { recoverFromStaleBundle } from "@/lib/cacheBust";
 
 interface Props {
   children: ReactNode;
@@ -7,6 +8,14 @@ interface Props {
 interface State {
   hasError: boolean;
 }
+
+const isRecoverableContextError = (error: Error): boolean => {
+  const message = error?.message || "";
+  return (
+    message.includes("useAuth must be used within AuthProvider") ||
+    message.includes("useShopCart must be used within a ShopCartProvider")
+  );
+};
 
 export class GlobalErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
@@ -20,11 +29,16 @@ export class GlobalErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error("[GlobalErrorBoundary]", error, info.componentStack);
+
+    if (typeof window !== "undefined" && isRecoverableContextError(error)) {
+      console.warn("[GlobalErrorBoundary] Recovering from stale bundle context mismatch");
+      recoverFromStaleBundle();
+    }
   }
 
   handleRetry = () => {
     this.setState({ hasError: false });
-    window.location.href = "/";
+    recoverFromStaleBundle();
   };
 
   render() {
@@ -40,7 +54,7 @@ export class GlobalErrorBoundary extends Component<Props, State> {
               onClick={this.handleRetry}
               className="px-6 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 transition-opacity"
             >
-              Back to Home
+              Reload app
             </button>
           </div>
         </div>

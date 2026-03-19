@@ -19,7 +19,7 @@ const t = {
     register: 'Get My Referral Link',
     namePlaceholder: 'Full name',
     emailPlaceholder: 'Email address',
-    phonePlaceholder: 'Phone number (for payouts)',
+    phonePlaceholder: 'Mobile Money number (Airtel / M-Pesa / Orange)',
     shareTitle: 'Your referral link',
     shareVia: 'Share via',
     whatsapp: 'WhatsApp',
@@ -29,11 +29,12 @@ const t = {
     shareMsg: 'Shop African products delivered worldwide on AfriShop USA! Use my referral link:',
     howIt: 'How it works',
     step1title: 'Sign Up',
-    step1desc: 'Create your free account',
+    step1desc: 'Register with your Mobile Money number',
     step2title: 'Share',
     step2desc: 'Send your link to friends',
     step3title: 'Earn',
-    step3desc: 'Get paid per purchase',
+    step3desc: 'Get paid to your Mobile Money',
+    payoutNotice: '💰 Commissions are paid directly to your Mobile Money wallet (Airtel Money, M-Pesa, or Orange Money). Make sure you register with the correct number!',
   },
   fr: {
     title: 'Partager & Gagner',
@@ -44,7 +45,7 @@ const t = {
     register: 'Obtenir mon lien de parrainage',
     namePlaceholder: 'Nom complet',
     emailPlaceholder: 'Adresse email',
-    phonePlaceholder: 'Téléphone (pour les paiements)',
+    phonePlaceholder: 'Numéro Mobile Money (Airtel / M-Pesa / Orange)',
     shareTitle: 'Votre lien de parrainage',
     shareVia: 'Partager via',
     whatsapp: 'WhatsApp',
@@ -54,11 +55,12 @@ const t = {
     shareMsg: 'Achetez des produits africains livrés partout dans le monde sur AfriShop USA ! Utilisez mon lien :',
     howIt: 'Comment ça marche',
     step1title: 'Inscrivez-vous',
-    step1desc: 'Créez votre compte gratuit',
+    step1desc: 'Avec votre numéro Mobile Money',
     step2title: 'Partagez',
     step2desc: 'Envoyez votre lien',
     step3title: 'Gagnez',
-    step3desc: 'Touchez à chaque achat',
+    step3desc: 'Recevez sur votre Mobile Money',
+    payoutNotice: '💰 Les commissions sont versées directement sur votre Mobile Money (Airtel Money, M-Pesa ou Orange Money). Inscrivez-vous avec le bon numéro !',
   },
   sw: {
     title: 'Shiriki & Pata',
@@ -69,7 +71,7 @@ const t = {
     register: 'Pata Kiungo Changu',
     namePlaceholder: 'Jina kamili',
     emailPlaceholder: 'Barua pepe',
-    phonePlaceholder: 'Simu (kwa malipo)',
+    phonePlaceholder: 'Nambari ya Mobile Money (Airtel / M-Pesa / Orange)',
     shareTitle: 'Kiungo chako cha rufaa',
     shareVia: 'Shiriki kupitia',
     whatsapp: 'WhatsApp',
@@ -79,11 +81,12 @@ const t = {
     shareMsg: 'Nunua bidhaa za Kiafrika kwenye AfriShop USA! Tumia kiungo changu:',
     howIt: 'Jinsi inavyofanya kazi',
     step1title: 'Jisajili',
-    step1desc: 'Fungua akaunti bure',
+    step1desc: 'Kwa nambari yako ya Mobile Money',
     step2title: 'Shiriki',
     step2desc: 'Tuma kiungo chako',
     step3title: 'Pata',
-    step3desc: 'Lipa kwa kila ununuzi',
+    step3desc: 'Lipa kwenye Mobile Money yako',
+    payoutNotice: '💰 Kamisheni zinalipwa moja kwa moja kwenye Mobile Money yako (Airtel Money, M-Pesa au Orange Money). Jisajili na nambari sahihi!',
   },
   ln: {
     title: 'Kabola & Zwa',
@@ -94,7 +97,7 @@ const t = {
     register: 'Kozwa lien na ngai',
     namePlaceholder: 'Nkombo mobimba',
     emailPlaceholder: 'Email',
-    phonePlaceholder: 'Telefone (mpo na kofutama)',
+    phonePlaceholder: 'Nambala ya Mobile Money (Airtel / M-Pesa / Orange)',
     shareTitle: 'Lien na yo ya parrainage',
     shareVia: 'Kabola na',
     whatsapp: 'WhatsApp',
@@ -104,11 +107,12 @@ const t = {
     shareMsg: 'Somba biloko ya Afrika na AfriShop USA! Salelá lien na ngai:',
     howIt: 'Ndenge esalamaka',
     step1title: 'Komisa nkombo',
-    step1desc: 'Fungulá compte ya ofele',
+    step1desc: 'Na nambala na yo ya Mobile Money',
     step2title: 'Kabola',
     step2desc: 'Tindá lien na yo',
     step3title: 'Zwa',
-    step3desc: 'Futamá na mosombi nyonso',
+    step3desc: 'Futamá na Mobile Money na yo',
+    payoutNotice: '💰 Commission ekofutama na Mobile Money na yo (Airtel Money, M-Pesa to Orange Money). Komisa nkombo na nambala ya solo!',
   },
 };
 
@@ -304,6 +308,18 @@ export function InviteEarn({ language }: InviteEarnProps) {
       ) : (
         /* ── REGISTRATION VIEW ── */
         <div className="px-5 pb-6 space-y-5">
+          {/* Mobile Money payout notice */}
+          <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 px-4 py-3">
+            <p className="text-[12px] text-amber-300/90 leading-relaxed font-medium">
+              {lang.payoutNotice}
+            </p>
+            <div className="flex items-center gap-3 mt-2.5">
+              <span className="text-[10px] bg-white/10 text-white/70 px-2.5 py-1 rounded-full font-semibold">Airtel Money</span>
+              <span className="text-[10px] bg-white/10 text-white/70 px-2.5 py-1 rounded-full font-semibold">M-Pesa</span>
+              <span className="text-[10px] bg-white/10 text-white/70 px-2.5 py-1 rounded-full font-semibold">Orange Money</span>
+            </div>
+          </div>
+
           {/* How it works */}
           <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
             <p className="text-[11px] font-semibold text-white/40 uppercase tracking-widest mb-3">{lang.howIt}</p>

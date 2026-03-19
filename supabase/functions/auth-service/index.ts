@@ -21,7 +21,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, OPTIONS',
 };
 
-const PUBLIC_ACTIONS = new Set(['register', 'login', 'confirm_all_users']);
+const PUBLIC_ACTIONS = new Set(['register', 'login', 'confirm_all_users', 'create_referrer']);
 
 function jsonRes(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -610,6 +610,49 @@ async function handleUpdateProfileWeb(body: any, req: Request) {
   });
 }
 
+// ─── Create Referrer ───────────────────────────────────
+
+async function handleCreateReferrer(payload: any): Promise<Response> {
+  const { full_name, email, phone } = payload;
+  if (!full_name || !email || !phone) {
+    return jsonRes({ ok: false, message: 'full_name, email, and phone are required' }, 400);
+  }
+
+  const supabaseAdmin = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  );
+
+  // Check if referrer already exists by email or phone
+  const { data: existing } = await supabaseAdmin
+    .from('referrers')
+    .select('id, ref_code')
+    .or(`email.eq.${email},phone.eq.${phone}`)
+    .maybeSingle();
+
+  if (existing) {
+    return jsonRes({ ok: true, ref_code: existing.ref_code, message: 'Referrer already exists' });
+  }
+
+  // Generate a unique ref code
+  const ref_code = full_name.trim().split(/\s+/)[0].toLowerCase().slice(0, 8) +
+    Math.random().toString(36).slice(2, 7);
+
+  const { data, error } = await supabaseAdmin
+    .from('referrers')
+    .insert({ full_name, email, phone, ref_code, status: 'active' })
+    .select('id, ref_code')
+    .single();
+
+  if (error) {
+    console.error('[create_referrer] Insert error:', error);
+    return jsonRes({ ok: false, message: error.message }, 500);
+  }
+
+  console.log(`[create_referrer] Created referrer ${data.id} with code ${data.ref_code}`);
+  return jsonRes({ ok: true, ref_code: data.ref_code });
+}
+
 // ─── Proxy Helper ──────────────────────────────────────
 
 async function proxyAuthToFunction(functionName: string, req: Request, body: any): Promise<Response> {
@@ -676,7 +719,7 @@ serve(async (req) => {
       case 'get_profile': return handleGetProfile(req);
       case 'update_profile': return handleUpdateProfile(payload, req);
       case 'update_profile_web': return handleUpdateProfileWeb(payload, req);
-      case 'create_referrer': return proxyAuthToFunction('create-referrer', req, body);
+      case 'create_referrer': return handleCreateReferrer(payload);
       case 'confirm_all_users': {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;

@@ -76,6 +76,7 @@ export function AdminLayout() {
       title: language === 'fr' ? 'Marketing' : 'Marketing',
       items: [
         { to: '/admin/hot-products', icon: Flame, label: language === 'fr' ? 'Produits Vedettes' : 'Hot Products', permission: 'can_view_settings' as const },
+        { to: '/admin/referrals', icon: Gift, label: language === 'fr' ? 'Parrainages' : 'Referrals', permission: 'can_view_payments' as const },
       ]
     },
     {

@@ -2143,15 +2143,48 @@ serve(async (req) => {
             ...(inlineProvider === 'pawapay' && inlineOperator ? { operator: inlineOperator } : {}),
           };
 
-          const authHeader = req.headers.get('Authorization') || '';
+          const { token: inlineToken, source: inlineTokenSource } = await extractRequestToken(req);
+          const forwardHeaders = new Headers();
+          const authHeader = req.headers.get('Authorization') || req.headers.get('authorization');
+          if (authHeader) {
+            forwardHeaders.set('Authorization', authHeader);
+          } else if (inlineToken) {
+            forwardHeaders.set('Authorization', `Bearer ${inlineToken}`);
+          }
+          forwardHeaders.set('Content-Type', 'application/json');
+          forwardHeaders.set('apikey', Deno.env.get('SUPABASE_ANON_KEY') || '');
+          for (const h of [
+            'x-auth-token',
+            'x-session-token',
+            'x-access-token',
+            'x-jwt',
+            'x-supabase-auth',
+            'x-device-id',
+            'x-client-info',
+            'user-agent',
+            'X-Afrishop-Environment',
+          ]) {
+            const value = req.headers.get(h);
+            if (value) forwardHeaders.set(h, value);
+          }
+
+          console.log('[CHECKOUT_INLINE_PROVIDER] forwarding auth headers', {
+            downstreamFunction: 'select-payment-provider',
+            tokenSource: inlineTokenSource || 'missing',
+            hasAuthorizationHeader: !!authHeader,
+            hasExtractedToken: !!inlineToken,
+            alternateHeaders: {
+              'x-auth-token': !!req.headers.get('x-auth-token'),
+              'x-session-token': !!req.headers.get('x-session-token'),
+              'x-access-token': !!req.headers.get('x-access-token'),
+              'x-jwt': !!req.headers.get('x-jwt'),
+              'x-supabase-auth': !!req.headers.get('x-supabase-auth'),
+            },
+          });
 
           const providerResponse = await fetch(`${supabaseUrl}/functions/v1/select-payment-provider`, {
             method: 'POST',
-            headers: {
-              'Authorization': authHeader,
-              'Content-Type': 'application/json',
-              'apikey': Deno.env.get('SUPABASE_ANON_KEY') || '',
-            },
+            headers: forwardHeaders,
             body: JSON.stringify(selectProviderPayload),
           });
 

@@ -1050,7 +1050,7 @@ serve(async (req) => {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     console.error('[mobile-cart] Error:', msg);
     if ((error as any)?.name === 'AuthError') {
-      return jsonResponse({ ok: false, code: 'SESSION_EXPIRED', message: msg, activeItems: [], savedItems: [] }, (error as any)?.status || 401);
+      return jsonResponse({ ok: false, authenticated: false, code: 'SESSION_EXPIRED', message: msg, activeItems: [], savedItems: [] }, 200);
     }
     return jsonResponse({ ok: false, error: msg }, 500);
   }

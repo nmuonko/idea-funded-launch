@@ -193,7 +193,7 @@ serve(async (req) => {
       }
       action = body?.action || '';
       if (!action) {
-        return jsonRes({ ok: false, error: 'Missing action field' }, 400);
+        return jsonRes({ ok: false, error: 'Missing action field' }, 200);
       }
     }
 

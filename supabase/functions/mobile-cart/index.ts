@@ -284,35 +284,30 @@ async function handleGetCart(req: Request): Promise<Response> {
   let items: any[] | null = null;
   let itemsError: any = null;
 
-  // Try with embedded relations first
+  const selectWithRelations = 'id,product_url,title,product_image_url,store,base_price_usd,unit_price_usd,quantity,subtotal_usd,markup_fee_usd,shipping_fee_usd,total_price_usd,total_price_cdf,est_weight_kg,requires_manual_quote,is_saved_for_later,saved_at,updated_at,is_vehicle,vehicle_quote_applied,device_id,price_confirmation_status,admin_adjusted_price,price_confirmation_id,price_source,captured_price,shipping_item_types(key,label),quote_requests(status,quoted_shipping_usd,quoted_total_usd)';
+  const selectBase = 'id,product_url,title,product_image_url,store,base_price_usd,unit_price_usd,quantity,subtotal_usd,markup_fee_usd,shipping_fee_usd,total_price_usd,total_price_cdf,est_weight_kg,requires_manual_quote,is_saved_for_later,saved_at,updated_at,is_vehicle,vehicle_quote_applied,device_id,price_confirmation_status,admin_adjusted_price,price_confirmation_id,price_source,captured_price';
+
   const result1 = await supabase
     .from('order_items')
-    .select(`id, product_url, title, product_image_url, store, base_price_usd, unit_price_usd, quantity,
-      subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, total_price_cdf, 
-      est_weight_kg, requires_manual_quote, is_saved_for_later, saved_at, updated_at,
-      is_vehicle, vehicle_quote_applied, device_id,
-      price_confirmation_status, admin_adjusted_price, price_confirmation_id, price_source, captured_price,
-      shipping_item_types(key, label), quote_requests(status, quoted_shipping_usd, quoted_total_usd)`)
+    .select(selectWithRelations)
     .eq('order_id', order.id);
 
   items = result1.data;
   itemsError = result1.error;
 
-  // If embedded relations query failed or returned empty, retry without them
-  if ((!items || items.length === 0) && !itemsError) {
-    console.log(`[CART_GET] user_id=${user.id} order_id=${order.id} embeddedQueryReturnedEmpty, retrying without relations`);
+  if (itemsError || !items || items.length === 0) {
+    console.log(`[CART_GET] user_id=${user.id} order_id=${order.id} retryWithoutRelations=true previousError=${itemsError?.message ?? "none"} previousRows=${items?.length ?? 0}`);
     const result2 = await supabase
       .from('order_items')
-      .select(`id, product_url, title, product_image_url, store, base_price_usd, unit_price_usd, quantity,
-        subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, total_price_cdf, 
-        est_weight_kg, requires_manual_quote, is_saved_for_later, saved_at, updated_at,
-        is_vehicle, vehicle_quote_applied, device_id,
-        price_confirmation_status, admin_adjusted_price, price_confirmation_id, price_source, captured_price`)
+      .select(selectBase)
       .eq('order_id', order.id);
 
-    if (result2.data && result2.data.length > 0) {
-      items = result2.data;
+    if (result2.error) {
       itemsError = result2.error;
+      items = result2.data ?? null;
+    } else {
+      items = result2.data;
+      itemsError = null;
       console.log(`[CART_GET] user_id=${user.id} order_id=${order.id} fallbackItemRows=${items?.length ?? 0}`);
     }
   }
@@ -448,6 +443,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   const deviceId = addBody.deviceId ?? addBody.device_id ?? null;
   const userEdited = addCartIsUserEdited(addBody);
   const isFixedPrice = addBody.isFixedPrice === true || addBody.is_fixed_price === true;
+  console.log(`[CART_ADD][${correlationId}] endpoint=mobile-cart/add_item payload=${JSON.stringify({ productUrl, productPrice, quantity, shippingItemTypeId: shippingItemTypeId ?? null, deviceId: deviceId ?? null, isFixedPrice, priceEdited: userEdited })}`);
   console.log(`[CART_ADD][${correlationId}] user_id=${userId ?? "guest"} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=${!!token} tokenSource=${tokenSource ?? "none"} hasAuthorizationHeader=${hasAuthorizationHeader}`);
 
   if (userEdited && isGuest) {
@@ -500,13 +496,13 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
 
   if (isGuest) {
     const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup);
-    console.log(`[CART_ADD][${correlationId}] user_id=guest deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=false responseStatus=200 isGuest=true`);
+    console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=false user_id=guest deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=false responseStatus=200 isGuest=true`);
     return jsonResponse({ success: true, isGuest: true, item: response, isVehicle: isVehicleDetected, requiresQuote: requiresManualQuote });
   }
 
   const draftResult = await getOrCreateDraftOrder(db, userId!, correlationId);
   if (draftResult.error || !draftResult.data) {
-    console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=DRAFT_LOOKUP_FAILED`);
+    console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=DRAFT_LOOKUP_FAILED dbError=${draftResult.error?.message ?? "none"}`);
     return errorResponse("Failed to get/create cart", 500);
   }
   const draft = draftResult.data;
@@ -517,6 +513,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   if (existingResult.data) {
     const existingItem = existingResult.data;
     const newQuantity = existingItem.quantity + quantity;
+    console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=false dbUpdateAttempted=true orderId=${draft.id} existingItemId=${existingItem.id}`);
     const updateResult = await updateCartItem(db, existingItem.id, {
       quantity: newQuantity, base_price_usd: productPrice, product_image_url: productImageUrl,
       is_vehicle: isVehicleDetected || existingItem.is_vehicle,
@@ -524,7 +521,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       updated_at: new Date().toISOString(),
     }, correlationId);
     if (updateResult.error || !updateResult.data) {
-      console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=ITEM_UPDATE_FAILED`);
+      console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=ITEM_UPDATE_FAILED dbError=${updateResult.error?.message ?? "none"}`);
       return errorResponse("Failed to update cart item", 500);
     }
     itemId = existingItem.id; merged = true;
@@ -561,9 +558,10 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       canonical_url: canonicalUrl,
       ...(isFixedPrice ? { markup_fee_usd: 0, shipping_fee_usd: 0 } : {}),
     };
+    console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=true orderId=${draft.id} insertPayload=${JSON.stringify({ order_id: draft.id, product_url: productUrl, quantity, device_id: deviceId ?? null, user_id: userId, is_vehicle: isVehicleDetected, requires_manual_quote: requiresManualQuote })}`);
     const insertResult = await insertCartItem(db, newItem, correlationId);
     if (insertResult.error || !insertResult.data) {
-      console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=ITEM_INSERT_FAILED`);
+      console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=ITEM_INSERT_FAILED dbError=${insertResult.error?.message ?? "none"}`);
       return errorResponse("Failed to add item to cart", 500);
     }
     itemId = insertResult.data.id;

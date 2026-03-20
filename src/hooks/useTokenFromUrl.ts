@@ -12,18 +12,22 @@ import { supabase } from '@/integrations/supabase/client';
  */
 export function useTokenFromUrl() {
   const [bootstrapping, setBootstrapping] = useState(() => {
-    // Synchronous check: are there token params in the URL right now?
     if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
-    return !!(params.get('token') || params.get('access_token'));
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    return !!(params.get('token') || params.get('access_token') 
+      || hashParams.get('token') || hashParams.get('access_token'));
   });
   const [bootstrapped, setBootstrapped] = useState(false);
 
   useEffect(() => {
     const run = async () => {
+      // Check both query params and hash fragment (some auth flows use #access_token=...)
       const params = new URLSearchParams(window.location.search);
-      const accessToken = params.get('access_token') || params.get('token');
-      const refreshToken = params.get('refresh_token') || '';
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const accessToken = params.get('access_token') || params.get('token') 
+        || hashParams.get('access_token') || hashParams.get('token');
+      const refreshToken = params.get('refresh_token') || hashParams.get('refresh_token') || '';
 
       if (!accessToken) {
         setBootstrapping(false);

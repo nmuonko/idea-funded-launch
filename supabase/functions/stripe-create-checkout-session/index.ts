@@ -118,8 +118,8 @@ serve(async (req: Request): Promise<Response> => {
     if (order.user_id !== userId) {
       console.warn(`[STRIPE_CHECKOUT] Unauthorized access attempt`, { requestId, orderId: order_id, userId, orderUserId: order.user_id });
       return new Response(
-        JSON.stringify({ success: false, order_id, error: 'Unauthorized', error_code: 'UNAUTHORIZED' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, authenticated: true, order_id, error: 'Unauthorized', error_code: 'NOT_AUTHORIZED' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

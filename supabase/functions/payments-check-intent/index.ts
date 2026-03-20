@@ -123,8 +123,8 @@ Deno.serve(async (req) => {
     const orderUserId = (payment.orders as any)?.user_id;
     if (orderUserId !== user.id) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Not authorized to view this payment', error_code: 'NOT_AUTHORIZED' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, authenticated: true, requestId, error: 'Not authorized to view this payment', error_code: 'NOT_AUTHORIZED' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

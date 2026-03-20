@@ -443,6 +443,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   const deviceId = addBody.deviceId ?? addBody.device_id ?? null;
   const userEdited = addCartIsUserEdited(addBody);
   const isFixedPrice = addBody.isFixedPrice === true || addBody.is_fixed_price === true;
+  console.log(`[CART_ADD][${correlationId}] endpoint=mobile-cart/add_item payload=${JSON.stringify({ productUrl, productPrice, quantity, shippingItemTypeId: shippingItemTypeId ?? null, deviceId: deviceId ?? null, isFixedPrice, priceEdited: userEdited })}`);
   console.log(`[CART_ADD][${correlationId}] user_id=${userId ?? "guest"} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=${!!token} tokenSource=${tokenSource ?? "none"} hasAuthorizationHeader=${hasAuthorizationHeader}`);
 
   if (userEdited && isGuest) {

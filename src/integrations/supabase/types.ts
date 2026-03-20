@@ -2086,6 +2086,39 @@ export type Database = {
         }
         Relationships: []
       }
+      checkout_handoff_tokens: {
+        Row: {
+          consumed_at: string | null
+          created_at: string
+          device_id: string | null
+          expires_at: string
+          id: string
+          purpose: string
+          token: string
+          user_id: string
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string
+          device_id?: string | null
+          expires_at: string
+          id?: string
+          purpose?: string
+          token: string
+          user_id: string
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string
+          device_id?: string | null
+          expires_at?: string
+          id?: string
+          purpose?: string
+          token?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       checkout_sessions: {
         Row: {
           cart_snapshot: Json

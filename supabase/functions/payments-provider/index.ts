@@ -201,7 +201,7 @@ serve(async (req) => {
         return forwardToFunction('mobile-create-payment', req, authResult.token, action, rest);
       }
       default:
-        return jsonRes({ ok: false, error: `Unknown action: ${action}` }, 400);
+        return jsonRes({ ok: false, error: `Unknown action: ${action}` }, 200);
     }
   } catch (err: any) {
     console.error('[payments-provider] Unexpected error:', err);

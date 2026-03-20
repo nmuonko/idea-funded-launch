@@ -99,7 +99,45 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
       const responseText = await upstreamResponse.text();
       console.log(`[mobile-cart-compat] rid=${rid} legacy=${options.legacyPath} action=${options.action} upstreamStatus=${upstreamResponse.status}`);
 
-      return new Response(responseText, {
+      let finalResponseText = responseText;
+      if (options.action === "get_cart") {
+        try {
+          const parsed = JSON.parse(responseText);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            const activeItems = Array.isArray(parsed.activeItems)
+              ? parsed.activeItems
+              : Array.isArray(parsed.items)
+                ? parsed.items
+                : [];
+            const savedItems = Array.isArray(parsed.savedItems) ? parsed.savedItems : [];
+            const summary = parsed.summary && typeof parsed.summary === "object" ? parsed.summary : {};
+            const success = typeof parsed.success === "boolean"
+              ? parsed.success
+              : typeof parsed.ok === "boolean"
+                ? parsed.ok
+                : upstreamResponse.ok;
+
+            finalResponseText = JSON.stringify({
+              ...parsed,
+              success,
+              cartItems: parsed.cartItems ?? activeItems,
+              cart_items: parsed.cart_items ?? activeItems,
+              items: parsed.items ?? activeItems,
+              savedItems,
+              saved_items: parsed.saved_items ?? savedItems,
+              cartId: parsed.cartId ?? summary.cartId ?? null,
+              itemCount: parsed.itemCount ?? summary.itemCount ?? activeItems.length,
+              totalUsd: parsed.totalUsd ?? summary.totalUsd ?? 0,
+              totalCdf: parsed.totalCdf ?? summary.totalCdf ?? 0,
+              exchangeRate: parsed.exchangeRate ?? summary.exchangeRate ?? null,
+            });
+          }
+        } catch (error) {
+          console.warn(`[mobile-cart-compat] rid=${rid} failed to normalize get_cart response:`, error);
+        }
+      }
+
+      return new Response(finalResponseText, {
         status: upstreamResponse.status,
         headers: {
           ...corsHeaders,

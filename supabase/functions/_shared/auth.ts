@@ -51,11 +51,17 @@ function extractTokenFromPayload(payload: any): string | null {
     payload.token,
     payload.jwt,
     payload.authToken,
+    payload.auth_token,
     payload.bearerToken,
+    payload.bearer_token,
+    payload.sessionToken,
+    payload.session_token,
     payload.session?.access_token,
     payload.session?.accessToken,
+    payload.session?.token,
     payload.data?.session?.access_token,
     payload.data?.session?.accessToken,
+    payload.data?.session?.token,
   ];
 
   for (const candidate of candidates) {

@@ -21,9 +21,12 @@ export function useTokenFromUrl() {
 
   useEffect(() => {
     const run = async () => {
+      // Check both query params and hash fragment (some auth flows use #access_token=...)
       const params = new URLSearchParams(window.location.search);
-      const accessToken = params.get('access_token') || params.get('token');
-      const refreshToken = params.get('refresh_token') || '';
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const accessToken = params.get('access_token') || params.get('token') 
+        || hashParams.get('access_token') || hashParams.get('token');
+      const refreshToken = params.get('refresh_token') || hashParams.get('refresh_token') || '';
 
       if (!accessToken) {
         setBootstrapping(false);

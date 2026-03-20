@@ -27,6 +27,7 @@ import {
   jsonResponse,
   corsHeaders,
   extractBearerToken,
+  extractRequestToken,
   createAdminPostgrestClient,
   createAdminClient,
 } from "../_shared/auth.ts";

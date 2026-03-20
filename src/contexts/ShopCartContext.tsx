@@ -378,9 +378,10 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     }
     syncInProgressRef.current = true;
     
-    // Only show loading spinner on initial hydration, not on every sync
-    const isInitialHydrate = !didInitialServerHydrateRef.current;
-    if (isInitialHydrate) {
+    // Only show full loading spinner when cart has no items yet (initial hydration)
+    // Otherwise sync silently in the background to avoid hiding existing items
+    const showLoadingSpinner = items.length === 0;
+    if (showLoadingSpinner) {
       setLoading(true);
     }
     try {

@@ -1,48 +1,62 @@
 
+Issue restated: after reinstalling the separate React Native app, tapping “Payez maintenant” can still bounce the user back to login even though earlier fixes worked in normal use. That points to a cold-start auth/session restoration problem in the frozen mobile build, not the web app.
 
-## Problem
+What I found:
+- `auth-me` is now fixed and its logs show the user authenticates successfully.
+- The mobile integration contract says the app signs out on:
+  - any HTTP `401`
+  - any response body containing JWT-style auth errors
+- Several backend payment wrapper endpoints still return raw `401` and require a strict `Bearer ` prefix:
+  - `supabase/functions/payments-provider/index.ts`
+  - `supabase/functions/payments-core/index.ts`
+- Those wrappers do not use the hardened shared auth helper from `supabase/functions/_shared/auth.ts`, which already supports:
+  - raw JWTs without `Bearer`
+  - alternate auth headers
+  - query/body token fallbacks
+- This matches the reinstall symptom: first payment request after cold install can happen before the RN session/header is fully restored, so one of these wrappers returns `401`, and the app’s global handler signs the user out.
 
-The React Native mobile app is a **separate codebase** from this web project. All web frontend fixes (AuthContext, ShopProtectedRoute, etc.) have zero effect on the RN app. The .aab builds are frozen and cannot be updated.
+Do I know what the issue is?
+Yes — the remaining regression is most likely in the payment wrapper layer, not in `auth-me` or the web frontend.
 
-### Root Cause Found
+Implementation plan:
+1. Harden the remaining payment wrapper auth gates
+- Update `payments-provider/index.ts` and `payments-core/index.ts` to stop using strict `startsWith('Bearer ')` checks.
+- Replace their custom auth parsing with the shared `_shared/auth.ts` token extraction/verification pattern.
 
-The `auth-me` edge function has a **wrong column query** on line 73:
+2. Eliminate destructive auth responses for frozen mobile builds
+- Change those wrapper endpoints to never return raw `401/403` for mobile-facing auth failures.
+- Return HTTP `200` with a structured JSON body like:
+  - `ok: false`
+  - `success: false`
+  - `authenticated: false`
+  - stable error code such as `AUTH_REQUIRED` / `AUTH_ERROR`
 
-```typescript
-// CURRENT (BROKEN):
-.eq("id", user.id)      // looks for profile.id = auth_user_id → always returns null
+3. Preserve backward-compatible forwarding behavior
+- Keep forwarding headers/body exactly as today for downstream functions.
+- Ensure raw JWTs and alternate token placements survive wrapper forwarding during cold-start/reinstall flows.
 
-// CORRECT:
-.eq("user_id", user.id) // looks for profile.user_id = auth_user_id → returns the profile
-```
+4. Add targeted diagnostics for the next test
+- Add compact logs in the two wrapper functions showing:
+  - whether a token was found
+  - token source (`header`, `query`, `body`)
+  - whether auth failed before forwarding
+  - which wrapped payment route was hit
+- This gives a definitive trace if one more edge case remains.
 
-**Evidence:**
-- Profile table: `id = 3922dea2...`, `user_id = f212b025...`
-- Auth user ID: `f212b025...`
-- Query `.eq("id", "f212b025...")` returns null — profile not found
-- `auth-me` returns `profile: null` to the RN app for ALL users
-- The RN app receives `profile: null`, interprets this as "not fully set up", and redirects to login when the user tries to checkout
-- Backend logs confirm: the reporting user (`kadimisha@gmail.com`) successfully authenticates via `auth-me` but **never reaches** `mobile-orders` or `mobile-checkout` — the redirect happens client-side before any checkout API call
+5. Verify the full payment chain most likely used by the frozen app
+- Focus on the wrapper-based flow:
+  - `payments-provider` → `select-payment-provider` / `mobile-create-payment`
+  - `payments-core` → payment status / retry / verify routes
+- Confirm every mobile-facing payment hop now follows the “never 401 to mobile” rule.
 
-### Why Previous Fixes Failed
+Files to change:
+- `supabase/functions/payments-provider/index.ts`
+- `supabase/functions/payments-core/index.ts`
+- possibly small shared-response reuse from `supabase/functions/_shared/auth.ts`
 
-Every fix so far modified web frontend files (`AuthContext.tsx`, `ShopProtectedRoute.tsx`, `Checkout.tsx`). The React Native app does not load any of these files. It calls backend edge functions directly via HTTP.
+Expected outcome:
+- Reinstall/cold-start payment attempts will no longer trigger forced logout if the app sends a raw JWT, delayed session token, or transiently malformed auth header.
+- The mobile app should stay signed in and receive a retryable JSON error instead of being redirected to login.
 
-## Fix
-
-### 1. Fix `auth-me` edge function (the actual bug)
-Change line 73 from `.eq("id", user.id)` to `.eq("user_id", user.id)` so the RN app receives the user's actual profile data instead of `null`.
-
-### 2. Harden `mobile-orders` auth error handling
-Currently returns HTTP 401 on auth failures. The RN app's error handler catches 401 → signs out → redirects to login. Change to return HTTP 200 with JSON error body (matching `mobile-checkout`'s pattern), so expired tokens trigger a retry instead of a destructive sign-out.
-
-### Technical Details
-
-| Item | Detail |
-|------|--------|
-| Root cause | `auth-me` queries `.eq("id", user.id)` instead of `.eq("user_id", user.id)` |
-| Effect | ALL RN app users get `profile: null`, blocking checkout |
-| Files changed | `supabase/functions/auth-me/index.ts`, `supabase/functions/mobile-orders/index.ts` |
-| Deployment | Edge functions auto-deploy; works with frozen .aab builds |
-| Risk | Low — corrects a data query bug; no schema changes |
-
+Technical note:
+This is the backend equivalent of the “auth not fully ready on first load” problem from mobile clients, but because the `.aab` is frozen, the safe fix is to make the payment wrapper endpoints tolerant to session hydration timing and token formatting differences.

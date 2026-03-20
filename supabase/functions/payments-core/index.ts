@@ -216,7 +216,7 @@ serve(async (req) => {
           console.log('[payments-core] forward', { action, downstreamFunction: 'payments-check-intent' });
           return forwardGetToFunction('payments-check-intent', req, authToken, action);
         default:
-          return jsonRes({ ok: false, error: `Unknown GET action: ${action}` }, 400);
+          return jsonRes({ ok: false, error: `Unknown GET action: ${action}` }, 200);
       }
     }
 

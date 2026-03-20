@@ -558,9 +558,10 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       canonical_url: canonicalUrl,
       ...(isFixedPrice ? { markup_fee_usd: 0, shipping_fee_usd: 0 } : {}),
     };
+    console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=true orderId=${draft.id} insertPayload=${JSON.stringify({ order_id: draft.id, product_url: productUrl, quantity, device_id: deviceId ?? null, user_id: userId, is_vehicle: isVehicleDetected, requires_manual_quote: requiresManualQuote })}`);
     const insertResult = await insertCartItem(db, newItem, correlationId);
     if (insertResult.error || !insertResult.data) {
-      console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=ITEM_INSERT_FAILED`);
+      console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=ITEM_INSERT_FAILED dbError=${insertResult.error?.message ?? "none"}`);
       return errorResponse("Failed to add item to cart", 500);
     }
     itemId = insertResult.data.id;

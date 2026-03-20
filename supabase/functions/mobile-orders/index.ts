@@ -480,8 +480,55 @@ serve(async (req) => {
   }
 
   try {
-    // Auth gate: all order actions require authentication
-    const { user, supabase } = await verifyAndGetUser(req);
+    // Pre-extract token to ensure consistent auth across all paths
+    const { token, source: tokenSource } = await extractRequestToken(req);
+    const hasAuthorizationHeader = !!req.headers.get('Authorization');
+
+    console.log('[mobile-orders] auth-check', {
+      tokenSource: tokenSource || 'missing',
+      hasAuthorizationHeader,
+      hasExtractedToken: !!token,
+      alternateHeaders: {
+        'x-auth-token': !!req.headers.get('x-auth-token'),
+        'x-session-token': !!req.headers.get('x-session-token'),
+        'x-access-token': !!req.headers.get('x-access-token'),
+        'x-jwt': !!req.headers.get('x-jwt'),
+      },
+    });
+
+    if (!token) {
+      console.warn('[mobile-orders] NO_TOKEN', { hasAuthorizationHeader });
+      return jsonResponse({
+        ok: false, success: false,
+        error: 'NO_TOKEN', error_code: 'NO_TOKEN',
+        message: 'No authentication token found. Please sign in.',
+        authenticated: false,
+      }, 200);
+    }
+
+    let user: any;
+    let supabase: any;
+    try {
+      const authResult = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
+      user = authResult.user;
+      supabase = authResult.supabase;
+    } catch (authError: any) {
+      const errorCode = authError?.authErrorCode || 'INVALID_TOKEN';
+      console.warn('[mobile-orders] auth-failed', {
+        tokenSource, hasAuthorizationHeader, errorCode,
+        reason: authError?.message,
+      });
+      return jsonResponse({
+        ok: false, success: false,
+        error: errorCode, error_code: errorCode,
+        message: errorCode === 'EXPIRED_TOKEN'
+          ? 'Session expired. Please sign in again.'
+          : 'Authentication failed. Please sign in again.',
+        authenticated: false,
+      }, 200);
+    }
+
+    console.log('[mobile-orders] auth-ok', { userId: user.id.slice(0, 8) + '***', tokenSource });
 
     const url = new URL(req.url);
     let action = 'list';
@@ -511,27 +558,13 @@ serve(async (req) => {
         return handleStatus(user, supabase, url, body);
       case 'checkout':
       case 'request_quote':
-        return proxyToFunction(action === 'checkout' ? 'mobile-checkout' : 'mobile-request-quote', req, body);
+        return proxyToFunction(action === 'checkout' ? 'mobile-checkout' : 'mobile-request-quote', req, body, token);
       default:
         return jsonResponse({ ok: false, error: `Unknown action: ${action}` }, 400);
     }
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     console.error('[mobile-orders] Error:', msg);
-    
-    // NEVER return raw 401/403 — the frozen RN app's global error handler
-    // catches non-200 auth responses → signs out → redirects to login.
-    // Return HTTP 200 with a JSON error body so the app can retry gracefully.
-    if ((error as any)?.name === 'AuthError') {
-      return jsonResponse({
-        ok: false,
-        success: false,
-        error: 'AUTH_REQUIRED',
-        message: msg,
-        authenticated: false,
-      }, 200);
-    }
-    
     return jsonResponse({ ok: false, error: msg }, 500);
   }
 });

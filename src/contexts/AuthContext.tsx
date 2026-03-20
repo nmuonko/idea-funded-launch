@@ -241,6 +241,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         
+        // ── WebView token bootstrap ──
+        // If the URL contains an access_token (e.g. from the RN app opening a
+        // WebView with ?access_token=<jwt>&refresh_token=<rt>), inject it into the
+        // Supabase client BEFORE calling getSession().  This ensures the route
+        // guard sees a valid session immediately instead of redirecting to login.
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlAccessToken = urlParams.get('access_token') || urlParams.get('token');
+        const urlRefreshToken = urlParams.get('refresh_token') || '';
+        
+        if (urlAccessToken) {
+          console.log('[Auth] URL token detected — bootstrapping session from WebView params');
+          try {
+            const { data: setData, error: setErr } = await supabase.auth.setSession({
+              access_token: urlAccessToken,
+              refresh_token: urlRefreshToken,
+            });
+            if (setErr) {
+              console.warn('[Auth] URL token setSession failed:', setErr.message);
+            } else if (setData.session) {
+              console.log('[Auth] ✅ Session bootstrapped from URL for:', setData.session.user?.email);
+              sessionStorage.setItem('sessionActive', 'true');
+            }
+          } catch (e) {
+            console.warn('[Auth] URL token bootstrap exception:', e);
+          }
+          // Clean token params from URL
+          const cleanUrl = new URL(window.location.href);
+          cleanUrl.searchParams.delete('token');
+          cleanUrl.searchParams.delete('access_token');
+          cleanUrl.searchParams.delete('refresh_token');
+          window.history.replaceState({}, '', cleanUrl.toString());
+        }
+        
         // Get session FIRST — never destroy a valid persisted session
         const { data: { session } } = await supabase.auth.getSession();
         

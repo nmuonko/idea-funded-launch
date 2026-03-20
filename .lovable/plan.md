@@ -1,62 +1,57 @@
 
-Issue restated: after reinstalling the separate React Native app, tapping “Payez maintenant” can still bounce the user back to login even though earlier fixes worked in normal use. That points to a cold-start auth/session restoration problem in the frozen mobile build, not the web app.
 
-What I found:
-- `auth-me` is now fixed and its logs show the user authenticates successfully.
-- The mobile integration contract says the app signs out on:
-  - any HTTP `401`
-  - any response body containing JWT-style auth errors
-- Several backend payment wrapper endpoints still return raw `401` and require a strict `Bearer ` prefix:
-  - `supabase/functions/payments-provider/index.ts`
-  - `supabase/functions/payments-core/index.ts`
-- Those wrappers do not use the hardened shared auth helper from `supabase/functions/_shared/auth.ts`, which already supports:
-  - raw JWTs without `Bearer`
-  - alternate auth headers
-  - query/body token fallbacks
-- This matches the reinstall symptom: first payment request after cold install can happen before the RN session/header is fully restored, so one of these wrappers returns `401`, and the app’s global handler signs the user out.
+## Problem Analysis
 
-Do I know what the issue is?
-Yes — the remaining regression is most likely in the payment wrapper layer, not in `auth-me` or the web frontend.
+Two issues reported:
 
-Implementation plan:
-1. Harden the remaining payment wrapper auth gates
-- Update `payments-provider/index.ts` and `payments-core/index.ts` to stop using strict `startsWith('Bearer ')` checks.
-- Replace their custom auth parsing with the shared `_shared/auth.ts` token extraction/verification pattern.
+1. **"Payez maintenant" redirect after reinstall** — The `mobile-cart` edge function still returns raw HTTP 401 in 5+ places. The frozen React Native app's global interceptor catches any 401 and forces a logout/redirect.
 
-2. Eliminate destructive auth responses for frozen mobile builds
-- Change those wrapper endpoints to never return raw `401/403` for mobile-facing auth failures.
-- Return HTTP `200` with a structured JSON body like:
-  - `ok: false`
-  - `success: false`
-  - `authenticated: false`
-  - stable error code such as `AUTH_REQUIRED` / `AUTH_ERROR`
+2. **Deleted item reappears after a few seconds** — After a successful delete, `syncCart()` is called. If that sync call hits a 401 (from the same `mobile-cart` function), the sync fails silently. On the next automatic sync or state reconciliation, the server still has the item deleted, but the client never received the updated list, so the old cached state (with the item) gets restored.
 
-3. Preserve backward-compatible forwarding behavior
-- Keep forwarding headers/body exactly as today for downstream functions.
-- Ensure raw JWTs and alternate token placements survive wrapper forwarding during cold-start/reinstall flows.
+Both issues trace to the same root cause: `mobile-cart/index.ts` still returns raw 401 status codes.
 
-4. Add targeted diagnostics for the next test
-- Add compact logs in the two wrapper functions showing:
-  - whether a token was found
-  - token source (`header`, `query`, `body`)
-  - whether auth failed before forwarding
-  - which wrapped payment route was hit
-- This gives a definitive trace if one more edge case remains.
+## Locations in `mobile-cart/index.ts` returning raw 401
 
-5. Verify the full payment chain most likely used by the frozen app
-- Focus on the wrapper-based flow:
-  - `payments-provider` → `select-payment-provider` / `mobile-create-payment`
-  - `payments-core` → payment status / retry / verify routes
-- Confirm every mobile-facing payment hop now follows the “never 401 to mobile” rule.
+| Line | Context |
+|------|---------|
+| 405 | `AUTH_REQUIRED_FOR_MANUAL_PRICE` |
+| 688 | `sync` action — no token |
+| 692 | `sync` action — invalid token |
+| 828 | `merge_guest` action — no Bearer header |
+| 833 | `merge_guest` action — invalid token |
+| 1053 | Global catch — `AuthError` fallback |
 
-Files to change:
-- `supabase/functions/payments-provider/index.ts`
-- `supabase/functions/payments-core/index.ts`
-- possibly small shared-response reuse from `supabase/functions/_shared/auth.ts`
+All six must be changed to return **HTTP 200** with a JSON error body containing `authenticated: false` and a stable error code — matching the pattern already applied to `mobile-checkout`, `payments-provider`, and `payments-core`.
 
-Expected outcome:
-- Reinstall/cold-start payment attempts will no longer trigger forced logout if the app sends a raw JWT, delayed session token, or transiently malformed auth header.
-- The mobile app should stay signed in and receive a retryable JSON error instead of being redirected to login.
+## Implementation Plan
 
-Technical note:
-This is the backend equivalent of the “auth not fully ready on first load” problem from mobile clients, but because the `.aab` is frozen, the safe fix is to make the payment wrapper endpoints tolerant to session hydration timing and token formatting differences.
+### 1. Harden `mobile-cart/index.ts` auth responses
+
+Replace all raw 401 returns with HTTP 200 + structured JSON:
+```
+{ ok: false, authenticated: false, code: "AUTH_REQUIRED", message: "...", activeItems: [], savedItems: [] }
+```
+
+Specific changes:
+- **Line 405**: Return 200 with `code: "AUTH_REQUIRED_FOR_MANUAL_PRICE"`
+- **Line 688**: Return 200 with `code: "AUTH_REQUIRED"`
+- **Line 692**: Return 200 with `code: "SESSION_EXPIRED"`
+- **Line 828**: Return 200 with `code: "AUTH_REQUIRED"`
+- **Line 833**: Return 200 with `code: "SESSION_EXPIRED"`
+- **Line 1053**: Global catch — return 200 instead of `error.status || 401`
+
+Also update `sync` and `merge_guest` to use the shared `extractRequestToken` / `verifyAndGetUser` helper (from `_shared/auth.ts`) instead of strict `Bearer ` prefix checks, matching the pattern in `payments-provider` and `payments-core`.
+
+### 2. Deploy and verify
+
+- Deploy `mobile-cart` edge function
+- Test the delete + sync flow to confirm no 401s leak through
+
+### Files to change
+- `supabase/functions/mobile-cart/index.ts` (6 locations)
+
+### Expected outcome
+- The frozen RN app will never receive a 401 from cart operations, preventing forced logouts
+- Delete → sync flow will complete successfully, so deleted items won't reappear
+- Both issues (payment redirect + ghost items) resolved from this single fix
+

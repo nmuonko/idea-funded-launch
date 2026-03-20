@@ -105,10 +105,14 @@ serve(async (req) => {
     if (!userId) {
       console.log('[payment-status] Unauthorized access attempt without confirmation code');
       return new Response(JSON.stringify({
+        ok: false,
         success: false,
-        error: 'Authentication required. Provide a valid JWT token or use confirmation_code parameter.'
+        authenticated: false,
+        error: 'AUTH_REQUIRED',
+        error_code: 'AUTH_REQUIRED',
+        message: 'Authentication required. Provide a valid JWT token or use confirmation_code parameter.'
       }), {
-        status: 401,
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }

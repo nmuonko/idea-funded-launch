@@ -1,16 +1,46 @@
 /**
  * mobile-checkout-bridge
  *
- * Generates a one-time, short-lived handoff token stored in the DB.
- * The RN app calls this endpoint and receives a URL like:
- *   /checkout?handoff=<token>
- * The web frontend exchanges that token via checkout-handoff-validate
- * to bootstrap a session without needing WebView localStorage.
+ * AGREED CONTRACT (Lovable ↔ Replit):
  *
+ * ── Request ──
  * POST /mobile-checkout-bridge
- * Headers: Authorization / x-auth-token / etc.
- * Body (optional): { redirect?: string, selected_item_ids?: string[], device_id?: string, refresh_token?: string }
- * Response: { ok, url, handoff_id, expires_at } or structured error
+ * Headers: Authorization / x-auth-token / x-device-id / etc.
+ * Body (all fields optional):
+ *   {
+ *     cart_id?:            string,   // Replit sends this (current cart/order id)
+ *     order_id?:           string,   // Replit sends this (if order already created)
+ *     selected_item_ids?:  string[], // specific cart item ids to checkout
+ *     redirect?:           string,   // web path, default "/checkout"
+ *     device_id?:          string,   // also read from x-device-id header
+ *     refresh_token?:      string,   // RN refresh token for session bootstrap
+ *   }
+ *
+ * ── Success Response (200) ──
+ *   {
+ *     ok:          true,
+ *     url:         string,   // full checkout URL with ?handoff=...&access_token=...
+ *     handoff_id:  string,   // DB id of the handoff token row
+ *     expires_at:  string,   // ISO timestamp
+ *   }
+ *
+ * ── Error Response (200) ──
+ *   {
+ *     ok:         false,
+ *     error:      string,       // machine code: NO_TOKEN | INVALID_TOKEN | EXPIRED_TOKEN | EMPTY_CART | INTERNAL_ERROR
+ *     error_code: string,       // same as error
+ *     message:    string,       // human-readable
+ *     authenticated?: false,    // present on auth failures
+ *   }
+ *
+ * ── Flow ──
+ * RN taps "Payez maintenant"
+ *   → RN calls POST /mobile-checkout-bridge
+ *   → backend returns { ok: true, url: "https://…/checkout?handoff=TOKEN&access_token=JWT" }
+ *   → RN opens ONLY this url in WebView (not the old bank transfer URL)
+ *   → web useTokenFromUrl detects ?handoff, calls checkout-handoff-validate
+ *   → web bootstraps session from access_token, ShopProtectedRoute grants access
+ *   → checkout page loads
  */
 
 import {
@@ -32,7 +62,7 @@ function generateToken(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function maskId(id: string): string {
+function maskId(id: string | null | undefined): string {
   if (!id || id.length < 8) return "***";
   return id.slice(0, 4) + "…" + id.slice(-4);
 }
@@ -45,7 +75,7 @@ Deno.serve(async (req: Request) => {
   const tag = "[mobile-checkout-bridge]";
 
   try {
-    // 1. Extract & verify auth
+    // ── Step 1: Auth ──
     const { token, source } = await extractRequestToken(req);
     console.log(`${tag} auth-check`, JSON.stringify({ source, hasToken: !!token }));
 
@@ -60,26 +90,37 @@ Deno.serve(async (req: Request) => {
       user = result.user;
     } catch (err: any) {
       const code = err?.authErrorCode || (err?.message?.includes("expired") ? "EXPIRED_TOKEN" : "INVALID_TOKEN");
-      console.log(`${tag} auth-fail`, code);
+      console.log(`${tag} auth-fail ${code}`);
       return authErrorResponse(code, err?.message || "Authentication failed.");
     }
 
-    console.log(`${tag} auth-ok`, JSON.stringify({ userId: maskId(user.id), source }));
+    console.log(`${tag} auth-ok userId=${maskId(user.id)} source=${source}`);
 
-    // 2. Parse optional body
+    // ── Step 2: Parse body (all fields optional) ──
     let body: any = {};
     try {
       body = await req.json();
     } catch {
-      /* no body is fine */
+      /* empty body is fine */
     }
 
+    const cartId = body?.cart_id || null;
+    const orderId = body?.order_id || null;
+    const selectedItemIds = body?.selected_item_ids || null;
     const redirect = body?.redirect || "/checkout";
     const deviceId = body?.device_id || req.headers.get("x-device-id") || null;
-    const selectedItemIds = body?.selected_item_ids || null;
     const refreshToken = body?.refresh_token || null;
 
-    // 3. Validate user has cart items (lightweight check)
+    console.log(`${tag} body-parsed`, JSON.stringify({
+      cartId: maskId(cartId),
+      orderId: maskId(orderId),
+      selectedCount: selectedItemIds?.length ?? "all",
+      redirect,
+      hasDeviceId: !!deviceId,
+      hasRefreshToken: !!refreshToken,
+    }));
+
+    // ── Step 3: Validate cart exists ──
     const admin = createAdminClient();
     const { data: cartItems } = await admin
       .from("cart_items")
@@ -88,7 +129,7 @@ Deno.serve(async (req: Request) => {
       .limit(1);
 
     if (!cartItems || cartItems.length === 0) {
-      console.log(`${tag} no-cart-items`, maskId(user.id));
+      console.log(`${tag} EMPTY_CART userId=${maskId(user.id)}`);
       return jsonResponse({
         ok: false,
         error: "EMPTY_CART",
@@ -97,7 +138,7 @@ Deno.serve(async (req: Request) => {
       }, 200);
     }
 
-    // 4. Generate handoff token and store in DB
+    // ── Step 4: Create handoff token ──
     const handoffToken = generateToken();
     const expiresAt = new Date(Date.now() + HANDOFF_TTL_SECONDS * 1000).toISOString();
 
@@ -118,14 +159,14 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({
         ok: false,
         error: "INTERNAL_ERROR",
+        error_code: "INTERNAL_ERROR",
         message: "Failed to create handoff token.",
       }, 200);
     }
 
-    // 5. Build checkout URL with handoff token (NOT raw JWTs)
+    // ── Step 5: Build checkout URL ──
     const url = new URL(redirect, SITE_URL);
     url.searchParams.set("handoff", handoffToken);
-    // Also pass access_token as fallback for older web code that checks for it
     url.searchParams.set("access_token", token);
     if (refreshToken) {
       url.searchParams.set("refresh_token", refreshToken);
@@ -135,8 +176,7 @@ Deno.serve(async (req: Request) => {
       handoffId: inserted.id,
       userId: maskId(user.id),
       expiresAt,
-      selectedCount: selectedItemIds?.length || "all",
-      redirect,
+      url: url.pathname + "?handoff=…",
     }));
 
     return jsonResponse({
@@ -150,6 +190,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({
       ok: false,
       error: "INTERNAL_ERROR",
+      error_code: "INTERNAL_ERROR",
       message: err?.message || "Internal error",
     }, 200);
   }

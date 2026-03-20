@@ -2,16 +2,14 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 /**
- * Hook that checks URL params for:
- * 1. `handoff` — a one-time DB-backed token from mobile-checkout-bridge
- * 2. `access_token` / `token` — direct JWT fallback
+ * Detects handoff or access_token in URL, validates handoff via backend,
+ * and bootstraps a Supabase session for WebView checkout.
  *
- * For handoff tokens: validates via checkout-handoff-validate, then uses
- * the accompanying access_token to bootstrap a Supabase session.
- *
- * Returns:
- * - bootstrapping: true while attempting to set session from URL token
- * - bootstrapped: true after a successful session was established
+ * Checkpoint logs (for debugging with Replit):
+ *   [TokenFromUrl] handoff-detected
+ *   [TokenFromUrl] handoff-validate-ok / handoff-validate-fail
+ *   [TokenFromUrl] session-bootstrap-ok / session-bootstrap-fail
+ *   [TokenFromUrl] no-token-in-url
  */
 export function useTokenFromUrl() {
   const [bootstrapping, setBootstrapping] = useState(() => {
@@ -42,15 +40,18 @@ export function useTokenFromUrl() {
       const refreshToken =
         params.get('refresh_token') || hashParams.get('refresh_token') || '';
 
-      // Nothing to bootstrap
       if (!handoffToken && !accessToken) {
+        console.log('[TokenFromUrl] no-token-in-url');
         setBootstrapping(false);
         return;
       }
 
-      // --- Path A: Handoff token (preferred, DB-backed, single-use) ---
+      // ── Path A: Handoff token (DB-backed, single-use) ──
       if (handoffToken) {
-        console.log('[TokenFromUrl] Found handoff token, validating…');
+        console.log('[TokenFromUrl] handoff-detected tokenPrefix=' + handoffToken.slice(0, 8) + '…');
+
+        // Step 1: Validate handoff with backend
+        let handoffValid = false;
         try {
           const { data, error } = await supabase.functions.invoke(
             'checkout-handoff-validate',
@@ -59,22 +60,16 @@ export function useTokenFromUrl() {
 
           if (error || !data?.ok) {
             const errCode = data?.error_code || data?.error || 'UNKNOWN';
-            console.warn('[TokenFromUrl] Handoff validation failed:', errCode, data?.message);
-            // Fall through to access_token fallback if available
+            console.warn('[TokenFromUrl] handoff-validate-fail code=' + errCode, data?.message);
           } else {
-            console.log(
-              '[TokenFromUrl] ✅ Handoff validated for:',
-              data.email,
-              'handoff_id:',
-              data.handoff_id,
-            );
+            handoffValid = true;
+            console.log('[TokenFromUrl] handoff-validate-ok handoffId=' + data.handoff_id + ' email=' + data.email);
           }
         } catch (err) {
-          console.error('[TokenFromUrl] Handoff validation exception:', err);
+          console.error('[TokenFromUrl] handoff-validate-exception', err);
         }
 
-        // Whether handoff succeeded or not, try to bootstrap session with the
-        // access_token that mobile-checkout-bridge also embeds in the URL
+        // Step 2: Bootstrap session from the access_token embedded in the URL
         if (accessToken) {
           try {
             const { data: sessionData, error: sessionErr } =
@@ -83,39 +78,37 @@ export function useTokenFromUrl() {
                 refresh_token: refreshToken,
               });
             if (sessionErr) {
-              console.error('[TokenFromUrl] setSession failed:', sessionErr.message);
+              console.error('[TokenFromUrl] session-bootstrap-fail', sessionErr.message);
             } else if (sessionData.session) {
-              console.log(
-                '[TokenFromUrl] ✅ Session bootstrapped from handoff URL for:',
-                sessionData.session.user?.email,
-              );
+              console.log('[TokenFromUrl] session-bootstrap-ok email=' + sessionData.session.user?.email + ' handoffValid=' + handoffValid);
               setBootstrapped(true);
               sessionStorage.setItem('sessionActive', 'true');
+            } else {
+              console.warn('[TokenFromUrl] session-bootstrap-fail no-session-returned');
             }
           } catch (err) {
-            console.error('[TokenFromUrl] setSession exception:', err);
+            console.error('[TokenFromUrl] session-bootstrap-exception', err);
           }
+        } else {
+          console.warn('[TokenFromUrl] handoff-present-but-no-access-token — cannot bootstrap session');
         }
       } else if (accessToken) {
-        // --- Path B: Direct JWT (legacy / fallback) ---
-        console.log('[TokenFromUrl] Found access_token in URL, bootstrapping session…');
+        // ── Path B: Direct JWT (legacy fallback) ──
+        console.log('[TokenFromUrl] access-token-detected (no handoff)');
         try {
           const { data, error } = await supabase.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken,
           });
           if (error) {
-            console.error('[TokenFromUrl] Failed to set session:', error.message);
+            console.error('[TokenFromUrl] session-bootstrap-fail', error.message);
           } else if (data.session) {
-            console.log(
-              '[TokenFromUrl] ✅ Session bootstrapped from URL token for:',
-              data.session.user?.email,
-            );
+            console.log('[TokenFromUrl] session-bootstrap-ok email=' + data.session.user?.email);
             setBootstrapped(true);
             sessionStorage.setItem('sessionActive', 'true');
           }
         } catch (err) {
-          console.error('[TokenFromUrl] Exception:', err);
+          console.error('[TokenFromUrl] session-bootstrap-exception', err);
         }
       }
 

@@ -147,7 +147,7 @@ serve(async (req) => {
 
     const action = body?.action;
     if (!action) {
-      return jsonRes({ ok: false, error: 'Missing action field' }, 400);
+      return jsonRes({ ok: false, error: 'Missing action field' }, 200);
     }
 
     switch (action) {

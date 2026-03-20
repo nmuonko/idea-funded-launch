@@ -528,7 +528,9 @@ export async function verifyAndGetUser(
   const source = extracted?.source ?? null;
 
   if (!token) {
-    throw new AuthError('Missing or invalid Authorization header', 401);
+    const err = new AuthError('Missing or invalid Authorization header', 401);
+    (err as any).authErrorCode = 'NO_TOKEN';
+    throw err;
   }
 
   const hasAuthorizationHeader = !!req.headers.get('Authorization');
@@ -551,8 +553,12 @@ export async function verifyAndGetUser(
   const { data: { user }, error } = await adminClient.auth.getUser(token);
 
   if (error) {
-    console.error('[Auth] Token verification failed:', error.message, 'source=', source, 'hasAuthorizationHeader=', hasAuthorizationHeader);
-    throw new AuthError('Invalid JWT', 401);
+    const errMsg = error.message || '';
+    const isExpired = errMsg.toLowerCase().includes('expired') || errMsg.toLowerCase().includes('exp claim');
+    console.error('[Auth] Token verification failed:', errMsg, 'source=', source, 'hasAuthorizationHeader=', hasAuthorizationHeader, 'isExpired=', isExpired);
+    const authErr = new AuthError(isExpired ? 'Token expired' : 'Invalid JWT', 401);
+    (authErr as any).authErrorCode = isExpired ? 'EXPIRED_TOKEN' : 'INVALID_TOKEN';
+    throw authErr;
   }
 
   if (!user) {

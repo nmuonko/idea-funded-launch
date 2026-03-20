@@ -95,7 +95,7 @@ serve(async (req: Request): Promise<Response> => {
     if (!order_id) {
       return new Response(
         JSON.stringify({ success: false, error: 'Missing order_id', error_code: 'MISSING_ORDER_ID' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

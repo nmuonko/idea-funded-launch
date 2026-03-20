@@ -14,6 +14,7 @@ const FORWARDED_HEADERS = [
   "x-auth-token",
   "x-session-token",
   "x-access-token",
+  "x-supabase-auth",
   "x-jwt",
   "x-afrishop-environment",
   "x-afrishop-client",
@@ -75,6 +76,27 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
         }, 500);
       }
 
+      const incomingUrl = new URL(req.url);
+      const incomingBody = await parseBody(req);
+      const tokenHeaderNames = ["authorization", "x-auth-token", "x-session-token", "x-access-token", "x-supabase-auth", "x-jwt"];
+      const tokenSource = req.headers.get("authorization")
+        ? "authorization-header"
+        : req.headers.get("x-supabase-auth")
+          ? "x-supabase-auth"
+          : req.headers.get("x-auth-token")
+            ? "x-auth-token"
+            : req.headers.get("x-session-token")
+              ? "x-session-token"
+              : req.headers.get("x-access-token")
+                ? "x-access-token"
+                : req.headers.get("x-jwt")
+                  ? "x-jwt"
+                  : incomingUrl.searchParams.get("access_token") || incomingUrl.searchParams.get("accessToken") || incomingUrl.searchParams.get("token") || incomingUrl.searchParams.get("jwt") || incomingUrl.searchParams.get("authToken") || incomingUrl.searchParams.get("auth_token") || incomingUrl.searchParams.get("sessionToken") || incomingUrl.searchParams.get("session_token")
+                    ? "query"
+                    : incomingBody && typeof incomingBody === "object"
+                      ? "body"
+                      : null;
+
       const headers = new Headers();
       for (const headerName of FORWARDED_HEADERS) {
         const value = req.headers.get(headerName);
@@ -83,14 +105,11 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
       headers.set("apikey", headers.get("apikey") || anonKey);
       headers.set("Content-Type", "application/json");
 
-      const incomingUrl = new URL(req.url);
       const forwardedQuery = new URLSearchParams();
       for (const [key, value] of incomingUrl.searchParams.entries()) {
         forwardedQuery.set(key, value);
       }
 
-      const upstreamUrl = `${supabaseUrl}/functions/v1/mobile-cart${forwardedQuery.toString() ? `?${forwardedQuery.toString()}` : ""}`;
-      const incomingBody = await parseBody(req);
       const payload = {
         ...(incomingBody && typeof incomingBody === "object" ? incomingBody : {}),
         access_token: incomingUrl.searchParams.get("access_token") ?? undefined,
@@ -103,6 +122,9 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
         action: options.action,
       };
 
+      const upstreamUrl = `${supabaseUrl}/functions/v1/mobile-cart${forwardedQuery.toString() ? `?${forwardedQuery.toString()}` : ""}`;
+      console.log(`[mobile-cart-compat] rid=${rid} legacy=${options.legacyPath} action=${options.action} downstream=mobile-cart hasAuthorizationHeader=${!!req.headers.get("authorization") || !!req.headers.get("Authorization")} tokenHeaderPresent=${tokenHeaderNames.some((name) => !!req.headers.get(name))} tokenSource=${tokenSource ?? "none"} hasDeviceId=${!!req.headers.get("x-device-id")}`);
+
       const upstreamResponse = await fetch(upstreamUrl, {
         method: "POST",
         headers,
@@ -110,7 +132,7 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
       });
 
       const responseText = await upstreamResponse.text();
-      console.log(`[mobile-cart-compat] rid=${rid} legacy=${options.legacyPath} action=${options.action} upstreamStatus=${upstreamResponse.status}`);
+      console.log(`[mobile-cart-compat] rid=${rid} legacy=${options.legacyPath} action=${options.action} downstream=mobile-cart downstreamStatus=${upstreamResponse.status}`);
 
       let finalResponseText = responseText;
       if (options.action === "get_cart") {

@@ -502,7 +502,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
 
   const draftResult = await getOrCreateDraftOrder(db, userId!, correlationId);
   if (draftResult.error || !draftResult.data) {
-    console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=DRAFT_LOOKUP_FAILED`);
+    console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=DRAFT_LOOKUP_FAILED dbError=${draftResult.error?.message ?? "none"}`);
     return errorResponse("Failed to get/create cart", 500);
   }
   const draft = draftResult.data;

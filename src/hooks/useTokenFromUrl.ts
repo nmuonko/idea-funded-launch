@@ -12,10 +12,11 @@ import { supabase } from '@/integrations/supabase/client';
  */
 export function useTokenFromUrl() {
   const [bootstrapping, setBootstrapping] = useState(() => {
-    // Synchronous check: are there token params in the URL right now?
     if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
-    return !!(params.get('token') || params.get('access_token'));
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    return !!(params.get('token') || params.get('access_token') 
+      || hashParams.get('token') || hashParams.get('access_token'));
   });
   const [bootstrapped, setBootstrapped] = useState(false);
 

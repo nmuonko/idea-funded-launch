@@ -270,6 +270,6 @@ serve(async (req) => {
     }
   } catch (err: any) {
     console.error('[payments-core] Unexpected error:', err);
-    return jsonRes({ ok: false, error: err.message || 'Internal error' }, 500);
+    return jsonRes({ ok: false, error: err.message || 'Internal error' }, 200);
   }
 });

@@ -325,7 +325,7 @@ serve(async (req: Request): Promise<Response> => {
         error: 'An error occurred while creating checkout session',
         error_code: 'INTERNAL_ERROR',
       }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

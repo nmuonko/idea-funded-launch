@@ -232,13 +232,18 @@ function formatItem(
 
 async function handleGetCart(req: Request): Promise<Response> {
   const startTime = Date.now();
-  const { user, supabase } = await verifyAndGetUser(req);
+  const { token, source: tokenSource } = await extractRequestToken(req);
+  const hasAuthorizationHeader = !!req.headers.get("authorization") || !!req.headers.get("Authorization");
+  const deviceId = req.headers.get("x-device-id") || "";
+  console.log(`[CART_GET] action=get_cart tokenSource=${tokenSource ?? "none"} hasAuthorizationHeader=${hasAuthorizationHeader} tokenPresent=${!!token} deviceId=${deviceId || "none"}`);
+
+  const { user, supabase } = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
   const authTime = Date.now() - startTime;
+  console.log(`[CART_GET] verifyUserSuccess=true user_id=${user.id} authMs=${authTime}`);
 
   // Platform detection (fire-and-forget)
   try {
     const ua = (req.headers.get("user-agent") || "").toLowerCase();
-    const deviceId = req.headers.get("x-device-id") || "";
     const isMobile = !!(deviceId.trim()) || ua.includes("okhttp") || ua.includes("expo") || ua.includes("dart") ||
       ua.includes("flutter") || ua.includes("reactnative") || ua.includes("react-native");
     supabase.from('profiles').update({ last_active_platform: isMobile ? 'mobile' : 'web' }).eq('user_id', user.id).then(() => {});
@@ -251,6 +256,8 @@ async function handleGetCart(req: Request): Promise<Response> {
     .from('orders')
     .select('id, item_total_usd, service_fee_usd, shipping_fee_usd, total_usd, total_cdf, exchange_rate_used, requires_manual_quote, created_at, cart_version')
     .eq('user_id', user.id).eq('status', 'DRAFT').order('created_at', { ascending: false });
+
+  console.log(`[CART_GET] user_id=${user.id} deviceId=${deviceId || "none"} authPresent=${!!token} draftRows=${drafts?.length ?? 0} orderError=${orderError?.message ?? "none"}`);
 
   if (!drafts || drafts.length === 0) {
     return jsonResponse({
@@ -283,6 +290,8 @@ async function handleGetCart(req: Request): Promise<Response> {
       price_confirmation_status, admin_adjusted_price, price_confirmation_id, price_source, captured_price,
       shipping_item_types(key, label), quote_requests(status, quoted_shipping_usd, quoted_total_usd)`)
     .eq('order_id', order.id);
+
+  console.log(`[CART_GET] user_id=${user.id} order_id=${order.id} itemRows=${items?.length ?? 0}`);
 
   const productUrls = (items || []).map((item: any) => item.product_url).filter(Boolean);
   const mediaLookup = await lookupCartItemMediaCounts(supabase, productUrls);

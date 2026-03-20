@@ -14,6 +14,7 @@ const FORWARDED_HEADERS = [
   "x-auth-token",
   "x-session-token",
   "x-access-token",
+  "x-supabase-auth",
   "x-jwt",
   "x-afrishop-environment",
   "x-afrishop-client",

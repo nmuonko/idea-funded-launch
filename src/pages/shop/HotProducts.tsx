@@ -29,11 +29,12 @@ interface HotProduct {
 export default function HotProducts() {
   const navigate = useNavigate();
   const { language } = useLanguage();
-  const { addItem } = useShopCart();
-  const { session } = useAuth();
+  const { addItem, savePendingCheckout } = useShopCart();
+  const { session, user, isAuthReady } = useAuth();
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
+  const locale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
 
   useEffect(() => {
     async function fetchProducts() {
@@ -60,8 +61,28 @@ export default function HotProducts() {
     const key = `${product.provider}-${product.provider_product_id}`;
     if (processingIds.has(key)) return;
 
+    console.log('[HOT_PRODUCTS] Buy now clicked', {
+      productId: product.id,
+      provider: product.provider,
+      hasSession: !!session,
+      hasUser: !!user,
+      isAuthReady,
+    });
+
+    if (!isAuthReady) {
+      toast.error(locale === 'fr' ? 'Authentification en cours, réessayez dans un instant.' : 'Authentication is still loading, please try again.');
+      return;
+    }
+
+    let activeSession = session;
+    if (!activeSession) {
+      const { data } = await supabase.auth.getSession();
+      activeSession = data.session;
+      console.log('[HOT_PRODUCTS] Session fallback result', { hasSession: !!activeSession });
+    }
+
     // If not logged in, redirect to auth with return URL
-    if (!session) {
+    if (!activeSession?.user?.id) {
       // Encode product info in the redirect so we can auto-buy after login
       const returnUrl = encodeURIComponent(`/hot-products?buy=${product.id}`);
       navigate(`/shop-auth?redirect=${returnUrl}`);
@@ -70,8 +91,7 @@ export default function HotProducts() {
 
     setProcessingIds(prev => new Set(prev).add(key));
     try {
-      // Add to cart with admin-set price, then immediately go to checkout
-      await addItem({
+      const pendingItem = {
         productId: product.provider_product_id,
         provider: product.provider,
         title: product.title,
@@ -79,12 +99,27 @@ export default function HotProducts() {
         priceUsd: product.total_price_usd,
         quantity: 1,
         productUrl: product.product_url || `https://afrishop-usa.com/product/${product.provider}/${product.provider_product_id}`,
-        isFixedPrice: true, // Hot products use admin-set final price, no extra markup/shipping
+        isFixedPrice: true,
+      };
+
+      savePendingCheckout({
+        items: [{ ...pendingItem, id: `pending_hot_${product.id}` }],
+        totalUsd: product.total_price_usd,
+        currency: 'USD',
+      });
+
+      // Add to cart with admin-set price, then immediately go to checkout
+      await addItem(pendingItem);
+
+      console.log('[HOT_PRODUCTS] Navigating to checkout', {
+        productId: product.id,
+        userId: activeSession.user.id,
       });
 
       // Navigate directly to checkout
       navigate('/checkout');
-    } catch {
+    } catch (error) {
+      console.error('[HOT_PRODUCTS] Buy now failed', error);
       toast.error(locale === 'fr' ? 'Erreur, réessayez' : 'Error, please retry');
     } finally {
       setProcessingIds(prev => {
@@ -109,8 +144,6 @@ export default function HotProducts() {
       handleBuyNow(product);
     }
   }, [session, products]);
-
-  const locale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
 
   return (
     <div className="min-h-screen bg-black pb-safe-nav">

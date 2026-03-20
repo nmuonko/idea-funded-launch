@@ -251,10 +251,11 @@ serve(async (req) => {
     }
     
     return jsonResponse({
+      ok: false,
       success: false,
       error: 'Internal server error',
       code: 'INTERNAL_ERROR',
       trace_id: traceId,
-    }, 500);
+    }, 200);
   }
 });

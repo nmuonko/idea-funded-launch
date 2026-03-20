@@ -8,6 +8,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { getCorsHeaders } from "../_shared/http.ts";
+import { extractRequestToken } from "../_shared/auth.ts";
 
 const corsHeaders = getCorsHeaders();
 import { getProviderByKey } from "../_shared/paymentProviders.ts";

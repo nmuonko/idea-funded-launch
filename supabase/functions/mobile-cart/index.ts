@@ -27,6 +27,7 @@ import {
   jsonResponse,
   corsHeaders,
   extractBearerToken,
+  extractRequestToken,
   createAdminPostgrestClient,
   createAdminClient,
 } from "../_shared/auth.ts";
@@ -402,7 +403,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   const isFixedPrice = addBody.isFixedPrice === true || addBody.is_fixed_price === true;
 
   if (userEdited && isGuest) {
-    return jsonResponse({ ok: false, code: "AUTH_REQUIRED_FOR_MANUAL_PRICE", error: "Authentication required to submit modified prices." }, 401);
+    return jsonResponse({ ok: false, authenticated: false, code: "AUTH_REQUIRED_FOR_MANUAL_PRICE", error: "Authentication required to submit modified prices.", activeItems: [], savedItems: [] }, 200);
   }
 
   const settingsResult = await cartDbGetSettings(db, correlationId);
@@ -683,13 +684,13 @@ async function handleDeleteItem(req: Request, body: any): Promise<Response> {
 
 async function handleSync(req: Request, body: any): Promise<Response> {
   const { z } = await import("https://deno.land/x/zod@v3.22.4/mod.ts");
-  const authHeader = req.headers.get('Authorization');
-  const token = extractBearerToken(authHeader);
-  if (!token) return errorResponse('Authentication required. Please login to sync cart.', 401);
+  const { token, source: tokenSource } = await extractRequestToken(req);
+  console.log(`[mobile-cart:sync] token=${!!token} source=${tokenSource}`);
+  if (!token) return jsonResponse({ ok: false, success: false, authenticated: false, code: 'AUTH_REQUIRED', message: 'Authentication required. Please login to sync cart.', activeItems: [], savedItems: [] }, 200);
 
   const supabase = createAdminClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-  if (authError || !user) return errorResponse('Invalid or expired session. Please login again.', 401);
+  if (authError || !user) return jsonResponse({ ok: false, success: false, authenticated: false, code: 'SESSION_EXPIRED', message: 'Invalid or expired session. Please login again.', activeItems: [], savedItems: [] }, 200);
 
   const { action: _s, ...syncBody } = body;
   const items = syncBody.items;
@@ -824,13 +825,13 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!supabaseUrl || !serviceRoleKey) return jsonResponse({ success: false, code: 'CONFIG_ERROR', message: 'Server configuration error' }, 500);
 
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) return jsonResponse({ success: false, code: 'AUTH_REQUIRED', message: 'Authentication required to merge cart' }, 401);
+  const { token: mergeToken, source: mergeTokenSource } = await extractRequestToken(req);
+  console.log(`[mobile-cart:merge_guest] token=${!!mergeToken} source=${mergeTokenSource}`);
+  if (!mergeToken) return jsonResponse({ ok: false, success: false, authenticated: false, code: 'AUTH_REQUIRED', message: 'Authentication required to merge cart', activeItems: [], savedItems: [] }, 200);
 
-  const token = authHeader.replace('Bearer ', '');
   const supabase = createClient(supabaseUrl, serviceRoleKey);
-  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-  if (authError || !user) return jsonResponse({ success: false, code: 'INVALID_TOKEN', message: 'Invalid or expired session' }, 401);
+  const { data: { user }, error: authError } = await supabase.auth.getUser(mergeToken);
+  if (authError || !user) return jsonResponse({ ok: false, success: false, authenticated: false, code: 'SESSION_EXPIRED', message: 'Invalid or expired session', activeItems: [], savedItems: [] }, 200);
 
   const { action: _m, ...mergeBody } = body;
   const guestItems = mergeBody.guest_items || [];
@@ -1050,7 +1051,7 @@ serve(async (req) => {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     console.error('[mobile-cart] Error:', msg);
     if ((error as any)?.name === 'AuthError') {
-      return jsonResponse({ ok: false, code: 'SESSION_EXPIRED', message: msg, activeItems: [], savedItems: [] }, (error as any)?.status || 401);
+      return jsonResponse({ ok: false, authenticated: false, code: 'SESSION_EXPIRED', message: msg, activeItems: [], savedItems: [] }, 200);
     }
     return jsonResponse({ ok: false, error: msg }, 500);
   }

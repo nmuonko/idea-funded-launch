@@ -112,7 +112,7 @@ serve(async (req: Request): Promise<Response> => {
       console.error(`[STRIPE_CHECKOUT] Order not found`, { requestId, orderId: order_id, error: orderError });
       return new Response(
         JSON.stringify({ success: false, order_id, error: 'Order not found', error_code: 'ORDER_NOT_FOUND' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

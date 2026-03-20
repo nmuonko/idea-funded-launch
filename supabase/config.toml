@@ -63,3 +63,75 @@ project_id = "ecqpqtirhpumfgbdtvhh"
     verify_jwt = false
   [functions.referral-payout]
     verify_jwt = false
+  [functions.mobile-checkout]
+    verify_jwt = false
+  [functions.mobile-checkout-bridge]
+    verify_jwt = false
+  [functions.mobile-create-payment]
+    verify_jwt = false
+  [functions.mobile-get-cart]
+    verify_jwt = false
+  [functions.mobile-add-cart-item]
+    verify_jwt = false
+  [functions.mobile-delete-cart-item]
+    verify_jwt = false
+  [functions.mobile-update-cart-item]
+    verify_jwt = false
+  [functions.mobile-get-shipping-types]
+    verify_jwt = false
+  [functions.mobile-request-quote]
+    verify_jwt = false
+  [functions.mobile-retry-payment]
+    verify_jwt = false
+  [functions.mobile-verify-payment]
+    verify_jwt = false
+  [functions.select-payment-provider]
+    verify_jwt = false
+  [functions.payments-create-intent]
+    verify_jwt = false
+  [functions.payments-check-intent]
+    verify_jwt = false
+  [functions.pawapay-create-payment]
+    verify_jwt = false
+  [functions.pawapay-verify-payment]
+    verify_jwt = false
+  [functions.stripe-create-checkout-session]
+    verify_jwt = false
+  [functions.stripe-verify-checkout-session]
+    verify_jwt = false
+  [functions.verify-payment]
+    verify_jwt = false
+  [functions.payment-status]
+    verify_jwt = false
+  [functions.payment-decision]
+    verify_jwt = false
+  [functions.get-payment-providers]
+    verify_jwt = false
+  [functions.update-payment-provider]
+    verify_jwt = false
+  [functions.generate-payment-receipt]
+    verify_jwt = false
+  [functions.reconcile-payment-status]
+    verify_jwt = false
+  [functions.auth-register]
+    verify_jwt = false
+  [functions.cart-sync-from-client]
+    verify_jwt = false
+  [functions.cart-guest-snapshot]
+    verify_jwt = false
+  [functions.merge-guest-cart]
+    verify_jwt = false
+  [functions.claim-guest-confirmations]
+    verify_jwt = false
+  [functions.submit-price-confirmation]
+    verify_jwt = false
+  [functions.get-my-price-confirmations]
+    verify_jwt = false
+  [functions.public-shipping-config]
+    verify_jwt = false
+  [functions.register-device-token]
+    verify_jwt = false
+  [functions.send-push-notification]
+    verify_jwt = false
+  [functions.track-store-visit]
+    verify_jwt = false

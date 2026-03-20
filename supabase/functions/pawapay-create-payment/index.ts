@@ -13,6 +13,9 @@ import {
   errorResponse, 
   jsonResponse,
   createAdminClient,
+  authErrorResponse,
+  getRequestAuthDiagnostics,
+  normalizeAuthErrorCode,
 } from "../_shared/auth.ts";
 import { generateTraceId, createTracedLogger } from "../_shared/auditLog.ts";
 import {
@@ -29,7 +32,7 @@ import {
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-device-id, x-auth-token, x-session-token, x-access-token, x-jwt, x-supabase-auth, X-Afrishop-Environment',
 };
 
 serve(async (req) => {
@@ -42,12 +45,25 @@ serve(async (req) => {
 
   try {
     const { token, source: tokenSource } = await extractRequestToken(req);
-    const hasAuthorizationHeader = !!req.headers.get('Authorization');
-    log.log('pawapay-create-payment started', { hasAuthorizationHeader, tokenSource: tokenSource || 'missing', hasExtractedToken: !!token });
+    const authDiagnostics = getRequestAuthDiagnostics(req, token, tokenSource);
+    log.log('pawapay-create-payment auth-check', authDiagnostics);
 
-    // Authenticate user with the exact extracted token
-    const { user, supabase } = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
-    log.log('User authenticated', { userId: user.id, tokenSource: tokenSource || 'unknown' });
+    if (!token) {
+      return authErrorResponse('NO_TOKEN', 'No authentication token found. Please sign in.', { trace_id: traceId });
+    }
+
+    let user: any;
+    let supabase: any;
+    try {
+      const authResult = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
+      user = authResult.user;
+      supabase = authResult.supabase;
+      log.log('pawapay-create-payment auth-ok', { userId: user.id, tokenSource: authDiagnostics.tokenSource });
+    } catch (authError: any) {
+      const errorCode = normalizeAuthErrorCode(authError) || 'INVALID_TOKEN';
+      log.error('pawapay-create-payment auth-failed', { ...authDiagnostics, errorCode, reason: authError?.message });
+      return authErrorResponse(errorCode, undefined, { trace_id: traceId });
+    }
 
     // Parse request body
     const body = await req.json();

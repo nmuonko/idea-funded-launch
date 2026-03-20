@@ -114,6 +114,164 @@ export async function extractRequestToken(req: Request): Promise<{ token: string
   return { token: null, source: null };
 }
 
+export const MOBILE_ALT_AUTH_HEADER_NAMES = [
+  'x-auth-token',
+  'x-session-token',
+  'x-access-token',
+  'x-jwt',
+  'x-supabase-auth',
+] as const;
+
+export const MOBILE_FORWARD_HEADER_NAMES = [
+  ...MOBILE_ALT_AUTH_HEADER_NAMES,
+  'x-device-id',
+  'x-client-info',
+  'user-agent',
+  'X-Afrishop-Environment',
+] as const;
+
+const KNOWN_AUTH_ERROR_CODES = new Set(['NO_TOKEN', 'INVALID_TOKEN', 'EXPIRED_TOKEN']);
+
+export function getRequestAuthDiagnostics(
+  req: Request,
+  token?: string | null,
+  source?: string | null,
+) {
+  return {
+    tokenSource: source || 'missing',
+    hasAuthorizationHeader: !!(req.headers.get('Authorization') || req.headers.get('authorization')),
+    hasExtractedToken: !!token,
+    alternateHeaders: Object.fromEntries(
+      MOBILE_ALT_AUTH_HEADER_NAMES.map((header) => [header, !!req.headers.get(header)]),
+    ),
+  };
+}
+
+export function normalizeAuthErrorCode(error: unknown): string | null {
+  const rawCode = String(
+    (error as any)?.authErrorCode ??
+    (error as any)?.error_code ??
+    (error as any)?.code ??
+    (error as any)?.error ??
+    '',
+  ).toUpperCase();
+
+  if (KNOWN_AUTH_ERROR_CODES.has(rawCode)) {
+    return rawCode;
+  }
+
+  const message = String((error as any)?.message ?? error ?? '').toLowerCase();
+  if (!message) return null;
+  if (message.includes('expired') || message.includes('exp claim')) return 'EXPIRED_TOKEN';
+  if (
+    message.includes('auth') ||
+    message.includes('token') ||
+    message.includes('jwt') ||
+    message.includes('unauthenticated')
+  ) {
+    return 'INVALID_TOKEN';
+  }
+
+  return null;
+}
+
+export function authErrorPayload(errorCode = 'INVALID_TOKEN', message?: string) {
+  const normalizedCode = normalizeAuthErrorCode({ authErrorCode: errorCode }) || 'INVALID_TOKEN';
+  const defaultMessage = normalizedCode === 'NO_TOKEN'
+    ? 'No authentication token found. Please sign in.'
+    : normalizedCode === 'EXPIRED_TOKEN'
+    ? 'Session expired. Please sign in again.'
+    : 'Authentication failed. Please sign in again.';
+
+  return {
+    ok: false,
+    success: false,
+    authenticated: false,
+    error: normalizedCode,
+    error_code: normalizedCode,
+    message: message || defaultMessage,
+  };
+}
+
+export function authErrorResponse(
+  errorCode = 'INVALID_TOKEN',
+  message?: string,
+  extras: Record<string, unknown> = {},
+): Response {
+  return jsonResponse({
+    ...authErrorPayload(errorCode, message),
+    ...extras,
+  }, 200);
+}
+
+export function buildForwardHeaders(
+  req: Request,
+  token?: string | null,
+  options: {
+    includeApiKey?: boolean;
+    includeCronSecret?: boolean;
+    contentType?: string | null;
+  } = {},
+): Headers {
+  const headers = new Headers();
+  const authHeader = req.headers.get('Authorization') || req.headers.get('authorization');
+
+  if (authHeader) {
+    headers.set('Authorization', authHeader);
+  } else if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  if (options.contentType !== null) {
+    headers.set('Content-Type', options.contentType || 'application/json');
+  }
+
+  for (const header of MOBILE_FORWARD_HEADER_NAMES) {
+    const value = req.headers.get(header);
+    if (value) headers.set(header, value);
+  }
+
+  if (options.includeCronSecret) {
+    const cronSecret = req.headers.get('x-cron-secret');
+    if (cronSecret) headers.set('x-cron-secret', cronSecret);
+  }
+
+  if (options.includeApiKey !== false) {
+    headers.set('apikey', Deno.env.get('SUPABASE_ANON_KEY') || '');
+  }
+
+  return headers;
+}
+
+export function extractDownstreamAuthFailure(responseStatus: number, responseBody: string) {
+  let parsed: any = null;
+
+  try {
+    parsed = responseBody ? JSON.parse(responseBody) : null;
+  } catch {
+    parsed = null;
+  }
+
+  const parsedCode = normalizeAuthErrorCode(parsed);
+  const textIndicatesAuthFailure = /UNAUTHENTICATED|AUTH_REQUIRED|INVALID_AUTH|INVALID_TOKEN|EXPIRED_TOKEN|NO_TOKEN/i.test(responseBody || '');
+  const isAuthFailure =
+    responseStatus === 401 ||
+    responseStatus === 403 ||
+    parsed?.authenticated === false ||
+    !!parsedCode ||
+    textIndicatesAuthFailure;
+
+  if (!isAuthFailure) return null;
+
+  const errorCode = parsedCode || (responseStatus === 401 || responseStatus === 403 ? 'INVALID_TOKEN' : 'INVALID_TOKEN');
+  const payload = authErrorPayload(errorCode, parsed?.message);
+
+  return {
+    errorCode: payload.error_code,
+    message: payload.message,
+  };
+}
+
 /**
  * Create a minimal REST-based client that mimics the Supabase client API
  */

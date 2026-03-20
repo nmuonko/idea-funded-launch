@@ -17,7 +17,13 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { getCorsHeaders } from "../_shared/http.ts";
-import { extractRequestToken } from "../_shared/auth.ts";
+import {
+  extractRequestToken,
+  verifyAndGetUser,
+  authErrorResponse,
+  getRequestAuthDiagnostics,
+  normalizeAuthErrorCode,
+} from "../_shared/auth.ts";
 
 const corsHeaders = getCorsHeaders();
 import {
@@ -110,24 +116,39 @@ Deno.serve(async (req) => {
   const requestId = crypto.randomUUID();
 
   try {
-    // Log entry point for AAB debugging
-    const authHeader = req.headers.get('Authorization');
+    const { token, source: tokenSource } = await extractRequestToken(req);
+    const authDiagnostics = getRequestAuthDiagnostics(req, token, tokenSource);
+
     console.log('[PAYMENT_INTENT_ENTRY]', {
       requestId,
       method: req.method,
-      hasAuth: !!authHeader,
+      ...authDiagnostics,
       userAgent: req.headers.get('user-agent')?.slice(0, 100),
       timestamp: new Date().toISOString(),
     });
 
-    const { token, source: tokenSource } = await extractRequestToken(req);
-
-    // Auth check
     if (!token) {
-      return new Response(
-        JSON.stringify({ success: false, authenticated: false, requestId, error: 'Authorization required', error_code: 'AUTH_REQUIRED' }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return authErrorResponse('NO_TOKEN', 'No authentication token found. Please sign in.', { requestId });
+    }
+
+    let user: any;
+    try {
+      const authResult = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
+      user = authResult.user;
+      console.log('[payments-create-intent] auth-ok', {
+        requestId,
+        tokenSource: authDiagnostics.tokenSource,
+        userId: user.id,
+      });
+    } catch (authError: any) {
+      const errorCode = normalizeAuthErrorCode(authError) || 'INVALID_TOKEN';
+      console.warn('[payments-create-intent] auth-failed', {
+        requestId,
+        ...authDiagnostics,
+        errorCode,
+        reason: authError?.message,
+      });
+      return authErrorResponse(errorCode, undefined, { requestId });
     }
 
     // Parse request
@@ -171,24 +192,8 @@ Deno.serve(async (req) => {
 
     // Create Supabase clients
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const bearerAuthHeader = `Bearer ${token}`;
-
-    const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: bearerAuthHeader } },
-    });
-    
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Get user
-    const { data: { user }, error: userError } = await supabaseUser.auth.getUser(token);
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, authenticated: false, requestId, error: 'Invalid authentication', error_code: 'INVALID_AUTH' }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
 
     // Fetch order with items
     const { data: order, error: orderError } = await supabaseAdmin

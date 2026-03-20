@@ -10,11 +10,17 @@
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
-import { extractRequestToken } from "../_shared/auth.ts";
+import {
+  extractRequestToken,
+  verifyAndGetUser,
+  authErrorResponse,
+  getRequestAuthDiagnostics,
+  normalizeAuthErrorCode,
+} from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-device-id, x-auth-token, x-session-token, x-access-token, x-jwt, x-supabase-auth, X-Afrishop-Environment',
 };
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
@@ -53,35 +59,31 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     const { token, source: tokenSource } = await extractRequestToken(req);
-    const hasAuthorizationHeader = !!req.headers.get('Authorization');
+    const authDiagnostics = getRequestAuthDiagnostics(req, token, tokenSource);
     console.log(`[STRIPE_CHECKOUT] Auth diagnostics`, {
       requestId,
-      hasAuthorizationHeader,
-      tokenSource: tokenSource || 'missing',
-      hasExtractedToken: !!token,
+      ...authDiagnostics,
     });
 
     if (!token) {
-      return new Response(
-        JSON.stringify({ success: false, authenticated: false, error: 'Authorization required', error_code: 'AUTH_REQUIRED' }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return authErrorResponse('NO_TOKEN', 'No authentication token found. Please sign in.', { requestId });
+    }
+
+    let user: any;
+    try {
+      const authResult = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
+      user = authResult.user;
+      console.log(`[STRIPE_CHECKOUT] auth-ok`, { requestId, userId: user.id, tokenSource: authDiagnostics.tokenSource });
+    } catch (authError: any) {
+      const errorCode = normalizeAuthErrorCode(authError) || 'INVALID_TOKEN';
+      console.warn(`[STRIPE_CHECKOUT] auth-failed`, { requestId, ...authDiagnostics, errorCode, reason: authError?.message });
+      return authErrorResponse(errorCode, undefined, { requestId });
     }
 
     // Create Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Verify user using the exact extracted token
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, authenticated: false, error: 'Invalid token', error_code: 'AUTH_ERROR' }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
 
     const userId = user.id;
     console.log(`[STRIPE_CHECKOUT] User authenticated`, { requestId, userId });

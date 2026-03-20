@@ -518,26 +518,37 @@ const AUTH_CACHE_TTL = 30_000; // 30 seconds
  * Verifies JWT token and returns the authenticated user
  * Uses SERVICE_ROLE to validate the token server-side
  */
-export async function verifyAndGetUser(req: Request, _supabase?: any): Promise<{ user: User; supabase: SupabaseClient }> {
-  const { token, source } = await extractRequestToken(req);
+export async function verifyAndGetUser(
+  req: Request,
+  _supabase?: any,
+  authContext?: { token?: string | null; source?: string | null },
+): Promise<{ user: User; supabase: SupabaseClient }> {
+  const extracted = authContext ?? await extractRequestToken(req);
+  const token = extracted?.token ?? null;
+  const source = extracted?.source ?? null;
 
   if (!token) {
     throw new AuthError('Missing or invalid Authorization header', 401);
   }
 
+  const hasAuthorizationHeader = !!req.headers.get('Authorization');
+
   // Check cache first
   const cached = authCache.get(token);
   if (cached && Date.now() < cached.expiry) {
+    console.log('[Auth] Authenticated request via cache', {
+      source: source || 'unknown',
+      hasAuthorizationHeader,
+    });
     return { user: cached.user, supabase: createAdminClient() };
   }
 
-  // Use admin client to verify the token
+  // Use admin client to verify the exact token already extracted upstream
   const adminClient = createAdminClient();
-
   const { data: { user }, error } = await adminClient.auth.getUser(token);
 
   if (error) {
-    console.error('[Auth] Token verification failed:', error.message, 'source=', source);
+    console.error('[Auth] Token verification failed:', error.message, 'source=', source, 'hasAuthorizationHeader=', hasAuthorizationHeader);
     throw new AuthError('Invalid JWT', 401);
   }
 
@@ -545,7 +556,7 @@ export async function verifyAndGetUser(req: Request, _supabase?: any): Promise<{
     throw new AuthError('Invalid JWT - no user found', 401);
   }
 
-  console.log('[Auth] Authenticated request via', source || 'unknown');
+  console.log('[Auth] Authenticated request via', source || 'unknown', 'hasAuthorizationHeader=', hasAuthorizationHeader);
 
   // Cache the result for 30 seconds
   authCache.set(token, { user, expiry: Date.now() + AUTH_CACHE_TTL });

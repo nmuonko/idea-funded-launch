@@ -231,10 +231,10 @@ serve(async (req) => {
       switch (action) {
         case 'status':
           console.log('[payments-core] forward', { action, functionName: 'payment-status' });
-          return forwardGetToFunction('payment-status', req, authToken);
+          return forwardGetToFunction('payment-status', req, authToken, action);
         case 'check_intent':
           console.log('[payments-core] forward', { action, functionName: 'payments-check-intent' });
-          return forwardGetToFunction('payments-check-intent', req, authToken);
+          return forwardGetToFunction('payments-check-intent', req, authToken, action);
         default:
           return jsonRes({ ok: false, error: `Unknown GET action: ${action}` }, 400);
       }
@@ -244,46 +244,46 @@ serve(async (req) => {
       case 'create_intent': {
         const { action: _a, ...rest } = body;
         console.log('[payments-core] forward', { action, functionName: 'payments-create-intent' });
-        return forwardToFunction('payments-create-intent', req, authToken, rest);
+        return forwardToFunction('payments-create-intent', req, authToken, action, rest);
       }
       case 'check_intent': {
         const { action: _a, ...rest } = body;
         console.log('[payments-core] forward', { action, functionName: 'payments-check-intent' });
-        return forwardToFunction('payments-check-intent', req, authToken, rest);
+        return forwardToFunction('payments-check-intent', req, authToken, action, rest);
       }
       case 'verify': {
         const { action: _a, ...rest } = body;
         console.log('[payments-core] forward', { action, functionName: 'mobile-verify-payment' });
-        return forwardToFunction('mobile-verify-payment', req, authToken, rest);
+        return forwardToFunction('mobile-verify-payment', req, authToken, action, rest);
       }
       case 'admin_verify': {
         const { action: _a, ...rest } = body;
         console.log('[payments-core] forward', { action, functionName: 'verify-payment' });
-        return forwardToFunction('verify-payment', req, authToken, rest);
+        return forwardToFunction('verify-payment', req, authToken, action, rest);
       }
       case 'status': {
         const { action: _a, ...rest } = body;
         console.log('[payments-core] forward', { action, functionName: 'payment-status' });
-        return forwardToFunction('payment-status', req, authToken, rest);
+        return forwardToFunction('payment-status', req, authToken, action, rest);
       }
       case 'decision': {
         const { action: _a, ...rest } = body;
         console.log('[payments-core] forward', { action, functionName: 'payment-decision' });
-        return forwardToFunction('payment-decision', req, authToken, rest);
+        return forwardToFunction('payment-decision', req, authToken, action, rest);
       }
       case 'retry': {
         const { action: _a, ...rest } = body;
         console.log('[payments-core] forward', { action, functionName: 'mobile-retry-payment' });
-        return forwardToFunction('mobile-retry-payment', req, authToken, rest);
+        return forwardToFunction('mobile-retry-payment', req, authToken, action, rest);
       }
       case 'reconcile': {
         console.log('[payments-core] forward', { action, functionName: 'reconcile-payment-status' });
-        return forwardToFunction('reconcile-payment-status', req, authToken, body);
+        return forwardToFunction('reconcile-payment-status', req, authToken, action, body);
       }
       case 'receipt': {
         const { action: _a, ...rest } = body;
         console.log('[payments-core] forward', { action, functionName: 'generate-payment-receipt' });
-        return forwardToFunction('generate-payment-receipt', req, authToken, rest);
+        return forwardToFunction('generate-payment-receipt', req, authToken, action, rest);
       }
       default:
         return jsonRes({ ok: false, error: `Unknown action: ${action}` }, 400);

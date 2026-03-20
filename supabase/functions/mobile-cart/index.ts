@@ -402,7 +402,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   const isFixedPrice = addBody.isFixedPrice === true || addBody.is_fixed_price === true;
 
   if (userEdited && isGuest) {
-    return jsonResponse({ ok: false, code: "AUTH_REQUIRED_FOR_MANUAL_PRICE", error: "Authentication required to submit modified prices." }, 401);
+    return jsonResponse({ ok: false, authenticated: false, code: "AUTH_REQUIRED_FOR_MANUAL_PRICE", error: "Authentication required to submit modified prices.", activeItems: [], savedItems: [] }, 200);
   }
 
   const settingsResult = await cartDbGetSettings(db, correlationId);

@@ -104,12 +104,18 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
         try {
           const parsed = JSON.parse(responseText);
           if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            const activeItems = Array.isArray(parsed.activeItems)
+            const rawActiveItems = Array.isArray(parsed.activeItems)
               ? parsed.activeItems
               : Array.isArray(parsed.items)
                 ? parsed.items
+                : Array.isArray(parsed.cartItems)
+                  ? parsed.cartItems
+                  : [];
+            const rawSavedItems = Array.isArray(parsed.savedItems)
+              ? parsed.savedItems
+              : Array.isArray(parsed.saved_items)
+                ? parsed.saved_items
                 : [];
-            const savedItems = Array.isArray(parsed.savedItems) ? parsed.savedItems : [];
             const summary = parsed.summary && typeof parsed.summary === "object" ? parsed.summary : {};
             const success = typeof parsed.success === "boolean"
               ? parsed.success
@@ -117,19 +123,72 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
                 ? parsed.ok
                 : upstreamResponse.ok;
 
+            const normalizeItem = (item: any) => ({
+              ...item,
+              productUrl: item.productUrl ?? item.product_url ?? null,
+              product_url: item.product_url ?? item.productUrl ?? null,
+              productTitle: item.productTitle ?? item.product_title ?? item.title ?? null,
+              product_title: item.product_title ?? item.productTitle ?? item.title ?? null,
+              title: item.title ?? item.productTitle ?? item.product_title ?? null,
+              imageUrl: item.imageUrl ?? item.productImageUrl ?? item.product_image_url ?? item.mainImageUrl ?? item.image_url ?? null,
+              productImageUrl: item.productImageUrl ?? item.product_image_url ?? item.imageUrl ?? item.mainImageUrl ?? item.image_url ?? null,
+              product_image_url: item.product_image_url ?? item.productImageUrl ?? item.imageUrl ?? item.mainImageUrl ?? item.image_url ?? null,
+              image_url: item.image_url ?? item.product_image_url ?? item.productImageUrl ?? item.imageUrl ?? item.mainImageUrl ?? null,
+              provider: item.provider ?? item.store ?? null,
+              store: item.store ?? item.provider ?? null,
+              base_price_usd: item.base_price_usd ?? item.basePriceUsd ?? item.unitPriceUsd ?? 0,
+              unit_price_usd: item.unit_price_usd ?? item.unitPriceUsd ?? item.basePriceUsd ?? 0,
+              subtotal_usd: item.subtotal_usd ?? item.subtotalUsd ?? item.itemSubtotalUsd ?? 0,
+              markup_fee_usd: item.markup_fee_usd ?? item.markupFeeUsd ?? item.itemMarginUsd ?? 0,
+              shipping_fee_usd: item.shipping_fee_usd ?? item.shippingFeeUsd ?? item.itemShippingUsd ?? 0,
+              total_price_usd: item.total_price_usd ?? item.totalPriceUsd ?? item.itemTotalUsd ?? item.lineTotalUsd ?? 0,
+              total_price_cdf: item.total_price_cdf ?? item.totalPriceCdf ?? item.lineTotalCdf ?? 0,
+              is_saved_for_later: item.is_saved_for_later ?? item.isSavedForLater ?? false,
+              saved_at: item.saved_at ?? item.savedAt ?? null,
+              updated_at: item.updated_at ?? item.updatedAt ?? null,
+              is_vehicle: item.is_vehicle ?? item.isVehicle ?? false,
+              vehicle_quote_applied: item.vehicle_quote_applied ?? item.vehicleQuoteApplied ?? false,
+              price_confirmation_status: item.price_confirmation_status ?? item.priceConfirmationStatus ?? null,
+            });
+
+            const activeItems = rawActiveItems.map(normalizeItem);
+            const savedItems = rawSavedItems.map(normalizeItem);
+            const totals = {
+              item_count: parsed.itemCount ?? summary.itemCount ?? activeItems.length,
+              items_total_usd: parsed.itemsTotalUsd ?? summary.itemsTotalUsd ?? 0,
+              markup_fee_usd: parsed.markupFeeUsd ?? summary.markupFeeUsd ?? 0,
+              shipping_fee_usd: parsed.shippingFeeUsd ?? summary.shippingFeeUsd ?? 0,
+              total_usd: parsed.totalUsd ?? summary.totalUsd ?? 0,
+              total_cdf: parsed.totalCdf ?? summary.totalCdf ?? 0,
+              exchange_rate: parsed.exchangeRate ?? summary.exchangeRate ?? null,
+            };
+
             finalResponseText = JSON.stringify({
               ...parsed,
               success,
+              ok: parsed.ok ?? success,
+              items: activeItems,
+              activeItems,
               cartItems: parsed.cartItems ?? activeItems,
               cart_items: parsed.cart_items ?? activeItems,
-              items: parsed.items ?? activeItems,
               savedItems,
               saved_items: parsed.saved_items ?? savedItems,
               cartId: parsed.cartId ?? summary.cartId ?? null,
+              cart_id: parsed.cart_id ?? summary.cartId ?? null,
               itemCount: parsed.itemCount ?? summary.itemCount ?? activeItems.length,
+              item_count: parsed.item_count ?? summary.itemCount ?? activeItems.length,
               totalUsd: parsed.totalUsd ?? summary.totalUsd ?? 0,
+              total_usd: parsed.total_usd ?? summary.totalUsd ?? 0,
               totalCdf: parsed.totalCdf ?? summary.totalCdf ?? 0,
+              total_cdf: parsed.total_cdf ?? summary.totalCdf ?? 0,
               exchangeRate: parsed.exchangeRate ?? summary.exchangeRate ?? null,
+              exchange_rate: parsed.exchange_rate ?? summary.exchangeRate ?? null,
+              summary: { ...summary, ...totals },
+              cartSummary: parsed.cartSummary ?? { ...summary, ...totals },
+              cart_summary: parsed.cart_summary ?? { ...summary, ...totals },
+              totals: parsed.totals ?? totals,
+              cart: parsed.cart ?? { id: parsed.cartId ?? summary.cartId ?? null, items: activeItems, saved_items: savedItems, totals },
+              data: parsed.data ?? { items: activeItems, cartItems: activeItems, savedItems, summary: { ...summary, ...totals } },
             });
           }
         } catch (error) {

@@ -524,40 +524,42 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       return [...prev, newItem];
     });
 
-    // If logged in, add to server then sync silently (no loading spinner)
+    // If logged in, fire server add in background — don't block the UI
     if (user && sessionRef.current) {
       if (!resolvedUrl) {
         console.error('[CART] Cannot sync item without productUrl:', item);
         return;
       }
 
-      let addSucceeded = false;
-      addInFlightRef.current++;
-      try {
-        const { error } = await supabase.functions.invoke('mobile-cart', {
-          body: {
-            action: 'add_item',
-            productUrl: resolvedUrl,
-            productPrice: item.priceUsd,
-            quantity: item.quantity,
-            productTitle: item.title,
-            productImageUrl: item.imageUrl,
-            ...(item.isFixedPrice ? { isFixedPrice: true } : {}),
-          },
-        });
-        if (error) throw error;
-        addSucceeded = true;
-      } catch (error) {
-        console.error('[CART] Failed to add item to server, keeping optimistic local item:', error);
-      } finally {
-        addInFlightRef.current--;
-      }
+      // Fire-and-forget: persist to server then reconcile silently
+      const persistToServer = async () => {
+        let addSucceeded = false;
+        addInFlightRef.current++;
+        try {
+          const { error } = await supabase.functions.invoke('mobile-cart', {
+            body: {
+              action: 'add_item',
+              productUrl: resolvedUrl,
+              productPrice: item.priceUsd,
+              quantity: item.quantity,
+              productTitle: item.title,
+              productImageUrl: item.imageUrl,
+              ...(item.isFixedPrice ? { isFixedPrice: true } : {}),
+            },
+          });
+          if (error) throw error;
+          addSucceeded = true;
+        } catch (error) {
+          console.error('[CART] Failed to add item to server, keeping optimistic local item:', error);
+        } finally {
+          addInFlightRef.current--;
+        }
 
-      // IMPORTANT: only reconcile from server when add actually succeeded.
-      // If add failed, keep optimistic local item so it doesn't "disappear".
-      if (addSucceeded) {
-        syncCartRef.current();
-      }
+        if (addSucceeded) {
+          syncCartRef.current();
+        }
+      };
+      persistToServer();
     }
   };
 

@@ -28,14 +28,19 @@ import {
 
 // ─── Proxy Helper (for actions not yet inlined) ──────────
 
-async function proxyToFunction(functionName: string, req: Request, body: unknown): Promise<Response> {
+async function proxyToFunction(functionName: string, req: Request, body: unknown, token?: string | null): Promise<Response> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const headers = new Headers();
   const authHeader = req.headers.get('Authorization');
-  if (authHeader) headers.set('Authorization', authHeader);
+  if (authHeader) {
+    headers.set('Authorization', authHeader);
+  } else if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
   headers.set('Content-Type', 'application/json');
   headers.set('apikey', Deno.env.get('SUPABASE_ANON_KEY') || '');
-  for (const h of ['x-device-id', 'user-agent', 'x-client-info']) {
+  // Forward ALL alternate auth + context headers for frozen RN builds
+  for (const h of ['x-device-id', 'user-agent', 'x-client-info', 'x-auth-token', 'x-session-token', 'x-access-token', 'x-jwt', 'x-supabase-auth', 'X-Afrishop-Environment']) {
     const v = req.headers.get(h);
     if (v) headers.set(h, v);
   }
@@ -44,6 +49,7 @@ async function proxyToFunction(functionName: string, req: Request, body: unknown
     method: 'POST', headers, body: JSON.stringify(payload),
   });
   const text = await resp.text();
+  console.log('[mobile-orders] proxy-downstream', { functionName, downstreamStatus: resp.status });
   return new Response(text, {
     status: resp.status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },

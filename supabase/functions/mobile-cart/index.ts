@@ -281,7 +281,7 @@ async function handleGetCart(req: Request): Promise<Response> {
     }
   }
 
-  const { data: items } = await supabase
+  const { data: items, error: itemsError } = await supabase
     .from('order_items')
     .select(`id, product_url, title, product_image_url, store, base_price_usd, unit_price_usd, quantity,
       subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, total_price_cdf, 
@@ -291,7 +291,7 @@ async function handleGetCart(req: Request): Promise<Response> {
       shipping_item_types(key, label), quote_requests(status, quoted_shipping_usd, quoted_total_usd)`)
     .eq('order_id', order.id);
 
-  console.log(`[CART_GET] user_id=${user.id} order_id=${order.id} itemRows=${items?.length ?? 0}`);
+  console.log(`[CART_GET] user_id=${user.id} order_id=${order.id} itemRows=${items?.length ?? 0} itemsError=${itemsError?.message ?? "none"}`);
 
   const productUrls = (items || []).map((item: any) => item.product_url).filter(Boolean);
   const mediaLookup = await lookupCartItemMediaCounts(supabase, productUrls);

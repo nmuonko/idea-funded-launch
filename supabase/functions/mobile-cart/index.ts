@@ -281,7 +281,11 @@ async function handleGetCart(req: Request): Promise<Response> {
     }
   }
 
-  const { data: items } = await supabase
+  let items: any[] | null = null;
+  let itemsError: any = null;
+
+  // Try with embedded relations first
+  const result1 = await supabase
     .from('order_items')
     .select(`id, product_url, title, product_image_url, store, base_price_usd, unit_price_usd, quantity,
       subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, total_price_cdf, 
@@ -291,7 +295,33 @@ async function handleGetCart(req: Request): Promise<Response> {
       shipping_item_types(key, label), quote_requests(status, quoted_shipping_usd, quoted_total_usd)`)
     .eq('order_id', order.id);
 
-  console.log(`[CART_GET] user_id=${user.id} order_id=${order.id} itemRows=${items?.length ?? 0}`);
+  items = result1.data;
+  itemsError = result1.error;
+
+  // If embedded relations query failed or returned empty, retry without them
+  if ((!items || items.length === 0) && !itemsError) {
+    console.log(`[CART_GET] user_id=${user.id} order_id=${order.id} embeddedQueryReturnedEmpty, retrying without relations`);
+    const result2 = await supabase
+      .from('order_items')
+      .select(`id, product_url, title, product_image_url, store, base_price_usd, unit_price_usd, quantity,
+        subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, total_price_cdf, 
+        est_weight_kg, requires_manual_quote, is_saved_for_later, saved_at, updated_at,
+        is_vehicle, vehicle_quote_applied, device_id,
+        price_confirmation_status, admin_adjusted_price, price_confirmation_id, price_source, captured_price`)
+      .eq('order_id', order.id);
+
+    if (result2.data && result2.data.length > 0) {
+      items = result2.data;
+      itemsError = result2.error;
+      console.log(`[CART_GET] user_id=${user.id} order_id=${order.id} fallbackItemRows=${items?.length ?? 0}`);
+    }
+  }
+
+  if (itemsError) {
+    console.error(`[CART_GET] user_id=${user.id} order_id=${order.id} itemsError=${JSON.stringify(itemsError)}`);
+  }
+
+  console.log(`[CART_GET] user_id=${user.id} order_id=${order.id} itemRows=${items?.length ?? 0} itemsError=${itemsError?.message ?? "none"}`);
 
   const productUrls = (items || []).map((item: any) => item.product_url).filter(Boolean);
   const mediaLookup = await lookupCartItemMediaCounts(supabase, productUrls);

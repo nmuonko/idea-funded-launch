@@ -540,7 +540,10 @@ export async function verifyAndGetUser(
       source: source || 'unknown',
       hasAuthorizationHeader,
     });
-    return { user: cached.user, supabase: createAdminClient() };
+    // Return a USER-context client so auth.uid() resolves correctly for RLS
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    return { user: cached.user, supabase: createRestClient(supabaseUrl, supabaseAnonKey, token) };
   }
 
   // Use admin client to verify the exact token already extracted upstream
@@ -571,7 +574,10 @@ export async function verifyAndGetUser(
     }
   }
 
-  return { user, supabase: adminClient };
+  // Return a USER-context client so auth.uid() resolves correctly for RLS queries
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  return { user, supabase: createRestClient(supabaseUrl, supabaseAnonKey, token) };
 }
 
 /**

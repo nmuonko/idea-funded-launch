@@ -163,7 +163,7 @@ serve(async (req: Request): Promise<Response> => {
       console.error(`[STRIPE_CHECKOUT] Invalid total`, { requestId, orderId: order_id, grandTotal });
       return new Response(
         JSON.stringify({ success: false, order_id, error: 'Order has no valid total', error_code: 'INVALID_TOTAL' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

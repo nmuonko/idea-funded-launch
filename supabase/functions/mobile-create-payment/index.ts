@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
 import { 
-  verifyAndGetUser, 
+  verifyAndGetUser,
+  extractRequestToken,
   handleCors, 
   errorResponse, 
   jsonResponse,
@@ -40,10 +41,12 @@ serve(async (req) => {
   }
 
   try {
-    console.log('[mobile-create-payment] Request received');
+    const { token, source: tokenSource } = await extractRequestToken(req);
+    const hasAuthorizationHeader = !!req.headers.get('Authorization');
+    console.log('[mobile-create-payment] Request received', { hasAuthorizationHeader, tokenSource: tokenSource || 'missing', hasExtractedToken: !!token });
 
-    // Verify JWT
-    const { user, supabase } = await verifyAndGetUser(req);
+    // Verify JWT using the already extracted token
+    const { user, supabase } = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
     console.log('[mobile-create-payment] User authenticated:', user.id);
 
     // Parse request body

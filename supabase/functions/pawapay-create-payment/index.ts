@@ -7,7 +7,8 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { 
-  verifyAndGetUser, 
+  verifyAndGetUser,
+  extractRequestToken,
   handleCors, 
   errorResponse, 
   jsonResponse,
@@ -40,11 +41,13 @@ serve(async (req) => {
   const log = createTracedLogger(traceId);
 
   try {
-    log.log('pawapay-create-payment started');
+    const { token, source: tokenSource } = await extractRequestToken(req);
+    const hasAuthorizationHeader = !!req.headers.get('Authorization');
+    log.log('pawapay-create-payment started', { hasAuthorizationHeader, tokenSource: tokenSource || 'missing', hasExtractedToken: !!token });
 
-    // Authenticate user
-    const { user, supabase } = await verifyAndGetUser(req);
-    log.log('User authenticated', { userId: user.id });
+    // Authenticate user with the exact extracted token
+    const { user, supabase } = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
+    log.log('User authenticated', { userId: user.id, tokenSource: tokenSource || 'unknown' });
 
     // Parse request body
     const body = await req.json();
@@ -219,7 +222,15 @@ serve(async (req) => {
     log.error('Error', { message: error.message });
     
     if (error.name === 'AuthError') {
-      return errorResponse(error.message, error.status);
+      return jsonResponse({
+        ok: false,
+        success: false,
+        authenticated: false,
+        error: 'AUTH_ERROR',
+        code: 'AUTH_ERROR',
+        message: 'Authentication failed. Please sign in again.',
+        trace_id: traceId,
+      }, 200);
     }
     
     return jsonResponse({

@@ -10,6 +10,7 @@
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
+import { extractRequestToken } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -51,12 +52,19 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // Get auth header
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
+    const { token, source: tokenSource } = await extractRequestToken(req);
+    const hasAuthorizationHeader = !!req.headers.get('Authorization');
+    console.log(`[STRIPE_CHECKOUT] Auth diagnostics`, {
+      requestId,
+      hasAuthorizationHeader,
+      tokenSource: tokenSource || 'missing',
+      hasExtractedToken: !!token,
+    });
+
+    if (!token) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized', error_code: 'UNAUTHORIZED' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, authenticated: false, error: 'Authorization required', error_code: 'AUTH_REQUIRED' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -65,14 +73,13 @@ serve(async (req: Request): Promise<Response> => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Verify user
-    const token = authHeader.replace('Bearer ', '');
+    // Verify user using the exact extracted token
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     
     if (authError || !user) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Invalid token', error_code: 'UNAUTHORIZED' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, authenticated: false, error: 'Invalid token', error_code: 'AUTH_ERROR' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -111,8 +118,8 @@ serve(async (req: Request): Promise<Response> => {
     if (order.user_id !== userId) {
       console.warn(`[STRIPE_CHECKOUT] Unauthorized access attempt`, { requestId, orderId: order_id, userId, orderUserId: order.user_id });
       return new Response(
-        JSON.stringify({ success: false, order_id, error: 'Unauthorized', error_code: 'UNAUTHORIZED' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, authenticated: true, order_id, error: 'Unauthorized', error_code: 'NOT_AUTHORIZED' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

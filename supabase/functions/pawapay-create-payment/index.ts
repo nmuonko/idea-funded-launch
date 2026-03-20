@@ -41,11 +41,13 @@ serve(async (req) => {
   const log = createTracedLogger(traceId);
 
   try {
-    log.log('pawapay-create-payment started');
+    const { token, source: tokenSource } = await extractRequestToken(req);
+    const hasAuthorizationHeader = !!req.headers.get('Authorization');
+    log.log('pawapay-create-payment started', { hasAuthorizationHeader, tokenSource: tokenSource || 'missing', hasExtractedToken: !!token });
 
-    // Authenticate user
-    const { user, supabase } = await verifyAndGetUser(req);
-    log.log('User authenticated', { userId: user.id });
+    // Authenticate user with the exact extracted token
+    const { user, supabase } = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
+    log.log('User authenticated', { userId: user.id, tokenSource: tokenSource || 'unknown' });
 
     // Parse request body
     const body = await req.json();

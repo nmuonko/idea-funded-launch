@@ -824,13 +824,13 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!supabaseUrl || !serviceRoleKey) return jsonResponse({ success: false, code: 'CONFIG_ERROR', message: 'Server configuration error' }, 500);
 
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) return jsonResponse({ success: false, code: 'AUTH_REQUIRED', message: 'Authentication required to merge cart' }, 401);
+  const { token: mergeToken, source: mergeTokenSource } = await extractRequestToken(req);
+  console.log(`[mobile-cart:merge_guest] token=${!!mergeToken} source=${mergeTokenSource}`);
+  if (!mergeToken) return jsonResponse({ ok: false, success: false, authenticated: false, code: 'AUTH_REQUIRED', message: 'Authentication required to merge cart', activeItems: [], savedItems: [] }, 200);
 
-  const token = authHeader.replace('Bearer ', '');
   const supabase = createClient(supabaseUrl, serviceRoleKey);
-  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-  if (authError || !user) return jsonResponse({ success: false, code: 'INVALID_TOKEN', message: 'Invalid or expired session' }, 401);
+  const { data: { user }, error: authError } = await supabase.auth.getUser(mergeToken);
+  if (authError || !user) return jsonResponse({ ok: false, success: false, authenticated: false, code: 'SESSION_EXPIRED', message: 'Invalid or expired session', activeItems: [], savedItems: [] }, 200);
 
   const { action: _m, ...mergeBody } = body;
   const guestItems = mergeBody.guest_items || [];

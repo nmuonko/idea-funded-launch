@@ -226,7 +226,7 @@ serve(async (req: Request): Promise<Response> => {
           error: stripeData.error?.message || 'Failed to create checkout session', 
           error_code: 'STRIPE_ERROR' 
         }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

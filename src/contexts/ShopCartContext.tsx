@@ -378,7 +378,11 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     }
     syncInProgressRef.current = true;
     
-    setLoading(true);
+    // Only show loading spinner on initial hydration, not on every sync
+    const isInitialHydrate = !didInitialServerHydrateRef.current;
+    if (isInitialHydrate) {
+      setLoading(true);
+    }
     try {
       console.log('[CART] syncing with server for user=', user.id);
       const { data, error } = await supabase.functions.invoke('mobile-cart', { body: { action: 'get_cart' } });

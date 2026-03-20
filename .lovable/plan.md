@@ -2,56 +2,40 @@
 
 ## Problem Analysis
 
-Two issues reported:
+After examining the backend logs and code, I found:
 
-1. **"Payez maintenant" redirect after reinstall** — The `mobile-cart` edge function still returns raw HTTP 401 in 5+ places. The frozen React Native app's global interceptor catches any 401 and forces a logout/redirect.
+1. **Backend IS succeeding** — logs show `[CART_ADD] Inserted item` and `upstreamStatus=200` for recent calls. Items ARE being written to the database.
 
-2. **Deleted item reappears after a few seconds** — After a successful delete, `syncCart()` is called. If that sync call hits a 401 (from the same `mobile-cart` function), the sync fails silently. On the next automatic sync or state reconciliation, the server still has the item deleted, but the client never received the updated list, so the old cached state (with the item) gets restored.
+2. **But `handleAddItem` has a critical auth inconsistency** — it uses the **strict** `extractBearerToken` (line 382) which requires exact `Bearer ` prefix, while all other handlers (`get_cart`, `sync`, `merge_guest`, `delete_item`, `update_item`) use the **flexible** `extractRequestToken` which supports raw JWTs and alternate headers.
 
-Both issues trace to the same root cause: `mobile-cart/index.ts` still returns raw 401 status codes.
+3. **Silent guest fallback** — When `extractBearerToken` fails (no `Bearer ` prefix, token in alternate header), `handleAddItem` silently sets `isGuest = true` and returns `{success: true, isGuest: true}` **without saving to the database**. The RN app thinks the add succeeded, but the item was never persisted. The next `get_cart` call returns the old state.
 
-## Locations in `mobile-cart/index.ts` returning raw 401
+4. **Delete/update work differently** — They use `verifyAndGetUser` which throws `AuthError` on failure, caught by the global handler as a 200 with `authenticated: false`. This is correct.
 
-| Line | Context |
-|------|---------|
-| 405 | `AUTH_REQUIRED_FOR_MANUAL_PRICE` |
-| 688 | `sync` action — no token |
-| 692 | `sync` action — invalid token |
-| 828 | `merge_guest` action — no Bearer header |
-| 833 | `merge_guest` action — invalid token |
-| 1053 | Global catch — `AuthError` fallback |
+5. **Missing diagnostic logging** — `handleAddItem` doesn't log whether the user was treated as guest or authenticated, making it invisible in logs.
 
-All six must be changed to return **HTTP 200** with a JSON error body containing `authenticated: false` and a stable error code — matching the pattern already applied to `mobile-checkout`, `payments-provider`, and `payments-core`.
+## Root Cause
+
+After a fresh reinstall, the RN app's auth token may arrive in a non-standard format (raw JWT, alternate header). `handleAddItem` rejects it silently, treats the user as guest, returns a fake success, and never saves the item. The cart appears empty on refresh.
 
 ## Implementation Plan
 
-### 1. Harden `mobile-cart/index.ts` auth responses
+### 1. Fix `handleAddItem` auth extraction
+- Replace `extractBearerToken(authHeader)` with `extractRequestToken(req)` (line 382)
+- This matches the pattern used by `handleSync`, `handleMergeGuest`, and all other handlers
 
-Replace all raw 401 returns with HTTP 200 + structured JSON:
-```
-{ ok: false, authenticated: false, code: "AUTH_REQUIRED", message: "...", activeItems: [], savedItems: [] }
-```
+### 2. Add explicit auth failure response
+- When a token IS present but verification fails, return `{ok: false, authenticated: false, code: "SESSION_EXPIRED"}` instead of silently falling through to guest mode
+- Only allow guest mode when genuinely no token is present
 
-Specific changes:
-- **Line 405**: Return 200 with `code: "AUTH_REQUIRED_FOR_MANUAL_PRICE"`
-- **Line 688**: Return 200 with `code: "AUTH_REQUIRED"`
-- **Line 692**: Return 200 with `code: "SESSION_EXPIRED"`
-- **Line 828**: Return 200 with `code: "AUTH_REQUIRED"`
-- **Line 833**: Return 200 with `code: "SESSION_EXPIRED"`
-- **Line 1053**: Global catch — return 200 instead of `error.status || 401`
+### 3. Add diagnostic logging
+- Log token presence, source, and whether user was treated as guest or authenticated in `handleAddItem`
+- This will make the next debug cycle immediate if issues persist
 
-Also update `sync` and `merge_guest` to use the shared `extractRequestToken` / `verifyAndGetUser` helper (from `_shared/auth.ts`) instead of strict `Bearer ` prefix checks, matching the pattern in `payments-provider` and `payments-core`.
-
-### 2. Deploy and verify
-
-- Deploy `mobile-cart` edge function
-- Test the delete + sync flow to confirm no 401s leak through
-
-### Files to change
-- `supabase/functions/mobile-cart/index.ts` (6 locations)
+### File to change
+- `supabase/functions/mobile-cart/index.ts` — `handleAddItem` function (~10 lines changed)
 
 ### Expected outcome
-- The frozen RN app will never receive a 401 from cart operations, preventing forced logouts
-- Delete → sync flow will complete successfully, so deleted items won't reappear
-- Both issues (payment redirect + ghost items) resolved from this single fix
+- After reinstall, add_item will correctly extract the JWT from any header format and save items to the database
+- If auth truly fails, the RN app gets `authenticated: false` instead of a fake success
 

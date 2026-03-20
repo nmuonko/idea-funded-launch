@@ -3,7 +3,6 @@ import { buildCorsHeaders, corsPreflightResponse, logStartupRequest } from "./mo
 type CompatOptions = {
   legacyPath: string;
   action: string;
-  allowGetPassthrough?: boolean;
 };
 
 const FORWARDED_HEADERS = [
@@ -82,6 +81,7 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
         if (value) headers.set(headerName, value);
       }
       headers.set("apikey", headers.get("apikey") || anonKey);
+      headers.set("Content-Type", "application/json");
 
       const upstreamUrl = `${supabaseUrl}/functions/v1/mobile-cart`;
       const incomingBody = await parseBody(req);
@@ -90,11 +90,10 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
         action: options.action,
       };
 
-      const useGet = options.allowGetPassthrough === true && req.method === "GET";
       const upstreamResponse = await fetch(upstreamUrl, {
-        method: useGet ? "GET" : "POST",
-        headers: useGet ? headers : new Headers({ ...Object.fromEntries(headers.entries()), "Content-Type": "application/json" }),
-        body: useGet ? undefined : JSON.stringify(payload),
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
       });
 
       const responseText = await upstreamResponse.text();

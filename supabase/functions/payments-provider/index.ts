@@ -38,23 +38,27 @@ function authFailureResponse(errorCode = 'AUTH_REQUIRED', message = 'Authenticat
 
 async function requireAuth(req: Request, actionHint: string): Promise<{ userId: string; token: string | null; tokenSource: string | null } | Response> {
   const { token, source: tokenSource } = await extractRequestToken(req);
+  const hasAuthorizationHeader = !!req.headers.get('Authorization');
 
   console.log('[payments-provider] auth-check', {
     action: actionHint,
-    hasToken: !!token,
     tokenSource: tokenSource || 'missing',
+    hasAuthorizationHeader,
+    hasExtractedToken: !!token,
   });
 
   if (!token) {
-    console.warn('[payments-provider] auth-missing', { action: actionHint });
+    console.warn('[payments-provider] auth-missing', { action: actionHint, hasAuthorizationHeader });
     return authFailureResponse('AUTH_REQUIRED', 'Authentication required.');
   }
 
   try {
-    const { user } = await verifyAndGetUser(req);
+    const { user } = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
     console.log('[payments-provider] auth-ok', {
       action: actionHint,
       tokenSource: tokenSource || 'unknown',
+      hasAuthorizationHeader,
+      verifyUserSuccess: true,
       userId: user.id.slice(0, 8) + '***',
     });
     return { userId: user.id, token, tokenSource };
@@ -62,13 +66,16 @@ async function requireAuth(req: Request, actionHint: string): Promise<{ userId: 
     console.warn('[payments-provider] auth-failed', {
       action: actionHint,
       tokenSource: tokenSource || 'unknown',
+      hasAuthorizationHeader,
+      hasExtractedToken: !!token,
+      verifyUserSuccess: false,
       reason: error instanceof Error ? error.message : String(error),
     });
     return authFailureResponse('AUTH_ERROR', 'Authentication failed. Please sign in again.');
   }
 }
 
-async function forwardToFunction(functionName: string, req: Request, token: string | null, overrideBody?: unknown): Promise<Response> {
+async function forwardToFunction(functionName: string, req: Request, token: string | null, action: string, overrideBody?: unknown): Promise<Response> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   if (!supabaseUrl) {
     return jsonRes({ ok: false, error: 'SUPABASE_URL not configured' }, 500);
@@ -111,6 +118,17 @@ async function forwardToFunction(functionName: string, req: Request, token: stri
 
   const response = await fetch(targetUrl, fetchOpts);
   const responseBody = await response.text();
+
+  console.log('[payments-provider] downstream-response', {
+    action,
+    functionName,
+    downstreamStatusCode: response.status,
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    return authFailureResponse('AUTH_ERROR', 'Authentication failed. Please sign in again.');
+  }
+
   return new Response(responseBody, {
     status: response.status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },

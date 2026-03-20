@@ -429,19 +429,7 @@ export default function Checkout() {
   }
 
   if (!session) {
-    return (
-      <div className="min-h-screen bg-black">
-        <ShopHeader />
-        <div className="pt-24 px-4 text-center">
-          <p className="text-white/60 mb-4">{shop.pleaseSignIn || 'Please sign in to checkout'}</p>
-          <Link to="/shop-auth?redirect=/checkout">
-            <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full">
-              {shop.signIn || 'Sign In'}
-            </Button>
-          </Link>
-        </div>
-      </div>
-    );
+    return <CheckoutInlineLogin language={language} shop={shop} />;
   }
 
   if (checkoutItems.length === 0) {

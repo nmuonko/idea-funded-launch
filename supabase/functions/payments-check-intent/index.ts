@@ -41,12 +41,21 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Auth check
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
+    const requestId = crypto.randomUUID();
+    const { token, source: tokenSource } = await extractRequestToken(req);
+    const hasAuthorizationHeader = !!req.headers.get('Authorization');
+
+    console.log('[payments-check-intent] auth-check', {
+      requestId,
+      hasAuthorizationHeader,
+      tokenSource: tokenSource || 'missing',
+      hasExtractedToken: !!token,
+    });
+
+    if (!token) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Authorization required', error_code: 'AUTH_REQUIRED' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, authenticated: false, requestId, error: 'Authorization required', error_code: 'AUTH_REQUIRED' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -56,7 +65,7 @@ Deno.serve(async (req) => {
 
     if (!intentId) {
       return new Response(
-        JSON.stringify({ success: false, error: 'intentId is required', error_code: 'MISSING_INTENT_ID' }),
+        JSON.stringify({ success: false, requestId, error: 'intentId is required', error_code: 'MISSING_INTENT_ID' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -67,19 +76,20 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const bearerAuthHeader = `Bearer ${token}`;
 
     const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
+      global: { headers: { Authorization: bearerAuthHeader } },
     });
     
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get user
-    const { data: { user }, error: userError } = await supabaseUser.auth.getUser();
+    const { data: { user }, error: userError } = await supabaseUser.auth.getUser(token);
     if (userError || !user) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Invalid authentication', error_code: 'INVALID_AUTH' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, authenticated: false, requestId, error: 'Invalid authentication', error_code: 'AUTH_ERROR' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

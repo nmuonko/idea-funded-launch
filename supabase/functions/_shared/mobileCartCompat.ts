@@ -83,10 +83,23 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
       headers.set("apikey", headers.get("apikey") || anonKey);
       headers.set("Content-Type", "application/json");
 
-      const upstreamUrl = `${supabaseUrl}/functions/v1/mobile-cart`;
+      const incomingUrl = new URL(req.url);
+      const forwardedQuery = new URLSearchParams();
+      for (const [key, value] of incomingUrl.searchParams.entries()) {
+        forwardedQuery.set(key, value);
+      }
+
+      const upstreamUrl = `${supabaseUrl}/functions/v1/mobile-cart${forwardedQuery.toString() ? `?${forwardedQuery.toString()}` : ""}`;
       const incomingBody = await parseBody(req);
       const payload = {
         ...(incomingBody && typeof incomingBody === "object" ? incomingBody : {}),
+        access_token: incomingUrl.searchParams.get("access_token") ?? undefined,
+        accessToken: incomingUrl.searchParams.get("accessToken") ?? undefined,
+        token: incomingUrl.searchParams.get("token") ?? undefined,
+        jwt: incomingUrl.searchParams.get("jwt") ?? undefined,
+        authToken: incomingUrl.searchParams.get("authToken") ?? incomingUrl.searchParams.get("auth_token") ?? undefined,
+        bearerToken: incomingUrl.searchParams.get("bearerToken") ?? incomingUrl.searchParams.get("bearer_token") ?? undefined,
+        sessionToken: incomingUrl.searchParams.get("sessionToken") ?? incomingUrl.searchParams.get("session_token") ?? undefined,
         action: options.action,
       };
 

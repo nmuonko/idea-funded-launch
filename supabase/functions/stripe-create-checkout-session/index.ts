@@ -131,7 +131,7 @@ serve(async (req: Request): Promise<Response> => {
       console.warn(`[STRIPE_CHECKOUT] Order not payable`, { requestId, orderId: order_id, status: order.status });
       return new Response(
         JSON.stringify({ success: false, order_id, error: `Order status ${order.status} is not payable`, error_code: 'NOT_PAYABLE' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

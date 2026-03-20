@@ -697,7 +697,8 @@ async function handleUpdateItem(req: Request, body: any): Promise<Response> {
 
 async function handleDeleteItem(req: Request, body: any): Promise<Response> {
   const { user, supabase } = await verifyAndGetUser(req);
-  const itemId = body.item_id || body.itemId || body.cart_item_id;
+  const itemId = body.item_id || body.itemId || body.cart_item_id || body.cartItemId || body.id;
+  console.log(`[CART_DELETE] rawKeys=${JSON.stringify(Object.keys(body))} resolvedItemId=${itemId ?? "none"}`);
   if (!itemId || typeof itemId !== 'string' || itemId.length < 10) {
     return jsonResponse({ success: false, code: 'INVALID_REQUEST', message: 'Valid item ID is required' }, 400);
   }

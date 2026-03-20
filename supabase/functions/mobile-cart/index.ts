@@ -683,13 +683,13 @@ async function handleDeleteItem(req: Request, body: any): Promise<Response> {
 
 async function handleSync(req: Request, body: any): Promise<Response> {
   const { z } = await import("https://deno.land/x/zod@v3.22.4/mod.ts");
-  const authHeader = req.headers.get('Authorization');
-  const token = extractBearerToken(authHeader);
-  if (!token) return errorResponse('Authentication required. Please login to sync cart.', 401);
+  const { token, source: tokenSource } = await extractRequestToken(req);
+  console.log(`[mobile-cart:sync] token=${!!token} source=${tokenSource}`);
+  if (!token) return jsonResponse({ ok: false, success: false, authenticated: false, code: 'AUTH_REQUIRED', message: 'Authentication required. Please login to sync cart.', activeItems: [], savedItems: [] }, 200);
 
   const supabase = createAdminClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-  if (authError || !user) return errorResponse('Invalid or expired session. Please login again.', 401);
+  if (authError || !user) return jsonResponse({ ok: false, success: false, authenticated: false, code: 'SESSION_EXPIRED', message: 'Invalid or expired session. Please login again.', activeItems: [], savedItems: [] }, 200);
 
   const { action: _s, ...syncBody } = body;
   const items = syncBody.items;

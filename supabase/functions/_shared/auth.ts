@@ -92,7 +92,7 @@ export async function extractRequestToken(req: Request): Promise<{ token: string
 
   try {
     const url = new URL(req.url);
-    for (const key of ['access_token', 'accessToken', 'token', 'jwt']) {
+    for (const key of ['access_token', 'accessToken', 'token', 'jwt', 'authToken', 'auth_token', 'bearerToken', 'bearer_token', 'sessionToken', 'session_token']) {
       const token = extractBearerToken(url.searchParams.get(key));
       if (token) return { token, source: 'query' };
     }

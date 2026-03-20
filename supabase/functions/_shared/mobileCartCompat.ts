@@ -97,6 +97,9 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
         accessToken: incomingUrl.searchParams.get("accessToken") ?? undefined,
         token: incomingUrl.searchParams.get("token") ?? undefined,
         jwt: incomingUrl.searchParams.get("jwt") ?? undefined,
+        authToken: incomingUrl.searchParams.get("authToken") ?? incomingUrl.searchParams.get("auth_token") ?? undefined,
+        bearerToken: incomingUrl.searchParams.get("bearerToken") ?? incomingUrl.searchParams.get("bearer_token") ?? undefined,
+        sessionToken: incomingUrl.searchParams.get("sessionToken") ?? incomingUrl.searchParams.get("session_token") ?? undefined,
         action: options.action,
       };
 

@@ -1,10 +1,10 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { 
+import {
   extractRequestToken,
-  verifyAndGetUser, 
-  handleCors, 
-  errorResponse, 
-  jsonResponse 
+  verifyAndGetUser,
+  handleCors,
+  errorResponse,
+  jsonResponse as sharedJsonResponse,
 } from "../_shared/auth.ts";
 import { isProfileComplete, getMissingProfileFields, formatProfileForResponse } from "../_shared/profileHelper.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
@@ -22,6 +22,32 @@ import {
   validateProviderSecrets,
 } from "../_shared/paymentProviders.ts";
 import { createDeposit, getPawaPayConfig, ConfigMissingError } from "../_shared/pawapayAdapter.ts";
+
+function jsonResponse(data: unknown, status = 200) {
+  if (status === 200) {
+    return sharedJsonResponse(data, 200);
+  }
+
+  const payload = data && typeof data === 'object'
+    ? {
+        ...(data as Record<string, unknown>),
+        http_status: status,
+      }
+    : {
+        ok: false,
+        success: false,
+        error: String(data ?? 'Request failed'),
+        http_status: status,
+      };
+
+  console.warn('[mobile-checkout] NORMALIZED_NON_200_RESPONSE', {
+    original_status: status,
+    code: (payload as Record<string, unknown>).code ?? null,
+    error: (payload as Record<string, unknown>).error ?? null,
+  });
+
+  return sharedJsonResponse(payload, 200);
+}
 
 // Payment method types
 type PaymentMethod = 'MOBILE_MONEY' | 'CARD';

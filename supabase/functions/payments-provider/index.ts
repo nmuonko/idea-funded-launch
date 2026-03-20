@@ -10,11 +10,19 @@
  */
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { extractRequestToken, verifyAndGetUser } from "../_shared/auth.ts";
+import {
+  extractRequestToken,
+  verifyAndGetUser,
+  authErrorResponse,
+  buildForwardHeaders,
+  extractDownstreamAuthFailure,
+  getRequestAuthDiagnostics,
+  normalizeAuthErrorCode,
+} from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-device-id, x-auth-token, x-session-token, x-access-token, x-jwt, x-supabase-auth, X-Afrishop-Environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
   'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
 };
 
@@ -25,63 +33,39 @@ function jsonRes(data: unknown, status = 200) {
   });
 }
 
-function authFailureResponse(errorCode = 'AUTH_REQUIRED', message = 'Authentication required.') {
-  return jsonRes({
-    ok: false,
-    success: false,
-    authenticated: false,
-    error: errorCode,
-    error_code: errorCode,
-    message,
-  }, 200);
-}
-
 async function requireAuth(req: Request, actionHint: string): Promise<{ userId: string; token: string | null; tokenSource: string | null } | Response> {
   const { token, source: tokenSource } = await extractRequestToken(req);
-  const hasAuthorizationHeader = !!req.headers.get('Authorization');
+  const authDiagnostics = getRequestAuthDiagnostics(req, token, tokenSource);
 
   console.log('[payments-provider] auth-check', {
     action: actionHint,
-    tokenSource: tokenSource || 'missing',
-    hasAuthorizationHeader,
-    hasExtractedToken: !!token,
-    alternateHeaders: {
-      'x-auth-token': !!req.headers.get('x-auth-token'),
-      'x-session-token': !!req.headers.get('x-session-token'),
-      'x-access-token': !!req.headers.get('x-access-token'),
-      'x-jwt': !!req.headers.get('x-jwt'),
-    },
+    ...authDiagnostics,
   });
 
   if (!token) {
-    console.warn('[payments-provider] NO_TOKEN', { action: actionHint, hasAuthorizationHeader });
-    return authFailureResponse('NO_TOKEN', 'No authentication token found. Please sign in.');
+    console.warn('[payments-provider] auth-failed', { action: actionHint, errorCode: 'NO_TOKEN', ...authDiagnostics });
+    return authErrorResponse('NO_TOKEN', 'No authentication token found. Please sign in.', { action: actionHint });
   }
 
   try {
     const { user } = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
     console.log('[payments-provider] auth-ok', {
       action: actionHint,
-      tokenSource: tokenSource || 'unknown',
-      hasAuthorizationHeader,
-      verifyUserSuccess: true,
+      tokenSource: authDiagnostics.tokenSource,
+      hasAuthorizationHeader: authDiagnostics.hasAuthorizationHeader,
+      hasExtractedToken: authDiagnostics.hasExtractedToken,
       userId: user.id.slice(0, 8) + '***',
     });
     return { userId: user.id, token, tokenSource };
   } catch (error: any) {
-    const errorCode = error?.authErrorCode || 'INVALID_TOKEN';
+    const errorCode = normalizeAuthErrorCode(error) || 'INVALID_TOKEN';
     console.warn('[payments-provider] auth-failed', {
       action: actionHint,
-      tokenSource: tokenSource || 'unknown',
-      hasAuthorizationHeader,
-      hasExtractedToken: !!token,
-      verifyUserSuccess: false,
+      ...authDiagnostics,
       errorCode,
       reason: error instanceof Error ? error.message : String(error),
     });
-    return authFailureResponse(errorCode, errorCode === 'EXPIRED_TOKEN'
-      ? 'Session expired. Please sign in again.'
-      : 'Authentication failed. Please sign in again.');
+    return authErrorResponse(errorCode, undefined, { action: actionHint });
   }
 }
 
@@ -92,23 +76,7 @@ async function forwardToFunction(functionName: string, req: Request, token: stri
   }
 
   const targetUrl = `${supabaseUrl}/functions/v1/${functionName}`;
-
-  const headers = new Headers();
-  const authHeader = req.headers.get('Authorization');
-  if (authHeader) {
-    headers.set('Authorization', authHeader);
-  } else if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-  headers.set('Content-Type', 'application/json');
-
-  for (const h of ['x-device-id', 'user-agent', 'x-client-info', 'x-auth-token', 'x-session-token', 'x-access-token', 'x-jwt']) {
-    const v = req.headers.get(h);
-    if (v) headers.set(h, v);
-  }
-
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
-  headers.set('apikey', anonKey);
+  const headers = buildForwardHeaders(req, token, { includeApiKey: true, contentType: 'application/json' });
 
   const fetchOpts: RequestInit = {
     method: overrideBody !== undefined ? 'POST' : req.method,
@@ -128,15 +96,20 @@ async function forwardToFunction(functionName: string, req: Request, token: stri
 
   const response = await fetch(targetUrl, fetchOpts);
   const responseBody = await response.text();
+  const authFailure = extractDownstreamAuthFailure(response.status, responseBody);
 
   console.log('[payments-provider] downstream-response', {
     action,
-    functionName,
+    downstreamFunction: functionName,
     downstreamStatusCode: response.status,
   });
 
-  if (response.status === 401 || response.status === 403) {
-    return authFailureResponse('AUTH_ERROR', 'Authentication failed. Please sign in again.');
+  if (authFailure) {
+    return authErrorResponse(authFailure.errorCode, authFailure.message, {
+      action,
+      downstream_function: functionName,
+      downstream_status_code: response.status,
+    });
   }
 
   return new Response(responseBody, {
@@ -168,7 +141,7 @@ serve(async (req) => {
     if (authResult instanceof Response) return authResult;
 
     if (req.method === 'GET') {
-      console.log('[payments-provider] forward', { action: actionHint, functionName: 'get-payment-providers' });
+      console.log('[payments-provider] forward', { action: actionHint, downstreamFunction: 'get-payment-providers' });
       return forwardToFunction('get-payment-providers', req, authResult.token, actionHint);
     }
 
@@ -180,51 +153,51 @@ serve(async (req) => {
     switch (action) {
       case 'select': {
         const { action: _a, ...rest } = body;
-        console.log('[payments-provider] forward', { action, functionName: 'select-payment-provider' });
+        console.log('[payments-provider] forward', { action, downstreamFunction: 'select-payment-provider' });
         return forwardToFunction('select-payment-provider', req, authResult.token, action, rest);
       }
       case 'get_providers': {
-        console.log('[payments-provider] forward', { action, functionName: 'get-payment-providers' });
+        console.log('[payments-provider] forward', { action, downstreamFunction: 'get-payment-providers' });
         return forwardToFunction('get-payment-providers', req, authResult.token, action);
       }
       case 'update_provider': {
         const { action: _a, ...rest } = body;
-        console.log('[payments-provider] forward', { action, functionName: 'update-payment-provider' });
+        console.log('[payments-provider] forward', { action, downstreamFunction: 'update-payment-provider' });
         return forwardToFunction('update-payment-provider', req, authResult.token, action, rest);
       }
       case 'set_active': {
         const { action: _a, ...rest } = body;
-        console.log('[payments-provider] forward', { action, functionName: 'admin-set-active-provider' });
+        console.log('[payments-provider] forward', { action, downstreamFunction: 'admin-set-active-provider' });
         return forwardToFunction('admin-set-active-provider', req, authResult.token, action, rest);
       }
       case 'test_provider': {
         const { action: _a, ...rest } = body;
-        console.log('[payments-provider] forward', { action, functionName: 'admin-test-provider' });
+        console.log('[payments-provider] forward', { action, downstreamFunction: 'admin-test-provider' });
         return forwardToFunction('admin-test-provider', req, authResult.token, action, rest);
       }
       case 'pawapay_create': {
         const { action: _a, ...rest } = body;
-        console.log('[payments-provider] forward', { action, functionName: 'pawapay-create-payment' });
+        console.log('[payments-provider] forward', { action, downstreamFunction: 'pawapay-create-payment' });
         return forwardToFunction('pawapay-create-payment', req, authResult.token, action, rest);
       }
       case 'pawapay_verify': {
         const { action: _a, ...rest } = body;
-        console.log('[payments-provider] forward', { action, functionName: 'pawapay-verify-payment' });
+        console.log('[payments-provider] forward', { action, downstreamFunction: 'pawapay-verify-payment' });
         return forwardToFunction('pawapay-verify-payment', req, authResult.token, action, rest);
       }
       case 'stripe_create_session': {
         const { action: _a, ...rest } = body;
-        console.log('[payments-provider] forward', { action, functionName: 'stripe-create-checkout-session' });
+        console.log('[payments-provider] forward', { action, downstreamFunction: 'stripe-create-checkout-session' });
         return forwardToFunction('stripe-create-checkout-session', req, authResult.token, action, rest);
       }
       case 'stripe_verify_session': {
         const { action: _a, ...rest } = body;
-        console.log('[payments-provider] forward', { action, functionName: 'stripe-verify-checkout-session' });
+        console.log('[payments-provider] forward', { action, downstreamFunction: 'stripe-verify-checkout-session' });
         return forwardToFunction('stripe-verify-checkout-session', req, authResult.token, action, rest);
       }
       case 'create_payment': {
         const { action: _a, ...rest } = body;
-        console.log('[payments-provider] forward', { action, functionName: 'mobile-create-payment' });
+        console.log('[payments-provider] forward', { action, downstreamFunction: 'mobile-create-payment' });
         return forwardToFunction('mobile-create-payment', req, authResult.token, action, rest);
       }
       default:

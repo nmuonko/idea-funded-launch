@@ -16,11 +16,13 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { 
-  verifyAndGetUser, 
-  handleCors, 
-  errorResponse, 
+  extractRequestToken,
+  verifyAndGetUser,
+  handleCors,
   jsonResponse,
-  createAdminClient,
+  authErrorResponse,
+  getRequestAuthDiagnostics,
+  normalizeAuthErrorCode,
 } from "../_shared/auth.ts";
 import { 
   getActiveProvider, 
@@ -50,11 +52,41 @@ serve(async (req) => {
   }
 
   try {
-    // ============================================
-    // STEP 1: Authenticate user
-    // ============================================
-    const { user, supabase } = await verifyAndGetUser(req);
-    console.log('[PAYMENT_FLOW] User authenticated:', user.id.slice(0, 8) + '***');
+    const action = 'select_payment_provider';
+    const { token, source } = await extractRequestToken(req);
+    const authDiagnostics = getRequestAuthDiagnostics(req, token, source);
+
+    console.log('[PAYMENT_FLOW] AUTH_CHECK', {
+      action,
+      ...authDiagnostics,
+    });
+
+    if (!token) {
+      console.warn('[PAYMENT_FLOW] AUTH_FAILED', { action, errorCode: 'NO_TOKEN' });
+      return authErrorResponse('NO_TOKEN', 'No authentication token found. Please sign in.', { action });
+    }
+
+    let user: any;
+    let supabase: any;
+    try {
+      const authResult = await verifyAndGetUser(req, undefined, { token, source });
+      user = authResult.user;
+      supabase = authResult.supabase;
+      console.log('[PAYMENT_FLOW] AUTH_OK', {
+        action,
+        tokenSource: authDiagnostics.tokenSource,
+        userId: user.id.slice(0, 8) + '***',
+      });
+    } catch (authError: any) {
+      const errorCode = normalizeAuthErrorCode(authError) || 'INVALID_TOKEN';
+      console.warn('[PAYMENT_FLOW] AUTH_FAILED', {
+        action,
+        ...authDiagnostics,
+        errorCode,
+        reason: authError?.message,
+      });
+      return authErrorResponse(errorCode, undefined, { action });
+    }
 
     const body = await req.json();
     const { checkout_session_id, provider, phone, operator } = body;

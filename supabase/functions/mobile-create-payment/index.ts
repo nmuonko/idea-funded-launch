@@ -6,7 +6,10 @@ import {
   handleCors, 
   errorResponse, 
   jsonResponse,
-  corsHeaders
+  corsHeaders,
+  authErrorResponse,
+  getRequestAuthDiagnostics,
+  normalizeAuthErrorCode,
 } from "../_shared/auth.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { calculateShipping as calcShipping } from "../_shared/cartHelpers.ts";
@@ -42,12 +45,25 @@ serve(async (req) => {
 
   try {
     const { token, source: tokenSource } = await extractRequestToken(req);
-    const hasAuthorizationHeader = !!req.headers.get('Authorization');
-    console.log('[mobile-create-payment] Request received', { hasAuthorizationHeader, tokenSource: tokenSource || 'missing', hasExtractedToken: !!token });
+    const authDiagnostics = getRequestAuthDiagnostics(req, token, tokenSource);
+    console.log('[mobile-create-payment] auth-check', authDiagnostics);
 
-    // Verify JWT using the already extracted token
-    const { user, supabase } = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
-    console.log('[mobile-create-payment] User authenticated:', user.id);
+    if (!token) {
+      return authErrorResponse('NO_TOKEN', 'No authentication token found. Please sign in.');
+    }
+
+    let user: any;
+    let supabase: any;
+    try {
+      const authResult = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
+      user = authResult.user;
+      supabase = authResult.supabase;
+      console.log('[mobile-create-payment] auth-ok', { userId: user.id, tokenSource: authDiagnostics.tokenSource });
+    } catch (authError: any) {
+      const errorCode = normalizeAuthErrorCode(authError) || 'INVALID_TOKEN';
+      console.warn('[mobile-create-payment] auth-failed', { ...authDiagnostics, errorCode, reason: authError?.message });
+      return authErrorResponse(errorCode);
+    }
 
     // Parse request body
     const body = await req.json();

@@ -78,6 +78,14 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
 
       const incomingUrl = new URL(req.url);
       const incomingBody = await parseBody(req);
+
+      // Extract item ID from URL path for legacy DELETE /mobile-delete-cart-item/{id}
+      // and legacy PUT /mobile-update-cart-item/{id} patterns
+      const pathSegments = incomingUrl.pathname.split("/").filter(Boolean);
+      const lastSegment = pathSegments[pathSegments.length - 1];
+      const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const pathItemId = lastSegment && uuidPattern.test(lastSegment) ? lastSegment : null;
+
       const tokenHeaderNames = ["authorization", "x-auth-token", "x-session-token", "x-access-token", "x-supabase-auth", "x-jwt"];
       const tokenSource = req.headers.get("authorization")
         ? "authorization-header"
@@ -120,6 +128,8 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
         bearerToken: incomingUrl.searchParams.get("bearerToken") ?? incomingUrl.searchParams.get("bearer_token") ?? undefined,
         sessionToken: incomingUrl.searchParams.get("sessionToken") ?? incomingUrl.searchParams.get("session_token") ?? undefined,
         action: options.action,
+        // Inject path-based item ID for delete/update legacy routes
+        ...(pathItemId ? { item_id: pathItemId } : {}),
       };
 
       const upstreamUrl = `${supabaseUrl}/functions/v1/mobile-cart${forwardedQuery.toString() ? `?${forwardedQuery.toString()}` : ""}`;

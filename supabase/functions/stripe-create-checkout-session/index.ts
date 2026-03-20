@@ -177,7 +177,7 @@ serve(async (req: Request): Promise<Response> => {
       console.error(`[STRIPE_CHECKOUT] Missing STRIPE_SECRET_KEY`);
       return new Response(
         JSON.stringify({ success: false, order_id, error: 'Stripe not configured', error_code: 'CONFIG_ERROR' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

@@ -162,11 +162,12 @@ serve(async (req) => {
       });
 
       return jsonResponse({
+        ok: false,
         success: false,
         error: result.error,
         code: 'PAWAPAY_ERROR',
         trace_id: traceId,
-      }, 400);
+      }, 200);
     }
 
     // Create payment record

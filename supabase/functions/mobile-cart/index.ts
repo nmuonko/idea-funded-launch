@@ -513,6 +513,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   if (existingResult.data) {
     const existingItem = existingResult.data;
     const newQuantity = existingItem.quantity + quantity;
+    console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=false dbUpdateAttempted=true orderId=${draft.id} existingItemId=${existingItem.id}`);
     const updateResult = await updateCartItem(db, existingItem.id, {
       quantity: newQuantity, base_price_usd: productPrice, product_image_url: productImageUrl,
       is_vehicle: isVehicleDetected || existingItem.is_vehicle,
@@ -520,7 +521,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       updated_at: new Date().toISOString(),
     }, correlationId);
     if (updateResult.error || !updateResult.data) {
-      console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=ITEM_UPDATE_FAILED`);
+      console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=ITEM_UPDATE_FAILED dbError=${updateResult.error?.message ?? "none"}`);
       return errorResponse("Failed to update cart item", 500);
     }
     itemId = existingItem.id; merged = true;

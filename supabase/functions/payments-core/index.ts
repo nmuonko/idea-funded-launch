@@ -189,7 +189,7 @@ serve(async (req) => {
       try {
         body = await clonedReq.json();
       } catch {
-        return jsonRes({ ok: false, error: 'Invalid JSON body' }, 400);
+        return jsonRes({ ok: false, error: 'Invalid JSON body' }, 200);
       }
       action = body?.action || '';
       if (!action) {

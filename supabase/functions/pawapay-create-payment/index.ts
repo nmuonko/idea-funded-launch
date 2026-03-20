@@ -222,7 +222,15 @@ serve(async (req) => {
     log.error('Error', { message: error.message });
     
     if (error.name === 'AuthError') {
-      return errorResponse(error.message, error.status);
+      return jsonResponse({
+        ok: false,
+        success: false,
+        authenticated: false,
+        error: 'AUTH_ERROR',
+        code: 'AUTH_ERROR',
+        message: 'Authentication failed. Please sign in again.',
+        trace_id: traceId,
+      }, 200);
     }
     
     return jsonResponse({

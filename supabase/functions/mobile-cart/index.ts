@@ -1038,13 +1038,13 @@ serve(async (req) => {
     console.log(`[mobile-cart] action=${action}`);
 
     switch (action) {
-      case 'get_cart': return handleGetCart(req);
-      case 'add_item': return handleAddItem(req, body);
-      case 'update_item': return handleUpdateItem(req, body);
-      case 'delete_item': return handleDeleteItem(req, body);
-      case 'sync': return handleSync(req, body);
-      case 'merge_guest': return handleMergeGuest(req, body);
-      case 'guest_snapshot': return handleGuestSnapshot(body);
+      case 'get_cart': return await handleGetCart(req);
+      case 'add_item': return await handleAddItem(req, body);
+      case 'update_item': return await handleUpdateItem(req, body);
+      case 'delete_item': return await handleDeleteItem(req, body);
+      case 'sync': return await handleSync(req, body);
+      case 'merge_guest': return await handleMergeGuest(req, body);
+      case 'guest_snapshot': return await handleGuestSnapshot(body);
       default: return jsonResponse({ ok: false, error: `Unknown action: ${action}` }, 400);
     }
   } catch (error: unknown) {

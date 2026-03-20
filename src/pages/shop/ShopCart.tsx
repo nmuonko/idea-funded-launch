@@ -416,7 +416,7 @@ export default function ShopCart() {
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                         {language === 'fr' ? 'Chargement...' : 'Loading...'}
                       </Button>
-                    ) : session ? (
+                    ) : (
                       <Link to="/checkout" className="block" onClick={handlePayerButtonClick}>
                         <Button 
                           disabled={noneSelected || !selectedCanProceedToPayment}
@@ -426,17 +426,6 @@ export default function ShopCart() {
                           {!noneSelected && ` (${selectedItemIds.size})`}
                         </Button>
                       </Link>
-                    ) : (
-                      <>
-                        <Link to="/shop-auth?redirect=/checkout" className="block" onClick={handlePayerButtonClick}>
-                          <Button className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full">
-                            {shop.signInToCheckout || 'Sign In to Checkout'}
-                          </Button>
-                        </Link>
-                        <p className="text-xs text-white/40 text-center">
-                          {shop.signInToCheckoutHint || 'You need to sign in to complete your order'}
-                        </p>
-                      </>
                     )}
                   </div>
                 </div>

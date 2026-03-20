@@ -1,59 +1,44 @@
 
 
-## Diagnosis
+## Diagnosis: The Issue is in the RN App, Not the Backend
 
-**Root cause identified**: After reinstall, the RN app successfully authenticates for API calls (auth-me, mobile-profile, mobile-cart all return 200). However, **no backend checkout call is ever made** — there are zero logs for `mobile-orders`, `mobile-checkout`, or any checkout-related endpoint when "Payez maintenant" is tapped.
+### Evidence
 
-This confirms the redirect to login happens **entirely client-side** before any backend call. The most likely mechanism: the frozen RN app opens a WebView to the web frontend's `/checkout` route. After reinstall, the WebView's localStorage (where Supabase stores sessions) is wiped, so `ShopProtectedRoute` sees `session === null` and redirects to `/shop-auth`.
+1. **Backend logs confirm zero checkout calls** — `mobile-checkout` and `mobile-orders` have no logs at all when "Payez maintenant" is tapped
+2. **Auth works fine** — `auth-me` returns 200 with the correct user after reinstall
+3. **Backend is already fully hardened** — all checkout/payment functions return HTTP 200 with structured JSON errors (never raw 401/403), accept tokens from all headers, and have `verify_jwt = false` in config.toml
 
-**Evidence**:
-- Auth logs show successful login and /user calls with status 200
-- Edge function logs show mobile-get-cart, mobile-profile, auth-me all working
-- Zero calls to mobile-orders or mobile-checkout after "Payez maintenant" tap
-- `ShopProtectedRoute` on line 37 redirects when `!session`
+### What's Actually Happening
 
-## Plan — WebView Session Bootstrap
+The RN app's "Payez maintenant" button handler **checks auth client-side before making any API call**. After reinstall, that client-side check fails and redirects to Login. The backend never gets the request.
 
-Since the RN app is frozen, we fix the web frontend to accept auth tokens from the WebView URL and bootstrap a Supabase session before the route guard fires.
+Replit correctly identified the fix location: `client.ts`, `cart.ts`, and `CartScreen.tsx` — **these are RN app files, not in this Lovable project**.
 
-### 1. Create a `useTokenFromUrl` hook
+### What Replit Found (the actual fix needed)
 
-New file: `src/hooks/useTokenFromUrl.ts`
+The RN app's `client.ts` has an `onSessionExpired()` callback that calls `logout()` and navigates to Login. When the checkout handler runs, either:
+- A pre-flight auth validation fails and triggers `onSessionExpired()`
+- The Supabase token is stale and the client detects it before making the call
 
-- On mount, check URL for `?token=` or `?access_token=` parameter (common patterns RN apps use when opening WebViews)
-- If found, call `supabase.auth.setSession()` with the token to establish a session in the WebView's storage
-- Remove the token from the URL after consuming it (security)
+The fix requires changes to **3 RN app files**:
 
-### 2. Update `ShopProtectedRoute` to wait for URL token bootstrap
+1. **`client.ts`** — Add a `suppressSessionExpired` flag so checkout requests don't trigger auto-logout
+2. **`cart.ts`** — Call `apiPostWithOptions` with `{ suppressSessionExpired: true }` and proactively refresh the token before checkout
+3. **`CartScreen.tsx`** — Call `refreshSession()` before checkout and handle auth errors gracefully in the catch block instead of redirecting
 
-- Before redirecting to login when `!session`, check if a URL token is present
-- If so, show a loading spinner while the token bootstrap completes
-- Only redirect after confirming no valid token is available
+### What Cannot Be Fixed From This Project
 
-### 3. Update `AuthContext` initialization to handle WebView token injection
+Since the RN app code is not in this repository and the Replit Agent is disabled, these RN-side changes cannot be made here. The backend side is complete — every function in the checkout chain already:
+- Accepts tokens from 7+ header sources
+- Returns HTTP 200 with `{ ok: false, authenticated: false, error_code: "..." }` instead of raw 401/403
+- Has `verify_jwt = false` in config.toml
+- Forwards all auth headers downstream
 
-- During `initializeAuth`, check URL params for `token` / `access_token` / `refresh_token`
-- If found, call `supabase.auth.setSession({ access_token, refresh_token })` before `getSession()`
-- This ensures the session is available immediately for route guards
+### Options to Move Forward
 
-### 4. Add a `/checkout-bridge` endpoint (backend)
+1. **Re-enable Replit Agent** and apply the 3-file fix Replit already identified
+2. **Manually edit** `client.ts`, `cart.ts`, and `CartScreen.tsx` in the RN project using the exact code patterns Replit provided
+3. **Publish an OTA update** via `expo publish` after applying the fix — no app store review needed if using Expo Updates
 
-New edge function: `mobile-checkout-bridge`
-
-- The RN app can call this endpoint to get a pre-authenticated checkout URL
-- Returns: `{ url: "https://idea-funded-launch.lovable.app/checkout?token=<jwt>&refresh_token=<rt>" }`
-- This gives the frozen RN app a URL it can open in the WebView with valid credentials
-- Even though the RN app is frozen, if it already constructs WebView URLs with token params, this will work immediately
-
-### 5. Fallback: Make Checkout handle unauthenticated state gracefully
-
-- Inside `Checkout.tsx`, if `!session` after auth is ready, show an inline "Sign in to continue" form instead of relying on the route-level redirect
-- This prevents the hard redirect that the RN app can't recover from
-
-### Files to create/modify:
-- **Create**: `src/hooks/useTokenFromUrl.ts`
-- **Modify**: `src/contexts/AuthContext.tsx` (add URL token bootstrap in initializeAuth)
-- **Modify**: `src/components/shop/ShopProtectedRoute.tsx` (wait for token bootstrap)
-- **Create**: `supabase/functions/mobile-checkout-bridge/index.ts` (optional, for future RN updates)
-- Deploy: `mobile-checkout-bridge`
+The backend work from this project is done. The remaining fix is purely in the RN app's client-side authentication handling.
 

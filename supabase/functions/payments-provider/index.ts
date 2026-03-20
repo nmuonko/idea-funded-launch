@@ -72,7 +72,7 @@ async function requireAuth(req: Request, actionHint: string): Promise<{ userId: 
 async function forwardToFunction(functionName: string, req: Request, token: string | null, action: string, overrideBody?: unknown): Promise<Response> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   if (!supabaseUrl) {
-    return jsonRes({ ok: false, error: 'SUPABASE_URL not configured' }, 500);
+    return jsonRes({ ok: false, error: 'SUPABASE_URL not configured' }, 200);
   }
 
   const targetUrl = `${supabaseUrl}/functions/v1/${functionName}`;
@@ -132,7 +132,7 @@ serve(async (req) => {
       try {
         body = await clonedReq.json();
       } catch {
-        return jsonRes({ ok: false, error: 'Invalid JSON body' }, 400);
+        return jsonRes({ ok: false, error: 'Invalid JSON body' }, 200);
       }
       actionHint = body?.action || 'unknown';
     }
@@ -147,7 +147,7 @@ serve(async (req) => {
 
     const action = body?.action;
     if (!action) {
-      return jsonRes({ ok: false, error: 'Missing action field' }, 400);
+      return jsonRes({ ok: false, error: 'Missing action field' }, 200);
     }
 
     switch (action) {
@@ -201,10 +201,10 @@ serve(async (req) => {
         return forwardToFunction('mobile-create-payment', req, authResult.token, action, rest);
       }
       default:
-        return jsonRes({ ok: false, error: `Unknown action: ${action}` }, 400);
+        return jsonRes({ ok: false, error: `Unknown action: ${action}` }, 200);
     }
   } catch (err: any) {
     console.error('[payments-provider] Unexpected error:', err);
-    return jsonRes({ ok: false, error: err.message || 'Internal error' }, 500);
+    return jsonRes({ ok: false, error: err.message || 'Internal error' }, 200);
   }
 });

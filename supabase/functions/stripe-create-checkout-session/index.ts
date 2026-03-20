@@ -54,7 +54,7 @@ serve(async (req: Request): Promise<Response> => {
     if (req.method !== 'POST') {
       return new Response(
         JSON.stringify({ success: false, error: 'Method not allowed', error_code: 'METHOD_NOT_ALLOWED' }),
-        { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -95,7 +95,7 @@ serve(async (req: Request): Promise<Response> => {
     if (!order_id) {
       return new Response(
         JSON.stringify({ success: false, error: 'Missing order_id', error_code: 'MISSING_ORDER_ID' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -112,7 +112,7 @@ serve(async (req: Request): Promise<Response> => {
       console.error(`[STRIPE_CHECKOUT] Order not found`, { requestId, orderId: order_id, error: orderError });
       return new Response(
         JSON.stringify({ success: false, order_id, error: 'Order not found', error_code: 'ORDER_NOT_FOUND' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -131,7 +131,7 @@ serve(async (req: Request): Promise<Response> => {
       console.warn(`[STRIPE_CHECKOUT] Order not payable`, { requestId, orderId: order_id, status: order.status });
       return new Response(
         JSON.stringify({ success: false, order_id, error: `Order status ${order.status} is not payable`, error_code: 'NOT_PAYABLE' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -163,7 +163,7 @@ serve(async (req: Request): Promise<Response> => {
       console.error(`[STRIPE_CHECKOUT] Invalid total`, { requestId, orderId: order_id, grandTotal });
       return new Response(
         JSON.stringify({ success: false, order_id, error: 'Order has no valid total', error_code: 'INVALID_TOTAL' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -177,7 +177,7 @@ serve(async (req: Request): Promise<Response> => {
       console.error(`[STRIPE_CHECKOUT] Missing STRIPE_SECRET_KEY`);
       return new Response(
         JSON.stringify({ success: false, order_id, error: 'Stripe not configured', error_code: 'CONFIG_ERROR' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -226,7 +226,7 @@ serve(async (req: Request): Promise<Response> => {
           error: stripeData.error?.message || 'Failed to create checkout session', 
           error_code: 'STRIPE_ERROR' 
         }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -325,7 +325,7 @@ serve(async (req: Request): Promise<Response> => {
         error: 'An error occurred while creating checkout session',
         error_code: 'INTERNAL_ERROR',
       }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

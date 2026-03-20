@@ -80,7 +80,7 @@ function hasCronSecret(req: Request): boolean {
 async function forwardToFunction(functionName: string, req: Request, token: string | null, action: string, overrideBody?: unknown): Promise<Response> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   if (!supabaseUrl) {
-    return jsonRes({ ok: false, error: 'SUPABASE_URL not configured' }, 500);
+    return jsonRes({ ok: false, error: 'SUPABASE_URL not configured' }, 200);
   }
 
   const targetUrl = `${supabaseUrl}/functions/v1/${functionName}`;
@@ -133,7 +133,7 @@ async function forwardToFunction(functionName: string, req: Request, token: stri
 async function forwardGetToFunction(functionName: string, req: Request, token: string | null, action: string): Promise<Response> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   if (!supabaseUrl) {
-    return jsonRes({ ok: false, error: 'SUPABASE_URL not configured' }, 500);
+    return jsonRes({ ok: false, error: 'SUPABASE_URL not configured' }, 200);
   }
 
   const originalUrl = new URL(req.url);
@@ -189,11 +189,11 @@ serve(async (req) => {
       try {
         body = await clonedReq.json();
       } catch {
-        return jsonRes({ ok: false, error: 'Invalid JSON body' }, 400);
+        return jsonRes({ ok: false, error: 'Invalid JSON body' }, 200);
       }
       action = body?.action || '';
       if (!action) {
-        return jsonRes({ ok: false, error: 'Missing action field' }, 400);
+        return jsonRes({ ok: false, error: 'Missing action field' }, 200);
       }
     }
 
@@ -216,7 +216,7 @@ serve(async (req) => {
           console.log('[payments-core] forward', { action, downstreamFunction: 'payments-check-intent' });
           return forwardGetToFunction('payments-check-intent', req, authToken, action);
         default:
-          return jsonRes({ ok: false, error: `Unknown GET action: ${action}` }, 400);
+          return jsonRes({ ok: false, error: `Unknown GET action: ${action}` }, 200);
       }
     }
 
@@ -266,10 +266,10 @@ serve(async (req) => {
         return forwardToFunction('generate-payment-receipt', req, authToken, action, rest);
       }
       default:
-        return jsonRes({ ok: false, error: `Unknown action: ${action}` }, 400);
+        return jsonRes({ ok: false, error: `Unknown action: ${action}` }, 200);
     }
   } catch (err: any) {
     console.error('[payments-core] Unexpected error:', err);
-    return jsonRes({ ok: false, error: err.message || 'Internal error' }, 500);
+    return jsonRes({ ok: false, error: err.message || 'Internal error' }, 200);
   }
 });

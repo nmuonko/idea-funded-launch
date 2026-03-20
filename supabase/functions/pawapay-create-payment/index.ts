@@ -70,11 +70,11 @@ serve(async (req) => {
     const { orderId, amount, currency, phone, forceCurrency } = body;
 
     if (!orderId) {
-      return errorResponse('orderId is required', 400);
+      return jsonResponse({ ok: false, success: false, code: 'MISSING_ORDER_ID', message: 'orderId is required' }, 200);
     }
 
     if (!phone) {
-      return errorResponse('phone is required for pawaPay payments', 400);
+      return jsonResponse({ ok: false, success: false, code: 'PHONE_REQUIRED', message: 'phone is required for pawaPay payments' }, 200);
     }
 
     // Get pawaPay provider config
@@ -83,7 +83,7 @@ serve(async (req) => {
 
     if (!provider || !provider.is_enabled) {
       log.error('pawaPay provider not enabled');
-      return errorResponse('pawaPay is not enabled', 400);
+      return jsonResponse({ ok: false, success: false, code: 'PROVIDER_NOT_AVAILABLE', message: 'pawaPay is not enabled' }, 200);
     }
 
     // Get order details
@@ -96,11 +96,11 @@ serve(async (req) => {
 
     if (orderError || !order) {
       log.error('Order not found', { orderId, error: orderError?.message });
-      return errorResponse('Order not found', 404);
+      return jsonResponse({ ok: false, success: false, code: 'ORDER_NOT_FOUND', message: 'Order not found' }, 200);
     }
 
     if (order.status !== 'PENDING_PAYMENT') {
-      return errorResponse('Order cannot be paid', 400);
+      return jsonResponse({ ok: false, success: false, code: 'ORDER_NOT_PAYABLE', message: 'Order cannot be paid' }, 200);
     }
 
     // Determine payment amount and currency
@@ -162,11 +162,12 @@ serve(async (req) => {
       });
 
       return jsonResponse({
+        ok: false,
         success: false,
         error: result.error,
         code: 'PAWAPAY_ERROR',
         trace_id: traceId,
-      }, 400);
+      }, 200);
     }
 
     // Create payment record
@@ -250,10 +251,11 @@ serve(async (req) => {
     }
     
     return jsonResponse({
+      ok: false,
       success: false,
       error: 'Internal server error',
       code: 'INTERNAL_ERROR',
       trace_id: traceId,
-    }, 500);
+    }, 200);
   }
 });

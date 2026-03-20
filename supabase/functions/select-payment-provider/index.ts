@@ -48,7 +48,7 @@ serve(async (req) => {
   if (corsResponse) return corsResponse;
 
   if (req.method !== 'POST') {
-    return jsonResponse({ success: false, error: 'Method not allowed' }, 405);
+    return jsonResponse({ ok: false, success: false, code: 'METHOD_NOT_ALLOWED', error: 'Method not allowed' }, 200);
   }
 
   try {

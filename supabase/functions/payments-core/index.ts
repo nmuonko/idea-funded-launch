@@ -1,15 +1,15 @@
 /**
  * payments-core — Consolidated Payment Core Function
- * 
+ *
  * Routes by `action` field in POST body:
  *   create_intent, check_intent, verify, status, decision, retry, reconcile, receipt
- * 
- * AUTH: All actions require a valid JWT (via getClaims).
+ *
+ * AUTH: All actions require a valid JWT.
  * Exception: reconcile may be called by cron with x-cron-secret.
  */
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "@supabase/supabase-js";
+import { extractRequestToken, verifyAndGetUser } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -24,24 +24,47 @@ function jsonRes(data: unknown, status = 200) {
   });
 }
 
-async function requireAuth(req: Request): Promise<{ userId: string } | Response> {
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return jsonRes({ ok: false, error: 'Unauthorized: missing Bearer token' }, 401);
+function authFailureResponse(errorCode = 'AUTH_REQUIRED', message = 'Authentication required.') {
+  return jsonRes({
+    ok: false,
+    success: false,
+    authenticated: false,
+    error: errorCode,
+    error_code: errorCode,
+    message,
+  }, 200);
+}
+
+async function requireAuth(req: Request, actionHint: string): Promise<{ userId: string; token: string | null; tokenSource: string | null } | Response> {
+  const { token, source: tokenSource } = await extractRequestToken(req);
+
+  console.log('[payments-core] auth-check', {
+    action: actionHint,
+    hasToken: !!token,
+    tokenSource: tokenSource || 'missing',
+  });
+
+  if (!token) {
+    console.warn('[payments-core] auth-missing', { action: actionHint });
+    return authFailureResponse('AUTH_REQUIRED', 'Authentication required.');
   }
 
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_ANON_KEY')!,
-    { global: { headers: { Authorization: authHeader } } }
-  );
-
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) {
-    return jsonRes({ ok: false, error: 'Unauthorized: invalid token' }, 401);
+  try {
+    const { user } = await verifyAndGetUser(req);
+    console.log('[payments-core] auth-ok', {
+      action: actionHint,
+      tokenSource: tokenSource || 'unknown',
+      userId: user.id.slice(0, 8) + '***',
+    });
+    return { userId: user.id, token, tokenSource };
+  } catch (error) {
+    console.warn('[payments-core] auth-failed', {
+      action: actionHint,
+      tokenSource: tokenSource || 'unknown',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return authFailureResponse('AUTH_ERROR', 'Authentication failed. Please sign in again.');
   }
-
-  return { userId: user.id };
 }
 
 /**
@@ -53,7 +76,7 @@ function hasCronSecret(req: Request): boolean {
   return !!(cronSecret && expected && cronSecret === expected);
 }
 
-async function forwardToFunction(functionName: string, req: Request, overrideBody?: unknown): Promise<Response> {
+async function forwardToFunction(functionName: string, req: Request, token: string | null, overrideBody?: unknown): Promise<Response> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   if (!supabaseUrl) {
     return jsonRes({ ok: false, error: 'SUPABASE_URL not configured' }, 500);
@@ -63,10 +86,14 @@ async function forwardToFunction(functionName: string, req: Request, overrideBod
 
   const headers = new Headers();
   const authHeader = req.headers.get('Authorization');
-  if (authHeader) headers.set('Authorization', authHeader);
+  if (authHeader) {
+    headers.set('Authorization', authHeader);
+  } else if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
   headers.set('Content-Type', 'application/json');
 
-  for (const h of ['x-device-id', 'user-agent', 'x-client-info', 'x-cron-secret']) {
+  for (const h of ['x-device-id', 'user-agent', 'x-client-info', 'x-cron-secret', 'x-auth-token', 'x-session-token', 'x-access-token', 'x-jwt']) {
     const v = req.headers.get(h);
     if (v) headers.set(h, v);
   }
@@ -85,7 +112,9 @@ async function forwardToFunction(functionName: string, req: Request, overrideBod
     try {
       const body = await req.clone().text();
       if (body) fetchOpts.body = body;
-    } catch { /* no body */ }
+    } catch {
+      // no body
+    }
   }
 
   const response = await fetch(targetUrl, fetchOpts);
@@ -96,7 +125,7 @@ async function forwardToFunction(functionName: string, req: Request, overrideBod
   });
 }
 
-async function forwardGetToFunction(functionName: string, req: Request): Promise<Response> {
+async function forwardGetToFunction(functionName: string, req: Request, token: string | null): Promise<Response> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   if (!supabaseUrl) {
     return jsonRes({ ok: false, error: 'SUPABASE_URL not configured' }, 500);
@@ -107,8 +136,17 @@ async function forwardGetToFunction(functionName: string, req: Request): Promise
 
   const headers = new Headers();
   const authHeader = req.headers.get('Authorization');
-  if (authHeader) headers.set('Authorization', authHeader);
+  if (authHeader) {
+    headers.set('Authorization', authHeader);
+  } else if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
   headers.set('Content-Type', 'application/json');
+
+  for (const h of ['x-client-info', 'x-cron-secret', 'x-auth-token', 'x-session-token', 'x-access-token', 'x-jwt']) {
+    const v = req.headers.get(h);
+    if (v) headers.set(h, v);
+  }
 
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
   headers.set('apikey', anonKey);
@@ -121,7 +159,6 @@ async function forwardGetToFunction(functionName: string, req: Request): Promise
   });
 }
 
-// Actions that can be called by cron (with x-cron-secret) instead of JWT
 const CRON_ACTIONS = new Set(['reconcile']);
 
 serve(async (req) => {
@@ -130,16 +167,14 @@ serve(async (req) => {
   }
 
   try {
-    // Determine action early to check if it's a cron-allowed action
     let action = '';
+    let body: any = null;
 
     if (req.method === 'GET') {
       const url = new URL(req.url);
       action = url.searchParams.get('action') || 'status';
     }
 
-    // For POST, we need to peek at the body for the action
-    let body: any = null;
     if (req.method === 'POST') {
       const clonedReq = req.clone();
       try {
@@ -153,62 +188,73 @@ serve(async (req) => {
       }
     }
 
-    // Auth gate: require JWT or cron secret
+    let authToken: string | null = null;
+
     if (CRON_ACTIONS.has(action) && hasCronSecret(req)) {
-      // Cron-authenticated — proceed
+      console.log('[payments-core] cron-auth', { action });
     } else {
-      const authResult = await requireAuth(req);
+      const authResult = await requireAuth(req, action || 'unknown');
       if (authResult instanceof Response) return authResult;
+      authToken = authResult.token;
     }
 
-    // Route GET requests
     if (req.method === 'GET') {
       switch (action) {
         case 'status':
-          return forwardGetToFunction('payment-status', req);
+          console.log('[payments-core] forward', { action, functionName: 'payment-status' });
+          return forwardGetToFunction('payment-status', req, authToken);
         case 'check_intent':
-          return forwardGetToFunction('payments-check-intent', req);
+          console.log('[payments-core] forward', { action, functionName: 'payments-check-intent' });
+          return forwardGetToFunction('payments-check-intent', req, authToken);
         default:
           return jsonRes({ ok: false, error: `Unknown GET action: ${action}` }, 400);
       }
     }
 
-    // Route POST requests
     switch (action) {
       case 'create_intent': {
         const { action: _a, ...rest } = body;
-        return forwardToFunction('payments-create-intent', req, rest);
+        console.log('[payments-core] forward', { action, functionName: 'payments-create-intent' });
+        return forwardToFunction('payments-create-intent', req, authToken, rest);
       }
       case 'check_intent': {
         const { action: _a, ...rest } = body;
-        return forwardToFunction('payments-check-intent', req, rest);
+        console.log('[payments-core] forward', { action, functionName: 'payments-check-intent' });
+        return forwardToFunction('payments-check-intent', req, authToken, rest);
       }
       case 'verify': {
         const { action: _a, ...rest } = body;
-        return forwardToFunction('mobile-verify-payment', req, rest);
+        console.log('[payments-core] forward', { action, functionName: 'mobile-verify-payment' });
+        return forwardToFunction('mobile-verify-payment', req, authToken, rest);
       }
       case 'admin_verify': {
         const { action: _a, ...rest } = body;
-        return forwardToFunction('verify-payment', req, rest);
+        console.log('[payments-core] forward', { action, functionName: 'verify-payment' });
+        return forwardToFunction('verify-payment', req, authToken, rest);
       }
       case 'status': {
         const { action: _a, ...rest } = body;
-        return forwardToFunction('payment-status', req, rest);
+        console.log('[payments-core] forward', { action, functionName: 'payment-status' });
+        return forwardToFunction('payment-status', req, authToken, rest);
       }
       case 'decision': {
         const { action: _a, ...rest } = body;
-        return forwardToFunction('payment-decision', req, rest);
+        console.log('[payments-core] forward', { action, functionName: 'payment-decision' });
+        return forwardToFunction('payment-decision', req, authToken, rest);
       }
       case 'retry': {
         const { action: _a, ...rest } = body;
-        return forwardToFunction('mobile-retry-payment', req, rest);
+        console.log('[payments-core] forward', { action, functionName: 'mobile-retry-payment' });
+        return forwardToFunction('mobile-retry-payment', req, authToken, rest);
       }
       case 'reconcile': {
-        return forwardToFunction('reconcile-payment-status', req, body);
+        console.log('[payments-core] forward', { action, functionName: 'reconcile-payment-status' });
+        return forwardToFunction('reconcile-payment-status', req, authToken, body);
       }
       case 'receipt': {
         const { action: _a, ...rest } = body;
-        return forwardToFunction('generate-payment-receipt', req, rest);
+        console.log('[payments-core] forward', { action, functionName: 'generate-payment-receipt' });
+        return forwardToFunction('generate-payment-receipt', req, authToken, rest);
       }
       default:
         return jsonRes({ ok: false, error: `Unknown action: ${action}` }, 400);

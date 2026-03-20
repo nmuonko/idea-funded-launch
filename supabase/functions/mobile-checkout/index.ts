@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { 
+  extractRequestToken,
   verifyAndGetUser, 
   handleCors, 
   errorResponse, 
@@ -456,23 +457,48 @@ serve(async (req) => {
     // ============================================
     perf.mark('init');
 
-    // Handle auth errors gracefully - return HTTP 200 with JSON error
+    // Handle auth errors gracefully - return HTTP 200 with structured JSON error
     let user: any;
     let supabase: any;
     try {
-      const authResult = await verifyAndGetUser(req);
+      const { token, source: tokenSource } = await extractRequestToken(req);
+      const hasAuthorizationHeader = !!req.headers.get('Authorization');
+
+      console.log(`[CHECKOUT] correlationId=${correlationId} auth-check`, {
+        tokenSource: tokenSource || 'missing',
+        hasAuthorizationHeader,
+        hasExtractedToken: !!token,
+      });
+
+      if (!token) {
+        console.warn(`[CHECKOUT] correlationId=${correlationId} NO_TOKEN`);
+        return jsonResponse({
+          ok: false, success: false, authenticated: false,
+          error: 'NO_TOKEN', error_code: 'NO_TOKEN',
+          message: 'No authentication token found. Please sign in.',
+          message_fr: 'Aucun jeton trouvé. Veuillez vous connecter.',
+          correlationId,
+        }, 200);
+      }
+
+      const authResult = await verifyAndGetUser(req, undefined, { token, source: tokenSource });
       user = authResult.user;
       supabase = authResult.supabase;
     } catch (authError: any) {
+      const errorCode = authError?.authErrorCode || 'INVALID_TOKEN';
       const elapsedMs = Date.now() - startTime;
-      console.log(`[CHECKOUT][ERROR] correlationId=${correlationId} code=UNAUTHENTICATED message=${authError.message} ms=${elapsedMs}`);
+      console.log(`[CHECKOUT][ERROR] correlationId=${correlationId} code=${errorCode} message=${authError.message} ms=${elapsedMs}`);
       return jsonResponse({
-        ok: false,
-        success: false,
-        authenticated: false,
-        error: 'UNAUTHENTICATED',
-        message: 'Login required',
-        message_fr: 'Connexion requise',
+        ok: false, success: false, authenticated: false,
+        error: errorCode, error_code: errorCode,
+        message: errorCode === 'EXPIRED_TOKEN'
+          ? 'Session expired. Please sign in again.'
+          : errorCode === 'NO_TOKEN'
+          ? 'Login required'
+          : 'Authentication failed. Please sign in again.',
+        message_fr: errorCode === 'EXPIRED_TOKEN'
+          ? 'Session expirée. Veuillez vous reconnecter.'
+          : 'Connexion requise',
         correlationId,
       }, 200);
     }

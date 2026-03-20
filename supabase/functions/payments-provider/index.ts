@@ -45,11 +45,17 @@ async function requireAuth(req: Request, actionHint: string): Promise<{ userId: 
     tokenSource: tokenSource || 'missing',
     hasAuthorizationHeader,
     hasExtractedToken: !!token,
+    alternateHeaders: {
+      'x-auth-token': !!req.headers.get('x-auth-token'),
+      'x-session-token': !!req.headers.get('x-session-token'),
+      'x-access-token': !!req.headers.get('x-access-token'),
+      'x-jwt': !!req.headers.get('x-jwt'),
+    },
   });
 
   if (!token) {
-    console.warn('[payments-provider] auth-missing', { action: actionHint, hasAuthorizationHeader });
-    return authFailureResponse('AUTH_REQUIRED', 'Authentication required.');
+    console.warn('[payments-provider] NO_TOKEN', { action: actionHint, hasAuthorizationHeader });
+    return authFailureResponse('NO_TOKEN', 'No authentication token found. Please sign in.');
   }
 
   try {
@@ -62,16 +68,20 @@ async function requireAuth(req: Request, actionHint: string): Promise<{ userId: 
       userId: user.id.slice(0, 8) + '***',
     });
     return { userId: user.id, token, tokenSource };
-  } catch (error) {
+  } catch (error: any) {
+    const errorCode = error?.authErrorCode || 'INVALID_TOKEN';
     console.warn('[payments-provider] auth-failed', {
       action: actionHint,
       tokenSource: tokenSource || 'unknown',
       hasAuthorizationHeader,
       hasExtractedToken: !!token,
       verifyUserSuccess: false,
+      errorCode,
       reason: error instanceof Error ? error.message : String(error),
     });
-    return authFailureResponse('AUTH_ERROR', 'Authentication failed. Please sign in again.');
+    return authFailureResponse(errorCode, errorCode === 'EXPIRED_TOKEN'
+      ? 'Session expired. Please sign in again.'
+      : 'Authentication failed. Please sign in again.');
   }
 }
 

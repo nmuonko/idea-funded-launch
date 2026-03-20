@@ -378,15 +378,23 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   const correlationId = crypto.randomUUID().slice(0, 8);
   const startTime = Date.now();
   const db = createAdminPostgrestClient();
-  const authHeader = req.headers.get("Authorization");
-  const token = extractBearerToken(authHeader);
+  const { token, source: tokenSource } = await extractRequestToken(req);
+  console.log(`[CART_ADD][${correlationId}] token=${!!token} source=${tokenSource}`);
   
   let userId: string | null = null;
   if (token) {
     const result = await db.getUser(token);
-    if (result.data?.user) userId = (result.data.user as { id: string }).id;
+    if (result.data?.user) {
+      userId = (result.data.user as { id: string }).id;
+      console.log(`[CART_ADD][${correlationId}] authenticated userId=${userId}`);
+    } else {
+      // Token present but invalid — explicit auth failure, don't silently fall to guest
+      console.log(`[CART_ADD][${correlationId}] token present but invalid, returning SESSION_EXPIRED`);
+      return jsonResponse({ ok: false, success: false, authenticated: false, code: "SESSION_EXPIRED", message: "Session expired. Please login again.", activeItems: [], savedItems: [] }, 200);
+    }
   }
   const isGuest = userId === null;
+  console.log(`[CART_ADD][${correlationId}] isGuest=${isGuest}`);
 
   const { action: _a, ...addBody } = body;
   

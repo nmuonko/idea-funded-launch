@@ -596,10 +596,13 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
 
     if (user && sessionRef.current && !id.startsWith('local_')) {
       try {
-        const { error } = await supabase.functions.invoke('mobile-cart', {
+        const { data, error } = await supabase.functions.invoke('mobile-cart', {
           body: { action: 'delete_item', item_id: id },
         });
         if (error) throw error;
+        if (data?.success === false || data?.ok === false || data?.authenticated === false) {
+          throw new Error(data?.message || data?.error || 'Failed to remove item from server');
+        }
         // Server confirmed deletion — remove from deleted IDs (it's gone for real)
         deletedItemIdsRef.current.delete(id);
         persistDeletedIds();

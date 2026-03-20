@@ -52,12 +52,19 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // Get auth header
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
+    const { token, source: tokenSource } = await extractRequestToken(req);
+    const hasAuthorizationHeader = !!req.headers.get('Authorization');
+    console.log(`[STRIPE_CHECKOUT] Auth diagnostics`, {
+      requestId,
+      hasAuthorizationHeader,
+      tokenSource: tokenSource || 'missing',
+      hasExtractedToken: !!token,
+    });
+
+    if (!token) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized', error_code: 'UNAUTHORIZED' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, authenticated: false, error: 'Authorization required', error_code: 'AUTH_REQUIRED' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -66,14 +73,13 @@ serve(async (req: Request): Promise<Response> => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Verify user
-    const token = authHeader.replace('Bearer ', '');
+    // Verify user using the exact extracted token
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     
     if (authError || !user) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Invalid token', error_code: 'UNAUTHORIZED' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, authenticated: false, error: 'Invalid token', error_code: 'AUTH_ERROR' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

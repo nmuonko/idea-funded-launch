@@ -22,7 +22,7 @@ export function getDbClient(req: Request): PostgrestClient {
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, X-Afrishop-Environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, X-Afrishop-Environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-device-id, x-auth-token, x-session-token, x-access-token, x-supabase-auth, x-jwt',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 };
 

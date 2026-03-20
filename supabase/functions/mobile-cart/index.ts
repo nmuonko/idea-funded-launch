@@ -388,46 +388,50 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   const startTime = Date.now();
   const db = createAdminPostgrestClient();
   const { token, source: tokenSource } = await extractRequestToken(req);
-  console.log(`[CART_ADD][${correlationId}] token=${!!token} source=${tokenSource}`);
-  
+  const hasAuthorizationHeader = !!req.headers.get("authorization") || !!req.headers.get("Authorization");
+
   let userId: string | null = null;
   if (token) {
     const result = await db.getUser(token);
     if (result.data?.user) {
       userId = (result.data.user as { id: string }).id;
-      console.log(`[CART_ADD][${correlationId}] authenticated userId=${userId}`);
+      console.log(`[CART_ADD][${correlationId}] verifyUserSuccess=true user_id=${userId} tokenSource=${tokenSource ?? "none"} hasAuthorizationHeader=${hasAuthorizationHeader}`);
     } else {
-      // Token present but invalid — explicit auth failure, don't silently fall to guest
-      console.log(`[CART_ADD][${correlationId}] token present but invalid, returning SESSION_EXPIRED`);
+      console.log(`[CART_ADD][${correlationId}] verifyUserSuccess=false tokenPresent=true tokenSource=${tokenSource ?? "none"} hasAuthorizationHeader=${hasAuthorizationHeader} downstreamStatus=200`);
       return jsonResponse({ ok: false, success: false, authenticated: false, code: "SESSION_EXPIRED", message: "Session expired. Please login again.", activeItems: [], savedItems: [] }, 200);
     }
   }
   const isGuest = userId === null;
-  console.log(`[CART_ADD][${correlationId}] isGuest=${isGuest}`);
 
   const { action: _a, ...addBody } = body;
-  
   const rawImageUrl = addCartCoalesceImage(addBody);
   const coalescedImageUrl = addCartNormalizeImage(rawImageUrl, addBody.productUrl);
   addBody.productImageUrl = coalescedImageUrl ?? undefined;
 
   const validation = validateAddCartItemInput(addBody);
-  if (validation.error) return errorResponse(validation.error, 400);
+  if (validation.error) {
+    console.log(`[CART_ADD][${correlationId}] verifyUserSuccess=${!isGuest} user_id=${userId ?? "guest"} deviceId=${String(addBody.deviceId ?? addBody.device_id ?? "none")} productId=${String(addBody.productUrl ?? addBody.product_url ?? "none")} quantity=${String(addBody.quantity ?? 1)} authPresent=${!!token} responseStatus=400 error=${validation.error}`);
+    return errorResponse(validation.error, 400);
+  }
 
   const { productUrl, productPrice, quantity, shippingItemTypeId, productTitle: inputTitle, productImageUrl: inputImageUrl } = validation.data;
   const deviceId = addBody.deviceId ?? addBody.device_id ?? null;
   const userEdited = addCartIsUserEdited(addBody);
   const isFixedPrice = addBody.isFixedPrice === true || addBody.is_fixed_price === true;
+  console.log(`[CART_ADD][${correlationId}] user_id=${userId ?? "guest"} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=${!!token} tokenSource=${tokenSource ?? "none"} hasAuthorizationHeader=${hasAuthorizationHeader}`);
 
   if (userEdited && isGuest) {
+    console.log(`[CART_ADD][${correlationId}] user_id=guest deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=false responseStatus=200 error=AUTH_REQUIRED_FOR_MANUAL_PRICE`);
     return jsonResponse({ ok: false, authenticated: false, code: "AUTH_REQUIRED_FOR_MANUAL_PRICE", error: "Authentication required to submit modified prices.", activeItems: [], savedItems: [] }, 200);
   }
 
   const settingsResult = await cartDbGetSettings(db, correlationId);
-  if (settingsResult.error || !settingsResult.data) return errorResponse("Failed to load settings", 500);
+  if (settingsResult.error || !settingsResult.data) {
+    console.log(`[CART_ADD][${correlationId}] user_id=${userId ?? "guest"} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=${!!token} responseStatus=500 error=SETTINGS_LOAD_FAILED`);
+    return errorResponse("Failed to load settings", 500);
+  }
   const settings = settingsResult.data;
 
-  // Fixed-price items (hot products): no markup, price is final
   let effectiveMarkup = isFixedPrice ? 0 : settings.markupPercent;
   let pricing = cartPricingCalc(productPrice, quantity, effectiveMarkup, settings.exchangeRate);
   const store = addCartDetectStore(productUrl);
@@ -462,16 +466,19 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     if (catTypeResult.data) { finalShippingTypeId = catTypeResult.data.id; estWeightKg = catTypeResult.data.estWeightKg; }
   }
 
-  // Fixed-price items: no shipping fee added (price is all-inclusive)
   const shippingFeeUsd = isFixedPrice ? 0 : calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, settings.shippingPercent, requiresManualQuote);
 
   if (isGuest) {
     const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup);
+    console.log(`[CART_ADD][${correlationId}] user_id=guest deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=false responseStatus=200 isGuest=true`);
     return jsonResponse({ success: true, isGuest: true, item: response, isVehicle: isVehicleDetected, requiresQuote: requiresManualQuote });
   }
 
   const draftResult = await getOrCreateDraftOrder(db, userId!, correlationId);
-  if (draftResult.error || !draftResult.data) return errorResponse("Failed to get/create cart", 500);
+  if (draftResult.error || !draftResult.data) {
+    console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=DRAFT_LOOKUP_FAILED`);
+    return errorResponse("Failed to get/create cart", 500);
+  }
   const draft = draftResult.data;
 
   const existingResult = await findExistingCartItem(db, draft.id, productUrl, correlationId);
@@ -486,10 +493,12 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       requires_manual_quote: (isVehicleDetected || existingItem.requires_manual_quote) && !existingItem.vehicle_quote_applied,
       updated_at: new Date().toISOString(),
     }, correlationId);
-    if (updateResult.error || !updateResult.data) return errorResponse("Failed to update cart item", 500);
+    if (updateResult.error || !updateResult.data) {
+      console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=ITEM_UPDATE_FAILED`);
+      return errorResponse("Failed to update cart item", 500);
+    }
     itemId = existingItem.id; merged = true;
   } else {
-    // Extract provider product ID (ASIN for Amazon, item ID for eBay)
     let providerProductId: string | null = null;
     if (store === 'AMAZON') {
       const asinMatch = productUrl.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/)([A-Z0-9]{10})/i);
@@ -498,15 +507,12 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       const ebayMatch = productUrl.match(/\/itm\/(\d+)/);
       providerProductId = ebayMatch ? ebayMatch[1] : null;
     }
-    // Build canonical URL — prefer slugged detail URL for Amazon stability
     let canonicalUrl = productUrl;
     if (store === 'AMAZON' && providerProductId) {
-      // Check if productUrl already has a slug (e.g. /Product-Name/dp/ASIN)
       const hasSlugged = /\/[^/]+\/dp\/[A-Z0-9]{10}/i.test(productUrl);
       if (hasSlugged) {
         canonicalUrl = productUrl;
       } else {
-        // Build slugged URL from title if available
         const titleStr = (productTitle || '').replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '-').substring(0, 120);
         canonicalUrl = (titleStr.length > 2)
           ? `https://www.amazon.com/${titleStr}/dp/${providerProductId}`
@@ -523,11 +529,13 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       captured_price: userEdited ? (addBody.capturedPrice ?? addBody.captured_price ?? null) : null,
       provider_product_id: providerProductId,
       canonical_url: canonicalUrl,
-      // For fixed-price items, store 0 markup so updateOrderTotals uses stored values
       ...(isFixedPrice ? { markup_fee_usd: 0, shipping_fee_usd: 0 } : {}),
     };
     const insertResult = await insertCartItem(db, newItem, correlationId);
-    if (insertResult.error || !insertResult.data) return errorResponse("Failed to add item to cart", 500);
+    if (insertResult.error || !insertResult.data) {
+      console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=ITEM_INSERT_FAILED`);
+      return errorResponse("Failed to add item to cart", 500);
+    }
     itemId = insertResult.data.id;
   }
 
@@ -537,6 +545,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   } catch (e) { console.warn(`[CART_ADD] ${correlationId} Failed to update totals:`, (e as Error).message); }
 
   const response = buildItemResponse(itemId, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, merged, effectiveMarkup);
+  console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=200 orderId=${draft.id} itemId=${itemId} merged=${merged} elapsedMs=${Date.now() - startTime}`);
   return jsonResponse({ success: true, merged, isGuest: false, item: response, orderId: draft.id, isVehicle: isVehicleDetected, requiresQuote: requiresManualQuote });
 }
 

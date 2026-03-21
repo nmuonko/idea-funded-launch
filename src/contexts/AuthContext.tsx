@@ -305,24 +305,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // CRITICAL: Mark initial session as settled BEFORE async admin/profile work.
         // This prevents onAuthStateChange from overwriting with null during hydration.
         initialSessionSettled = true;
-        // Mark auth ready immediately — session & user are now resolved.
-        // Admin/profile loading happens after but should NOT block route guards.
+        
+        if (session?.user) {
+          console.log('[Auth] Checking admin status for:', session.user.id);
+          // CRITICAL: Resolve admin status BEFORE marking auth ready
+          // so ProtectedRoute doesn't see isAdmin=false and redirect prematurely.
+          await Promise.allSettled([
+            checkAdminStatus(session.user.id),
+            loadProfile(session.user.id),
+          ]);
+        } else {
+          setIsAdmin(false);
+          setProfile(null);
+        }
+        
+        // Mark auth ready AFTER admin/profile are resolved
         setIsAuthReady(true);
         console.log('[Auth] Hydration complete', {
           hasSession: !!session,
           userId: session?.user?.id ?? null,
           isAuthReady: true,
         });
-        
-        if (session?.user) {
-          console.log('[Auth] Checking admin status for:', session.user.id);
-          await checkAdminStatus(session.user.id);
-          // Load profile on init
-          await loadProfile(session.user.id);
-        } else {
-          setIsAdmin(false);
-          setProfile(null);
-        }
       } catch (error) {
         console.error('[Auth] Init error:', error);
         setIsAdmin(false);

@@ -75,13 +75,28 @@ Deno.serve(async (req: Request) => {
 
     console.log(`[auth-me] rid=${rid} authenticated user=${user.id} email=${user.email}`);
 
+    // Build the flat user object the mobile app expects: { id, name, email, phone }
+    const userName = profile?.full_name
+      || profile?.name
+      || user.user_metadata?.full_name
+      || user.user_metadata?.name
+      || user.email?.split("@")[0]
+      || "User";
+
     return jsonResponse({
       ok: true,
       authenticated: true,
+      // Flat fields the RN loginApi expects at top level
+      id: user.id,
+      name: userName,
+      email: user.email || null,
+      phone: user.phone || profile?.phone || null,
+      // Nested for backward compat
       user: {
         id: user.id,
+        name: userName,
         email: user.email,
-        phone: user.phone || null,
+        phone: user.phone || profile?.phone || null,
         created_at: user.created_at,
         email_confirmed_at: user.email_confirmed_at,
         last_sign_in_at: user.last_sign_in_at,

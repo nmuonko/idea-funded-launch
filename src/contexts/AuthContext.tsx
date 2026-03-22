@@ -231,6 +231,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.log('[Auth] Recovery flow detected — redirecting to reset-password immediately');
           setLoading(false);
           setIsAuthReady(true);
+          setIsAdminReady(true);
           window.location.href = '/auth/reset-password' + window.location.hash;
           return;
         }

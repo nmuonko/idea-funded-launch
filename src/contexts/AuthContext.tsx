@@ -241,6 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.log('[Auth] On reset-password page — skipping admin/profile init');
           setLoading(false);
           setIsAuthReady(true);
+          setIsAdminReady(true);
           return;
         }
         

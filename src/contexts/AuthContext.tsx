@@ -735,6 +735,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAdmin, 
         loading,
         isAuthReady,
+        isAdminReady,
         signIn, 
         signUp, 
         signOut,

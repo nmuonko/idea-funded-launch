@@ -28,6 +28,7 @@ interface AuthContextType {
   isAdmin: boolean;
   loading: boolean;
   isAuthReady: boolean;
+  isAdminReady: boolean;
   signIn: (email: string, password: string, rememberMe?: boolean) => Promise<{ error: any; userId: string | null }>;
   signUp: (email: string, password: string, fullName: string, phone?: string, profileData?: {
     country?: string;
@@ -54,6 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isAdminReady, setIsAdminReady] = useState(false);
   const { toast } = useToast();
 
   /**
@@ -229,6 +231,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.log('[Auth] Recovery flow detected — redirecting to reset-password immediately');
           setLoading(false);
           setIsAuthReady(true);
+          setIsAdminReady(true);
           window.location.href = '/auth/reset-password' + window.location.hash;
           return;
         }
@@ -238,6 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.log('[Auth] On reset-password page — skipping admin/profile init');
           setLoading(false);
           setIsAuthReady(true);
+          setIsAdminReady(true);
           return;
         }
         
@@ -288,6 +292,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           initialSessionSettled = true;
           setLoading(false);
           setIsAuthReady(true);
+          setIsAdminReady(true);
           return;
         }
         
@@ -303,13 +308,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session?.user ?? null);
         
         // CRITICAL: Mark initial session as settled BEFORE async admin/profile work.
-        // This prevents onAuthStateChange from overwriting with null during hydration.
         initialSessionSettled = true;
+        
+        // Mark basic auth ready immediately so non-admin pages render without delay
+        setIsAuthReady(true);
         
         if (session?.user) {
           console.log('[Auth] Checking admin status for:', session.user.id);
-          // CRITICAL: Resolve admin status BEFORE marking auth ready
-          // so ProtectedRoute doesn't see isAdmin=false and redirect prematurely.
           await Promise.allSettled([
             checkAdminStatus(session.user.id),
             loadProfile(session.user.id),
@@ -319,12 +324,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setProfile(null);
         }
         
-        // Mark auth ready AFTER admin/profile are resolved
-        setIsAuthReady(true);
+        // Mark admin ready AFTER admin/profile are resolved
+        setIsAdminReady(true);
         console.log('[Auth] Hydration complete', {
           hasSession: !!session,
           userId: session?.user?.id ?? null,
-          isAuthReady: true,
         });
       } catch (error) {
         console.error('[Auth] Init error:', error);
@@ -332,6 +336,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
         initialSessionSettled = true;
         setIsAuthReady(true);
+        setIsAdminReady(true);
       } finally {
         if (mounted) {
           console.log('[Auth] Setting loading to false');
@@ -732,6 +737,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAdmin, 
         loading,
         isAuthReady,
+        isAdminReady,
         signIn, 
         signUp, 
         signOut,

@@ -925,11 +925,33 @@ serve(async (req) => {
 
     perf.mark('parallel_fetch_complete');
 
-    const { data: userProfile, error: profileError } = profileResult;
+    let { data: userProfile, error: profileError } = profileResult;
     const { data: orderData, error: orderFetchError } = orderResult;
 
     if (profileError) {
       console.error('[mobile-checkout] Error fetching profile:', profileError);
+    }
+
+    // Safety net: auto-create profile if missing (trigger didn't fire)
+    if (!userProfile) {
+      console.warn('[mobile-checkout] No profile found for user, auto-creating:', user.id);
+      const fallbackName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
+      await supabase.from('profiles').upsert({
+        user_id: user.id,
+        email: user.email || null,
+        full_name: fallbackName,
+        name: fallbackName,
+        country: 'DR Congo',
+        language: 'fr',
+      }, { onConflict: 'user_id', ignoreDuplicates: true });
+
+      // Re-fetch the profile
+      const { data: refetched } = await supabase
+        .from('profiles')
+        .select('user_id, email, full_name, name, phone, address_line1, address_line2, city, state_province, postal_code, country')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      userProfile = refetched;
     }
 
     if (!isProfileComplete(userProfile)) {

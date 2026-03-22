@@ -290,6 +290,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           initialSessionSettled = true;
           setLoading(false);
           setIsAuthReady(true);
+          setIsAdminReady(true);
           return;
         }
         

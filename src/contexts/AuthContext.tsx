@@ -28,6 +28,7 @@ interface AuthContextType {
   isAdmin: boolean;
   loading: boolean;
   isAuthReady: boolean;
+  isAdminReady: boolean;
   signIn: (email: string, password: string, rememberMe?: boolean) => Promise<{ error: any; userId: string | null }>;
   signUp: (email: string, password: string, fullName: string, phone?: string, profileData?: {
     country?: string;

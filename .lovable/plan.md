@@ -1,127 +1,54 @@
 
-Root-cause analysis
 
-- The strongest evidence is that the new handoff flow is not being executed at all on the path your installed Android app is using:
-  - `mobile-checkout-bridge` has no recent logs.
-  - `checkout-handoff-validate` has no recent logs.
-  - `public.checkout_handoff_tokens` exists but currently has `0` rows.
-- That means the reinstall bug is not being caused by the handoff token validation logic itself. The failure happens earlier, before the bridge flow starts.
-- Your installed app is therefore still following an older production checkout path that bypasses:
-  - `mobile-checkout-bridge`
-  - `?handoff=...`
-  - `useTokenFromUrl`
-  - `checkout-handoff-validate`
-- So the real issue is contract drift in production: the frozen Android app is still consuming an older backend/web checkout entry, while the newer bridge solution exists only in the current code path and is not yet the actual path hit by the installed app.
-- This also matches your note that there is no WebView visible now. If the app were using the intended bridge chain, we would see bridge/handoff activity server-side. We do not.
+## Investigation Results
 
-What to build now
+**Root cause identified**: The two failing users (`ngoyprecious@gmail.com` and `kabuyachadrack94@gmail.com`) have **no profile records** in the `profiles` table. The working user (`kadimisha@gmail.com`) has a complete profile with full_name, phone, and country.
 
-1. Lock the frozen-app entry point
-- Identify the exact backend function the Play Store build calls when `Payez maintenant` is tapped.
-- Do not assume it is `mobile-checkout-bridge`.
-- Trace the currently used production chain, likely through one of:
-  - `mobile-checkout`
-  - `mobile-orders`
-  - `mobile-create-payment`
-  - legacy payment/redirect fields consumed by the app
+**Why profiles are missing**: The `handle_new_user_profile` database function exists but has **no trigger** attached to `auth.users`. New user signups don't automatically create profile rows.
 
-2. Move the bridge into the path the frozen app already uses
-- Because the mobile build is frozen, the backend must become backward-compatible.
-- The function already called by the installed app must generate the handoff URL automatically.
-- Return that handoff URL in the legacy response fields the app already opens, so the app does not need to know about a new endpoint.
-- In practice: the existing checkout response should resolve to `/checkout?handoff=...&access_token=...` instead of any older direct checkout/login/payment page URL.
+**Why checkout fails**: The `mobile-checkout` edge function (line 935) calls `isProfileComplete(userProfile)` which returns `false` when the profile is `null`. This returns a `PROFILE_INCOMPLETE` error (HTTP 200 with error code), which the RN app displays as the generic "Failed to process checkout" dialog.
 
-3. Keep the flow fully backward-compatible
-- Do not require a new request body from the app.
-- Accept the old payload the frozen app already sends.
-- Inject the bridge internally on the backend.
-- Preserve existing response shape, but ensure every checkout/open URL field points to the handoff URL.
+**Why kadimisha works**: Their profile was likely created manually or via an older flow that no longer exists.
 
-4. Verify the published web app is ready for that URL
-- Confirm the published checkout path waits for both:
-  - auth hydration complete
-  - handoff bootstrap complete
-- The current code already shows this intent in `ShopProtectedRoute` and `useTokenFromUrl`, so the next step is to ensure the published/live site is actually on this version.
-- If live is behind test, publish the web changes so `/checkout?handoff=...` works in production.
+---
 
-5. Add production-grade tracing only on this flow
-- Add logs only to the real frozen-app path:
-  - incoming checkout request
-  - token source
-  - legacy response fields returned
-  - whether a handoff row was created
-  - exact checkout URL emitted
-  - handoff validate success/failure
-  - route guard redirect reason
-- This will prove whether the installed app is opening the bridged URL or an old URL.
+## Plan
 
-Most likely fix direction
+### Step 1: Create the missing trigger on auth.users
+Add a database trigger so `handle_new_user_profile()` fires on every new signup, auto-creating a profile row.
 
-- Do not keep treating this as a frontend auth race first.
-- Treat it as a production compatibility bug:
-  - frozen app still opens an old checkout/login URL
-  - backend must transparently swap that old URL for a handoff URL
-  - published web checkout must consume that handoff before redirecting
+```sql
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_user_profile();
+```
 
-Concrete implementation plan
+### Step 2: Backfill profiles for existing users without one
+Insert profiles for `ngoyprecious@gmail.com` and `kabuyachadrack94@gmail.com` (and any other users missing profiles) using their auth metadata.
 
-1. Trace the real production entrypoint
-- Inspect `mobile-checkout`, `mobile-orders`, `mobile-create-payment`, and any legacy compatibility wrappers to find which response field the frozen app uses for navigation.
-- Compare that to the new `mobile-checkout-bridge` contract.
+```sql
+INSERT INTO public.profiles (id, user_id, email, full_name, name, country, language)
+SELECT gen_random_uuid(), u.id, u.email,
+  COALESCE(NULLIF(TRIM(u.raw_user_meta_data->>'full_name'),''), split_part(u.email,'@',1)),
+  COALESCE(NULLIF(TRIM(u.raw_user_meta_data->>'full_name'),''), split_part(u.email,'@',1)),
+  'DR Congo', 'fr'
+FROM auth.users u
+LEFT JOIN public.profiles p ON p.user_id = u.id
+WHERE p.id IS NULL;
+```
 
-2. Add internal handoff generation to the legacy path
-- Reuse the existing handoff token table and validation function.
-- Inside the legacy checkout function, create the handoff token and build the checkout URL there.
-- Populate all legacy “open this page” fields with that bridged URL.
+### Step 3: Add fallback profile auto-creation in mobile-checkout
+As a safety net, if the profile is still missing at checkout time, auto-create it from the authenticated user's metadata instead of blocking the payment. This prevents future edge cases where the trigger might not fire (e.g., SSO providers).
 
-3. Preserve old clients automatically
-- Keep existing request schema accepted by the frozen app.
-- Keep existing response keys, but repoint them to the bridged URL.
-- Avoid introducing a required new endpoint on the app side.
+**File**: `supabase/functions/mobile-checkout/index.ts` (around line 935)
+- Before the `isProfileComplete` check, if `userProfile` is null, upsert a default profile from `user.email` and `user.user_metadata`
+- Then re-query the profile and continue with the completeness check
+- Users with missing phone/country will still get the `PROFILE_INCOMPLETE` error, but at least their profile row will exist for them to edit
 
-4. Confirm live web readiness
-- Verify live/published frontend includes:
-  - `useTokenFromUrl` handoff detection
-  - `checkout-handoff-validate` call
-  - `ShopProtectedRoute` waiting logic
-  - `AuthContext` URL session bootstrap
-- If not, publish those exact changes.
+### Technical Details
+- The trigger must be on `auth.users` (not `public.profiles`) using `AFTER INSERT`
+- The backfill uses a `LEFT JOIN` to only create profiles for users who don't have one
+- The mobile-checkout fallback uses `upsert` with `ON CONFLICT (user_id) DO NOTHING` to be idempotent
+- The `isProfileComplete` check requires `full_name`, `phone`, and `country` — the backfill sets name and country but NOT phone, so users will still need to add their phone number before paying. This is expected behavior.
 
-5. Add checkpoint logging on the actual path
-- Backend logs:
-  - `[mobile-checkout] payer-tap-chain-start`
-  - `[mobile-checkout] bridge-created`
-  - `[mobile-checkout] emitted-url`
-  - `[checkout-handoff] validate`
-  - `[checkout-handoff] consumed`
-  - `[checkout-handoff] invalid|expired|already-used`
-- Web logs:
-  - `[TokenFromUrl] handoff-detected`
-  - `[TokenFromUrl] handoff-validate-ok|fail`
-  - `[ShopProtectedRoute] redirect-to-login reason=...`
-
-6. Validate with reinstall scenario
-- Reinstall app
-- Log in
-- Tap `Payez maintenant`
-- Confirm:
-  - legacy checkout endpoint is hit
-  - handoff row is created
-  - returned/opened URL contains `handoff=`
-  - handoff is consumed once
-  - checkout loads without redirect to login
-
-Technical notes
-
-- Current evidence does not support “bridge validation bug”.
-- Current evidence supports “bridge never reached by production app”.
-- The `checkout_handoff_tokens` table and validator already exist, so this is mainly a wiring/compatibility issue.
-- The console ref warning in `ShopHome` is unrelated.
-- Keep the scope locked to:
-  `frozen RN app -> existing checkout endpoint -> internal handoff generation -> published /checkout handoff bootstrap`
-
-Expected outcome after this fix
-
-- The frozen Play Store build works again without needing app changes.
-- Reinstall scenarios work because checkout no longer depends on pre-existing browser/web session state.
-- The backend transparently upgrades the old app path into the new handoff flow.

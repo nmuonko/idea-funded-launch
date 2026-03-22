@@ -334,6 +334,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
         initialSessionSettled = true;
         setIsAuthReady(true);
+        setIsAdminReady(true);
       } finally {
         if (mounted) {
           console.log('[Auth] Setting loading to false');

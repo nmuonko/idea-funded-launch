@@ -1694,8 +1694,10 @@ serve(async (req) => {
         return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
       }
       
-      // Create copies of items for the checkout order
-      const copiedItems = itemsToCopy.map(item => ({
+      // Normalize pricing before copying (fixes legacy items with null pricing fields)
+      const copiedItems = itemsToCopy.map(rawItem => {
+        const item = normalizeItemPricing(rawItem, settings);
+        return ({
         order_id: largeOrderCheckout.id,
         product_url: item.product_url,
         title: item.title,

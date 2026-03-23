@@ -1111,7 +1111,7 @@ serve(async (req) => {
 
     if (itemsError) {
       console.error('[mobile-checkout] Error fetching items:', itemsError);
-      return jsonResponse({ success: false, error: 'Failed to fetch cart items.' }, 500);
+      return jsonResponse({ ok: false, success: false, code: 'CHECKOUT_ITEM_FETCH_FAILED', message: 'Failed to fetch cart items.', message_fr: 'Impossible de récupérer les articles du panier.' }, 200);
     }
 
     const dbItems = Array.isArray(dbItemsRaw) ? [...dbItemsRaw] : [];

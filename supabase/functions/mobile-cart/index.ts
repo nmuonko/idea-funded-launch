@@ -547,16 +547,24 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       }
     }
 
+    const totalPriceUsd = cartRound2(pricing.itemSubtotalUsd + shippingFeeUsd);
+    const totalPriceCdf = cartRound2(totalPriceUsd * settings.exchangeRate);
     const newItem = {
       order_id: draft.id, product_url: productUrl, title: productTitle, product_image_url: productImageUrl,
-      store, quantity, base_price_usd: productPrice, shipping_item_type_id: finalShippingTypeId,
+      store, quantity, base_price_usd: productPrice,
+      unit_price_usd: cartRound2(productPrice),
+      subtotal_usd: pricing.itemBaseTotalUsd,
+      markup_fee_usd: isFixedPrice ? 0 : pricing.itemMarginUsd,
+      shipping_fee_usd: isFixedPrice ? 0 : shippingFeeUsd,
+      total_price_usd: isFixedPrice ? pricing.itemBaseTotalUsd : totalPriceUsd,
+      total_price_cdf: isFixedPrice ? cartRound2(pricing.itemBaseTotalUsd * settings.exchangeRate) : totalPriceCdf,
+      shipping_item_type_id: finalShippingTypeId,
       est_weight_kg: estWeightKg, is_vehicle: isVehicleDetected, requires_manual_quote: requiresManualQuote,
       is_saved_for_later: false, price_source: isFixedPrice ? "hot_product" : (userEdited ? "manual_user" : "auto"),
       price_confirmation_status: userEdited ? "pending" : null,
       captured_price: userEdited ? (addBody.capturedPrice ?? addBody.captured_price ?? null) : null,
       provider_product_id: providerProductId,
       canonical_url: canonicalUrl,
-      ...(isFixedPrice ? { markup_fee_usd: 0, shipping_fee_usd: 0 } : {}),
     };
     console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=true orderId=${draft.id} insertPayload=${JSON.stringify({ order_id: draft.id, product_url: productUrl, quantity, device_id: deviceId ?? null, user_id: userId, is_vehicle: isVehicleDetected, requires_manual_quote: requiresManualQuote })}`);
     const insertResult = await insertCartItem(db, newItem, correlationId);

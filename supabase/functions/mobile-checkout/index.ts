@@ -281,7 +281,74 @@ function deduplicateCartItems(items: any[]): {
 }
 
 // ============================================
-// P0 FIX: Recompute totals server-side (SINGLE SOURCE OF TRUTH)
+// NORMALIZATION: Recompute null pricing fields from base_price_usd
+// Fixes items created before pricing was persisted at insert time
+// ============================================
+function normalizeItemPricing(
+  item: any,
+  settings: { markupPercent: number; vehicleMarkupPercent: number; shippingBaseFeeUsd: number; shippingPercent: number; exchangeRate: number }
+): any {
+  const basePriceUsd = Number(item.base_price_usd || 0);
+  const quantity = Number(item.quantity || 1);
+  const isVehicle = item.is_vehicle === true;
+  const isFixedPrice = item.price_source === 'hot_product';
+  const requiresManualQuote = item.requires_manual_quote === true;
+  const vehicleQuoteApplied = item.vehicle_quote_applied === true;
+
+  // If all pricing fields are populated, return as-is
+  if (
+    item.unit_price_usd != null &&
+    item.subtotal_usd != null &&
+    item.markup_fee_usd != null &&
+    item.shipping_fee_usd != null &&
+    item.total_price_usd != null &&
+    item.total_price_cdf != null
+  ) {
+    return item;
+  }
+
+  // Skip normalization for vehicle items with applied quotes (authoritative pricing)
+  if (isVehicle && vehicleQuoteApplied && item.total_price_usd != null) {
+    return item;
+  }
+
+  const effectiveMarkup = isFixedPrice ? 0 : (isVehicle ? settings.vehicleMarkupPercent : settings.markupPercent);
+  const itemBaseTotalUsd = round2(basePriceUsd * quantity);
+  const marginUsd = round2(itemBaseTotalUsd * (effectiveMarkup / 100));
+  const subtotalUsd = round2(itemBaseTotalUsd + marginUsd);
+
+  let shippingFeeUsd = 0;
+  if (!isFixedPrice && !requiresManualQuote) {
+    shippingFeeUsd = round2(settings.shippingBaseFeeUsd + (itemBaseTotalUsd * settings.shippingPercent));
+  }
+
+  const totalPriceUsd = round2(subtotalUsd + shippingFeeUsd);
+  const totalPriceCdf = round2(totalPriceUsd * settings.exchangeRate);
+
+  console.warn('[mobile-checkout] ITEM_PRICING_NORMALIZED', {
+    item_id: item.id,
+    base_price_usd: basePriceUsd,
+    quantity,
+    computed: { unit_price_usd: basePriceUsd, subtotal_usd: subtotalUsd, markup_fee_usd: marginUsd, shipping_fee_usd: shippingFeeUsd, total_price_usd: totalPriceUsd },
+    original_nulls: {
+      unit_price_usd: item.unit_price_usd == null,
+      subtotal_usd: item.subtotal_usd == null,
+      markup_fee_usd: item.markup_fee_usd == null,
+      shipping_fee_usd: item.shipping_fee_usd == null,
+      total_price_usd: item.total_price_usd == null,
+    },
+  });
+
+  return {
+    ...item,
+    unit_price_usd: item.unit_price_usd ?? round2(basePriceUsd),
+    subtotal_usd: item.subtotal_usd ?? subtotalUsd,
+    markup_fee_usd: item.markup_fee_usd ?? marginUsd,
+    shipping_fee_usd: item.shipping_fee_usd ?? shippingFeeUsd,
+    total_price_usd: item.total_price_usd ?? totalPriceUsd,
+    total_price_cdf: item.total_price_cdf ?? totalPriceCdf,
+  };
+}
 // NO CAPS, NO LIMITS, NO DEPOSIT LOGIC
 // ============================================
 interface TotalsBreakdown {
@@ -1111,7 +1178,7 @@ serve(async (req) => {
 
     if (itemsError) {
       console.error('[mobile-checkout] Error fetching items:', itemsError);
-      return jsonResponse({ success: false, error: 'Failed to fetch cart items.' }, 500);
+      return jsonResponse({ ok: false, success: false, code: 'CHECKOUT_ITEM_FETCH_FAILED', message: 'Failed to fetch cart items.', message_fr: 'Impossible de récupérer les articles du panier.' }, 200);
     }
 
     const dbItems = Array.isArray(dbItemsRaw) ? [...dbItemsRaw] : [];
@@ -1135,7 +1202,7 @@ serve(async (req) => {
 
       if (activeCartItemsError) {
         console.error('[mobile-checkout] Error fetching active cart items for desync recovery:', activeCartItemsError);
-        return jsonResponse({ success: false, error: 'Failed to fetch cart items.' }, 500);
+        return jsonResponse({ ok: false, success: false, code: 'CHECKOUT_ITEM_FETCH_FAILED', message: 'Failed to fetch cart items.', message_fr: 'Impossible de récupérer les articles.' }, 200);
       }
 
       if (!activeCartItems || activeCartItems.length === 0) {
@@ -1624,11 +1691,13 @@ serve(async (req) => {
       if (fetchItemsError || !itemsToCopy || itemsToCopy.length !== cart_item_ids.length) {
         console.error('[mobile-checkout] Error fetching items for large order:', fetchItemsError);
         await supabase.from('orders').delete().eq('id', largeOrderCheckout.id);
-        return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
+        return jsonResponse({ ok: false, success: false, code: 'CHECKOUT_ITEM_COPY_FAILED', message: 'Failed to process checkout. Please try again.', message_fr: 'Échec du traitement. Veuillez réessayer.' }, 200);
       }
       
-      // Create copies of items for the checkout order
-      const copiedItems = itemsToCopy.map(item => ({
+      // Normalize pricing before copying (fixes legacy items with null pricing fields)
+      const copiedItems = itemsToCopy.map(rawItem => {
+        const item = normalizeItemPricing(rawItem, settings);
+        return ({
         order_id: largeOrderCheckout.id,
         product_url: item.product_url,
         title: item.title,
@@ -1655,7 +1724,7 @@ serve(async (req) => {
         price_confirmation_status: item.price_confirmation_status,
         admin_adjusted_price: item.admin_adjusted_price,
         is_saved_for_later: false,
-      }));
+      });});
       
       const { error: copyItemsError } = await supabase
         .from('order_items')
@@ -2017,11 +2086,13 @@ serve(async (req) => {
     if (fetchItemsError || !itemsToCopy || itemsToCopy.length !== cart_item_ids.length) {
       console.error('[mobile-checkout] Error fetching items to copy:', fetchItemsError);
       await supabase.from('orders').delete().eq('id', checkoutOrder.id);
-      return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
+      return jsonResponse({ ok: false, success: false, code: 'CHECKOUT_ITEM_COPY_FAILED', message: 'Failed to process checkout. Please try again.', message_fr: 'Échec du traitement. Veuillez réessayer.' }, 200);
     }
     
-    // Create new order_items records for checkout order (copy, not move)
-    const copiedItems = itemsToCopy.map(item => ({
+    // Normalize pricing before copying (fixes legacy items with null pricing fields)
+    const copiedItems = itemsToCopy.map(rawItem => {
+      const item = normalizeItemPricing(rawItem, settings);
+      return ({
       order_id: checkoutOrder.id,
       product_url: item.product_url,
       title: item.title,
@@ -2049,7 +2120,7 @@ serve(async (req) => {
       admin_adjusted_price: item.admin_adjusted_price,
       is_saved_for_later: false, // Checkout items are never saved for later
       // Do NOT copy: id (auto-generated), created_at, updated_at, saved_at, last_reminder_at
-    }));
+    });});
     
     const { data: insertedItems, error: copyItemsError } = await supabase
       .from('order_items')

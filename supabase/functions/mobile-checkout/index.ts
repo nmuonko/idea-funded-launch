@@ -2120,7 +2120,7 @@ serve(async (req) => {
       admin_adjusted_price: item.admin_adjusted_price,
       is_saved_for_later: false, // Checkout items are never saved for later
       // Do NOT copy: id (auto-generated), created_at, updated_at, saved_at, last_reminder_at
-    }));
+    });});
     
     const { data: insertedItems, error: copyItemsError } = await supabase
       .from('order_items')

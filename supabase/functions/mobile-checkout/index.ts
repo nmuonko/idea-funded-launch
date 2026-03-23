@@ -1691,7 +1691,7 @@ serve(async (req) => {
       if (fetchItemsError || !itemsToCopy || itemsToCopy.length !== cart_item_ids.length) {
         console.error('[mobile-checkout] Error fetching items for large order:', fetchItemsError);
         await supabase.from('orders').delete().eq('id', largeOrderCheckout.id);
-        return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
+        return jsonResponse({ ok: false, success: false, code: 'CHECKOUT_ITEM_COPY_FAILED', message: 'Failed to process checkout. Please try again.', message_fr: 'Échec du traitement. Veuillez réessayer.' }, 200);
       }
       
       // Normalize pricing before copying (fixes legacy items with null pricing fields)

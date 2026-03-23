@@ -1724,7 +1724,7 @@ serve(async (req) => {
         price_confirmation_status: item.price_confirmation_status,
         admin_adjusted_price: item.admin_adjusted_price,
         is_saved_for_later: false,
-      }));
+      });});
       
       const { error: copyItemsError } = await supabase
         .from('order_items')

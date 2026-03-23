@@ -1,54 +1,81 @@
 
+Diagnosis
 
-## Investigation Results
+I checked the backend data and code path, and the current evidence points away from profile/phone issues:
 
-**Root cause identified**: The two failing users (`ngoyprecious@gmail.com` and `kabuyachadrack94@gmail.com`) have **no profile records** in the `profiles` table. The working user (`kadimisha@gmail.com`) has a complete profile with full_name, phone, and country.
+- Both affected users now have complete profiles, including phone and country:
+  - ngoyprecious@gmail.com
+  - kabuyachadrack94@gmail.com
+- Both users also have active DRAFT orders with order_items already created.
+- But they have no checkout_sessions and no payment_attempts, which means checkout is failing before payment initialization/finalization.
+- The screenshot error text matches the generic failure returned by `mobile-checkout` when it cannot finish building the checkout order.
 
-**Why profiles are missing**: The `handle_new_user_profile` database function exists but has **no trigger** attached to `auth.users`. New user signups don't automatically create profile rows.
+What stands out in their data:
+- Their `orders` rows have totals (`item_total_usd`, `shipping_fee_usd`, `total_usd`, `total_cdf`)
+- But their `order_items` rows are incomplete: key copied pricing fields are `null` (`unit_price_usd`, `subtotal_usd`, `markup_fee_usd`, `shipping_fee_usd`, `total_price_usd`, `total_price_cdf`)
 
-**Why checkout fails**: The `mobile-checkout` edge function (line 935) calls `isProfileComplete(userProfile)` which returns `false` when the profile is `null`. This returns a `PROFILE_INCOMPLETE` error (HTTP 200 with error code), which the RN app displays as the generic "Failed to process checkout" dialog.
+That is the strongest likely cause:
+- `mobile-checkout` copies `order_items` into a new checkout order
+- for these users, the source items are missing pricing fields
+- that path returns the exact generic “Failed to process checkout. Please try again.” error
+- future users can hit the same issue if their cart/order items are created through the same incomplete path
 
-**Why kadimisha works**: Their profile was likely created manually or via an older flow that no longer exists.
+Implementation plan
 
----
+1. Harden `mobile-checkout` against incomplete legacy cart/order items
+- Before copying items into the checkout order, normalize each source item.
+- If `unit_price_usd`, `subtotal_usd`, `markup_fee_usd`, `shipping_fee_usd`, or `total_price_usd` are null, recompute them from:
+  - `base_price_usd`
+  - quantity
+  - current checkout totals/settings already loaded in the function
+- Use the normalized values for the copied checkout items instead of raw nullable source fields.
 
-## Plan
+2. Add a server-side fallback for malformed cart item IDs / stale item snapshots
+- Keep the existing cart desync recovery, but also make the later copy step use the validated/recovered DB items rather than re-querying raw `cart_item_ids` again.
+- This prevents a second failure when the frozen RN app sends stale IDs.
 
-### Step 1: Create the missing trigger on auth.users
-Add a database trigger so `handle_new_user_profile()` fires on every new signup, auto-creating a profile row.
+3. Make all mobile-checkout failures follow the frozen mobile contract
+- Replace the remaining 500 responses in `mobile-checkout` with HTTP 200 structured JSON errors.
+- Include stable error codes like:
+  - `CHECKOUT_ITEM_FETCH_FAILED`
+  - `CHECKOUT_ITEM_COPY_FAILED`
+  - `CHECKOUT_ITEM_NORMALIZATION_FAILED`
+- This prevents the app from collapsing everything into one generic failure and makes future diagnosis easier.
 
-```sql
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW
-  EXECUTE FUNCTION public.handle_new_user_profile();
-```
+4. Add targeted diagnostics to isolate affected users cleanly
+- Log:
+  - user id
+  - source order id
+  - requested cart item ids
+  - recovered DB item ids
+  - whether any source pricing fields were null
+  - which normalization fallback was used
+- This is important because the current logs are not giving enough actionable detail for these failures.
 
-### Step 2: Backfill profiles for existing users without one
-Insert profiles for `ngoyprecious@gmail.com` and `kabuyachadrack94@gmail.com` (and any other users missing profiles) using their auth metadata.
+5. Protect future users at the cart/order creation layer
+- Trace where these incomplete `order_items` are originally created.
+- Ensure that when cart/order items are inserted, pricing columns are populated consistently instead of relying on later checkout logic.
+- This prevents the bad state from being created in the first place.
 
-```sql
-INSERT INTO public.profiles (id, user_id, email, full_name, name, country, language)
-SELECT gen_random_uuid(), u.id, u.email,
-  COALESCE(NULLIF(TRIM(u.raw_user_meta_data->>'full_name'),''), split_part(u.email,'@',1)),
-  COALESCE(NULLIF(TRIM(u.raw_user_meta_data->>'full_name'),''), split_part(u.email,'@',1)),
-  'DR Congo', 'fr'
-FROM auth.users u
-LEFT JOIN public.profiles p ON p.user_id = u.id
-WHERE p.id IS NULL;
-```
+Technical details
 
-### Step 3: Add fallback profile auto-creation in mobile-checkout
-As a safety net, if the profile is still missing at checkout time, auto-create it from the authenticated user's metadata instead of blocking the payment. This prevents future edge cases where the trigger might not fire (e.g., SSO providers).
+Likely failing area:
+- `supabase/functions/mobile-checkout/index.ts`
+- The generic error in the screenshot matches the branches that return:
+  - `Failed to process checkout. Please try again.`
+- Those branches occur during item fetch/copy into the new checkout order.
 
-**File**: `supabase/functions/mobile-checkout/index.ts` (around line 935)
-- Before the `isProfileComplete` check, if `userProfile` is null, upsert a default profile from `user.email` and `user.user_metadata`
-- Then re-query the profile and continue with the completeness check
-- Users with missing phone/country will still get the `PROFILE_INCOMPLETE` error, but at least their profile row will exist for them to edit
+Why this is the right fix:
+- The users are authenticated enough to have profiles and DRAFT orders
+- They never reach payment attempt creation
+- Their cart source data is materially different from a healthy checkout record because the item-level monetary fields are null
+- Fixing only auth or profiles will not solve this class of failure
 
-### Technical Details
-- The trigger must be on `auth.users` (not `public.profiles`) using `AFTER INSERT`
-- The backfill uses a `LEFT JOIN` to only create profiles for users who don't have one
-- The mobile-checkout fallback uses `upsert` with `ON CONFLICT (user_id) DO NOTHING` to be idempotent
-- The `isProfileComplete` check requires `full_name`, `phone`, and `country` — the backfill sets name and country but NOT phone, so users will still need to add their phone number before paying. This is expected behavior.
+Files / areas to update
+- `supabase/functions/mobile-checkout/index.ts`
+- The function/path that creates cart/order items for mobile users (to stop writing incomplete item rows)
 
+Expected result after implementation
+- These two affected users should be able to check out without needing a new login
+- Future users with partially populated cart rows will still be recoverable at checkout
+- Future debugging will show a specific code instead of a generic checkout failure

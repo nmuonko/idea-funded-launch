@@ -1202,7 +1202,7 @@ serve(async (req) => {
 
       if (activeCartItemsError) {
         console.error('[mobile-checkout] Error fetching active cart items for desync recovery:', activeCartItemsError);
-        return jsonResponse({ success: false, error: 'Failed to fetch cart items.' }, 500);
+        return jsonResponse({ ok: false, success: false, code: 'CHECKOUT_ITEM_FETCH_FAILED', message: 'Failed to fetch cart items.', message_fr: 'Impossible de récupérer les articles.' }, 200);
       }
 
       if (!activeCartItems || activeCartItems.length === 0) {

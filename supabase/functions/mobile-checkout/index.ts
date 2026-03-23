@@ -2089,8 +2089,10 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
     }
     
-    // Create new order_items records for checkout order (copy, not move)
-    const copiedItems = itemsToCopy.map(item => ({
+    // Normalize pricing before copying (fixes legacy items with null pricing fields)
+    const copiedItems = itemsToCopy.map(rawItem => {
+      const item = normalizeItemPricing(rawItem, settings);
+      return ({
       order_id: checkoutOrder.id,
       product_url: item.product_url,
       title: item.title,

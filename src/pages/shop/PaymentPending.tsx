@@ -19,6 +19,7 @@ export default function PaymentPending() {
   const cartClearedRef = useRef(false);
   const orderId = searchParams.get('order_id');
   const provider = searchParams.get('provider') || 'pawapay';
+  const urlTotalUsd = searchParams.get('total_usd');
   
   const [status, setStatus] = useState<'pending' | 'paid' | 'failed'>('pending');
   const [loading, setLoading] = useState(false);

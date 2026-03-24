@@ -8,7 +8,7 @@ export default function ShareAndEarn() {
   return (
     <div className="min-h-screen bg-background">
       <ShopHeader />
-      <main className="max-w-xl mx-auto px-4 py-8">
+      <main className="max-w-xl mx-auto px-4 py-8 pb-24">
         <InviteEarn language={language} />
       </main>
     </div>

@@ -77,6 +77,7 @@ const GetApp = lazy(() => import("./pages/GetApp"));
 const DeleteAccount = lazy(() => import("./pages/DeleteAccount"));
 const HowItWorks = lazy(() => import("./pages/HowItWorks"));
 const AcceptInvite = lazy(() => import("./pages/AcceptInvite"));
+const ShareAndEarn = lazy(() => import("./pages/shop/ShareAndEarn"));
 
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";

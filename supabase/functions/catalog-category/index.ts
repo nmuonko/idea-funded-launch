@@ -60,8 +60,8 @@ import {
 } from "../_shared/sortFilterNormalizer.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
-const DEFAULT_LIMIT = 200;
-const MAX_LIMIT = 500;
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 200;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -322,7 +322,7 @@ Deno.serve(async (req) => {
   // Parse params from query string OR POST body (mobile sends POST)
   let categoryRaw = url.searchParams.get("category") || url.searchParams.get("key") || "";
   let cursor = url.searchParams.get("cursor") || null;
-  let limitRaw = url.searchParams.get("limit") || String(DEFAULT_LIMIT);
+  let limitRaw = url.searchParams.get("limit") || url.searchParams.get("pageSize") || String(DEFAULT_LIMIT);
   let sortParam = url.searchParams.get("sort") || "relevance";
   let filtersParam = url.searchParams.get("filters") || null;
   let providerParam = url.searchParams.get("provider") || null;

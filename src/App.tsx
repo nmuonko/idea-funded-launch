@@ -170,6 +170,7 @@ const App = () => {
             <Route path="/get" element={<GetApp />} />
             <Route path="/download" element={<Navigate to="/get" replace />} />
             <Route path="/cars" element={<Cars />} />
+            <Route path="/share" element={<ShareAndEarn />} />
             
             {/* Legacy /browse redirect */}
             <Route path="/browse" element={<Navigate to="/" replace />} />

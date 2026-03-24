@@ -875,6 +875,9 @@ serve(async (req) => {
       // Send confirmation email (idempotent)
       await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, traceId);
 
+      // Notify all admins about successful payment (fire-and-forget)
+      notifyAdminsPaymentEvent(supabase, payment.order_id, 'succeeded', 'PawaPay (Mobile Money)').catch(() => {});
+
       // Referral commission (fire-and-forget)
       const { data: paidOrder } = await supabase.from('orders').select('user_id, total_amount').eq('id', payment.order_id).maybeSingle();
       if (paidOrder?.user_id) {
@@ -888,6 +891,9 @@ serve(async (req) => {
         payment_notes: failureReason?.failureMessage || 'Payment failed',
         updated_at: now,
       }).eq('id', payment.order_id);
+
+      // Notify all admins about failed payment (fire-and-forget)
+      notifyAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'PawaPay (Mobile Money)').catch(() => {});
     }
 
     // Log to audit

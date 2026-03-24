@@ -586,11 +586,19 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       // Send payment confirmation email (idempotent)
       await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, 'stripe-webhook');
 
+      // Notify all admins about successful payment (fire-and-forget)
+      const successDetails2 = await getOrderDetailsForNotification(supabase, payment.order_id);
+      notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'succeeded', 'Stripe', successDetails2).catch(() => {});
+
       // Referral commission (fire-and-forget)
       const { data: paidOrder2 } = await supabase.from('orders').select('user_id, total_amount').eq('id', payment.order_id).maybeSingle();
       if (paidOrder2?.user_id) {
         createReferralCommission(supabase, payment.order_id, paidOrder2.user_id, paidOrder2.total_amount || 0, 'stripe-webhook').catch(() => {});
       }
+    } else if (internalStatus === 'failed' && payment.order_id) {
+      // Notify admins about failed payment
+      const failDetails2 = await getOrderDetailsForNotification(supabase, payment.order_id);
+      notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'Stripe', failDetails2).catch(() => {});
     }
   }
 

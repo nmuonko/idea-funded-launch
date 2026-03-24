@@ -419,6 +419,10 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       // Send payment confirmation email (idempotent)
       await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, 'stripe-checkout-webhook');
 
+      // Notify all admins about successful payment (fire-and-forget)
+      const successDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
+      notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'succeeded', 'Stripe Checkout', successDetails).catch(() => {});
+
       // Referral commission (fire-and-forget)
       const { data: paidOrder } = await supabase.from('orders').select('user_id, total_amount').eq('id', payment.order_id).maybeSingle();
       if (paidOrder?.user_id) {

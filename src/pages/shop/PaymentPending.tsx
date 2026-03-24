@@ -42,7 +42,7 @@ export default function PaymentPending() {
         
         if (order && !orderAmount) {
           setOrderAmount({
-            usd: order.total_usd || 0,
+            usd: order.total_usd || (urlTotalUsd ? parseFloat(urlTotalUsd) : 0),
             cdf: order.total_cdf || 0,
           });
         }

@@ -428,6 +428,12 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       if (paidOrder?.user_id) {
         createReferralCommission(supabase, payment.order_id, paidOrder.user_id, paidOrder.total_amount || 0, 'stripe-checkout-webhook').catch(() => {});
       }
+    } else if (newStatus === 'failed' || newStatus === 'cancelled') {
+      // Notify admins about failed/cancelled payment
+      if (payment.order_id) {
+        const failDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
+        notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'Stripe Checkout', failDetails).catch(() => {});
+      }
     }
 
     return new Response(

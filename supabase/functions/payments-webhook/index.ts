@@ -31,6 +31,114 @@ import {
 // ==================== Helper Functions ====================
 
 /**
+ * Notify all admins via email about a payment event (success or failure).
+ * Mirrors the support-service notifyAllAdminsNewMessage pattern.
+ */
+async function notifyAllAdminsPaymentEvent(
+  supabase: any,
+  orderId: string,
+  status: 'succeeded' | 'failed' | 'cancelled',
+  provider: string,
+  extra: { customerName?: string; customerEmail?: string; amount?: number; currency?: string } = {}
+): Promise<void> {
+  try {
+    // Get all admin user IDs from user_roles
+    const { data: adminRoles } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .eq('role', 'admin');
+
+    const adminUserIds = (adminRoles || []).map((r: any) => r.user_id);
+    if (adminUserIds.length === 0) return;
+
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('user_id, email, full_name')
+      .in('user_id', adminUserIds);
+
+    const adminEmails = (profiles || [])
+      .map((p: any) => p.email)
+      .filter((e: string | null) => e);
+
+    if (adminEmails.length === 0) return;
+
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
+    const EMAIL_FROM = Deno.env.get('EMAIL_FROM_ADDRESS') || 'AfriShop USA <noreply@afrishop-usa.com>';
+    const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+
+    if (!RESEND_API_KEY) {
+      console.log('[payments-webhook] No RESEND_API_KEY, skipping admin payment notification');
+      return;
+    }
+
+    const isSuccess = status === 'succeeded';
+    const statusLabel = isSuccess ? '✅ Payment Successful' : '❌ Payment Failed';
+    const statusColor = isSuccess ? '#16a34a' : '#dc2626';
+    const urgency = isSuccess ? '' : ' — URGENT';
+    const subject = `[AfriShop] ${statusLabel} — Order ${orderId.slice(0, 8)}${urgency}`;
+
+    const customerName = extra.customerName || 'Unknown';
+    const customerEmail = extra.customerEmail || 'N/A';
+    const amountStr = extra.amount ? `$${extra.amount.toFixed(2)} ${extra.currency || 'USD'}` : 'N/A';
+
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: EMAIL_FROM,
+        to: adminEmails,
+        subject,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <h2 style="color:${statusColor};">${statusLabel}</h2>
+            <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
+              <p style="margin:0 0 8px;"><strong>Order ID:</strong> ${orderId}</p>
+              <p style="margin:0 0 8px;"><strong>Customer:</strong> ${customerName}</p>
+              <p style="margin:0 0 8px;"><strong>Email:</strong> ${customerEmail}</p>
+              <p style="margin:0 0 8px;"><strong>Amount:</strong> ${amountStr}</p>
+              <p style="margin:0 0 8px;"><strong>Provider:</strong> ${provider}</p>
+              <p style="margin:0;"><strong>Status:</strong> <span style="color:${statusColor};font-weight:bold;">${status.toUpperCase()}</span></p>
+            </div>
+            <p style="margin:16px 0 8px;font-size:14px;color:#666;">${isSuccess ? 'A new payment has been received. Please log in to review and process the order.' : 'A payment has failed. Please log in to check the details and contact the customer if needed.'}</p>
+            <p><a href="${frontendUrl}/admin/orders" style="background:${statusColor};color:white;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;">Open Admin Orders</a></p>
+          </div>
+        `,
+      }),
+    });
+
+    console.log(`[payments-webhook] Admin payment notification sent to ${adminEmails.length} admins (${status})`);
+  } catch (err) {
+    console.error('[payments-webhook] Failed to send admin payment notification:', err);
+  }
+}
+
+/**
+ * Fetch order + customer details for admin notification
+ */
+async function getOrderDetailsForNotification(supabase: any, orderId: string) {
+  const { data: order } = await supabase
+    .from('orders')
+    .select('user_id, total_usd, total_cdf, currency')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (!order) return {};
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('full_name, email')
+    .eq('user_id', order.user_id)
+    .maybeSingle();
+
+  return {
+    customerName: profile?.full_name || profile?.email || 'Unknown',
+    customerEmail: profile?.email || 'N/A',
+    amount: order.total_usd || order.total_cdf || 0,
+    currency: order.currency || 'USD',
+  };
+}
+
+/**
  * Send payment confirmation email if not already sent (idempotent)
  */
 async function sendPaymentConfirmationEmailIfNeeded(
@@ -311,10 +419,20 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       // Send payment confirmation email (idempotent)
       await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, 'stripe-checkout-webhook');
 
+      // Notify all admins about successful payment (fire-and-forget)
+      const successDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
+      notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'succeeded', 'Stripe Checkout', successDetails).catch(() => {});
+
       // Referral commission (fire-and-forget)
       const { data: paidOrder } = await supabase.from('orders').select('user_id, total_amount').eq('id', payment.order_id).maybeSingle();
       if (paidOrder?.user_id) {
         createReferralCommission(supabase, payment.order_id, paidOrder.user_id, paidOrder.total_amount || 0, 'stripe-checkout-webhook').catch(() => {});
+      }
+    } else if (newStatus === 'failed' || newStatus === 'cancelled') {
+      // Notify admins about failed/cancelled payment
+      if (payment.order_id) {
+        const failDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
+        notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'Stripe Checkout', failDetails).catch(() => {});
       }
     }
 
@@ -468,11 +586,19 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       // Send payment confirmation email (idempotent)
       await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, 'stripe-webhook');
 
+      // Notify all admins about successful payment (fire-and-forget)
+      const successDetails2 = await getOrderDetailsForNotification(supabase, payment.order_id);
+      notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'succeeded', 'Stripe', successDetails2).catch(() => {});
+
       // Referral commission (fire-and-forget)
       const { data: paidOrder2 } = await supabase.from('orders').select('user_id, total_amount').eq('id', payment.order_id).maybeSingle();
       if (paidOrder2?.user_id) {
         createReferralCommission(supabase, payment.order_id, paidOrder2.user_id, paidOrder2.total_amount || 0, 'stripe-webhook').catch(() => {});
       }
+    } else if (internalStatus === 'failed' && payment.order_id) {
+      // Notify admins about failed payment
+      const failDetails2 = await getOrderDetailsForNotification(supabase, payment.order_id);
+      notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'Stripe', failDetails2).catch(() => {});
     }
   }
 
@@ -592,6 +718,14 @@ async function handlePawaPay(req: Request, supabase: any): Promise<Response> {
     
     // Send payment confirmation email (idempotent)
     await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, 'pawapay-webhook');
+
+    // Notify all admins about successful payment (fire-and-forget)
+    const pawapayDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
+    notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'succeeded', 'PawaPay (Mobile Money)', pawapayDetails).catch(() => {});
+  } else if (result.status === 'failed' && payment?.order_id) {
+    // Notify admins about failed PawaPay payment
+    const pawapayFailDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
+    notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'PawaPay (Mobile Money)', pawapayFailDetails).catch(() => {});
   }
 
   return new Response(

@@ -291,7 +291,7 @@ export default function Checkout() {
           paymentMethod: 'mobile_money',
           totalUsd: effectiveTotal 
         });
-        navigate(`/payment-pending?order_id=${data.order_id}&provider=pawapay`);
+        navigate(`/payment-pending?order_id=${data.order_id}&provider=pawapay&total_usd=${effectiveTotal}`);
         return;
       }
 
@@ -360,7 +360,7 @@ export default function Checkout() {
         if (providerData?.provider === 'pawapay' && providerData?.status === 'pending_user_confirmation') {
           await logFunnel('payment_initiated', 'ok', undefined, { provider: 'pawapay', orderId: providerData.order_id });
           savePendingCheckout({ orderId: providerData.order_id, paymentMethod: 'mobile_money', totalUsd: effectiveTotal });
-          navigate(`/payment-pending?order_id=${providerData.order_id}&provider=pawapay`);
+          navigate(`/payment-pending?order_id=${providerData.order_id}&provider=pawapay&total_usd=${effectiveTotal}`);
           return;
         }
         

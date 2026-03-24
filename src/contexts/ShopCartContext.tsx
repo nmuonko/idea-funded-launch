@@ -439,6 +439,12 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
             console.log('[CART] sync: server=', serverFiltered.length, 'preserving', localItemsToKeep.length, 'in-flight local items');
             return [...serverFiltered, ...localItemsToKeep];
           }
+          // Guard: if server returned 0 items but we had items before, keep existing
+          // to prevent items from vanishing due to transient server errors
+          if (serverFiltered.length === 0 && prev.length > 0) {
+            console.warn('[CART] sync: server returned 0 items but had', prev.length, 'locally — keeping existing items');
+            return prev;
+          }
           console.log('[CART] sync: server=', serverFiltered.length, 'pendingDeletes=', deletedItemIdsRef.current.size, '(all local_ items dropped)');
           return serverFiltered;
         });

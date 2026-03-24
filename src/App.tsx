@@ -77,6 +77,7 @@ const GetApp = lazy(() => import("./pages/GetApp"));
 const DeleteAccount = lazy(() => import("./pages/DeleteAccount"));
 const HowItWorks = lazy(() => import("./pages/HowItWorks"));
 const AcceptInvite = lazy(() => import("./pages/AcceptInvite"));
+const ShareAndEarn = lazy(() => import("./pages/shop/ShareAndEarn"));
 
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
@@ -133,7 +134,7 @@ const App = () => {
   // Skip splash for public pages - only show for admin routes
   const [showSplash, setShowSplash] = useState(() => {
     const path = window.location.pathname;
-    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/get', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account', '/about', '/payouts', '/contact', '/browse', '/cart', '/checkout', '/saved', '/my-orders', '/account', '/search', '/product', '/shop-auth', '/onboarding', '/payment-pending', '/card-payment', '/payment-success-shop', '/paste-link', '/hot-products'];
+    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/get', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account', '/about', '/payouts', '/contact', '/browse', '/cart', '/checkout', '/saved', '/my-orders', '/account', '/search', '/product', '/shop-auth', '/onboarding', '/payment-pending', '/card-payment', '/payment-success-shop', '/paste-link', '/hot-products', '/share'];
     return !publicPaths.some(p => path === p || path.startsWith('/payment') || path.startsWith('/browse') || path.startsWith('/product') || path.startsWith('/search') || path.startsWith('/cart') || path.startsWith('/checkout') || path.startsWith('/saved') || path.startsWith('/my-orders') || path.startsWith('/account') || path.startsWith('/shop') || path.startsWith('/get') || path.startsWith('/paste-link') || path.startsWith('/hot-products'));
   });
 
@@ -169,6 +170,7 @@ const App = () => {
             <Route path="/get" element={<GetApp />} />
             <Route path="/download" element={<Navigate to="/get" replace />} />
             <Route path="/cars" element={<Cars />} />
+            <Route path="/share" element={<ShareAndEarn />} />
             
             {/* Legacy /browse redirect */}
             <Route path="/browse" element={<Navigate to="/" replace />} />

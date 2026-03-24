@@ -718,6 +718,14 @@ async function handlePawaPay(req: Request, supabase: any): Promise<Response> {
     
     // Send payment confirmation email (idempotent)
     await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, 'pawapay-webhook');
+
+    // Notify all admins about successful payment (fire-and-forget)
+    const pawapayDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
+    notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'succeeded', 'PawaPay (Mobile Money)', pawapayDetails).catch(() => {});
+  } else if (result.status === 'failed' && payment?.order_id) {
+    // Notify admins about failed PawaPay payment
+    const pawapayFailDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
+    notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'PawaPay (Mobile Money)', pawapayFailDetails).catch(() => {});
   }
 
   return new Response(

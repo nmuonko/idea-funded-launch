@@ -276,7 +276,7 @@ export function InviteEarn({ language }: InviteEarnProps) {
   ];
 
   return (
-    <div className="rounded-2xl overflow-hidden bg-[#1e2028]">
+    <div className="rounded-2xl bg-[#1e2028]">
       {/* ── Header ── */}
       <div className="relative px-6 pt-8 pb-6 text-center">
         {/* Subtle accent glow behind icon */}

@@ -541,6 +541,80 @@ async function verifySignature(
 // ==================== Helper Functions ====================
 
 /**
+ * Notify all admins via email about a payment event
+ */
+async function notifyAdminsPaymentEvent(
+  supabase: any,
+  orderId: string,
+  status: 'succeeded' | 'failed',
+  provider: string
+): Promise<void> {
+  try {
+    const { data: adminRoles } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .eq('role', 'admin');
+
+    const adminUserIds = (adminRoles || []).map((r: any) => r.user_id);
+    if (adminUserIds.length === 0) return;
+
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('user_id, email, full_name')
+      .in('user_id', adminUserIds);
+
+    const adminEmails = (profiles || []).map((p: any) => p.email).filter((e: string | null) => e);
+    if (adminEmails.length === 0) return;
+
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
+    const EMAIL_FROM = Deno.env.get('EMAIL_FROM_ADDRESS') || 'AfriShop USA <noreply@afrishop-usa.com>';
+    const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+    if (!RESEND_API_KEY) return;
+
+    // Get order + customer info
+    const { data: order } = await supabase.from('orders').select('user_id, total_usd, currency').eq('id', orderId).maybeSingle();
+    let customerName = 'Unknown', customerEmail = 'N/A';
+    if (order?.user_id) {
+      const { data: profile } = await supabase.from('profiles').select('full_name, email').eq('user_id', order.user_id).maybeSingle();
+      customerName = profile?.full_name || profile?.email || 'Unknown';
+      customerEmail = profile?.email || 'N/A';
+    }
+
+    const isSuccess = status === 'succeeded';
+    const statusLabel = isSuccess ? '✅ Payment Successful' : '❌ Payment Failed';
+    const statusColor = isSuccess ? '#16a34a' : '#dc2626';
+    const amountStr = order?.total_usd ? `$${order.total_usd.toFixed(2)}` : 'N/A';
+
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: EMAIL_FROM,
+        to: adminEmails,
+        subject: `[AfriShop] ${statusLabel} — Order ${orderId.slice(0, 8)}${isSuccess ? '' : ' — URGENT'}`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <h2 style="color:${statusColor};">${statusLabel}</h2>
+            <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
+              <p style="margin:0 0 8px;"><strong>Order ID:</strong> ${orderId}</p>
+              <p style="margin:0 0 8px;"><strong>Customer:</strong> ${customerName}</p>
+              <p style="margin:0 0 8px;"><strong>Email:</strong> ${customerEmail}</p>
+              <p style="margin:0 0 8px;"><strong>Amount:</strong> ${amountStr}</p>
+              <p style="margin:0;"><strong>Provider:</strong> ${provider}</p>
+            </div>
+            <p style="font-size:14px;color:#666;">${isSuccess ? 'A new payment has been received. Please log in to process the order.' : 'A payment has failed. Please log in to check and contact the customer.'}</p>
+            <p><a href="${frontendUrl}/admin/orders" style="background:${statusColor};color:white;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;">Open Admin Orders</a></p>
+          </div>
+        `,
+      }),
+    });
+    console.log(`[pawapay-callback] Admin payment notification sent to ${adminEmails.length} admins (${status})`);
+  } catch (err) {
+    console.error('[pawapay-callback] Failed to send admin payment notification:', err);
+  }
+}
+
+/**
  * Send payment confirmation email if not already sent (idempotent)
  */
 async function sendPaymentConfirmationEmailIfNeeded(

@@ -291,7 +291,7 @@ export default function Checkout() {
           paymentMethod: 'mobile_money',
           totalUsd: effectiveTotal 
         });
-        navigate(`/payment-pending?order_id=${data.order_id}&provider=pawapay`);
+        navigate(`/payment-pending?order_id=${data.order_id}&provider=pawapay&total_usd=${effectiveTotal}`);
         return;
       }
 

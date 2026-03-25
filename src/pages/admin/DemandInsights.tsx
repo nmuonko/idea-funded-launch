@@ -71,7 +71,7 @@ export default function DemandInsights() {
         setSupplyGaps(
           allRows
             .filter(r => r.signal === 'gap' && r.count >= 2)
-            .sort((a, b) => b.searches - a.searches || a.avgDbCount - b.avgDbCount)
+            .sort((a, b) => b.count - a.count || a.avgDbCount - b.avgDbCount)
             .map(r => ({ term: r.term, searches: r.count, avgSupply: r.avgDbCount }))
             .slice(0, 15)
         );

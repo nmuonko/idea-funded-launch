@@ -22,7 +22,7 @@ const CATEGORIES = [
   { key: 'collectibles', fr: 'Collections', en: 'Collectibles', image: 'https://images.unsplash.com/photo-1618336753974-aae8e04506aa?w=160&h=160&fit=crop' },
 ];
 
-export function CategoryIconsRow() {
+export const CategoryIconsRow = React.forwardRef<HTMLDivElement, Record<string, never>>(function CategoryIconsRow(_props, _ref) {
   const { language } = useLanguage();
   const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement>(null);

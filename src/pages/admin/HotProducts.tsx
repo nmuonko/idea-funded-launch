@@ -160,8 +160,20 @@ export default function HotProducts() {
       .select('*')
       .order('created_at', { ascending: false })
       .limit(20);
-    if (data) setCampaigns(data.map(c => ({ ...c, products: (c.products as any) || [] })));
+    if (data) setCampaigns(data.map(c => ({ ...c, products: (c.products as any) || [], error_message: (c as any).error_message || null })));
     setLoadingCampaigns(false);
+  }
+
+  async function loadDeliveryLogs(campaignId: string) {
+    setLoadingLogs(true);
+    setViewingCampaignId(campaignId);
+    const { data } = await supabase
+      .from('hot_product_delivery_logs' as any)
+      .select('*')
+      .eq('campaign_id', campaignId)
+      .order('created_at', { ascending: true });
+    if (data) setDeliveryLogs(data as any);
+    setLoadingLogs(false);
   }
 
   async function searchProducts() {

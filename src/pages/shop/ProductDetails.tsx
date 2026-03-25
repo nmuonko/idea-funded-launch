@@ -119,6 +119,8 @@ export default function ProductDetailsPage() {
   const shop = (t.shop || {}) as any;
 
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const isHotParam = searchParams.get('hot') === '1';
 
   const [product, setProduct] = useState<ProductData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -135,6 +137,7 @@ export default function ProductDetailsPage() {
       ? (location.state as any).hotProductPrice
       : null
   );
+  const [hotPriceLookupDone, setHotPriceLookupDone] = useState(!isHotParam);
   const navProductRef = useRef<ProductData | null>(null);
   const didAutoSelectRef = useRef(false);
   const userInteractedRef = useRef(false);

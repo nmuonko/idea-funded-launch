@@ -88,4 +88,4 @@ export const CategoryIconsRow = React.forwardRef<HTMLDivElement, Record<string, 
       </div>
     </div>
   );
-}
+});

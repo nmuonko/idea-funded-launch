@@ -363,10 +363,37 @@ export default function HotProducts() {
 
   async function approveAndSend(campaignId: string) {
     setSending(true);
-    await supabase.from('hot_product_campaigns').update({ status: 'approved', approved_by: user?.id, approved_at: new Date().toISOString() }).eq('id', campaignId);
+    try {
+      await supabase.from('hot_product_campaigns').update({ status: 'approved', approved_by: user?.id, approved_at: new Date().toISOString() }).eq('id', campaignId);
+      toast.info('Campaign sending started...');
+      const { data, error } = await supabase.functions.invoke('send-hot-products-email', { body: { campaignId } });
+      if (error) {
+        toast.error('Send failed: ' + error.message);
+      } else {
+        const result = data as any;
+        if (result.error) {
+          toast.error('Send failed: ' + result.error);
+        } else {
+          toast.success(`Campaign complete! ${result.sent || 0} sent, ${result.failed || 0} failed out of ${result.total || 0} recipients.`);
+        }
+      }
+    } catch (err) {
+      toast.error('Send failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
+    loadCampaigns();
+    setSending(false);
+  }
+
+  async function retryCampaign(campaignId: string) {
+    setSending(true);
+    toast.info('Retrying campaign...');
     const { data, error } = await supabase.functions.invoke('send-hot-products-email', { body: { campaignId } });
-    if (error) toast.error('Failed: ' + error.message);
-    else toast.success(`Sent! ${(data as any)?.sent || 0} emails delivered.`);
+    if (error) toast.error('Retry failed: ' + error.message);
+    else {
+      const result = data as any;
+      if (result.error) toast.error('Retry failed: ' + result.error);
+      else toast.success(`Retry complete! ${result.sent || 0} sent, ${result.failed || 0} failed.`);
+    }
     loadCampaigns();
     setSending(false);
   }

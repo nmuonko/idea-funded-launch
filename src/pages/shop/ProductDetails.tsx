@@ -145,7 +145,7 @@ export default function ProductDetailsPage() {
   const failedImageIndexesRef = useRef<Set<number>>(new Set());
   const triedOriginalSourceRef = useRef<Set<number>>(new Set());
 
-  const isFixedPrice = !!(location.state as any)?.isFixedPrice || hotProductPrice !== null;
+  const isFixedPrice = !!(location.state as any)?.isFixedPrice || hotProductPrice !== null || (isHotParam && !hotPriceLookupDone);
 
   const isVehicleFromState = !!(
     (location.state as any)?.product?.isVehicle ||

@@ -751,7 +751,7 @@ export default function ProductDetailsPage() {
         <SEOHead
           title={product.title}
           description={`Buy ${product.title} from AfriShop - delivered to DR Congo`}
-          image={product.imageUrl}
+          image={product.images?.[0]}
           type="product"
           price={product.priceUsd}
           availability={product.inStock ? 'in stock' : 'out of stock'}

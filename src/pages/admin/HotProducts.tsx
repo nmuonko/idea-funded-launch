@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare } from 'lucide-react';
+import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { calculateShippingUsd } from '@/lib/shippingCalculation';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -62,6 +62,17 @@ interface Campaign {
   failed_count: number;
   created_at: string;
   sent_at: string | null;
+  error_message: string | null;
+}
+
+interface DeliveryLog {
+  id: string;
+  recipient_email: string;
+  status: string;
+  error_message: string | null;
+  provider_message_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 function toHighResImage(url: string): string {
@@ -109,6 +120,9 @@ export default function HotProducts() {
   const [saving, setSaving] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('storefront');
+  const [deliveryLogs, setDeliveryLogs] = useState<DeliveryLog[]>([]);
+  const [viewingCampaignId, setViewingCampaignId] = useState<string | null>(null);
+  const [loadingLogs, setLoadingLogs] = useState(false);
 
   useEffect(() => {
     loadShowcase();
@@ -146,8 +160,20 @@ export default function HotProducts() {
       .select('*')
       .order('created_at', { ascending: false })
       .limit(20);
-    if (data) setCampaigns(data.map(c => ({ ...c, products: (c.products as any) || [] })));
+    if (data) setCampaigns(data.map(c => ({ ...c, products: (c.products as any) || [], error_message: (c as any).error_message || null })));
     setLoadingCampaigns(false);
+  }
+
+  async function loadDeliveryLogs(campaignId: string) {
+    setLoadingLogs(true);
+    setViewingCampaignId(campaignId);
+    const { data } = await supabase
+      .from('hot_product_delivery_logs' as any)
+      .select('*')
+      .eq('campaign_id', campaignId)
+      .order('created_at', { ascending: true });
+    if (data) setDeliveryLogs(data as any);
+    setLoadingLogs(false);
   }
 
   async function searchProducts() {
@@ -337,10 +363,37 @@ export default function HotProducts() {
 
   async function approveAndSend(campaignId: string) {
     setSending(true);
-    await supabase.from('hot_product_campaigns').update({ status: 'approved', approved_by: user?.id, approved_at: new Date().toISOString() }).eq('id', campaignId);
+    try {
+      await supabase.from('hot_product_campaigns').update({ status: 'approved', approved_by: user?.id, approved_at: new Date().toISOString() }).eq('id', campaignId);
+      toast.info('Campaign sending started...');
+      const { data, error } = await supabase.functions.invoke('send-hot-products-email', { body: { campaignId } });
+      if (error) {
+        toast.error('Send failed: ' + error.message);
+      } else {
+        const result = data as any;
+        if (result.error) {
+          toast.error('Send failed: ' + result.error);
+        } else {
+          toast.success(`Campaign complete! ${result.sent || 0} sent, ${result.failed || 0} failed out of ${result.total || 0} recipients.`);
+        }
+      }
+    } catch (err) {
+      toast.error('Send failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
+    loadCampaigns();
+    setSending(false);
+  }
+
+  async function retryCampaign(campaignId: string) {
+    setSending(true);
+    toast.info('Retrying campaign...');
     const { data, error } = await supabase.functions.invoke('send-hot-products-email', { body: { campaignId } });
-    if (error) toast.error('Failed: ' + error.message);
-    else toast.success(`Sent! ${(data as any)?.sent || 0} emails delivered.`);
+    if (error) toast.error('Retry failed: ' + error.message);
+    else {
+      const result = data as any;
+      if (result.error) toast.error('Retry failed: ' + result.error);
+      else toast.success(`Retry complete! ${result.sent || 0} sent, ${result.failed || 0} failed.`);
+    }
     loadCampaigns();
     setSending(false);
   }
@@ -355,6 +408,7 @@ export default function HotProducts() {
   const statusColor: Record<string, string> = {
     draft: 'bg-yellow-100 text-yellow-800', approved: 'bg-blue-100 text-blue-800',
     sending: 'bg-orange-100 text-orange-800', sent: 'bg-green-100 text-green-800',
+    failed: 'bg-red-100 text-red-800',
   };
 
   return (
@@ -619,26 +673,76 @@ export default function HotProducts() {
               ) : (
                 <div className="space-y-3">
                   {campaigns.map(c => (
-                    <div key={c.id} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-sm">{c.title || 'Untitled'}</p>
-                          <Badge className={statusColor[c.status] || ''}>{c.status}</Badge>
+                    <div key={c.id} className="p-3 border rounded-lg space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-sm">{c.title || 'Untitled'}</p>
+                            <Badge className={statusColor[c.status] || ''}>{c.status}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {c.products.length} {t('products', 'produits')}
+                            {(c.status === 'sent' || c.status === 'failed') && ` • ${c.sent_count} sent, ${c.failed_count} failed`}
+                            {c.sent_at && ` • ${t('Sent', 'Envoyé')} ${new Date(c.sent_at).toLocaleString()}`}
+                            {!c.sent_at && ` • ${new Date(c.created_at).toLocaleDateString()}`}
+                          </p>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          {c.products.length} {t('products', 'produits')}
-                          {c.status === 'sent' && ` • ${c.sent_count} sent, ${c.failed_count} failed`}
-                          {' • '}{new Date(c.created_at).toLocaleDateString()}
-                        </p>
+                        <div className="flex gap-2">
+                          {c.status === 'draft' && (
+                            <Button size="sm" onClick={() => approveAndSend(c.id)} disabled={sending}>
+                              {sending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
+                              {t('Send', 'Envoyer')}
+                            </Button>
+                          )}
+                          {(c.status === 'failed' || c.status === 'sending') && (
+                            <Button size="sm" variant="outline" onClick={() => retryCampaign(c.id)} disabled={sending}>
+                              {sending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                              {t('Retry', 'Réessayer')}
+                            </Button>
+                          )}
+                          {(c.status === 'sent' || c.status === 'failed') && (
+                            <Button size="sm" variant="ghost" onClick={() => viewingCampaignId === c.id ? setViewingCampaignId(null) : loadDeliveryLogs(c.id)}>
+                              <FileText className="h-4 w-4 mr-1" />
+                              {t('Report', 'Rapport')}
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        {c.status === 'draft' && (
-                          <Button size="sm" onClick={() => approveAndSend(c.id)} disabled={sending}>
-                            {sending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
-                            {t('Send', 'Envoyer')}
-                          </Button>
-                        )}
-                      </div>
+
+                      {/* Error message */}
+                      {c.error_message && (
+                        <div className="flex items-start gap-2 p-2 rounded bg-destructive/10 text-destructive text-xs">
+                          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          <span>{c.error_message}</span>
+                        </div>
+                      )}
+
+                      {/* Delivery report */}
+                      {viewingCampaignId === c.id && (
+                        <div className="border rounded-md mt-2">
+                          <div className="p-2 bg-muted/50 border-b text-xs font-medium flex justify-between">
+                            <span>{t('Delivery Report', 'Rapport de livraison')}</span>
+                            {loadingLogs && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                          </div>
+                          {!loadingLogs && deliveryLogs.length === 0 ? (
+                            <p className="text-xs text-muted-foreground p-3">{t('No delivery data available', 'Aucune donnée de livraison')}</p>
+                          ) : (
+                            <div className="max-h-48 overflow-y-auto divide-y">
+                              {deliveryLogs.map(log => (
+                                <div key={log.id} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                                  <span className="truncate flex-1">{log.recipient_email}</span>
+                                  <Badge variant={log.status === 'sent' ? 'default' : log.status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px] ml-2">
+                                    {log.status}
+                                  </Badge>
+                                  {log.error_message && (
+                                    <span className="text-destructive ml-2 truncate max-w-[150px]" title={log.error_message}>{log.error_message}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

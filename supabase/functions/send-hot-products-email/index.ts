@@ -10,24 +10,8 @@ const corsHeaders = {
 const SITE_URL = "https://afrishop-usa.com";
 
 function buildProductGrid(products: any[]): string {
-  const cards = products
-    .map(
-      (p) => `
-    <td style="width:33%;padding:8px;vertical-align:top;text-align:center;">
-      <a href="${SITE_URL}/product/${p.provider}/${p.provider_product_id}?hot=1" style="text-decoration:none;color:inherit;">
-        <img src="${p.image_url}" alt="${p.title}" style="width:100%;max-width:200px;height:auto;border-radius:8px;border:1px solid #e5e7eb;" />
-        <p style="margin:8px 0 4px;font-size:14px;font-weight:600;color:#111;">${p.title?.substring(0, 60)}${(p.title?.length || 0) > 60 ? "…" : ""}</p>
-        <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#16a34a;">$${Number(p.total_price_usd).toFixed(2)}</p>
-        <span style="display:inline-block;background:#f97316;color:#fff;padding:8px 20px;border-radius:6px;font-weight:600;font-size:14px;">Order Now</span>
-      </a>
-    </td>`
-    )
-    .join("");
-
-  // Wrap in rows of 3
   const rows: string[] = [];
-  const items = products.length;
-  for (let i = 0; i < items; i += 3) {
+  for (let i = 0; i < products.length; i += 3) {
     const slice = products.slice(i, i + 3);
     const tds = slice
       .map(
@@ -78,12 +62,16 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const admin = createClient(supabaseUrl, serviceKey);
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const admin = createClient(supabaseUrl, serviceKey);
 
-    const { campaignId } = await req.json();
+  let campaignId: string | undefined;
+
+  try {
+    const body = await req.json();
+    campaignId = body.campaignId;
+
     if (!campaignId) {
       return new Response(JSON.stringify({ error: "campaignId required" }), {
         status: 400,
@@ -107,14 +95,23 @@ Deno.serve(async (req) => {
 
     const products = campaign.products || [];
     if (!products.length) {
+      await admin.from("hot_product_campaigns").update({
+        status: "failed",
+        error_message: "No products in campaign",
+      }).eq("id", campaignId);
       return new Response(
         JSON.stringify({ error: "No products in campaign" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Update status to sending
-    await admin.from("hot_product_campaigns").update({ status: "sending" }).eq("id", campaignId);
+    // Mark as sending
+    await admin.from("hot_product_campaigns").update({
+      status: "sending",
+      error_message: null,
+      sent_count: 0,
+      failed_count: 0,
+    }).eq("id", campaignId);
 
     // Load all user emails from profiles
     const { data: profiles, error: profilesError } = await admin
@@ -122,7 +119,16 @@ Deno.serve(async (req) => {
       .select("email");
 
     if (profilesError) {
-      throw new Error(`Failed to load recipients: ${profilesError.message}`);
+      const errMsg = `Failed to load recipients: ${profilesError.message}`;
+      console.error(`[HotProducts] ${errMsg}`);
+      await admin.from("hot_product_campaigns").update({
+        status: "failed",
+        error_message: errMsg,
+      }).eq("id", campaignId);
+      return new Response(
+        JSON.stringify({ error: errMsg }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     const emails = (profiles || [])
@@ -130,7 +136,29 @@ Deno.serve(async (req) => {
       .filter((e: string) => !!e && e.includes("@"));
 
     const uniqueEmails = [...new Set(emails)] as string[];
+
+    if (uniqueEmails.length === 0) {
+      const errMsg = "No valid recipient emails found";
+      console.error(`[HotProducts] ${errMsg}`);
+      await admin.from("hot_product_campaigns").update({
+        status: "failed",
+        error_message: errMsg,
+      }).eq("id", campaignId);
+      return new Response(
+        JSON.stringify({ error: errMsg }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     console.log(`[HotProducts] Sending campaign "${campaign.title}" to ${uniqueEmails.length} recipients`);
+
+    // Pre-insert delivery log entries as "pending"
+    const logRows = uniqueEmails.map(email => ({
+      campaign_id: campaignId,
+      recipient_email: email,
+      status: "pending",
+    }));
+    await admin.from("hot_product_delivery_logs").insert(logRows);
 
     const html = buildEmailHtml(campaign.title || "Hot Products", products);
 
@@ -145,25 +173,60 @@ Deno.serve(async (req) => {
           html,
           category: "admin_notification",
         });
-        if (result.success) sent++;
-        else failed++;
-      } catch {
+
+        if (result.success) {
+          sent++;
+          await admin.from("hot_product_delivery_logs")
+            .update({
+              status: "sent",
+              provider_message_id: result.id || null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("campaign_id", campaignId)
+            .eq("recipient_email", email);
+        } else {
+          failed++;
+          await admin.from("hot_product_delivery_logs")
+            .update({
+              status: "failed",
+              error_message: result.error || "Unknown error",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("campaign_id", campaignId)
+            .eq("recipient_email", email);
+        }
+      } catch (err) {
         failed++;
+        await admin.from("hot_product_delivery_logs")
+          .update({
+            status: "failed",
+            error_message: err instanceof Error ? err.message : "Send exception",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("campaign_id", campaignId)
+          .eq("recipient_email", email);
       }
+
+      // Update counters incrementally every 5 emails
+      if ((sent + failed) % 5 === 0) {
+        await admin.from("hot_product_campaigns").update({
+          sent_count: sent,
+          failed_count: failed,
+        }).eq("id", campaignId);
+      }
+
       // Rate limit: 600ms between sends
       await new Promise((r) => setTimeout(r, 600));
     }
 
-    // Update campaign
-    await admin
-      .from("hot_product_campaigns")
-      .update({
-        status: "sent",
-        sent_count: sent,
-        failed_count: failed,
-        sent_at: new Date().toISOString(),
-      })
-      .eq("id", campaignId);
+    // Final update - mark as sent
+    await admin.from("hot_product_campaigns").update({
+      status: "sent",
+      sent_count: sent,
+      failed_count: failed,
+      sent_at: new Date().toISOString(),
+      error_message: failed > 0 ? `${failed} of ${uniqueEmails.length} emails failed` : null,
+    }).eq("id", campaignId);
 
     console.log(`[HotProducts] Campaign done: ${sent} sent, ${failed} failed`);
 
@@ -173,8 +236,20 @@ Deno.serve(async (req) => {
     );
   } catch (err) {
     console.error("[HotProducts] Error:", err);
+    const errMsg = err instanceof Error ? err.message : "Internal error";
+
+    // Mark campaign as failed if we have an ID
+    if (campaignId) {
+      try {
+        await admin.from("hot_product_campaigns").update({
+          status: "failed",
+          error_message: errMsg,
+        }).eq("id", campaignId);
+      } catch { /* best effort */ }
+    }
+
     return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : "Internal error" }),
+      JSON.stringify({ error: errMsg }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

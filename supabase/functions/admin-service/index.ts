@@ -16,6 +16,8 @@ import { createErrorResponse } from "../_shared/errorSanitizer.ts";
 import { verifyAndGetUser, errorResponse, handleCors, createAdminClient } from "../_shared/auth.ts";
 import { getCatalogSettings, updateCatalogSetting } from "../_shared/catalogSettings.ts";
 import { invalidateTtlPolicyCache } from "../_shared/ttlPolicy.ts";
+import { sendEmail } from "../_shared/email.ts";
+import { buildOrderProcessingEmail, buildOrderShippedEmail, buildOrderDeliveredEmail } from "../_shared/emailTemplates.ts";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {

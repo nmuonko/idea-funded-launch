@@ -11,6 +11,7 @@ import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
 import { ProductGrid } from '@/components/shop/ProductGrid';
 import { ProductReviews } from '@/components/shop/ProductReviews';
+import { SEOHead } from '@/components/SEOHead';
 import { Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';

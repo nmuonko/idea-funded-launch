@@ -673,26 +673,76 @@ export default function HotProducts() {
               ) : (
                 <div className="space-y-3">
                   {campaigns.map(c => (
-                    <div key={c.id} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-sm">{c.title || 'Untitled'}</p>
-                          <Badge className={statusColor[c.status] || ''}>{c.status}</Badge>
+                    <div key={c.id} className="p-3 border rounded-lg space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-sm">{c.title || 'Untitled'}</p>
+                            <Badge className={statusColor[c.status] || ''}>{c.status}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {c.products.length} {t('products', 'produits')}
+                            {(c.status === 'sent' || c.status === 'failed') && ` • ${c.sent_count} sent, ${c.failed_count} failed`}
+                            {c.sent_at && ` • ${t('Sent', 'Envoyé')} ${new Date(c.sent_at).toLocaleString()}`}
+                            {!c.sent_at && ` • ${new Date(c.created_at).toLocaleDateString()}`}
+                          </p>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          {c.products.length} {t('products', 'produits')}
-                          {c.status === 'sent' && ` • ${c.sent_count} sent, ${c.failed_count} failed`}
-                          {' • '}{new Date(c.created_at).toLocaleDateString()}
-                        </p>
+                        <div className="flex gap-2">
+                          {c.status === 'draft' && (
+                            <Button size="sm" onClick={() => approveAndSend(c.id)} disabled={sending}>
+                              {sending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
+                              {t('Send', 'Envoyer')}
+                            </Button>
+                          )}
+                          {(c.status === 'failed' || c.status === 'sending') && (
+                            <Button size="sm" variant="outline" onClick={() => retryCampaign(c.id)} disabled={sending}>
+                              {sending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                              {t('Retry', 'Réessayer')}
+                            </Button>
+                          )}
+                          {(c.status === 'sent' || c.status === 'failed') && (
+                            <Button size="sm" variant="ghost" onClick={() => viewingCampaignId === c.id ? setViewingCampaignId(null) : loadDeliveryLogs(c.id)}>
+                              <FileText className="h-4 w-4 mr-1" />
+                              {t('Report', 'Rapport')}
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        {c.status === 'draft' && (
-                          <Button size="sm" onClick={() => approveAndSend(c.id)} disabled={sending}>
-                            {sending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
-                            {t('Send', 'Envoyer')}
-                          </Button>
-                        )}
-                      </div>
+
+                      {/* Error message */}
+                      {c.error_message && (
+                        <div className="flex items-start gap-2 p-2 rounded bg-destructive/10 text-destructive text-xs">
+                          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          <span>{c.error_message}</span>
+                        </div>
+                      )}
+
+                      {/* Delivery report */}
+                      {viewingCampaignId === c.id && (
+                        <div className="border rounded-md mt-2">
+                          <div className="p-2 bg-muted/50 border-b text-xs font-medium flex justify-between">
+                            <span>{t('Delivery Report', 'Rapport de livraison')}</span>
+                            {loadingLogs && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                          </div>
+                          {!loadingLogs && deliveryLogs.length === 0 ? (
+                            <p className="text-xs text-muted-foreground p-3">{t('No delivery data available', 'Aucune donnée de livraison')}</p>
+                          ) : (
+                            <div className="max-h-48 overflow-y-auto divide-y">
+                              {deliveryLogs.map(log => (
+                                <div key={log.id} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                                  <span className="truncate flex-1">{log.recipient_email}</span>
+                                  <Badge variant={log.status === 'sent' ? 'default' : log.status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px] ml-2">
+                                    {log.status}
+                                  </Badge>
+                                  {log.error_message && (
+                                    <span className="text-destructive ml-2 truncate max-w-[150px]" title={log.error_message}>{log.error_message}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

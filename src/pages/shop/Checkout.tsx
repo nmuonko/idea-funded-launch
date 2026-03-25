@@ -130,6 +130,32 @@ export default function Checkout() {
     return !!(address.fullName && address.country);
   }, [address]);
 
+  const handleApplyPromo = useCallback(async () => {
+    if (!promoCode.trim()) return;
+    setPromoLoading(true);
+    setPromoError('');
+    try {
+      const { data, error } = await supabase
+        .from('pricing_config')
+        .select('discount_codes')
+        .single();
+      if (error) throw error;
+      const codes = (data?.discount_codes || []) as Array<{ code: string; percent: number; active: boolean }>;
+      const match = codes.find(c => c.code === promoCode.trim().toUpperCase() && c.active);
+      if (match) {
+        setPromoApplied({ code: match.code, percent: match.percent });
+        setPromoError('');
+      } else {
+        setPromoError(language === 'fr' ? 'Code invalide ou expiré' : 'Invalid or expired code');
+        setPromoApplied(null);
+      }
+    } catch {
+      setPromoError(language === 'fr' ? 'Erreur de vérification' : 'Verification error');
+    } finally {
+      setPromoLoading(false);
+    }
+  }, [promoCode, language]);
+
   const handleInputChange = (field: keyof ShippingAddress, value: string) => {
     setAddress(prev => ({ ...prev, [field]: value }));
   };

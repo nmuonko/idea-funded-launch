@@ -62,6 +62,17 @@ interface Campaign {
   failed_count: number;
   created_at: string;
   sent_at: string | null;
+  error_message: string | null;
+}
+
+interface DeliveryLog {
+  id: string;
+  recipient_email: string;
+  status: string;
+  error_message: string | null;
+  provider_message_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 function toHighResImage(url: string): string {

@@ -36,7 +36,7 @@ export function RefundRequestForm() {
       .from('orders')
       .select('id, created_at')
       .eq('user_id', user.id)
-      .in('status', ['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'])
+      .in('status', ['PAID', 'PROCESSING', 'SHIPPED', 'COMPLETED'])
       .order('created_at', { ascending: false })
       .limit(20)
       .then(({ data }) => {

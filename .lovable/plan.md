@@ -1,62 +1,77 @@
 
-Fix the hot-products campaign flow so it both sends reliably and shows clear confirmation in the admin portal.
 
-1. Identify and handle the real failure state
-- The latest campaign is stuck in `sending` with `sent_count = 0`, `failed_count = 0`, and no completion timestamp.
-- I’ll update the send flow so a campaign can never stay stuck silently:
-  - `draft` → `approved` / `sending`
-  - `sent` when finished
-  - `failed` when the send process crashes before completion
-- I’ll store a campaign-level error message and timestamps so the admin page can explain what happened.
+# What's Driving Your Backend Costs
 
-2. Add delivery tracking for each recipient
-- Create a dedicated campaign delivery log table for marketing sends.
-- Each attempted recipient send will record:
-  - campaign
-  - recipient email
-  - status (`pending`, `sent`, `failed`)
-  - provider message id if available
-  - error message if failed
-  - timestamps
-- This gives a real source of truth instead of only aggregate counters.
+## The Big Picture
 
-3. Harden the email-sending function
-- Update `send-hot-products-email` to:
-  - validate the campaign before sending
-  - record send start immediately
-  - write recipient-level logs as it sends
-  - update aggregate counters incrementally
-  - mark the campaign `failed` if the function exits early
-  - return a clearer summary payload to the admin page
-- I’ll also add explicit logging around:
-  - recipient loading
-  - zero-recipient cases
-  - provider/API failures
-  - campaign completion
+Your database is **3.2 GB** total. Here's where it's going:
 
-4. Improve the admin portal confirmation UX
-- Update `src/pages/admin/HotProducts.tsx` so the campaign history shows:
-  - status badge (`draft`, `sending`, `sent`, `failed`)
-  - sent / failed counts
-  - last error when relevant
-  - sent time / last updated time
-- Add a “View delivery report” UI for each campaign showing recipient-level results.
-- Add a “Retry send” action for failed or stale campaigns.
+```text
+┌─────────────────────────────┬───────────┬────────────┐
+│ Table                       │ Size      │ Rows       │
+├─────────────────────────────┼───────────┼────────────┤
+│ catalog_items               │ 2,967 MB  │ 1,433,666  │
+│  └─ indexes on catalog_items│ ~1,689 MB │            │
+│ catalog_cache               │ 114 MB    │ 2,193      │
+│ catalog_item_media          │ 20 MB     │ 14,797     │
+│ search_query_log            │ 3.8 MB    │ 15,929     │
+│ Everything else combined    │ ~100 MB   │            │
+└─────────────────────────────┴───────────┴────────────┘
+Total DB: 3,225 MB
+Index overhead: ~1,689 MB (52% of total!)
+```
 
-5. Prevent misleading success messages
-- The current UI can show success too early and does not expose enough failure detail.
-- I’ll change it so the admin page only shows:
-  - “campaign started” when the backend accepted the job
-  - “campaign completed” when the final result is returned or refreshed from stored status
-- If the send cannot start, the UI will show the actual error instead of leaving the campaign in a vague state.
+## Top 3 Cost Drivers
 
-Technical details
-- Files to update:
-  - `src/pages/admin/HotProducts.tsx`
-  - `supabase/functions/send-hot-products-email/index.ts`
-- Database changes:
-  - add a delivery-log table for hot-product campaigns
-  - add campaign-level failure metadata if not already present
-  - protect all log data with admin-only access rules
-- Result:
-  - you’ll be able to confirm inside the admin portal whether a campaign was sent, how many emails succeeded, which failed, and why.
+### 1. `catalog_items` — 2.97 GB (92% of storage)
+- 1.43 million rows, most of which are scraped product listings
+- Indexes alone consume ~1.7 GB
+- This single table is your dominant cost driver
+
+### 2. `catalog_cache` — 114 MB (2,193 rows)
+- Each row stores full JSON search responses
+- Large JSONB blobs inflate storage disproportionately
+
+### 3. Active Cron Jobs — 11 running
+These fire edge function invocations constantly, which cost compute time:
+- `catalog-builder-campaign` — every 30 min (ingests new items, growing catalog_items)
+- `order-recovery-30m` — every 30 min
+- `reconcile-payments-hourly` — every hour
+- `catalog-prewarm-home-12h` — every 12 hours
+- `cleanup-all-expired-data-6h` — every 6 hours
+- `promote-popular-searches-6h` — every 6 hours
+- Plus 5 daily jobs
+
+## Recommended Actions to Reduce Spend
+
+### A. Prune `catalog_items` (biggest win)
+- Delete inactive/stale listings older than 90 days that haven't been viewed or ordered
+- This could reclaim 1-2 GB immediately
+- Reindex afterward with `REINDEX TABLE catalog_items` to reclaim index bloat
+
+### B. Pause `catalog-builder-campaign`
+- This cron runs every 30 minutes and is the primary source of catalog_items growth
+- Pausing it stops the table from growing further until you need new inventory
+
+### C. Vacuum `catalog_cache`
+- Run `VACUUM FULL catalog_cache` to reclaim dead-tuple bloat from expired cache entries
+- Tighten the cleanup cron to purge expired cache rows more aggressively
+
+### D. Drop unused indexes
+- 1.7 GB of indexes on catalog_items alone — many may be redundant
+- Audit which indexes are actually used and drop the rest
+
+### E. Review if all 11 active crons are needed
+- Each invocation costs edge function compute
+- `saved-cart-reminders-daily` and `send-abandoned-cart-recovery-daily` fire even if there are no carts to process
+
+## Summary
+| Driver | Impact | Fix |
+|--------|--------|-----|
+| catalog_items (1.4M rows) | 92% of DB | Prune old items, pause builder |
+| Index bloat (1.7 GB) | 52% of total | Drop redundant indexes |
+| catalog_cache JSONB | 114 MB | VACUUM FULL + shorter TTL |
+| 11 active cron jobs | Compute cost | Pause non-essential ones |
+
+Want me to implement any of these optimizations?
+

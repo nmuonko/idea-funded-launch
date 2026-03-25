@@ -2849,6 +2849,7 @@ export type Database = {
           approved_by: string | null
           created_at: string
           created_by: string | null
+          error_message: string | null
           failed_count: number
           id: string
           products: Json
@@ -2863,6 +2864,7 @@ export type Database = {
           approved_by?: string | null
           created_at?: string
           created_by?: string | null
+          error_message?: string | null
           failed_count?: number
           id?: string
           products?: Json
@@ -2877,6 +2879,7 @@ export type Database = {
           approved_by?: string | null
           created_at?: string
           created_by?: string | null
+          error_message?: string | null
           failed_count?: number
           id?: string
           products?: Json
@@ -2887,6 +2890,47 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      hot_product_delivery_logs: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          error_message: string | null
+          id: string
+          provider_message_id: string | null
+          recipient_email: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          provider_message_id?: string | null
+          recipient_email: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          provider_message_id?: string | null
+          recipient_email?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hot_product_delivery_logs_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "hot_product_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       hot_products_showcase: {
         Row: {

@@ -1,77 +1,56 @@
 
 
-# What's Driving Your Backend Costs
+# AfriShop Audit: Missing Features and Bugs
 
-## The Big Picture
+## Bugs Found
 
-Your database is **3.2 GB** total. Here's where it's going:
+### 1. CategoryIconsRow ref warning (console error)
+The `CategoryIconsRow` is a function component being passed a ref from `ShopHome` via `LazySection`. Function components cannot receive refs without `React.forwardRef()`. This produces the console warning you're seeing repeatedly.
 
-```text
-┌─────────────────────────────┬───────────┬────────────┐
-│ Table                       │ Size      │ Rows       │
-├─────────────────────────────┼───────────┼────────────┤
-│ catalog_items               │ 2,967 MB  │ 1,433,666  │
-│  └─ indexes on catalog_items│ ~1,689 MB │            │
-│ catalog_cache               │ 114 MB    │ 2,193      │
-│ catalog_item_media          │ 20 MB     │ 14,797     │
-│ search_query_log            │ 3.8 MB    │ 15,929     │
-│ Everything else combined    │ ~100 MB   │            │
-└─────────────────────────────┴───────────┴────────────┘
-Total DB: 3,225 MB
-Index overhead: ~1,689 MB (52% of total!)
-```
+**Fix**: Wrap `CategoryIconsRow` with `React.forwardRef` or remove the ref from its parent `LazySection` usage.
 
-## Top 3 Cost Drivers
+### 2. Discount codes exist in admin but are never applied at checkout
+The admin panel (`FeesSettings.tsx`) lets you create discount/promo codes, but the checkout page (`Checkout.tsx`) has no input field for customers to enter a code. The codes are stored in `admin_settings.discount_codes` but never consumed anywhere in the purchase flow.
 
-### 1. `catalog_items` — 2.97 GB (92% of storage)
-- 1.43 million rows, most of which are scraped product listings
-- Indexes alone consume ~1.7 GB
-- This single table is your dominant cost driver
+**Fix**: Add a promo code input to the checkout order summary section and validate it against stored codes before applying the discount.
 
-### 2. `catalog_cache` — 114 MB (2,193 rows)
-- Each row stores full JSON search responses
-- Large JSONB blobs inflate storage disproportionately
+### 3. Notifications toggle is purely cosmetic
+In `Account.tsx`, the notifications switch uses local React state (`useState(true)`) and is never persisted to the database or connected to any notification system.
 
-### 3. Active Cron Jobs — 11 running
-These fire edge function invocations constantly, which cost compute time:
-- `catalog-builder-campaign` — every 30 min (ingests new items, growing catalog_items)
-- `order-recovery-30m` — every 30 min
-- `reconcile-payments-hourly` — every hour
-- `catalog-prewarm-home-12h` — every 12 hours
-- `cleanup-all-expired-data-6h` — every 6 hours
-- `promote-popular-searches-6h` — every 6 hours
-- Plus 5 daily jobs
+**Fix**: Either connect to a real notification preference table or remove the toggle to avoid misleading users.
 
-## Recommended Actions to Reduce Spend
+---
 
-### A. Prune `catalog_items` (biggest win)
-- Delete inactive/stale listings older than 90 days that haven't been viewed or ordered
-- This could reclaim 1-2 GB immediately
-- Reindex afterward with `REINDEX TABLE catalog_items` to reclaim index bloat
+## Missing Features for the Business Model
 
-### B. Pause `catalog-builder-campaign`
-- This cron runs every 30 minutes and is the primary source of catalog_items growth
-- Pausing it stops the table from growing further until you need new inventory
+### 4. No promo code input at checkout (revenue driver)
+As noted above, you have the admin infrastructure for discount codes but no customer-facing way to redeem them. This blocks promotional campaigns like "10% off your first order" or influencer codes.
 
-### C. Vacuum `catalog_cache`
-- Run `VACUUM FULL catalog_cache` to reclaim dead-tuple bloat from expired cache entries
-- Tighten the cleanup cron to purge expired cache rows more aggressively
+### 5. No customer reviews or ratings system
+Product detail pages display eBay/Amazon source ratings (`reviewCount`) but there's no way for AfriShop customers to leave their own reviews. Customer reviews build trust and increase conversion, especially for a cross-border commerce model where buyers need reassurance.
 
-### D. Drop unused indexes
-- 1.7 GB of indexes on catalog_items alone — many may be redundant
-- Audit which indexes are actually used and drop the rest
+### 6. No order status email notifications
+When an order transitions (PAID → PROCESSING → SHIPPED → DELIVERED), customers are not notified by email. Only the initial payment confirmation is sent. Shipping confirmation with tracking number and delivery updates are critical for cross-border orders that take longer.
 
-### E. Review if all 11 active crons are needed
-- Each invocation costs edge function compute
-- `saved-cart-reminders-daily` and `send-abandoned-cart-recovery-daily` fire even if there are no carts to process
+### 7. No returns/refund request flow
+The `/refunds` page explains the refund policy but there's no way for customers to actually submit a refund request through the app. They'd need to contact support manually via WhatsApp/email.
 
-## Summary
-| Driver | Impact | Fix |
-|--------|--------|-----|
-| catalog_items (1.4M rows) | 92% of DB | Prune old items, pause builder |
-| Index bloat (1.7 GB) | 52% of total | Drop redundant indexes |
-| catalog_cache JSONB | 114 MB | VACUUM FULL + shorter TTL |
-| 11 active cron jobs | Compute cost | Pause non-essential ones |
+### 8. No SEO or social sharing metadata
+Product pages and the homepage don't appear to have dynamic Open Graph / meta tags. When users share product links on WhatsApp or Facebook, there's no rich preview (title, image, price), which hurts organic viral growth — critical for your WhatsApp-first marketing strategy.
 
-Want me to implement any of these optimizations?
+---
+
+## Recommended Priority
+
+| # | Item | Type | Business Impact |
+|---|------|------|----------------|
+| 1 | Fix CategoryIconsRow ref warning | Bug | Low (cosmetic) |
+| 2 | Add promo code input at checkout | Bug + Feature | High (unlocks campaigns) |
+| 3 | Order status email notifications | Feature | High (reduces support load) |
+| 4 | Customer reviews system | Feature | Medium (trust + conversion) |
+| 5 | Fix notification toggle | Bug | Low (misleading UX) |
+| 6 | Returns/refund request form | Feature | Medium (customer experience) |
+| 7 | Social sharing metadata | Feature | Medium (organic growth) |
+
+Want me to implement any of these? I'd recommend starting with the promo code checkout integration since the backend is already built.
 

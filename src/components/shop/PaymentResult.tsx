@@ -1,9 +1,11 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { CheckCircle2, XCircle, ArrowRight, MessageCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, ArrowRight, MessageCircle, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
+import { useSupportContact } from '@/hooks/useSupportContact';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface PaymentResultProps {
   success: boolean;
@@ -16,6 +18,9 @@ export function PaymentResult({ success, orderId, errorMessage, onRetry }: Payme
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = t.shop as Record<string, string>;
+  const { whatsappUrl, emailUrl } = useSupportContact();
+  const { session } = useAuth();
+  const userEmail = session?.user?.email;
 
   if (success) {
     return (
@@ -77,12 +82,33 @@ export function PaymentResult({ success, orderId, errorMessage, onRetry }: Payme
           </Link>
         </motion.div>
 
+        {/* Support buttons */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.6 }}
+          className="flex gap-3 w-full max-w-sm mt-4"
+        >
+          <a href={whatsappUrl(userEmail)} target="_blank" rel="noopener noreferrer" className="flex-1">
+            <Button variant="outline" className="w-full border-green-500/30 text-green-400 hover:bg-green-500/10 rounded-full">
+              <MessageCircle className="h-4 w-4 mr-2" />
+              WhatsApp
+            </Button>
+          </a>
+          <a href={emailUrl(userEmail)} target="_blank" rel="noopener noreferrer" className="flex-1">
+            <Button variant="outline" className="w-full border-blue-500/30 text-blue-400 hover:bg-blue-500/10 rounded-full">
+              <Mail className="h-4 w-4 mr-2" />
+              Email
+            </Button>
+          </a>
+        </motion.div>
+
         {/* What happens next */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.7 }}
-          className="mt-12 bg-white/5 border border-white/10 rounded-xl p-6 max-w-sm w-full"
+          className="mt-8 bg-white/5 border border-white/10 rounded-xl p-6 max-w-sm w-full"
         >
           <h3 className="text-white font-semibold mb-4">{shop.whatHappensNext || 'What happens next'}</h3>
           <ul className="space-y-3 text-left">
@@ -148,10 +174,16 @@ export function PaymentResult({ success, orderId, errorMessage, onRetry }: Payme
             {shop.tryAgain || 'Try Again'}
           </Button>
         )}
-        <a href="https://wa.me/243973141627" target="_blank" rel="noopener noreferrer" className="flex-1">
-          <Button variant="outline" className="w-full border-white/20 text-white hover:bg-white/10 rounded-full">
+        <a href={whatsappUrl(userEmail)} target="_blank" rel="noopener noreferrer" className="flex-1">
+          <Button variant="outline" className="w-full border-green-500/30 text-green-400 hover:bg-green-500/10 rounded-full">
             <MessageCircle className="h-4 w-4 mr-2" />
-            {shop.contactSupport || 'Contact Support'}
+            WhatsApp
+          </Button>
+        </a>
+        <a href={emailUrl(userEmail)} target="_blank" rel="noopener noreferrer" className="flex-1">
+          <Button variant="outline" className="w-full border-blue-500/30 text-blue-400 hover:bg-blue-500/10 rounded-full">
+            <Mail className="h-4 w-4 mr-2" />
+            Email
           </Button>
         </a>
       </motion.div>

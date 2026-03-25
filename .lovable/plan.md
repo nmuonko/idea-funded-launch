@@ -1,41 +1,62 @@
 
+Fix the hot-products campaign flow so it both sends reliably and shows clear confirmation in the admin portal.
 
-# Fix Hot Product Pricing on Product Detail Page
+1. Identify and handle the real failure state
+- The latest campaign is stuck in `sending` with `sent_count = 0`, `failed_count = 0`, and no completion timestamp.
+- I’ll update the send flow so a campaign can never stay stuck silently:
+  - `draft` → `approved` / `sending`
+  - `sent` when finished
+  - `failed` when the send process crashes before completion
+- I’ll store a campaign-level error message and timestamps so the admin page can explain what happened.
 
-## Problem
+2. Add delivery tracking for each recipient
+- Create a dedicated campaign delivery log table for marketing sends.
+- Each attempted recipient send will record:
+  - campaign
+  - recipient email
+  - status (`pending`, `sent`, `failed`)
+  - provider message id if available
+  - error message if failed
+  - timestamps
+- This gives a real source of truth instead of only aggregate counters.
 
-The "Commander" button in the **admin email preview** links to the product page WITHOUT the `?hot=1` parameter. This means when you click it, the product detail page shows regular pricing (Article + Markup + Shipping = $428.51) instead of the all-inclusive hot product price ($398.85).
+3. Harden the email-sending function
+- Update `send-hot-products-email` to:
+  - validate the campaign before sending
+  - record send start immediately
+  - write recipient-level logs as it sends
+  - update aggregate counters incrementally
+  - mark the campaign `failed` if the function exits early
+  - return a clearer summary payload to the admin page
+- I’ll also add explicit logging around:
+  - recipient loading
+  - zero-recipient cases
+  - provider/API failures
+  - campaign completion
 
-The **actual sent email** already includes `?hot=1` correctly — this is only a preview bug. But to be safe, I'll also make the product detail page more resilient by always checking the hot products database even without the URL param.
+4. Improve the admin portal confirmation UX
+- Update `src/pages/admin/HotProducts.tsx` so the campaign history shows:
+  - status badge (`draft`, `sending`, `sent`, `failed`)
+  - sent / failed counts
+  - last error when relevant
+  - sent time / last updated time
+- Add a “View delivery report” UI for each campaign showing recipient-level results.
+- Add a “Retry send” action for failed or stale campaigns.
 
-## Plan
+5. Prevent misleading success messages
+- The current UI can show success too early and does not expose enough failure detail.
+- I’ll change it so the admin page only shows:
+  - “campaign started” when the backend accepted the job
+  - “campaign completed” when the final result is returned or refreshed from stored status
+- If the send cannot start, the UI will show the actual error instead of leaving the campaign in a vague state.
 
-### 1. Fix admin preview links to include `?hot=1`
-
-**File**: `src/pages/admin/HotProducts.tsx` — `buildPreviewHtml()` (line 663)
-
-Change the "Commander" link from:
-```html
-<a href="${p.product_url}">
-```
-to:
-```html
-<a href="${p.product_url}${p.product_url.includes('?') ? '&' : '?'}hot=1">
-```
-
-### 2. Always check hot products DB on product detail load (belt-and-suspenders)
-
-**File**: `src/pages/shop/ProductDetails.tsx` — hot product useEffect (line 524)
-
-Currently the DB lookup only runs when `?hot=1` is in the URL or `location.state` is missing. Change it to **always** query `hot_products_showcase` for the current product. If found, set `hotProductPrice` and `isFixedPrice` becomes true automatically. This ensures even direct links without `?hot=1` show the correct all-inclusive price.
-
-The query is a lightweight `maybeSingle()` call — negligible performance impact.
-
----
-
-## Technical Details
-
-- No backend/edge function changes needed
-- The actual email campaign links are already correct
-- This fixes both: preview clicks AND any direct product URL shares where `?hot=1` might be missing
-
+Technical details
+- Files to update:
+  - `src/pages/admin/HotProducts.tsx`
+  - `supabase/functions/send-hot-products-email/index.ts`
+- Database changes:
+  - add a delivery-log table for hot-product campaigns
+  - add campaign-level failure metadata if not already present
+  - protect all log data with admin-only access rules
+- Result:
+  - you’ll be able to confirm inside the admin portal whether a campaign was sent, how many emails succeeded, which failed, and why.

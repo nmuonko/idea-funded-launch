@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
+import { useParams, Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { trackRecentlyViewed } from '@/lib/recentlyViewed';
 import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -119,6 +119,8 @@ export default function ProductDetailsPage() {
   const shop = (t.shop || {}) as any;
 
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const isHotParam = searchParams.get('hot') === '1';
 
   const [product, setProduct] = useState<ProductData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -135,6 +137,7 @@ export default function ProductDetailsPage() {
       ? (location.state as any).hotProductPrice
       : null
   );
+  const [hotPriceLookupDone, setHotPriceLookupDone] = useState(!isHotParam);
   const navProductRef = useRef<ProductData | null>(null);
   const didAutoSelectRef = useRef(false);
   const userInteractedRef = useRef(false);
@@ -142,7 +145,7 @@ export default function ProductDetailsPage() {
   const failedImageIndexesRef = useRef<Set<number>>(new Set());
   const triedOriginalSourceRef = useRef<Set<number>>(new Set());
 
-  const isFixedPrice = !!(location.state as any)?.isFixedPrice || hotProductPrice !== null;
+  const isFixedPrice = !!(location.state as any)?.isFixedPrice || hotProductPrice !== null || (isHotParam && !hotPriceLookupDone);
 
   const isVehicleFromState = !!(
     (location.state as any)?.product?.isVehicle ||
@@ -522,9 +525,12 @@ export default function ProductDetailsPage() {
   useEffect(() => {
     if ((location.state as any)?.isFixedPrice && typeof (location.state as any)?.hotProductPrice === 'number') {
       setHotProductPrice((location.state as any).hotProductPrice);
+      setHotPriceLookupDone(true);
       return;
     }
     if (!product?.id || !product?.provider) return;
+    // Only query DB if we came from ?hot=1 param or if there's no location.state
+    if (!isHotParam && (location.state as any)?.isFixedPrice) return;
 
     supabase
       .from('hot_products_showcase')
@@ -535,8 +541,9 @@ export default function ProductDetailsPage() {
       .maybeSingle()
       .then(({ data }) => {
         setHotProductPrice(typeof data?.total_price_usd === 'number' ? data.total_price_usd : null);
+        setHotPriceLookupDone(true);
       });
-  }, [location.state, product?.id, product?.provider]);
+  }, [location.state, product?.id, product?.provider, isHotParam]);
 
   // Check if this vehicle product is already in the user's cart
   const isInCart = product && items.some(item => {

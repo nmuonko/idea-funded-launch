@@ -50,7 +50,9 @@ export interface SectionItem {
 
 const VEHICLE_CORE = [
   // Removed generic "car","van" — too many false positives (car vacuum, canvas, vanguard)
-  "used car","new car","cars","truck","trucks","suv","pickup",
+  // Removed "pickup" — matches "PICKUP ONLY" in eBay laptop/electronics titles
+  "used car","new car","cars","truck","trucks","suv",
+  "pickup truck","pickup 4x4",
   "sedan","coupe","hatchback",
   "motorcycle","motorbike","scooter","atv","utv","powersports",
   "rv","camper","trailer","boat","jetski","watercraft",
@@ -202,8 +204,11 @@ export const SECTION_PROFILES: SectionProfile[] = [
     key: "vehicles",
     title: { en: "Vehicles", fr: "Véhicules" },
     includeAny: VEHICLE_CORE,
-    excludeAny: PHONE_EXCLUDE.concat(GAMING_EXCLUDE, PARTS_EXCLUDE, VEHICLE_ACCESSORY_EXCLUDE, [
+    excludeAny: PHONE_EXCLUDE.concat(GAMING_EXCLUDE, PARTS_EXCLUDE, VEHICLE_ACCESSORY_EXCLUDE, ELECTRONICS_WORDS, [
       "accessory","accessories","parts","toy","toys","lego","doll",
+      "macbook","imac","monitor","display","oled","lcd","ultrawide",
+      "microphone","webcam","printer","projector","keyboard","mouse",
+      "pickup only","local pickup","in-store pickup",
     ]),
     preferProviders: ["ebay", "amazon"],
     minItems: 12,

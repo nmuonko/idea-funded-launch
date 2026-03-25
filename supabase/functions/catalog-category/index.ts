@@ -221,17 +221,34 @@ function generateRequestId(): string {
 
 // ─── ITEM NORMALIZATION ───────────────────────────────────────────────────────
 
+function sanitizeGalleryImages(urls: string[]): string[] {
+  if (!urls || !Array.isArray(urls)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const u of urls) {
+    if (typeof u !== 'string' || !u.startsWith('http')) continue;
+    const validated = normalizeAndValidateImageUrl(u, '');
+    if (!validated) continue;
+    const key = validated.toLowerCase().replace(/\?.*$/, '');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(validated);
+  }
+  return result;
+}
+
 function normalizeEbayItem(item: NormalizedItem, category: string, subcategory: string | null): CatalogProduct {
   // For list views, only use single main image
   const validatedImageUrl = normalizeAndValidateImageUrl(item.image_url, item.product_url);
   let mainImage = validatedImageUrl;
   
-  // Get full images array
-  const imagesArray = item.images || item.image_urls || [];
+  // Sanitize full images array — removes banners, ads, promo images
+  const rawImages = item.images || item.image_urls || [];
+  const imagesArray = sanitizeGalleryImages(rawImages);
   
-  // Fallback to first in image_urls
+  // Fallback to first in sanitized image_urls
   if (!mainImage && imagesArray.length > 0) {
-    mainImage = normalizeAndValidateImageUrl(imagesArray[0], item.product_url);
+    mainImage = imagesArray[0];
   }
   
   const metadata = item.metadata || {};
@@ -268,15 +285,16 @@ function normalizeDbItem(row: Record<string, unknown>, category: string, subcate
   
   let mainImage = validatedImageUrl;
   
-  // Get full images array
-  const imagesArray = Array.isArray(row.images) ? row.images.filter((img): img is string => typeof img === "string") : [];
+  // Sanitize full images array — removes banners, ads, promo images
+  const rawImages = Array.isArray(row.images) ? row.images.filter((img): img is string => typeof img === "string") : [];
+  const imagesArray = sanitizeGalleryImages(rawImages);
   
-  // Fallback to first in images array
+  // Fallback to first in sanitized images array
   if (!mainImage && imagesArray.length > 0) {
-    mainImage = normalizeAndValidateImageUrl(imagesArray[0], row.product_url as string);
+    mainImage = imagesArray[0];
   }
 
-  // Compute image count from stored images array or default to 1
+  // Compute image count from sanitized images array or default to 1
   const imageCount = imagesArray.length > 0 ? imagesArray.length : 1;
 
   return {

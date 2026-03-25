@@ -33,8 +33,6 @@ export default function Account() {
   const navigate = useNavigate();
   const t = translations[language] || translations.en;
   const shop = t.shop as any;
-  
-  const [notifications, setNotifications] = useState(true);
 
   const handleSignOut = async () => {
     await signOut();

@@ -525,9 +525,12 @@ export default function ProductDetailsPage() {
   useEffect(() => {
     if ((location.state as any)?.isFixedPrice && typeof (location.state as any)?.hotProductPrice === 'number') {
       setHotProductPrice((location.state as any).hotProductPrice);
+      setHotPriceLookupDone(true);
       return;
     }
     if (!product?.id || !product?.provider) return;
+    // Only query DB if we came from ?hot=1 param or if there's no location.state
+    if (!isHotParam && (location.state as any)?.isFixedPrice) return;
 
     supabase
       .from('hot_products_showcase')
@@ -538,8 +541,9 @@ export default function ProductDetailsPage() {
       .maybeSingle()
       .then(({ data }) => {
         setHotProductPrice(typeof data?.total_price_usd === 'number' ? data.total_price_usd : null);
+        setHotPriceLookupDone(true);
       });
-  }, [location.state, product?.id, product?.provider]);
+  }, [location.state, product?.id, product?.provider, isHotParam]);
 
   // Check if this vehicle product is already in the user's cart
   const isInCart = product && items.some(item => {

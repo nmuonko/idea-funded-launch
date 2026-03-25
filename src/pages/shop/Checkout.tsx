@@ -136,9 +136,10 @@ export default function Checkout() {
     setPromoError('');
     try {
       const { data, error } = await supabase
-        .from('pricing_config')
+        .from('settings')
         .select('discount_codes')
-        .single();
+        .limit(1)
+        .maybeSingle();
       if (error) throw error;
       const codes = (data?.discount_codes || []) as Array<{ code: string; percent: number; active: boolean }>;
       const match = codes.find(c => c.code === promoCode.trim().toUpperCase() && c.active);

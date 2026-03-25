@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, Flame, Zap, Check } from 'lucide-react';
+import { ArrowLeft, Loader2, Flame, Zap, Check, MessageCircle, Mail } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
@@ -11,6 +11,7 @@ import { formatCurrency } from '@/lib/formatCurrency';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/hooks/useShopCart';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSupportContact } from '@/hooks/useSupportContact';
 import { toast } from 'sonner';
 
 interface HotProduct {
@@ -31,6 +32,7 @@ export default function HotProducts() {
   const { language } = useLanguage();
   const { addItem } = useShopCart();
   const { session } = useAuth();
+  const { whatsappUrl, emailUrl } = useSupportContact();
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
@@ -253,6 +255,20 @@ export default function HotProducts() {
           )}
         </div>
       </main>
+
+      {/* Floating support buttons */}
+      <div className="fixed bottom-24 right-4 z-40 flex flex-col gap-2">
+        <a href={whatsappUrl(session?.user?.email)} target="_blank" rel="noopener noreferrer">
+          <Button size="icon" className="h-12 w-12 rounded-full bg-green-600 hover:bg-green-700 text-white shadow-lg">
+            <MessageCircle className="h-5 w-5" />
+          </Button>
+        </a>
+        <a href={emailUrl(session?.user?.email)} target="_blank" rel="noopener noreferrer">
+          <Button size="icon" className="h-12 w-12 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg">
+            <Mail className="h-5 w-5" />
+          </Button>
+        </a>
+      </div>
 
       <ShopFooter />
       <BottomNavigation />

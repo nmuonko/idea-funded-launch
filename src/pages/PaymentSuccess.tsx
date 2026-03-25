@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { CheckCircle, Loader2 } from "lucide-react";
+import { CheckCircle, Loader2, MessageCircle, Mail } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useSupportContact } from '@/hooks/useSupportContact';
 import { supabase } from "@/integrations/supabase/client";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
@@ -11,6 +12,7 @@ export default function PaymentSuccess() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const { whatsappUrl, emailUrl } = useSupportContact();
   const [orderData, setOrderData] = useState<{
     orderId?: string;
     totalUsd?: number;
@@ -128,6 +130,18 @@ export default function PaymentSuccess() {
             >
               Close Window
             </Button>
+            <div className="flex gap-2 mt-2">
+              <a href={whatsappUrl()} target="_blank" rel="noopener noreferrer" className="flex-1">
+                <Button variant="outline" size="sm" className="w-full text-green-600 border-green-200 hover:bg-green-50">
+                  <MessageCircle className="h-4 w-4 mr-1" /> WhatsApp
+                </Button>
+              </a>
+              <a href={emailUrl()} target="_blank" rel="noopener noreferrer" className="flex-1">
+                <Button variant="outline" size="sm" className="w-full text-blue-600 border-blue-200 hover:bg-blue-50">
+                  <Mail className="h-4 w-4 mr-1" /> Email
+                </Button>
+              </a>
+            </div>
           </div>
         </CardContent>
       </Card>

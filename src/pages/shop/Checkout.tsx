@@ -50,6 +50,10 @@ export default function Checkout() {
   const [editingAddress, setEditingAddress] = useState(false);
   const [orderServerTotal, setOrderServerTotal] = useState<number | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [promoCode, setPromoCode] = useState('');
+  const [promoApplied, setPromoApplied] = useState<{ code: string; percent: number } | null>(null);
+  const [promoError, setPromoError] = useState('');
+  const [promoLoading, setPromoLoading] = useState(false);
   const [address, setAddress] = useState<ShippingAddress>({
     fullName: '',
     phone: '',

@@ -747,6 +747,16 @@ export default function ProductDetailsPage() {
     <div className="min-h-screen bg-black overflow-x-hidden">
       <ShopHeader />
 
+      {product && (
+        <SEOHead
+          title={product.title}
+          description={`Buy ${product.title} from AfriShop - delivered to DR Congo`}
+          image={product.imageUrl}
+          type="product"
+          price={product.priceUsd}
+          availability={product.inStock ? 'in stock' : 'out of stock'}
+        />
+      )}
       <main className="pt-20 sm:pt-24 px-3 sm:px-4 pb-safe-nav">
         <div className="mx-auto max-w-6xl w-full">
           <Link

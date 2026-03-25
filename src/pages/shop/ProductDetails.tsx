@@ -522,6 +522,7 @@ export default function ProductDetailsPage() {
   }, [product?.title, provider, id]);
 
   // Check if this product is a hot product (fixed price, no extra markup/shipping)
+  // Always query DB so direct links without ?hot=1 still show all-inclusive pricing
   useEffect(() => {
     if ((location.state as any)?.isFixedPrice && typeof (location.state as any)?.hotProductPrice === 'number') {
       setHotProductPrice((location.state as any).hotProductPrice);
@@ -529,8 +530,6 @@ export default function ProductDetailsPage() {
       return;
     }
     if (!product?.id || !product?.provider) return;
-    // Only query DB if we came from ?hot=1 param or if there's no location.state
-    if (!isHotParam && (location.state as any)?.isFixedPrice) return;
 
     supabase
       .from('hot_products_showcase')
@@ -543,7 +542,7 @@ export default function ProductDetailsPage() {
         setHotProductPrice(typeof data?.total_price_usd === 'number' ? data.total_price_usd : null);
         setHotPriceLookupDone(true);
       });
-  }, [location.state, product?.id, product?.provider, isHotParam]);
+  }, [location.state, product?.id, product?.provider]);
 
   // Check if this vehicle product is already in the user's cart
   const isInCart = product && items.some(item => {

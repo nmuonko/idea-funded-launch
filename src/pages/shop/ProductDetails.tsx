@@ -523,26 +523,39 @@ export default function ProductDetailsPage() {
 
   // Check if this product is a hot product (fixed price, no extra markup/shipping)
   // Always query DB so direct links without ?hot=1 still show all-inclusive pricing
+  // Uses both product.id AND the URL id param as fallback for robustness
   useEffect(() => {
     if ((location.state as any)?.isFixedPrice && typeof (location.state as any)?.hotProductPrice === 'number') {
       setHotProductPrice((location.state as any).hotProductPrice);
       setHotPriceLookupDone(true);
       return;
     }
-    if (!product?.id || !product?.provider) return;
+
+    // Use URL id param as primary lookup key (always available), fall back to product.id
+    const lookupId = id || product?.id;
+    const lookupProvider = provider?.toLowerCase() === 'rainforest' ? 'amazon' : (provider?.toLowerCase() || product?.provider);
+    if (!lookupId || !lookupProvider) return;
+
+    // Clean the ID the same way the product fetch does
+    let cleanId = decodeURIComponent(lookupId);
+    if (lookupProvider === 'amazon' && cleanId.toLowerCase().startsWith('amazon_')) {
+      cleanId = cleanId.slice(7);
+    } else if (lookupProvider === 'ebay' && cleanId.toLowerCase().startsWith('ebay_')) {
+      cleanId = cleanId.slice(5);
+    }
 
     supabase
       .from('hot_products_showcase')
       .select('total_price_usd')
-      .eq('provider_product_id', product.id)
-      .eq('provider', product.provider)
+      .eq('provider_product_id', cleanId)
+      .eq('provider', lookupProvider)
       .eq('is_active', true)
       .maybeSingle()
       .then(({ data }) => {
         setHotProductPrice(typeof data?.total_price_usd === 'number' ? data.total_price_usd : null);
         setHotPriceLookupDone(true);
       });
-  }, [location.state, product?.id, product?.provider]);
+  }, [location.state, product?.id, product?.provider, id, provider]);
 
   // Check if this vehicle product is already in the user's cart
   const isInCart = product && items.some(item => {

@@ -117,14 +117,17 @@ Deno.serve(async (req) => {
     await admin.from("hot_product_campaigns").update({ status: "sending" }).eq("id", campaignId);
 
     // Load all user emails from profiles
-    const { data: profiles } = await admin
+    const { data: profiles, error: profilesError } = await admin
       .from("profiles")
-      .select("email")
-      .not("email", "is", null);
+      .select("email");
+
+    if (profilesError) {
+      throw new Error(`Failed to load recipients: ${profilesError.message}`);
+    }
 
     const emails = (profiles || [])
       .map((p: any) => p.email?.trim())
-      .filter((e: string) => e && e.includes("@"));
+      .filter((e: string) => !!e && e.includes("@"));
 
     const uniqueEmails = [...new Set(emails)] as string[];
     console.log(`[HotProducts] Sending campaign "${campaign.title}" to ${uniqueEmails.length} recipients`);

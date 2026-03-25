@@ -1034,7 +1034,7 @@ export default function ProductDetailsPage() {
               )}
 
               {/* Customer Reviews */}
-              <ProductReviews productId={cleanProductId} provider={normalizedProvider} />
+              <ProductReviews productId={product?.id || id || ''} provider={product?.provider || provider || ''} />
             </div>
           </div>
 

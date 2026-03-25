@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   User, 
@@ -14,7 +13,7 @@ import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
+
 import { 
   Select,
   SelectContent,
@@ -34,8 +33,6 @@ export default function Account() {
   const navigate = useNavigate();
   const t = translations[language] || translations.en;
   const shop = t.shop as any;
-  
-  const [notifications, setNotifications] = useState(true);
 
   const handleSignOut = async () => {
     await signOut();
@@ -135,16 +132,17 @@ export default function Account() {
               </Select>
             </div>
 
-            {/* Notifications */}
+            {/* Notifications - informational only */}
             <div className="flex items-center justify-between px-5 py-4">
               <div className="flex items-center gap-3">
                 <Bell className="h-5 w-5 text-white/60" />
-                <span className="text-white">{shop?.notifications || 'Notifications'}</span>
+                <div>
+                  <span className="text-white">{shop?.notifications || 'Notifications'}</span>
+                  <p className="text-xs text-white/40 mt-0.5">
+                    {language === 'fr' ? 'Via WhatsApp et email' : 'Via WhatsApp and email'}
+                  </p>
+                </div>
               </div>
-              <Switch 
-                checked={notifications} 
-                onCheckedChange={setNotifications}
-              />
             </div>
           </motion.section>
 

@@ -16,6 +16,8 @@ import { createErrorResponse } from "../_shared/errorSanitizer.ts";
 import { verifyAndGetUser, errorResponse, handleCors, createAdminClient } from "../_shared/auth.ts";
 import { getCatalogSettings, updateCatalogSetting } from "../_shared/catalogSettings.ts";
 import { invalidateTtlPolicyCache } from "../_shared/ttlPolicy.ts";
+import { sendEmail } from "../_shared/email.ts";
+import { buildOrderProcessingEmail, buildOrderShippedEmail, buildOrderDeliveredEmail } from "../_shared/emailTemplates.ts";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
@@ -141,6 +143,62 @@ async function handleOrderAction(auth: AdminAuth, body: any): Promise<Response> 
     metadata: metadata || {},
   });
   if (actionError) throw actionError;
+
+  // Send order status notification emails (non-blocking)
+  if (['APPROVED', 'SHIPPED', 'DELIVERED'].includes(actionType)) {
+    try {
+      const adminClient = createAdminClient();
+      const { data: order } = await adminClient
+        .from('orders')
+        .select('id, user_id, total_usd, profiles(email, full_name, name)')
+        .eq('id', orderId)
+        .maybeSingle();
+
+      if (order) {
+        const profile = order.profiles as any;
+        const email = profile?.email;
+        const name = profile?.full_name || profile?.name || 'Customer';
+
+        if (email) {
+          const { data: items } = await adminClient
+            .from('order_items')
+            .select('title, quantity')
+            .eq('order_id', orderId);
+
+          const itemList = (items || []).map((i: any) => ({ title: i.title || 'Item', quantity: i.quantity || 1 }));
+
+          let emailData;
+          if (actionType === 'APPROVED') {
+            emailData = buildOrderProcessingEmail({ customerName: name, orderId, items: itemList });
+          } else if (actionType === 'SHIPPED') {
+            emailData = buildOrderShippedEmail({
+              customerName: name,
+              orderId,
+              items: itemList,
+              trackingNumber: metadata?.trackingNumber,
+              carrier: metadata?.carrier,
+              estimatedDelivery: metadata?.estimatedDelivery,
+            });
+          } else if (actionType === 'DELIVERED') {
+            emailData = buildOrderDeliveredEmail({ customerName: name, orderId, items: itemList });
+          }
+
+          if (emailData) {
+            await sendEmail({
+              to: email,
+              subject: emailData.subject,
+              html: emailData.html,
+              category: 'order_status_update',
+            });
+            console.log(`[admin-service] Sent ${actionType} email to ${email} for order ${orderId}`);
+          }
+        }
+      }
+    } catch (emailErr) {
+      console.error('[admin-service] Failed to send status email:', emailErr);
+      // Non-blocking: order action still succeeded
+    }
+  }
 
   return jsonRes({ success: true });
 }

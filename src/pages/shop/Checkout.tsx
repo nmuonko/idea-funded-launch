@@ -50,6 +50,10 @@ export default function Checkout() {
   const [editingAddress, setEditingAddress] = useState(false);
   const [orderServerTotal, setOrderServerTotal] = useState<number | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [promoCode, setPromoCode] = useState('');
+  const [promoApplied, setPromoApplied] = useState<{ code: string; percent: number } | null>(null);
+  const [promoError, setPromoError] = useState('');
+  const [promoLoading, setPromoLoading] = useState(false);
   const [address, setAddress] = useState<ShippingAddress>({
     fullName: '',
     phone: '',
@@ -125,6 +129,33 @@ export default function Checkout() {
   const hasSavedAddress = useMemo(() => {
     return !!(address.fullName && address.country);
   }, [address]);
+
+  const handleApplyPromo = useCallback(async () => {
+    if (!promoCode.trim()) return;
+    setPromoLoading(true);
+    setPromoError('');
+    try {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('discount_codes')
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      const codes = (data?.discount_codes || []) as Array<{ code: string; percent: number; active: boolean }>;
+      const match = codes.find(c => c.code === promoCode.trim().toUpperCase() && c.active);
+      if (match) {
+        setPromoApplied({ code: match.code, percent: match.percent });
+        setPromoError('');
+      } else {
+        setPromoError(language === 'fr' ? 'Code invalide ou expiré' : 'Invalid or expired code');
+        setPromoApplied(null);
+      }
+    } catch {
+      setPromoError(language === 'fr' ? 'Erreur de vérification' : 'Verification error');
+    } finally {
+      setPromoLoading(false);
+    }
+  }, [promoCode, language]);
 
   const handleInputChange = (field: keyof ShippingAddress, value: string) => {
     setAddress(prev => ({ ...prev, [field]: value }));
@@ -747,11 +778,59 @@ export default function Checkout() {
                       </p>
                     )}
                   </div>
+
+                  {/* Promo Code */}
+                  <div className="mb-4 pb-4 border-b border-white/10">
+                    <label className="text-sm text-white/70 mb-2 block">
+                      {language === 'fr' ? 'Code promo' : 'Promo Code'}
+                    </label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={promoCode}
+                        onChange={(e) => {
+                          setPromoCode(e.target.value.toUpperCase());
+                          if (promoApplied) { setPromoApplied(null); setPromoError(''); }
+                        }}
+                        placeholder={language === 'fr' ? 'Ex: SAVE10' : 'e.g. SAVE10'}
+                        className="bg-white/5 border-white/10 text-white text-sm"
+                        disabled={!!promoApplied}
+                      />
+                      {promoApplied ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => { setPromoApplied(null); setPromoCode(''); setPromoError(''); }}
+                          className="border-white/20 text-white/70 hover:bg-white/10 whitespace-nowrap"
+                        >
+                          {language === 'fr' ? 'Retirer' : 'Remove'}
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleApplyPromo}
+                          disabled={promoLoading || !promoCode.trim()}
+                          className="bg-white/10 hover:bg-white/20 text-white whitespace-nowrap"
+                        >
+                          {promoLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : (language === 'fr' ? 'Appliquer' : 'Apply')}
+                        </Button>
+                      )}
+                    </div>
+                    {promoError && <p className="text-xs text-red-400 mt-1">{promoError}</p>}
+                    {promoApplied && (
+                      <p className="text-xs text-green-400 mt-1 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3" />
+                        {language === 'fr' ? `${promoApplied.percent}% de réduction appliquée` : `${promoApplied.percent}% discount applied`}
+                      </p>
+                    )}
+                  </div>
                   
                   <PriceBreakdown 
                     itemPriceUsd={checkoutTotal} 
                     serverTotal={orderServerTotal ?? serverTotalUsd} 
                     isFixedPrice={checkoutItems.length > 0 && checkoutItems.every(item => item.isFixedPrice)}
+                    discountPercent={promoApplied?.percent}
                   />
 
                   <Button

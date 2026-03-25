@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import React, { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
@@ -22,7 +22,7 @@ const CATEGORIES = [
   { key: 'collectibles', fr: 'Collections', en: 'Collectibles', image: 'https://images.unsplash.com/photo-1618336753974-aae8e04506aa?w=160&h=160&fit=crop' },
 ];
 
-export function CategoryIconsRow() {
+export const CategoryIconsRow = React.forwardRef<HTMLDivElement, Record<string, never>>(function CategoryIconsRow(_props, _ref) {
   const { language } = useLanguage();
   const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -88,4 +88,4 @@ export function CategoryIconsRow() {
       </div>
     </div>
   );
-}
+});

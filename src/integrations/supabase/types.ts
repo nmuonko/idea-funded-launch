@@ -4322,6 +4322,53 @@ export type Database = {
         }
         Relationships: []
       }
+      product_reviews: {
+        Row: {
+          body: string | null
+          created_at: string
+          id: string
+          order_id: string | null
+          product_id: string
+          provider: string
+          rating: number
+          title: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          order_id?: string | null
+          product_id: string
+          provider?: string
+          rating: number
+          title?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          order_id?: string | null
+          product_id?: string
+          provider?: string
+          rating?: number
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_reviews_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_variants_cache: {
         Row: {
           expires_at: string
@@ -5093,6 +5140,56 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      refund_requests: {
+        Row: {
+          admin_notes: string | null
+          created_at: string
+          details: string | null
+          evidence_urls: string[] | null
+          id: string
+          order_id: string | null
+          reason: string
+          resolved_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          created_at?: string
+          details?: string | null
+          evidence_urls?: string[] | null
+          id?: string
+          order_id?: string | null
+          reason: string
+          resolved_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          created_at?: string
+          details?: string | null
+          evidence_urls?: string[] | null
+          id?: string
+          order_id?: string | null
+          reason?: string
+          resolved_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "refund_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       scrape_retry_queue: {
         Row: {

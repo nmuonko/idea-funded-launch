@@ -233,6 +233,25 @@ const Refunds = () => {
         </div>
       </section>
 
+      {/* Submit Refund Request */}
+      <section className="py-16">
+        <div className="container mx-auto px-4">
+          <motion.div 
+            className="max-w-3xl mx-auto"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <div className="bg-gradient-to-br from-white/5 to-transparent rounded-3xl p-8 border border-white/10">
+              <h2 className="text-xl font-bold mb-6">
+                {language === 'fr' ? 'Soumettre une demande de remboursement' : 'Submit a Refund Request'}
+              </h2>
+              <RefundRequestForm />
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
       {/* Dispute Resolution */}
       <section className="py-16">
         <div className="container mx-auto px-4">

@@ -10,6 +10,7 @@ import { ProductImageViewer } from '@/components/shop/ProductImageViewer';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
 import { ProductGrid } from '@/components/shop/ProductGrid';
+import { ProductReviews } from '@/components/shop/ProductReviews';
 import { Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -1031,6 +1032,9 @@ export default function ProductDetailsPage() {
                   <p className="text-white/70 whitespace-pre-line break-words">{product.description}</p>
                 </div>
               )}
+
+              {/* Customer Reviews */}
+              <ProductReviews productId={cleanProductId} provider={normalizedProvider} />
             </div>
           </div>
 

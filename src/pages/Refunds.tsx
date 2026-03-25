@@ -1,9 +1,12 @@
 import { RotateCcw, CheckCircle, AlertCircle, MessageCircle, Mail, Clock, Building2, FileText } from "lucide-react";
 import { motion } from "framer-motion";
- import { PublicHeader } from "@/components/public/PublicLayout";
- import { ShopFooter } from "@/components/shop/ShopFooter";
+import { PublicHeader } from "@/components/public/PublicLayout";
+import { ShopFooter } from "@/components/shop/ShopFooter";
+import { RefundRequestForm } from "@/components/shop/RefundRequestForm";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const Refunds = () => {
+  const { language } = useLanguage();
   const eligibleReasons = [
     "Failed fulfillment due to retailer or logistics issues",
     "Verified order cancellation before purchase completion",

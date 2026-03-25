@@ -18,7 +18,7 @@ interface PriceBreakdownProps {
   serverMarginUsd?: number;
   serverShippingUsd?: number;
   serverLineTotalUsd?: number;
-  discountPercent?: number;
+  
 }
 
 export function PriceBreakdown({
@@ -33,7 +33,7 @@ export function PriceBreakdown({
   serverMarginUsd,
   serverShippingUsd,
   serverLineTotalUsd,
-  discountPercent,
+  
 }: PriceBreakdownProps) {
   const ctx = context ?? 'cart';
   const { feeSettings, hasVehicleItems, vehicleQuoteStatus } = useShopCart();
@@ -285,26 +285,12 @@ export function PriceBreakdown({
         </div>
       ) : (
         <>
-          {discountPercent && discountPercent > 0 && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-green-400">
-                {language === 'fr' ? `Réduction (${discountPercent}%)` : `Discount (${discountPercent}%)`}
-              </span>
-              <span className="text-green-400">
-                -${((serverTotal != null ? serverTotal : total) * discountPercent / 100).toFixed(2)}
-              </span>
-            </div>
-          )}
           <div className="flex items-center justify-between">
             <span className="text-white font-medium">
               {serverTotal != null ? (shop.total || 'Total') : (shop.estimatedTotal || 'Estimated Total')}
             </span>
             <span className="text-xl font-bold text-white">
-              {(() => {
-                const baseTotal = serverTotal != null ? serverTotal : total;
-                const discounted = discountPercent ? baseTotal * (1 - discountPercent / 100) : baseTotal;
-                return `$${discounted.toFixed(2)}`;
-              })()}
+              ${(serverTotal != null ? serverTotal : total).toFixed(2)}
             </span>
           </div>
 

@@ -1,51 +1,61 @@
 
 
-## Root Cause
+# Fix Hot Product Pricing on Product Detail Page + Create Email Campaign Function
 
-The `mobile-checkout` function creates the checkout order with `status: 'PENDING_PAYMENT'` (line 2039), then immediately tries to insert `order_items` into it. But the RLS policy on `order_items` only allows INSERT when the parent order has `status = 'DRAFT'`:
+## Problem
 
-```sql
--- Current policy: "Users can insert items to their draft orders"
-EXISTS (SELECT 1 FROM orders WHERE orders.id = order_items.order_id 
-  AND orders.user_id = auth.uid() AND orders.status = 'DRAFT')
-```
+Two issues:
 
-This means **every non-admin user** fails at checkout. `kadimisha@gmail.com` only works because they have the `admin` role, which uses the permissive "Admins can manage all order items" (ALL) policy.
+1. **Product detail page shows separate markup/shipping prices instead of "Included"** when arriving from an external link (email, shared URL). The `isFixedPrice` detection relies on `location.state` (only available via in-app navigation from `/hot-products`). The DB fallback query exists but has a timing gap — on first render `hotProductPrice` is `null`, so `isFixedPrice` is `false` and the regular price breakdown shows. Also, if a user lands via a URL with no `location.state`, they see the raw catalog price, not the admin-set hot product price.
 
-This is the exact error in the logs:
-```
-new row violates row-level security policy for [order_items]
-```
+2. **The `send-hot-products-email` edge function doesn't exist** — the admin campaign "Approve & Send" button calls it but it was never created.
 
-## Fix
+---
 
-**Database migration**: Add a new RLS policy on `order_items` that allows users to insert items into their own `PENDING_PAYMENT` orders (in addition to DRAFT orders). This is the correct semantic — checkout creates a PENDING_PAYMENT order and needs to populate it with items.
+## Plan
 
-```sql
-CREATE POLICY "Users can insert items to their pending payment orders"
-ON public.order_items
-FOR INSERT
-TO authenticated
-WITH CHECK (
-  EXISTS (
-    SELECT 1 FROM orders
-    WHERE orders.id = order_items.order_id
-      AND orders.user_id = auth.uid()
-      AND orders.status = 'PENDING_PAYMENT'
-  )
-);
-```
+### Step 1: Add `?hot=1` URL param support to ProductDetails
 
-This is a single SQL migration. No code changes needed. The existing normalization logic and checkout flow are correct — only the RLS policy was blocking the insert.
+When links in emails point to `/product/{provider}/{id}?hot=1`, the product detail page should immediately know to check for hot product pricing before rendering the price breakdown.
 
-### Why this is safe
-- The policy is scoped to `authenticated` users only
-- It checks `orders.user_id = auth.uid()` — users can only add items to their own orders
-- It only applies to `PENDING_PAYMENT` status — not completed or cancelled orders
-- It complements the existing DRAFT insert policy
+**File**: `src/pages/shop/ProductDetails.tsx`
+- Read `?hot=1` from URL search params
+- If present, set a `pendingHotLookup` flag so the price breakdown shows a loading state until the `hot_products_showcase` query completes
+- This eliminates the flash of regular pricing
 
-### Expected result
-- `ngoyprecious@gmail.com` and `kabuyachadrack94@gmail.com` will be able to check out immediately
-- All future non-admin users will be able to check out
-- No frontend/OTA changes needed
+### Step 2: Fix the hot product price detection to also use URL param
+
+**File**: `src/pages/shop/ProductDetails.tsx` (useEffect at line 522)
+- When `?hot=1` is in the URL OR `location.state.isFixedPrice` is set, query `hot_products_showcase` for the price
+- Ensure `isFixedPrice` is true as soon as the query confirms the product is in the showcase
+- If the query finds no match (product removed from showcase), fall back to regular pricing gracefully
+
+### Step 3: Create the `send-hot-products-email` edge function
+
+**File**: `supabase/functions/send-hot-products-email/index.ts`
+
+This function:
+- Receives `{ campaignId }` in the body
+- Loads the campaign from `hot_product_campaigns` table
+- Loads all users with emails
+- Builds an HTML email with the campaign products in a grid (image, title, price, "Order Now" button)
+- The "Order Now" button links to `/product/{provider}/{id}?hot=1` so the product detail page auto-detects fixed pricing
+- Sends emails in batches with rate limiting (same pattern as `send-bulk-announcement`)
+- Updates campaign status to `sent` with `sent_count`
+
+### Step 4: Update HotProducts admin page email links
+
+**File**: `src/pages/admin/HotProducts.tsx`
+- Ensure the campaign product links use `?hot=1` parameter
+- No other changes needed — the approve/send flow already invokes the edge function
+
+---
+
+## Technical Details
+
+- The `?hot=1` param is a lightweight signal — actual price is still fetched server-side from `hot_products_showcase`
+- Email HTML uses table-based layout for email client compatibility
+- Rate limiting: 600ms between sends, retry on rate limit (same as existing bulk sender)
+- The edge function uses the shared `sendEmail` utility from `_shared/email.ts`
+- No mobile/RN code is touched
 

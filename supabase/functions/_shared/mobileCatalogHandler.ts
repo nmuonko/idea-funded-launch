@@ -77,7 +77,7 @@ export const MOBILE_SECTIONS = [
     key: "vehicles", 
     title_fr: "Véhicules", 
     title_en: "Vehicles",
-    keywords: ["car", "toyota", "honda", "bmw", "mercedes", "ford", "suv", "truck", "motorcycle", "vehicle", "auto"],
+    keywords: ["used car","new car","sedan","coupe","hatchback","suv","truck","pickup truck","motorcycle","motorbike","scooter","atv","rv","camper","trailer","boat","cargurus","carvana","ebay motors","vin","mileage","dealer"],
     target: 20 
   },
   { 

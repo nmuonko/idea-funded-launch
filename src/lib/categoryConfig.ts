@@ -136,13 +136,37 @@ export function filterForCategory(items: Product[], catKey: string): Product[] {
 
 export const LUXURY_KEYWORDS = ['pro', 'max', 'ultra', 'premium', 'oled', 'macbook', 'rolex', 'diamond', 'gold', 'luxury', 'designer', '4k', '8k', 'titanium'];
 
+const RENEWED_KEYWORDS = ['renewed', 'refurbished', 'reconditioned', 'certified pre-owned'];
+const JUNK_KEYWORDS = ['for parts', 'for repair', 'cracked', 'as-is', 'as is', 'read description', 'broken', 'damaged'];
+
+function getSmartScore(p: Product): number {
+  const title = (p.title || '').toLowerCase();
+  const price = p.priceUsd || 0;
+
+  // Filter junk items to bottom
+  if (JUNK_KEYWORDS.some(kw => title.includes(kw))) return -1000;
+
+  let score = 0;
+
+  // Luxury keyword bonus
+  if (LUXURY_KEYWORDS.some(kw => title.includes(kw))) score += 100;
+
+  // Renewed/refurbished bonus — prefer affordable quality
+  if (RENEWED_KEYWORDS.some(kw => title.includes(kw))) score += 50;
+
+  // Price sweet spot: $500–$1,500 gets a boost over $1,500+
+  if (price >= 500 && price <= 1500) score += 30;
+  else if (price > 1500) score += 10;
+  else if (price > 50) score += 15;
+
+  // Tiebreaker: moderate price over extreme price
+  score += Math.min(price, 1500) / 100;
+
+  return score;
+}
+
 export function sortByLuxury(items: Product[]): Product[] {
-  return [...items].sort((a, b) => {
-    const aLux = LUXURY_KEYWORDS.some(kw => (a.title || '').toLowerCase().includes(kw)) ? 1 : 0;
-    const bLux = LUXURY_KEYWORDS.some(kw => (b.title || '').toLowerCase().includes(kw)) ? 1 : 0;
-    if (bLux !== aLux) return bLux - aLux;
-    return (b.priceUsd || 0) - (a.priceUsd || 0);
-  });
+  return [...items].sort((a, b) => getSmartScore(b) - getSmartScore(a));
 }
 
 // All homepage categories in display order

@@ -949,7 +949,11 @@ export default function ShopHome() {
       const pins = pinnedByCategory[catKey] || [];
       allPinnedProducts.push(...pins);
     }
-    const combinedPool = [...allPinnedProducts, ...accueilProducts];
+    const TRENDING_JUNK = ['for parts', 'for repair', 'cracked', 'as-is', 'as is', 'read description', 'broken', 'damaged'];
+    const combinedPool = [...allPinnedProducts, ...accueilProducts].filter(p => {
+      const t = (p.title || '').toLowerCase();
+      return !TRENDING_JUNK.some(kw => t.includes(kw));
+    });
 
     for (const cat of trendingCats) {
       if (trending.length >= 16) break; // Early termination

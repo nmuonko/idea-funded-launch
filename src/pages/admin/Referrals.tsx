@@ -401,6 +401,62 @@ export default function AdminReferrals() {
           </Card>
         </TabsContent>
 
+        {/* Referred Users Tab */}
+        <TabsContent value="referred">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserPlus className="h-5 w-5" />
+                {isFr ? 'Utilisateurs inscrits via parrainage' : 'Users Signed Up via Referral'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
+              ) : referredUsers.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">{isFr ? 'Aucun utilisateur parrainé' : 'No referred users yet'}</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{isFr ? 'Nom' : 'Name'}</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>{isFr ? 'Téléphone' : 'Phone'}</TableHead>
+                      <TableHead>{isFr ? 'Code du parrain' : 'Referrer Code'}</TableHead>
+                      <TableHead>{isFr ? 'Parrain' : 'Referrer'}</TableHead>
+                      <TableHead>{isFr ? 'Plateforme' : 'Platform'}</TableHead>
+                      <TableHead>{isFr ? 'A acheté ?' : 'Purchased?'}</TableHead>
+                      <TableHead>{isFr ? 'Inscription' : 'Signed Up'}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {referredUsers.map(u => (
+                      <TableRow key={u.user_id}>
+                        <TableCell className="font-medium">{u.full_name || '-'}</TableCell>
+                        <TableCell className="text-sm">{u.email || '-'}</TableCell>
+                        <TableCell className="text-sm">{u.phone || '-'}</TableCell>
+                        <TableCell><code className="text-xs">{u.referred_by_code}</code></TableCell>
+                        <TableCell className="font-medium">{u.referrer_name}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{u.signup_platform === 'mobile' ? '📱 App' : '🌐 Web'}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {u.has_purchased ? (
+                            <Badge variant="default" className="bg-emerald-600">✅ {isFr ? 'Oui' : 'Yes'}</Badge>
+                          ) : (
+                            <Badge variant="secondary">{isFr ? 'Pas encore' : 'Not yet'}</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {new Date(u.created_at).toLocaleDateString()}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
         {/* Commissions Tab */}
         <TabsContent value="commissions">
           <Card>

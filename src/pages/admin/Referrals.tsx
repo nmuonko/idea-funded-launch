@@ -309,10 +309,11 @@ export default function AdminReferrals() {
       <h1 className="text-2xl font-bold">{isFr ? 'Parrainages & Commissions' : 'Referrals & Commissions'}</h1>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {[
           { icon: MousePointerClick, color: 'text-blue-500', value: stats.clicks, label: isFr ? 'Clics' : 'Clicks' },
-          { icon: Users, color: 'text-orange-500', value: stats.signups, label: isFr ? 'Inscriptions' : 'Signups' },
+          { icon: UserPlus, color: 'text-purple-500', value: stats.totalReferredSignups, label: isFr ? 'Inscrits via parrainage' : 'Referred Signups' },
+          { icon: Users, color: 'text-orange-500', value: stats.signups, label: isFr ? 'Événements inscription' : 'Signup Events' },
           { icon: ShoppingCart, color: 'text-green-500', value: stats.purchases, label: isFr ? 'Achats' : 'Purchases' },
           { icon: DollarSign, color: 'text-yellow-500', value: `$${stats.pendingCommissions}`, label: isFr ? 'Commissions en attente' : 'Pending Commissions' },
         ].map((s, i) => (
@@ -331,6 +332,7 @@ export default function AdminReferrals() {
       <Tabs defaultValue="referrers">
         <TabsList>
           <TabsTrigger value="referrers">{isFr ? 'Parrains' : 'Referrers'}</TabsTrigger>
+          <TabsTrigger value="referred">{isFr ? 'Utilisateurs parrainés' : 'Referred Users'}</TabsTrigger>
           <TabsTrigger value="commissions">{isFr ? 'Commissions' : 'Commissions'}</TabsTrigger>
           <TabsTrigger value="payouts">{isFr ? 'Paiements' : 'Payouts'}</TabsTrigger>
           <TabsTrigger value="settings">{isFr ? 'Paramètres' : 'Settings'}</TabsTrigger>

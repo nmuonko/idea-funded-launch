@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Users, MousePointerClick, ShoppingCart, DollarSign, Loader2, Percent, Send, History, Zap } from 'lucide-react';
+import { Users, MousePointerClick, ShoppingCart, DollarSign, Loader2, Percent, Send, History, Zap, UserPlus } from 'lucide-react';
 
 interface Referrer {
   id: string;
@@ -54,13 +54,26 @@ interface Payout {
   referrer_name?: string;
 }
 
+interface ReferredUser {
+  user_id: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  referred_by_code: string;
+  referrer_name: string;
+  created_at: string;
+  has_purchased: boolean;
+  signup_platform: string;
+}
+
 export default function AdminReferrals() {
   const { language } = useLanguage();
   const { toast } = useToast();
   const [referrers, setReferrers] = useState<Referrer[]>([]);
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
-  const [stats, setStats] = useState({ clicks: 0, signups: 0, purchases: 0, pendingCommissions: 0 });
+  const [referredUsers, setReferredUsers] = useState<ReferredUser[]>([]);
+  const [stats, setStats] = useState({ clicks: 0, signups: 0, purchases: 0, pendingCommissions: 0, totalReferredSignups: 0 });
   const [loading, setLoading] = useState(true);
   const [commissionPercent, setCommissionPercent] = useState('10');
   const [payoutMode, setPayoutMode] = useState<'automatic' | 'manual'>('manual');
@@ -164,11 +177,55 @@ export default function AdminReferrals() {
         ?.filter(c => c.status === 'pending')
         .reduce((sum, c) => sum + (c.commission_amount_usd || 0), 0) || 0;
 
+      // Count total referred signups from profiles
+      const { count: totalReferredCount } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true })
+        .not('referred_by_code', 'is', null);
+
+      // Load referred users with details
+      const { data: referredProfiles } = await supabase
+        .from('profiles')
+        .select('user_id, full_name, email, phone, referred_by_code, created_at, signup_platform')
+        .not('referred_by_code', 'is', null)
+        .order('created_at', { ascending: false });
+
+      if (referredProfiles) {
+        // Map ref codes to referrer names
+        const refCodes = [...new Set(referredProfiles.map(p => p.referred_by_code).filter(Boolean))];
+        const { data: codeRefs } = await supabase
+          .from('referrers')
+          .select('ref_code, full_name')
+          .in('ref_code', refCodes.length ? refCodes : ['none']);
+        const codeMap = new Map(codeRefs?.map(r => [r.ref_code, r.full_name]) || []);
+
+        // Check which referred users have purchased
+        const referredUserIds = referredProfiles.map(p => p.user_id);
+        const { data: buyerCommissions } = await supabase
+          .from('referral_commissions')
+          .select('buyer_user_id')
+          .in('buyer_user_id', referredUserIds.length ? referredUserIds : ['none']);
+        const buyerSet = new Set(buyerCommissions?.map(c => c.buyer_user_id) || []);
+
+        setReferredUsers(referredProfiles.map(p => ({
+          user_id: p.user_id,
+          full_name: p.full_name || '',
+          email: p.email || '',
+          phone: p.phone || '',
+          referred_by_code: p.referred_by_code || '',
+          referrer_name: codeMap.get(p.referred_by_code || '') || isFr ? 'Inconnu' : 'Unknown',
+          created_at: p.created_at,
+          has_purchased: buyerSet.has(p.user_id),
+          signup_platform: p.signup_platform || 'web',
+        })));
+      }
+
       setStats({
         clicks: clickCount || 0,
         signups: signupCount || 0,
         purchases: purchaseCount,
         pendingCommissions: Math.round(pendingAmount * 100) / 100,
+        totalReferredSignups: totalReferredCount || 0,
       });
     } catch (err) {
       console.error('Error loading referral data:', err);
@@ -252,10 +309,11 @@ export default function AdminReferrals() {
       <h1 className="text-2xl font-bold">{isFr ? 'Parrainages & Commissions' : 'Referrals & Commissions'}</h1>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {[
           { icon: MousePointerClick, color: 'text-blue-500', value: stats.clicks, label: isFr ? 'Clics' : 'Clicks' },
-          { icon: Users, color: 'text-orange-500', value: stats.signups, label: isFr ? 'Inscriptions' : 'Signups' },
+          { icon: UserPlus, color: 'text-purple-500', value: stats.totalReferredSignups, label: isFr ? 'Inscrits via parrainage' : 'Referred Signups' },
+          { icon: Users, color: 'text-orange-500', value: stats.signups, label: isFr ? 'Événements inscription' : 'Signup Events' },
           { icon: ShoppingCart, color: 'text-green-500', value: stats.purchases, label: isFr ? 'Achats' : 'Purchases' },
           { icon: DollarSign, color: 'text-yellow-500', value: `$${stats.pendingCommissions}`, label: isFr ? 'Commissions en attente' : 'Pending Commissions' },
         ].map((s, i) => (
@@ -274,6 +332,7 @@ export default function AdminReferrals() {
       <Tabs defaultValue="referrers">
         <TabsList>
           <TabsTrigger value="referrers">{isFr ? 'Parrains' : 'Referrers'}</TabsTrigger>
+          <TabsTrigger value="referred">{isFr ? 'Utilisateurs parrainés' : 'Referred Users'}</TabsTrigger>
           <TabsTrigger value="commissions">{isFr ? 'Commissions' : 'Commissions'}</TabsTrigger>
           <TabsTrigger value="payouts">{isFr ? 'Paiements' : 'Payouts'}</TabsTrigger>
           <TabsTrigger value="settings">{isFr ? 'Paramètres' : 'Settings'}</TabsTrigger>
@@ -332,6 +391,64 @@ export default function AdminReferrals() {
                               {isFr ? 'Payer' : 'Pay Now'}
                             </Button>
                           )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Referred Users Tab */}
+        <TabsContent value="referred">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserPlus className="h-5 w-5" />
+                {isFr ? 'Utilisateurs inscrits via parrainage' : 'Users Signed Up via Referral'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
+              ) : referredUsers.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">{isFr ? 'Aucun utilisateur parrainé' : 'No referred users yet'}</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{isFr ? 'Nom' : 'Name'}</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>{isFr ? 'Téléphone' : 'Phone'}</TableHead>
+                      <TableHead>{isFr ? 'Code du parrain' : 'Referrer Code'}</TableHead>
+                      <TableHead>{isFr ? 'Parrain' : 'Referrer'}</TableHead>
+                      <TableHead>{isFr ? 'Plateforme' : 'Platform'}</TableHead>
+                      <TableHead>{isFr ? 'A acheté ?' : 'Purchased?'}</TableHead>
+                      <TableHead>{isFr ? 'Inscription' : 'Signed Up'}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {referredUsers.map(u => (
+                      <TableRow key={u.user_id}>
+                        <TableCell className="font-medium">{u.full_name || '-'}</TableCell>
+                        <TableCell className="text-sm">{u.email || '-'}</TableCell>
+                        <TableCell className="text-sm">{u.phone || '-'}</TableCell>
+                        <TableCell><code className="text-xs">{u.referred_by_code}</code></TableCell>
+                        <TableCell className="font-medium">{u.referrer_name}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{u.signup_platform === 'mobile' ? '📱 App' : '🌐 Web'}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {u.has_purchased ? (
+                            <Badge variant="default" className="bg-emerald-600">✅ {isFr ? 'Oui' : 'Yes'}</Badge>
+                          ) : (
+                            <Badge variant="secondary">{isFr ? 'Pas encore' : 'Not yet'}</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {new Date(u.created_at).toLocaleDateString()}
                         </TableCell>
                       </TableRow>
                     ))}

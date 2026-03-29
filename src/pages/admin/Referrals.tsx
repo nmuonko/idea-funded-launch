@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Users, MousePointerClick, ShoppingCart, DollarSign, Loader2, Percent, Send, History, Zap } from 'lucide-react';
+import { Users, MousePointerClick, ShoppingCart, DollarSign, Loader2, Percent, Send, History, Zap, UserPlus } from 'lucide-react';
 
 interface Referrer {
   id: string;

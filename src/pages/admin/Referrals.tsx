@@ -177,11 +177,55 @@ export default function AdminReferrals() {
         ?.filter(c => c.status === 'pending')
         .reduce((sum, c) => sum + (c.commission_amount_usd || 0), 0) || 0;
 
+      // Count total referred signups from profiles
+      const { count: totalReferredCount } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true })
+        .not('referred_by_code', 'is', null);
+
+      // Load referred users with details
+      const { data: referredProfiles } = await supabase
+        .from('profiles')
+        .select('user_id, full_name, email, phone, referred_by_code, created_at, signup_platform')
+        .not('referred_by_code', 'is', null)
+        .order('created_at', { ascending: false });
+
+      if (referredProfiles) {
+        // Map ref codes to referrer names
+        const refCodes = [...new Set(referredProfiles.map(p => p.referred_by_code).filter(Boolean))];
+        const { data: codeRefs } = await supabase
+          .from('referrers')
+          .select('ref_code, full_name')
+          .in('ref_code', refCodes.length ? refCodes : ['none']);
+        const codeMap = new Map(codeRefs?.map(r => [r.ref_code, r.full_name]) || []);
+
+        // Check which referred users have purchased
+        const referredUserIds = referredProfiles.map(p => p.user_id);
+        const { data: buyerCommissions } = await supabase
+          .from('referral_commissions')
+          .select('buyer_user_id')
+          .in('buyer_user_id', referredUserIds.length ? referredUserIds : ['none']);
+        const buyerSet = new Set(buyerCommissions?.map(c => c.buyer_user_id) || []);
+
+        setReferredUsers(referredProfiles.map(p => ({
+          user_id: p.user_id,
+          full_name: p.full_name || '',
+          email: p.email || '',
+          phone: p.phone || '',
+          referred_by_code: p.referred_by_code || '',
+          referrer_name: codeMap.get(p.referred_by_code || '') || isFr ? 'Inconnu' : 'Unknown',
+          created_at: p.created_at,
+          has_purchased: buyerSet.has(p.user_id),
+          signup_platform: p.signup_platform || 'web',
+        })));
+      }
+
       setStats({
         clicks: clickCount || 0,
         signups: signupCount || 0,
         purchases: purchaseCount,
         pendingCommissions: Math.round(pendingAmount * 100) / 100,
+        totalReferredSignups: totalReferredCount || 0,
       });
     } catch (err) {
       console.error('Error loading referral data:', err);

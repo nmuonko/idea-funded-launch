@@ -457,6 +457,8 @@ export default function AdminReferrals() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
         {/* Commissions Tab */}
         <TabsContent value="commissions">
           <Card>

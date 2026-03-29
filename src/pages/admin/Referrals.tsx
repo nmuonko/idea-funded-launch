@@ -54,13 +54,26 @@ interface Payout {
   referrer_name?: string;
 }
 
+interface ReferredUser {
+  user_id: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  referred_by_code: string;
+  referrer_name: string;
+  created_at: string;
+  has_purchased: boolean;
+  signup_platform: string;
+}
+
 export default function AdminReferrals() {
   const { language } = useLanguage();
   const { toast } = useToast();
   const [referrers, setReferrers] = useState<Referrer[]>([]);
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
-  const [stats, setStats] = useState({ clicks: 0, signups: 0, purchases: 0, pendingCommissions: 0 });
+  const [referredUsers, setReferredUsers] = useState<ReferredUser[]>([]);
+  const [stats, setStats] = useState({ clicks: 0, signups: 0, purchases: 0, pendingCommissions: 0, totalReferredSignups: 0 });
   const [loading, setLoading] = useState(true);
   const [commissionPercent, setCommissionPercent] = useState('10');
   const [payoutMode, setPayoutMode] = useState<'automatic' | 'manual'>('manual');

@@ -1,27 +1,47 @@
 
 
-# Replace iPhone 17 Pro Max with Refurbished Version in Trending
+# Pause All Background Cron Jobs — Keep Data + Paste Link
 
-## What's happening now
-The "Tendances" section uses `sortByLuxury()` which sorts items by luxury keywords first, then by **highest price descending**. This means a $2k new iPhone 17 Pro Max always outranks the $918 Amazon Renewed version.
+## Current State
+17 active cron jobs are running. The catalog is 3 GB (926K items). Your daily cost is ~$20.
 
-## What exists in the catalog
-There's an **"Apple iPhone 17 Pro Max (Renewed)" at $918 from Amazon** already in the catalog — perfect match for what you want.
+## Active jobs to pause (10 jobs)
 
-## Plan
+| Job | Schedule | Why pause |
+|-----|----------|-----------|
+| `amazon-ingest-worker-30m` | Every hour | Biggest API cost driver |
+| `catalog-builder-campaign` | Every 2 hours | Ingests thousands of items |
+| `shein-scraper-30m` | Every 30 min | Heavy scraping + Firecrawl credits |
+| `car-scraper-cargurus-daily` | Daily | Firecrawl credits |
+| `car-scraper-carvana-daily` | Daily | Firecrawl credits |
+| `catalog-prewarm-home-12h` | Every 12h | Pre-warms cache, not needed if no new items |
+| `promote-popular-searches-6h` | Every 6h | DB writes for popularity |
+| `aggregate-popularity-daily` | Daily | Analytics aggregation |
+| `analyze-critical-tables-daily` | Daily | DB maintenance overhead |
+| `cleanup-all-expired-data-6h` | Every 6h | Can pause since no new data flowing in |
 
-### 1. Add "renewed/refurbished" boost to trending sort logic
-**File**: `src/lib/categoryConfig.ts`
+## Jobs to KEEP active (5 jobs — essential for orders/payments)
 
-Modify `sortByLuxury()` to give a bonus to items with "renewed" or "refurbished" in the title when they're in the phone category. This makes the $918 renewed version rank higher than the $2k new version, while keeping luxury sorting for other categories.
+| Job | Why keep |
+|-----|----------|
+| `order-recovery-30m` | Recovers stuck payments |
+| `reconcile-payments-hourly` | Payment reconciliation |
+| `saved-cart-reminders-daily` | Customer engagement |
+| `send-abandoned-cart-recovery-daily` | Revenue recovery |
+| `cleanup-expired-carts-daily` | Lightweight cleanup |
 
-Additionally, add a price ceiling preference: for phones in trending, prefer items in the $500–$1,500 range over items above $1,500. This naturally surfaces the more affordable refurbished models that are realistic purchases for the target market.
+## What stays working
+- **Paste a Link**: Fully functional — user pastes URL → `extract-price` edge function scrapes it → item cached in `catalog_items` → breakdown shown
+- **All existing 926K items**: Untouched, still searchable and purchasable
+- **Orders, payments, checkout**: All operational
 
-### 2. Filter out "for parts/repair" and "cracked" items from trending
-**File**: `src/pages/shop/ShopHome.tsx`
+## Cost impact estimate
+- **Before**: ~$20/day — driven by continuous API calls (Rainforest, Firecrawl, eBay), DB writes from ingestion, and cron-triggered edge function invocations
+- **After**: ~$2-4/day — only payment/order crons running (lightweight DB reads), plus occasional `extract-price` calls when users paste links
+- **Savings**: ~$15-18/day (~$450-540/month)
 
-Add a filter in the `trendingFeed` memo to exclude items with titles containing "parts", "repair", "cracked", "AS-IS", or "READ DESCRIPTION" — these are showing up in the catalog and could leak into trending.
+The big cost drivers are the edge function invocations from ingestion crons (each triggers HTTP calls to external APIs) and the DB write volume from bulk upserts. Pausing them eliminates both.
 
-## Result
-The trending section will show the ~$918 Amazon Renewed iPhone 17 Pro Max instead of the ~$2k new one, which is more realistic for your DRC audience.
+## Implementation
+Single SQL migration to unschedule the 10 jobs using `cron.unschedule('job-name')` for each. No data deleted. Fully reversible — jobs can be re-enabled anytime with `cron.schedule()`.
 

@@ -479,7 +479,7 @@ export default function ProductDetailsPage() {
     );
   }, [product?.id, product?.provider]);
 
-  // Fetch similar products
+   // Fetch similar products
   useEffect(() => {
     const title = product?.title;
     if (!title || !provider || !id) return;
@@ -487,13 +487,34 @@ export default function ProductDetailsPage() {
 
     const fetchSimilar = async () => {
       try {
-        // Use first 4 meaningful words (skip short filler words) for better relevance
-        const meaningful = title.split(/[\s,\-]+/).filter(w => w.length > 2).slice(0, 4).join(' ');
-        const keywords = meaningful || title.split(' ').slice(0, 3).join(' ');
-        const similarData = await cachedCatalogFetch<any>('catalog-search', {
-          q: keywords.trim().toLowerCase(),
+        // Build a focused query: strip noise words and keep brand + product-specific tokens
+        const noiseWords = new Set([
+          'new', 'for', 'with', 'the', 'and', 'pack', 'set', 'premium', 'pro',
+          'best', 'top', 'sale', 'free', 'shipping', 'original', 'genuine',
+          'latest', 'official', 'brand', 'sealed', 'box', 'open', 'lot',
+          'usa', 'fast', 'hot', 'deal', 'great', 'good', 'used', 'like',
+          'condition', 'excellent', 'mint', 'bundle', 'combo', 'kit',
+        ]);
+        const tokens = title
+          .replace(/[^\w\s]/g, ' ')        // remove punctuation
+          .split(/\s+/)
+          .filter(w => w.length > 1 && !noiseWords.has(w.toLowerCase()))
+          .map(w => w.toLowerCase());
+        // Take first 3-5 meaningful tokens (brand + model usually)
+        const keywords = tokens.slice(0, 5).join(' ') || title.split(' ').slice(0, 3).join(' ');
+
+        const searchParams: Record<string, any> = {
+          q: keywords.trim(),
           limit: 13,
-        });
+        };
+
+        // If product has a category, constrain similar results to same category
+        const category = (product as any)?.category_key || (product as any)?.unified_category;
+        if (category) {
+          searchParams.category = category;
+        }
+
+        const similarData = await cachedCatalogFetch<any>('catalog-search', searchParams);
 
         if (controller.signal.aborted) return;
         if (similarData?.items) {

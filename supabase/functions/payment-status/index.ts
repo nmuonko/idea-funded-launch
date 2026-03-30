@@ -126,9 +126,9 @@ serve(async (req) => {
     if (orderId) {
       query = query.eq('id', orderId);
     } else if (reference) {
-      // Reference format: AFRISHOP-{orderId}
-      const extractedOrderId = reference.replace('AFRISHOP-', '').split('-')[0];
-      // Try extracted ID
+      // Reference may be AFRISHOP-{uuid} or the raw UUID itself
+      const extractedOrderId = reference.replace(/^AFRISHOP-/i, '');
+      // Use the full remainder (UUIDs contain hyphens, don't split)
       query = query.eq('id', extractedOrderId);
     }
 

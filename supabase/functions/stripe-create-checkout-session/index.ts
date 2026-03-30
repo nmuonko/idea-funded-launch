@@ -181,6 +181,46 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
+    // ── Idempotency guard: reuse existing pending Stripe session if still active ──
+    const { data: existingPayment } = await supabase
+      .from('payments')
+      .select('id, provider_deposit_id, status')
+      .eq('order_id', order_id)
+      .eq('provider_key', 'stripe_checkout')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingPayment?.provider_deposit_id) {
+      console.log(`[STRIPE_CHECKOUT] Found existing pending payment`, { requestId, paymentId: existingPayment.id, sessionId: existingPayment.provider_deposit_id });
+
+      // Check if Stripe session is still active
+      const existingSessionRes = await fetch(`${STRIPE_API_BASE}/checkout/sessions/${existingPayment.provider_deposit_id}`, {
+        headers: { 'Authorization': `Bearer ${stripeSecretKey}` },
+      });
+
+      if (existingSessionRes.ok) {
+        const existingSession = await existingSessionRes.json();
+        if (existingSession.status !== 'expired' && existingSession.url) {
+          console.log(`[STRIPE_CHECKOUT] Reusing existing session`, { requestId, sessionId: existingSession.id, status: existingSession.status });
+          return new Response(
+            JSON.stringify({
+              success: true,
+              order_id,
+              checkout_session_id: existingSession.id,
+              checkout_url: existingSession.url,
+              amount: grandTotal,
+              currency: currency.toUpperCase(),
+              reused: true,
+            } satisfies CheckoutSessionResponse & { reused: boolean }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        console.log(`[STRIPE_CHECKOUT] Existing session expired, creating new one`, { requestId });
+      }
+    }
+
     // Build success/cancel URLs - MUST use existing routes to avoid 404
     const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
     const successUrl = `${frontendBaseUrl}/payment-success-shop?order_id=${order_id}&provider=stripe`;

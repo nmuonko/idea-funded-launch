@@ -11,7 +11,6 @@ interface SendMessageRequest {
 }
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return handleCors();
   }
@@ -19,7 +18,6 @@ Deno.serve(async (req) => {
   try {
     console.log("support-send-message: Request received");
     
-    // Verify user authentication
     const { user, errorResponse } = await verifyAndGetUser(req);
     if (errorResponse || !user) {
       console.log("support-send-message: Auth failed");
@@ -31,11 +29,10 @@ Deno.serve(async (req) => {
     
     console.log("support-send-message: User authenticated:", user.id);
 
-    // Parse request body
     const body: SendMessageRequest = await req.json();
-    const { message, language = "fr", thread_id: providedThreadId } = body;
+    const { message, thread_id: providedThreadId } = body;
     
-    console.log("support-send-message: Body parsed:", { message: message?.substring(0, 50), language, providedThreadId });
+    console.log("support-send-message: Body parsed:", { message: message?.substring(0, 50), providedThreadId });
 
     if (!message || message.trim().length === 0) {
       return new Response(
@@ -44,104 +41,100 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Create Supabase client with service role for full access
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Find or create an open conversation for this user
-    let conversationId: string;
+    let threadId: string;
 
-    // If thread_id provided, try to find it
+    // If thread_id provided, verify ownership
     if (providedThreadId) {
-      const { data: verifiedConv } = await supabase
-        .from("support_conversations")
+      const { data: verifiedThread } = await supabase
+        .from("support_threads")
         .select("id")
         .eq("id", providedThreadId)
         .eq("user_id", user.id)
         .single();
 
-      if (verifiedConv) {
-        conversationId = verifiedConv.id;
-        console.log("support-send-message: Using provided conversation:", conversationId);
+      if (verifiedThread) {
+        threadId = verifiedThread.id;
+        console.log("support-send-message: Using provided thread:", threadId);
       } else {
         console.log("support-send-message: Provided thread_id not found, will find/create new");
       }
     }
     
-    // If no valid conversation yet, find existing or create new
-    if (!conversationId) {
-      console.log("support-send-message: Looking for existing conversation for user:", user.id);
+    // If no valid thread yet, find existing or create new
+    if (!threadId!) {
+      console.log("support-send-message: Looking for existing thread for user:", user.id);
       
-      // First check for open conversations
-      const { data: existingConv, error: findError } = await supabase
-        .from("support_conversations")
+      const { data: existingThread, error: findError } = await supabase
+        .from("support_threads")
         .select("id, status")
         .eq("user_id", user.id)
-        .in("status", ["waiting_agent", "assigned"])
+        .in("status", ["open", "waiting_admin", "waiting_user"])
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
 
-      console.log("support-send-message: Find result:", { existingConv, findError: findError?.message });
+      console.log("support-send-message: Find result:", { existingThread, findError: findError?.message });
 
-      if (existingConv) {
-        conversationId = existingConv.id;
-        console.log("support-send-message: Using existing conversation:", conversationId);
+      if (existingThread) {
+        threadId = existingThread.id;
+        console.log("support-send-message: Using existing thread:", threadId);
       } else {
-        // Check for closed conversation to reopen
-        const { data: closedConv } = await supabase
-          .from("support_conversations")
+        // Check for resolved thread to reopen
+        const { data: resolvedThread } = await supabase
+          .from("support_threads")
           .select("id")
           .eq("user_id", user.id)
-          .eq("status", "closed")
+          .eq("status", "resolved")
           .order("updated_at", { ascending: false })
           .limit(1)
           .single();
 
-        if (closedConv) {
-          // Reopen the closed conversation
-          console.log("support-send-message: Reopening closed conversation:", closedConv.id);
+        if (resolvedThread) {
+          console.log("support-send-message: Reopening resolved thread:", resolvedThread.id);
           await supabase
-            .from("support_conversations")
+            .from("support_threads")
             .update({ 
-              status: "waiting_agent", 
-              assigned_agent_id: null,
+              status: "open", 
+              last_message_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
             })
-            .eq("id", closedConv.id);
+            .eq("id", resolvedThread.id);
           
-          conversationId = closedConv.id;
+          threadId = resolvedThread.id;
         } else {
-          // Create new conversation - status is waiting_agent so admins see it immediately
-          console.log("support-send-message: Creating new conversation");
-          const { data: newConv, error: convError } = await supabase
-            .from("support_conversations")
-            .insert({ user_id: user.id, status: "waiting_agent", language })
+          console.log("support-send-message: Creating new thread");
+          const { data: newThread, error: threadError } = await supabase
+            .from("support_threads")
+            .insert({ user_id: user.id, status: "waiting_admin" })
             .select("id")
             .single();
 
-          if (convError || !newConv) {
-            console.error("Failed to create conversation:", convError);
+          if (threadError || !newThread) {
+            console.error("Failed to create thread:", threadError);
             return new Response(
-              JSON.stringify({ error: "Failed to create support conversation" }),
+              JSON.stringify({ error: "Failed to create support thread" }),
               { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
-          conversationId = newConv.id;
-          console.log("support-send-message: Created new conversation:", conversationId);
+          threadId = newThread.id;
+          console.log("support-send-message: Created new thread:", threadId);
         }
       }
     }
 
-    // Insert user message into support_messages
+    // Insert user message into thread_messages
     const { error: userMsgError } = await supabase
-      .from("support_messages")
+      .from("thread_messages")
       .insert({
-        conversation_id: conversationId,
+        thread_id: threadId,
         sender_type: "user",
-        content: message.trim(),
-        meta: { user_id: user.id },
+        sender_id: user.id,
+        message: message.trim(),
+        source: "freeform",
       });
 
     if (userMsgError) {
@@ -152,28 +145,31 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Update conversation last_message_at
+    // Update thread last_message_at and status
     const { error: updateError } = await supabase
-      .from("support_conversations")
-      .update({ last_message_at: new Date().toISOString() })
-      .eq("id", conversationId);
+      .from("support_threads")
+      .update({ 
+        last_message_at: new Date().toISOString(),
+        status: "waiting_admin"
+      })
+      .eq("id", threadId);
 
     if (updateError) {
-      console.error("Failed to update conversation:", updateError);
+      console.error("Failed to update thread:", updateError);
     }
 
-    // Fetch latest messages for the conversation
+    // Fetch latest messages for the thread
     const { data: messages } = await supabase
-      .from("support_messages")
-      .select("id, sender_type, content, meta, created_at")
-      .eq("conversation_id", conversationId)
+      .from("thread_messages")
+      .select("id, sender_type, message, source, created_at")
+      .eq("thread_id", threadId)
       .order("created_at", { ascending: true });
 
     return new Response(
       JSON.stringify({
         success: true,
-        thread_id: conversationId,
-        status: "waiting_agent",
+        thread_id: threadId,
+        status: "waiting_admin",
         messages: messages || [],
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

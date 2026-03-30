@@ -8,13 +8,12 @@ const corsHeaders = {
 };
 
 interface MessageRequest {
-  conversation_id?: string;
+  thread_id?: string;
   content: string;
   language?: string;
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -34,7 +33,6 @@ serve(async (req) => {
       );
     }
 
-    // Extract bearer token for user auth
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       console.log(`[${requestId}] Missing auth header`);
@@ -47,7 +45,6 @@ serve(async (req) => {
     const token = authHeader.replace('Bearer ', '');
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    // Verify user token
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
     if (authError || !user) {
@@ -60,7 +57,6 @@ serve(async (req) => {
 
     console.log(`[${requestId}] User authenticated:`, user.id);
 
-    // Parse request body
     let body: MessageRequest;
     try {
       body = await req.json();
@@ -71,7 +67,6 @@ serve(async (req) => {
       );
     }
 
-    // Validate content
     const content = body.content?.trim();
     if (!content || content.length === 0) {
       return new Response(
@@ -87,87 +82,78 @@ serve(async (req) => {
       );
     }
 
-    const language = body.language || 'fr';
-    let conversationId = body.conversation_id;
+    let threadId = body.thread_id;
 
-    // If no conversation_id provided, find or create one for this user
-    if (!conversationId) {
-      // Check for existing active conversation
-      const { data: existingConversation } = await supabase
-        .from('support_conversations')
+    if (!threadId) {
+      // Check for existing active thread
+      const { data: existingThread } = await supabase
+        .from('support_threads')
         .select('id')
         .eq('user_id', user.id)
-        .in('status', ['bot', 'waiting', 'active'])
+        .in('status', ['open', 'waiting_admin', 'waiting_user'])
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
 
-      if (existingConversation) {
-        conversationId = existingConversation.id;
-        console.log(`[${requestId}] Using existing conversation:`, conversationId);
+      if (existingThread) {
+        threadId = existingThread.id;
+        console.log(`[${requestId}] Using existing thread:`, threadId);
       } else {
-        // Create new conversation
-        const { data: newConversation, error: createError } = await supabase
-          .from('support_conversations')
+        // Create new thread
+        const { data: newThread, error: createError } = await supabase
+          .from('support_threads')
           .insert({
             user_id: user.id,
-            status: 'bot',
-            language: language,
+            status: 'waiting_admin',
             last_message_at: new Date().toISOString(),
           })
           .select('id')
           .single();
 
         if (createError) {
-          console.error(`[${requestId}] Failed to create conversation:`, createError.message);
+          console.error(`[${requestId}] Failed to create thread:`, createError.message);
           return new Response(
-            JSON.stringify({ success: false, code: 'CREATE_FAILED', message: 'Failed to create conversation' }),
+            JSON.stringify({ success: false, code: 'CREATE_FAILED', message: 'Failed to create thread' }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
 
-        conversationId = newConversation.id;
-        console.log(`[${requestId}] Created new conversation:`, conversationId);
+        threadId = newThread.id;
+        console.log(`[${requestId}] Created new thread:`, threadId);
       }
     } else {
-      // Verify user owns this conversation
-      const { data: ownedConversation, error: verifyError } = await supabase
-        .from('support_conversations')
+      // Verify user owns this thread
+      const { data: ownedThread, error: verifyError } = await supabase
+        .from('support_threads')
         .select('id')
-        .eq('id', conversationId)
+        .eq('id', threadId)
         .eq('user_id', user.id)
         .single();
 
-      if (verifyError || !ownedConversation) {
-        console.log(`[${requestId}] User does not own conversation:`, conversationId);
+      if (verifyError || !ownedThread) {
+        console.log(`[${requestId}] User does not own thread:`, threadId);
         return new Response(
-          JSON.stringify({ success: false, code: 'NOT_AUTHORIZED', message: 'You do not have access to this conversation' }),
+          JSON.stringify({ success: false, code: 'NOT_AUTHORIZED', message: 'You do not have access to this thread' }),
           { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
     }
 
-    // Insert the message using service role (bypasses RLS)
-    // This ensures the insert succeeds even if RLS policies have issues
+    // Insert the message
     const { data: message, error: insertError } = await supabase
-      .from('support_messages')
+      .from('thread_messages')
       .insert({
-        conversation_id: conversationId,
-        content: content,
+        thread_id: threadId,
+        message: content,
         sender_type: 'user',
-        meta: { 
-          user_id: user.id,
-          user_email: user.email || null,
-          submitted_at: new Date().toISOString(),
-        },
+        sender_id: user.id,
+        source: 'freeform',
       })
-      .select('id, content, created_at, sender_type')
+      .select('id, message, created_at, sender_type')
       .single();
 
     if (insertError) {
       console.error(`[${requestId}] Failed to insert message:`, insertError.message, insertError.code, insertError.details);
-      
-      // Provide more specific error info for debugging
       return new Response(
         JSON.stringify({ 
           success: false, 
@@ -176,18 +162,21 @@ serve(async (req) => {
           debug: {
             error_code: insertError.code,
             error_hint: insertError.hint || null,
-            conversation_id: conversationId,
+            thread_id: threadId,
           },
         }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Update conversation last_message_at
+    // Update thread last_message_at and status
     await supabase
-      .from('support_conversations')
-      .update({ last_message_at: new Date().toISOString() })
-      .eq('id', conversationId);
+      .from('support_threads')
+      .update({ 
+        last_message_at: new Date().toISOString(),
+        status: 'waiting_admin',
+      })
+      .eq('id', threadId);
 
     console.log(`[${requestId}] Message sent successfully:`, message.id);
 
@@ -196,8 +185,8 @@ serve(async (req) => {
         success: true,
         message: {
           id: message.id,
-          conversation_id: conversationId,
-          content: message.content,
+          thread_id: threadId,
+          content: message.message,
           sender_type: message.sender_type,
           created_at: message.created_at,
         },

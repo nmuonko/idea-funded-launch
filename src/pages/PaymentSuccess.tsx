@@ -52,8 +52,6 @@ export default function PaymentSuccess() {
         console.log('[PaymentSuccess] Status data:', statusData);
 
         if (statusData?.success) {
-
-        if (statusData?.success) {
           setOrderData({
             orderId: statusData.orderId,
             totalUsd: statusData.totalUsd,

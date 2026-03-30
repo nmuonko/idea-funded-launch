@@ -232,7 +232,7 @@ serve(async (req: Request): Promise<Response> => {
     let normalizedStatus: 'succeeded' | 'pending' | 'failed' | 'expired';
     const now = new Date().toISOString();
     
-    if (paymentStatus === 'paid' || stripeStatus === 'complete') {
+    if (paymentStatus === 'paid') {
       normalizedStatus = 'succeeded';  // CRITICAL: Frontend expects 'succeeded', not 'paid'
     } else if (stripeStatus === 'expired') {
       normalizedStatus = 'expired';

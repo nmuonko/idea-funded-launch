@@ -5,8 +5,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useSupportContact } from '@/hooks/useSupportContact';
 import { supabase } from "@/integrations/supabase/client";
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
 export default function PaymentSuccess() {
   const [searchParams] = useSearchParams();
@@ -34,29 +32,26 @@ export default function PaymentSuccess() {
       }
 
       try {
-        // Call the payment-status endpoint
-        // Legacy invoke kept for reference; actual fetch below uses query params
-        void 0;
-
-        // Use fetch directly since we need query params
-        const supabaseUrl = SUPABASE_URL;
+        // Build query params for payment-status
         const params = new URLSearchParams();
         if (reference) params.set('reference', reference);
         if (orderId) params.set('order_id', orderId);
 
-        const response = await fetch(
-          `${supabaseUrl}/functions/v1/payment-status?${params.toString()}`,
-          {
-            headers: {
-              'apikey': SUPABASE_ANON_KEY,
-            },
-          }
+        // Use supabase.functions.invoke to automatically include JWT
+        const { data: statusData, error: invokeError } = await supabase.functions.invoke(
+          `payment-status?${params.toString()}`,
+          { method: 'GET' }
         );
 
-        const statusData = await response.json();
+        if (invokeError) {
+          console.error('[PaymentSuccess] Invoke error:', invokeError);
+          setLoading(false);
+          return;
+        }
+
         console.log('[PaymentSuccess] Status data:', statusData);
 
-        if (statusData.success) {
+        if (statusData?.success) {
           setOrderData({
             orderId: statusData.orderId,
             totalUsd: statusData.totalUsd,

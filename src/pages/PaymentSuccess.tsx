@@ -5,8 +5,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useSupportContact } from '@/hooks/useSupportContact';
 import { supabase } from "@/integrations/supabase/client";
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
 export default function PaymentSuccess() {
   const [searchParams] = useSearchParams();
@@ -51,10 +49,11 @@ export default function PaymentSuccess() {
           return;
         }
 
-        const statusData = await response.json();
         console.log('[PaymentSuccess] Status data:', statusData);
 
-        if (statusData.success) {
+        if (statusData?.success) {
+
+        if (statusData?.success) {
           setOrderData({
             orderId: statusData.orderId,
             totalUsd: statusData.totalUsd,

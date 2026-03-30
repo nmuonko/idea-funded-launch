@@ -1,47 +1,38 @@
 
 
-# Pause All Background Cron Jobs — Keep Data + Paste Link
+# Fix support-send-message to use new thread schema
 
-## Current State
-17 active cron jobs are running. The catalog is 3 GB (926K items). Your daily cost is ~$20.
+## The 3 Bugs
 
-## Active jobs to pause (10 jobs)
+All in `supabase/functions/support-send-message/index.ts`:
 
-| Job | Schedule | Why pause |
-|-----|----------|-----------|
-| `amazon-ingest-worker-30m` | Every hour | Biggest API cost driver |
-| `catalog-builder-campaign` | Every 2 hours | Ingests thousands of items |
-| `shein-scraper-30m` | Every 30 min | Heavy scraping + Firecrawl credits |
-| `car-scraper-cargurus-daily` | Daily | Firecrawl credits |
-| `car-scraper-carvana-daily` | Daily | Firecrawl credits |
-| `catalog-prewarm-home-12h` | Every 12h | Pre-warms cache, not needed if no new items |
-| `promote-popular-searches-6h` | Every 6h | DB writes for popularity |
-| `aggregate-popularity-daily` | Daily | Analytics aggregation |
-| `analyze-critical-tables-daily` | Daily | DB maintenance overhead |
-| `cleanup-all-expired-data-6h` | Every 6h | Can pause since no new data flowing in |
+1. **Wrong table names** — queries `support_conversations` and `support_messages` instead of `support_threads` and `thread_messages`
+2. **Wrong status values** — uses `waiting_agent`, `assigned`, `closed` instead of `open`, `waiting_admin`, `waiting_user`, `resolved`
+3. **Wrong column names** — inserts `conversation_id`, `content`, `meta` instead of `thread_id`, `message`, `sender_id` + `source`
 
-## Jobs to KEEP active (5 jobs — essential for orders/payments)
+## Fix Details
 
-| Job | Why keep |
-|-----|----------|
-| `order-recovery-30m` | Recovers stuck payments |
-| `reconcile-payments-hourly` | Payment reconciliation |
-| `saved-cart-reminders-daily` | Customer engagement |
-| `send-abandoned-cart-recovery-daily` | Revenue recovery |
-| `cleanup-expired-carts-daily` | Lightweight cleanup |
+**File**: `supabase/functions/support-send-message/index.ts`
 
-## What stays working
-- **Paste a Link**: Fully functional — user pastes URL → `extract-price` edge function scrapes it → item cached in `catalog_items` → breakdown shown
-- **All existing 926K items**: Untouched, still searchable and purchasable
-- **Orders, payments, checkout**: All operational
+| Line(s) | Current | Fix |
+|---------|---------|-----|
+| 53 | `let conversationId` | `let threadId` |
+| 57-62 | `.from("support_conversations")` | `.from("support_threads")` |
+| 77-84 | `.from("support_conversations")` + `.in("status", ["waiting_agent", "assigned"])` | `.from("support_threads")` + `.in("status", ["open", "waiting_admin", "waiting_user"])` |
+| 93-100 | `.eq("status", "closed")` | `.eq("status", "resolved")` |
+| 105-112 | `.update({ status: "waiting_agent", assigned_agent_id: null, ... })` | `.update({ status: "open", last_message_at: now() })` |
+| 118-122 | `.insert({ user_id, status: "waiting_agent", language })` | `.insert({ user_id, status: "waiting_admin" })` (no `language` column in new schema) |
+| 137-145 | `.from("support_messages").insert({ conversation_id, sender_type: "user", content, meta })` | `.from("thread_messages").insert({ thread_id, sender_type: "user", sender_id: user.id, message, source: "freeform" })` |
+| 155-159 | `.from("support_conversations").update({ last_message_at })` | `.from("support_threads").update({ last_message_at, status: "waiting_admin" })` |
+| 166-170 | `.from("support_messages").select("id, sender_type, content, meta, created_at").eq("conversation_id", ...)` | `.from("thread_messages").select("id, sender_type, message, source, created_at").eq("thread_id", ...)` |
+| 176 | `status: "waiting_agent"` | `status: "waiting_admin"` |
 
-## Cost impact estimate
-- **Before**: ~$20/day — driven by continuous API calls (Rainforest, Firecrawl, eBay), DB writes from ingestion, and cron-triggered edge function invocations
-- **After**: ~$2-4/day — only payment/order crons running (lightweight DB reads), plus occasional `extract-price` calls when users paste links
-- **Savings**: ~$15-18/day (~$450-540/month)
+Also check `submit-support-message/index.ts` — it has the same issues but references `support_conversations` with statuses `bot`, `waiting`, `active`. Same fix pattern needed there.
 
-The big cost drivers are the edge function invocations from ingestion crons (each triggers HTTP calls to external APIs) and the DB write volume from bulk upserts. Pausing them eliminates both.
+## Also Fix: `submit-support-message/index.ts`
 
-## Implementation
-Single SQL migration to unschedule the 10 jobs using `cron.unschedule('job-name')` for each. No data deleted. Fully reversible — jobs can be re-enabled anytime with `cron.schedule()`.
+Same mapping: `support_conversations` → `support_threads`, `support_messages` → `thread_messages`, old statuses → new statuses, old columns → new columns.
+
+## No migration needed
+The `support_threads` and `thread_messages` tables already exist with the correct schema. This is purely an edge function code fix.
 

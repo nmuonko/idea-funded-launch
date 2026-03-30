@@ -64,6 +64,7 @@ interface ReferredUser {
   created_at: string;
   has_purchased: boolean;
   signup_platform: string;
+  total_spent: number;
 }
 
 export default function AdminReferrals() {
@@ -199,13 +200,19 @@ export default function AdminReferrals() {
           .in('ref_code', refCodes.length ? refCodes : ['none']);
         const codeMap = new Map(codeRefs?.map(r => [r.ref_code, r.full_name]) || []);
 
-        // Check which referred users have purchased
+        // Check which referred users have purchased + total spent
         const referredUserIds = referredProfiles.map(p => p.user_id);
         const { data: buyerCommissions } = await supabase
           .from('referral_commissions')
-          .select('buyer_user_id')
+          .select('buyer_user_id, order_total_usd')
           .in('buyer_user_id', referredUserIds.length ? referredUserIds : ['none']);
         const buyerSet = new Set(buyerCommissions?.map(c => c.buyer_user_id) || []);
+        
+        // Aggregate total spent per buyer
+        const spentMap = new Map<string, number>();
+        buyerCommissions?.forEach(c => {
+          spentMap.set(c.buyer_user_id, (spentMap.get(c.buyer_user_id) || 0) + (c.order_total_usd || 0));
+        });
 
         setReferredUsers(referredProfiles.map(p => ({
           user_id: p.user_id,
@@ -217,6 +224,7 @@ export default function AdminReferrals() {
           created_at: p.created_at,
           has_purchased: buyerSet.has(p.user_id),
           signup_platform: p.signup_platform || 'web',
+          total_spent: Math.round((spentMap.get(p.user_id) || 0) * 100) / 100,
         })));
       }
 
@@ -426,6 +434,7 @@ export default function AdminReferrals() {
                       <TableHead>{isFr ? 'Parrain' : 'Referrer'}</TableHead>
                       <TableHead>{isFr ? 'Plateforme' : 'Platform'}</TableHead>
                       <TableHead>{isFr ? 'A acheté ?' : 'Purchased?'}</TableHead>
+                      <TableHead>{isFr ? 'Total dépensé' : 'Total Spent'}</TableHead>
                       <TableHead>{isFr ? 'Inscription' : 'Signed Up'}</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -446,6 +455,9 @@ export default function AdminReferrals() {
                           ) : (
                             <Badge variant="secondary">{isFr ? 'Pas encore' : 'Not yet'}</Badge>
                           )}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          {u.total_spent > 0 ? `$${u.total_spent.toFixed(2)}` : '-'}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {new Date(u.created_at).toLocaleDateString()}

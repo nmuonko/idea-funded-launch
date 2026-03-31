@@ -357,7 +357,7 @@ serve(async (req: Request): Promise<Response> => {
     );
 
   } catch (error: any) {
-    console.error(`[STRIPE_CHECKOUT] Unhandled error`, { requestId, error: error.message, stack: error.stack });
+    console.error(`[STRIPE_CHECKOUT] Unhandled error`, { requestId, error: error.message });
     
     return new Response(
       JSON.stringify({ 

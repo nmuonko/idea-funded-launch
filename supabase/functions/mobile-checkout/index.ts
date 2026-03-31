@@ -2375,7 +2375,6 @@ serve(async (req) => {
       } catch (inlineError: any) {
         console.error('[CHECKOUT_INLINE_PROVIDER] Exception during inline provider call', {
           error: inlineError.message,
-          stack: inlineError.stack?.slice(0, 200),
         });
         // Fall through to return awaiting_provider_selection (backward compatible)
       }
@@ -2468,7 +2467,7 @@ serve(async (req) => {
 
   } catch (error: any) {
     const elapsedMs = typeof perf !== 'undefined' ? perf.total() : Date.now() - startTime;
-    console.error(`[CHECKOUT][ERROR] correlationId=${correlationId} code=INTERNAL_ERROR message=${error.message} ms=${elapsedMs}`, error.stack);
+    console.error(`[CHECKOUT][ERROR] correlationId=${correlationId} code=INTERNAL_ERROR message=${error.message} ms=${elapsedMs}`);
     
     // ALWAYS return HTTP 200 with JSON (never non-2xx for application errors)
     if (error.name === 'AuthError') {

@@ -1716,7 +1716,7 @@ serve(async (req) => {
   } catch (err) {
     // CRITICAL: This catch block ensures we NEVER throw
     const totalMs = Date.now() - startTime;
-    console.error(`[CATALOG_HOME][ERROR] correlationId=${correlationId} error=${err} stack=${(err as Error).stack} ms=${totalMs}`);
+    console.error(`[CATALOG_HOME][ERROR] correlationId=${correlationId} error=${(err as Error).message} ms=${totalMs}`);
     
     // For mobile: ALWAYS return ok:true with normalized empty sections
     if (clientType === "mobile") {

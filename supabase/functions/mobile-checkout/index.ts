@@ -2375,7 +2375,6 @@ serve(async (req) => {
       } catch (inlineError: any) {
         console.error('[CHECKOUT_INLINE_PROVIDER] Exception during inline provider call', {
           error: inlineError.message,
-          stack: inlineError.stack?.slice(0, 200),
         });
         // Fall through to return awaiting_provider_selection (backward compatible)
       }

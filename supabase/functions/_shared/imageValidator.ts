@@ -159,6 +159,11 @@ const BLOCKED_SUBSTRINGS = [
   "limited-time", "limited_time",
   "sponsored-", "sponsored_", "/sponsored",
 
+  // Amazon video play-button overlays (not product photos)
+  "pkmb-play-button-overlay",
+  "play-button-overlay",
+  "play_button_overlay",
+
   // Category banners
   "category-banner", "category_banner",
   "announcement-bar", "announcement_bar",
@@ -296,9 +301,19 @@ export function sanitizeImageUrl(url: string | null | undefined): string | null 
  * Filter and upgrade a gallery array.
  * Validates, upgrades to high-res, and deduplicates.
  */
+/**
+ * Extract the base Amazon image ID for deduplication.
+ * e.g. "41msggSuaoL._SL75_.jpg" and "41msggSuaoL.jpg" → "41msggsuaol"
+ */
+function amazonImageBaseId(url: string): string | null {
+  const m = url.match(/\/images\/I\/([A-Za-z0-9+_-]+?)(?:\._[^/]*)?\.(?:jpg|png|webp|jpeg)/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
 export function sanitizeGallery(urls: string[]): string[] {
   if (!urls || !Array.isArray(urls)) return [];
   const seen = new Set<string>();
+  const seenAmazonBase = new Set<string>();
   const result: string[] = [];
   for (const u of urls) {
     if (typeof u !== 'string' || !u.startsWith('http')) continue;
@@ -307,6 +322,14 @@ export function sanitizeGallery(urls: string[]): string[] {
     const key = upgraded.toLowerCase().replace(/\?.*$/, '');
     if (seen.has(key)) continue;
     seen.add(key);
+    // Amazon dedup: same base image ID at different sizes → keep only the first (upgraded) one
+    if (upgraded.includes('media-amazon.com') || upgraded.includes('images-amazon.com')) {
+      const baseId = amazonImageBaseId(upgraded);
+      if (baseId) {
+        if (seenAmazonBase.has(baseId)) continue;
+        seenAmazonBase.add(baseId);
+      }
+    }
     result.push(upgraded);
   }
   return result;

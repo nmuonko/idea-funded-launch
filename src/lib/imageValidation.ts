@@ -101,6 +101,11 @@ const BLOCKED_TOKENS = [
   'add-to-cart', 'add_to_cart',
   'limited-time', 'limited_time',
   'sponsored-', 'sponsored_', '/sponsored',
+
+  // Amazon video play-button overlays (not product photos)
+  'pkmb-play-button-overlay',
+  'play-button-overlay',
+  'play_button_overlay',
 ];
 
 /** Filename patterns that strongly indicate non-product promotional content */
@@ -161,17 +166,35 @@ export function isRenderableImageUrl(url?: string | null): boolean {
  * Filter an array of image URLs to only valid product images.
  * Deduplicates by normalized URL.
  */
+/**
+ * Extract the base Amazon image ID for deduplication.
+ * e.g. "41msggSuaoL._SL75_.jpg" and "41msggSuaoL.jpg" → "41msggsuaol"
+ */
+function amazonImageBaseId(url: string): string | null {
+  const m = url.match(/\/images\/I\/([A-Za-z0-9+_-]+?)(?:\._[^/]*)?\.(?:jpg|png|webp|jpeg)/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
 export function filterGalleryImages(images: string[]): string[] {
   if (!images || !Array.isArray(images)) return [];
   const filtered = images
     .map(url => upgradeToHighRes(url))
     .filter(url => isRenderableImageUrl(url));
-  // Deduplicate by normalized URL
+  // Deduplicate by normalized URL + Amazon base image ID
   const seen = new Set<string>();
+  const seenAmazonBase = new Set<string>();
   return filtered.filter(url => {
     const key = url.toLowerCase().replace(/\?.*$/, '');
     if (seen.has(key)) return false;
     seen.add(key);
+    // Amazon dedup: same base image ID at different sizes → keep first
+    if (url.includes('media-amazon.com') || url.includes('images-amazon.com')) {
+      const baseId = amazonImageBaseId(url);
+      if (baseId) {
+        if (seenAmazonBase.has(baseId)) return false;
+        seenAmazonBase.add(baseId);
+      }
+    }
     return true;
   });
 }

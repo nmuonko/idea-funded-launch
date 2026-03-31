@@ -159,6 +159,11 @@ const BLOCKED_SUBSTRINGS = [
   "limited-time", "limited_time",
   "sponsored-", "sponsored_", "/sponsored",
 
+  // Amazon video play-button overlays (not product photos)
+  "pkmb-play-button-overlay",
+  "play-button-overlay",
+  "play_button_overlay",
+
   // Category banners
   "category-banner", "category_banner",
   "announcement-bar", "announcement_bar",

@@ -255,6 +255,7 @@ export function upgradeToHighRes(url: string | null | undefined): string | null 
 
   // Amazon: upgrade ALL thumbnail/resize patterns to high-res
   if (upgraded.includes("m.media-amazon.com") || upgraded.includes("images-amazon.com") || upgraded.includes("ssl-images-amazon.com")) {
+    const before = upgraded;
     upgraded = upgraded
       .replace(/_SL\d{2,4}([_.])/gi, '_SL1500$1')
       .replace(/_SS\d{2,4}([_.])/gi, '_SL1500$1')
@@ -267,6 +268,13 @@ export function upgradeToHighRes(url: string | null | undefined): string | null 
       .replace(/_UY\d{2,4}([_.])/gi, '_SL1500$1')
       .replace(/_US\d{2,4}([_.])/gi, '_SL1500$1')
       .replace(/_SR\d+,\d+([_.])/gi, '_SL1500$1');
+    // If no size token was present, inject one before the extension
+    // e.g. "31G2vNU-WnL.jpg" → "31G2vNU-WnL._SL1500_.jpg"
+    if (upgraded === before && /\/images\/I\/[^/]+\.(jpg|png|webp|jpeg)(\?|$)/i.test(upgraded)) {
+      if (!/_(?:SL|SS|SX|SY|AC_SL|AC_UY|AC_US|AC_UL|UY|US|SR)\d/i.test(upgraded)) {
+        upgraded = upgraded.replace(/\.(jpg|png|webp|jpeg)(\?|$)/i, '._SL1500_.$1$2');
+      }
+    }
   }
 
   // eBay: replace s-l225 / s-l300 / s-l500 with s-l1600

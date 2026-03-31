@@ -1084,11 +1084,29 @@ Deno.serve(async (req: Request) => {
             enrichedImages = scrapedImages;
             console.log(`[GALLERY_ENRICH] Amazon scrape success for ${amazonAsin}: ${enrichedImages.length} images`);
           }
-          // Firecrawl fallback DISABLED to conserve credits
+          
+          // Firecrawl fallback when direct scrape fails or returns too few
+          if (enrichedImages.length <= (item.images?.length || 0)) {
+            try {
+              const budgetCheck = await db.rpc("check_provider_budget", { p_provider: "gallery_enrich_amazon", p_window_type: "day", p_limit: 50 });
+              const budgetData = budgetCheck?.data;
+              if (budgetData?.allowed) {
+                console.log(`[GALLERY_ENRICH] Amazon Firecrawl fallback for ${amazonAsin} (budget: ${budgetData.remaining} remaining)`);
+                const firecrawlImages = await scrapeAmazonGalleryFirecrawl(amazonAsin);
+                if (firecrawlImages.length > Math.max(enrichedImages.length, item.images?.length || 0)) {
+                  enrichedImages = firecrawlImages;
+                  console.log(`[GALLERY_ENRICH] Amazon Firecrawl success for ${amazonAsin}: ${enrichedImages.length} images`);
+                }
+                await db.rpc("increment_provider_budget", { p_provider: "gallery_enrich_amazon", p_window_type: "day" });
+              } else {
+                console.log(`[GALLERY_ENRICH] Amazon Firecrawl budget exhausted (${budgetData?.count}/${budgetData?.limit})`);
+              }
+            } catch (fcErr) {
+              console.warn(`[GALLERY_ENRICH] Amazon Firecrawl budget check failed: ${fcErr}`);
+            }
+          }
         } catch (e) {
           console.warn(`[GALLERY_ENRICH] Amazon scrape failed for ${amazonAsin}: ${e}`);
-          // Firecrawl fallback DISABLED to conserve credits
-          console.warn(`[GALLERY_ENRICH] Amazon direct scrape failed for ${amazonAsin}, skipping Firecrawl`);
         }
         
         // Apply enriched images

@@ -101,6 +101,11 @@ const BLOCKED_TOKENS = [
   'add-to-cart', 'add_to_cart',
   'limited-time', 'limited_time',
   'sponsored-', 'sponsored_', '/sponsored',
+
+  // Amazon video play-button overlays (not product photos)
+  'pkmb-play-button-overlay',
+  'play-button-overlay',
+  'play_button_overlay',
 ];
 
 /** Filename patterns that strongly indicate non-product promotional content */

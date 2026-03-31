@@ -76,11 +76,18 @@ export function resizeImageUrl(url: string, targetSize: number): string {
   // Don't block thumbnails; they are just URL tokens, not actual tiny images
 
   // Amazon patterns: _SL1500, _SX1500, _SY1500, _AC_SL1500
-  const amazonResized = url
+  let amazonResized = url
     .replace(/_SL\d{3,4}/gi, `_SL${targetSize}`)
     .replace(/_SX\d{3,4}/gi, `_SX${targetSize}`)
     .replace(/_SY\d{3,4}/gi, `_SY${targetSize}`)
     .replace(/_AC_SL\d{3,4}/gi, `_AC_SL${targetSize}`);
+
+  // If no size token was present, inject one before the extension
+  if (amazonResized === url && /\/images\/I\/[^/]+\.(jpg|png|webp|jpeg)(\?|$)/i.test(url)) {
+    if (!/_(?:SL|SS|SX|SY|AC_SL|AC_UY|AC_US|AC_UL|UY|US|SR)\d/i.test(url)) {
+      amazonResized = url.replace(/\.(jpg|png|webp|jpeg)(\?|$)/i, `._SL${targetSize}_.$1$2`);
+    }
+  }
 
   if (amazonResized !== url) return amazonResized;
 

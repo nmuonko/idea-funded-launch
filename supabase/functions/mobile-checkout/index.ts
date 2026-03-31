@@ -2467,7 +2467,7 @@ serve(async (req) => {
 
   } catch (error: any) {
     const elapsedMs = typeof perf !== 'undefined' ? perf.total() : Date.now() - startTime;
-    console.error(`[CHECKOUT][ERROR] correlationId=${correlationId} code=INTERNAL_ERROR message=${error.message} ms=${elapsedMs}`, error.stack);
+    console.error(`[CHECKOUT][ERROR] correlationId=${correlationId} code=INTERNAL_ERROR message=${error.message} ms=${elapsedMs}`);
     
     // ALWAYS return HTTP 200 with JSON (never non-2xx for application errors)
     if (error.name === 'AuthError') {

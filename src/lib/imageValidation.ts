@@ -213,7 +213,7 @@ function upgradeToHighRes(url: string): string {
   }
   // Amazon: upgrade ALL thumbnail tokens to high-res
   if (url.includes('media-amazon.com') || url.includes('images-amazon.com') || url.includes('ssl-images-amazon.com')) {
-    return url
+    let upgraded = url
       .replace(/_SL\d{2,4}([_.])/gi, '_SL1500$1')
       .replace(/_SS\d{2,4}([_.])/gi, '_SL1500$1')
       .replace(/_SX\d{2,4}([_.])/gi, '_SL1500$1')
@@ -225,6 +225,13 @@ function upgradeToHighRes(url: string): string {
       .replace(/_UY\d{2,4}([_.])/gi, '_SL1500$1')
       .replace(/_US\d{2,4}([_.])/gi, '_SL1500$1')
       .replace(/_SR\d+,\d+([_.])/gi, '_SL1500$1');
+    // If no size token was present at all, inject one before the extension
+    if (upgraded === url && /\/images\/I\/[^/]+\.(jpg|png|webp|jpeg)(\?|$)/i.test(upgraded)) {
+      if (!/_(?:SL|SS|SX|SY|AC_SL|AC_UY|AC_US|AC_UL|UY|US|SR)\d/i.test(upgraded)) {
+        upgraded = upgraded.replace(/\.(jpg|png|webp|jpeg)(\?|$)/i, '._SL1500_.$1$2');
+      }
+    }
+    return upgraded;
   }
   // SHEIN
   if (url.includes('ltwebstatic.com') && /_thumbnail_\d+x\d+/i.test(url)) {

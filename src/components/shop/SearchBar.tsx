@@ -80,8 +80,8 @@ export function SearchBar({ defaultValue = '', className, onSearch, autoFocus }:
     saveRecentSearch(trimmed);
     setShowRecent(false);
 
-    // TikTok Pixel: Search
-    try { window.ttq?.track('Search', { search_string: trimmed }); } catch {}
+    // TikTok Pixel + Server: Search
+    try { trackSearch(trimmed); } catch {}
     
     if (onSearch) {
       onSearch(trimmed);

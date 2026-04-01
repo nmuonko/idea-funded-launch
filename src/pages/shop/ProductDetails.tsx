@@ -394,12 +394,11 @@ export default function ProductDetailsPage() {
           hasVariants: !!item.variants?.length,
         });
 
-        // TikTok Pixel: ViewContent
-        trackViewContent({
-          id: cleanProductId,
-          title: item.title || '',
-          price: item.priceUsd ?? item.price_usd ?? 0,
-        });
+        // TikTok Pixel + Server: ViewContent
+        trackViewContent(
+          { id: cleanProductId, title: item.title || '', price: item.priceUsd ?? item.price_usd ?? 0 },
+          { email: session?.user?.email ?? undefined, userId: session?.user?.id ?? undefined },
+        );
       } catch (err: any) {
         if (controller.signal.aborted) return;
         console.error('[ProductDetails] fetch error', {

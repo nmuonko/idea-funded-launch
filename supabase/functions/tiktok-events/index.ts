@@ -122,7 +122,10 @@ Deno.serve(async (req: Request) => {
         ...(properties.content_type && { content_type: properties.content_type }),
         ...(properties.content_name && { content_name: properties.content_name }),
         ...(properties.search_string && { search_string: properties.search_string }),
-        ...(properties.contents && { contents: properties.contents }),
+        // TikTok requires contents array for Content ID matching
+        contents: properties.contents || (properties.content_id
+          ? [{ content_id: properties.content_id, content_name: properties.content_name || '', content_type: properties.content_type || 'product', price: properties.value, quantity: 1 }]
+          : undefined),
       },
     };
 

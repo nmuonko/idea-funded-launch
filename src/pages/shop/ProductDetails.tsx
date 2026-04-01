@@ -393,6 +393,13 @@ export default function ProductDetailsPage() {
           source: data.source,
           hasVariants: !!item.variants?.length,
         });
+
+        // TikTok Pixel: ViewContent
+        trackViewContent({
+          id: cleanProductId,
+          title: item.title || '',
+          price: item.priceUsd ?? item.price_usd ?? 0,
+        });
       } catch (err: any) {
         if (controller.signal.aborted) return;
         console.error('[ProductDetails] fetch error', {

@@ -16,6 +16,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
+import { trackInitiateCheckout } from '@/lib/tiktokPixel';
 
 interface ShippingAddress {
   fullName: string;
@@ -139,6 +140,9 @@ export default function Checkout() {
       });
       return;
     }
+
+    // TikTok Pixel: InitiateCheckout
+    trackInitiateCheckout(checkoutTotal);
 
     setLoading(true);
     setCheckoutError(null);

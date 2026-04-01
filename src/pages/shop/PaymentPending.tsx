@@ -8,6 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
+import { trackPurchase } from '@/lib/tiktokPixel';
 
 export default function PaymentPending() {
   const [searchParams] = useSearchParams();
@@ -51,6 +52,7 @@ export default function PaymentPending() {
           setStatus('paid');
           if (!cartClearedRef.current) {
             cartClearedRef.current = true;
+            trackPurchase(order.total_usd || (urlTotalUsd ? parseFloat(urlTotalUsd) : 0));
             await clearCartOnPaymentSuccess();
             console.log('[PAYMENT] success orderId=', orderId, '-> cart cleared');
           }

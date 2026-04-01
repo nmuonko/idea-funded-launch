@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { trackRecentlyViewed } from '@/lib/recentlyViewed';
+import { trackViewContent, trackAddToCart } from '@/lib/tiktokPixel';
 import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { filterGalleryImages } from '@/lib/imageValidation';
@@ -392,6 +393,13 @@ export default function ProductDetailsPage() {
           source: data.source,
           hasVariants: !!item.variants?.length,
         });
+
+        // TikTok Pixel: ViewContent
+        trackViewContent({
+          id: cleanProductId,
+          title: item.title || '',
+          price: item.priceUsd ?? item.price_usd ?? 0,
+        });
       } catch (err: any) {
         if (controller.signal.aborted) return;
         console.error('[ProductDetails] fetch error', {
@@ -603,6 +611,12 @@ export default function ProductDetailsPage() {
         quantity,
         productUrl: product.productUrl,
         ...(isFixedPrice ? { isFixedPrice: true } : {}),
+      });
+      // TikTok Pixel: AddToCart
+      trackAddToCart({
+        id: product.id,
+        title: product.title,
+        price: isFixedPrice ? hotProductPrice! : product.priceUsd,
       });
       setAdded(true);
       setTimeout(() => setAdded(false), 3000);

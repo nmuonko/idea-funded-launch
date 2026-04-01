@@ -69,6 +69,7 @@ export function trackViewContent(
     content_type: 'product',
     value: product.price,
     currency: 'USD',
+    contents: [{ content_id: product.id, content_name: product.title, content_type: 'product', price: product.price, quantity: 1 }],
   });
   sendServerEvent({
     event: 'ViewContent',

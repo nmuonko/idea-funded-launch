@@ -142,7 +142,7 @@ export default function Checkout() {
     }
 
     // TikTok Pixel: InitiateCheckout
-    trackInitiateCheckout(effectiveTotal);
+    trackInitiateCheckout(checkoutTotal);
 
     setLoading(true);
     setCheckoutError(null);

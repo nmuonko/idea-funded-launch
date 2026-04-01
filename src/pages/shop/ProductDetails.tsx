@@ -614,7 +614,7 @@ export default function ProductDetailsPage() {
       // TikTok Pixel + Server: AddToCart
       trackAddToCart(
         { id: product.id, title: product.title, price: isFixedPrice ? hotProductPrice! : product.priceUsd },
-        { email: session?.user?.email ?? undefined, userId: session?.user?.id ?? undefined },
+        { email: user?.email ?? undefined, userId: user?.id ?? undefined },
       );
       setAdded(true);
       setTimeout(() => setAdded(false), 3000);

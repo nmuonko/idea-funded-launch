@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { trackPurchase } from '@/lib/tiktokPixel';
 
 export default function PaymentSuccess() {
   const [searchParams] = useSearchParams();

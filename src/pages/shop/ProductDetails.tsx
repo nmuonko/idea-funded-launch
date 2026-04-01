@@ -394,12 +394,11 @@ export default function ProductDetailsPage() {
           hasVariants: !!item.variants?.length,
         });
 
-        // TikTok Pixel: ViewContent
-        trackViewContent({
-          id: cleanProductId,
-          title: item.title || '',
-          price: item.priceUsd ?? item.price_usd ?? 0,
-        });
+        // TikTok Pixel + Server: ViewContent
+        trackViewContent(
+          { id: cleanProductId, title: item.title || '', price: item.priceUsd ?? item.price_usd ?? 0 },
+          { email: user?.email ?? undefined, userId: user?.id ?? undefined },
+        );
       } catch (err: any) {
         if (controller.signal.aborted) return;
         console.error('[ProductDetails] fetch error', {
@@ -612,12 +611,11 @@ export default function ProductDetailsPage() {
         productUrl: product.productUrl,
         ...(isFixedPrice ? { isFixedPrice: true } : {}),
       });
-      // TikTok Pixel: AddToCart
-      trackAddToCart({
-        id: product.id,
-        title: product.title,
-        price: isFixedPrice ? hotProductPrice! : product.priceUsd,
-      });
+      // TikTok Pixel + Server: AddToCart
+      trackAddToCart(
+        { id: product.id, title: product.title, price: isFixedPrice ? hotProductPrice! : product.priceUsd },
+        { email: user?.email ?? undefined, userId: user?.id ?? undefined },
+      );
       setAdded(true);
       setTimeout(() => setAdded(false), 3000);
     } finally {

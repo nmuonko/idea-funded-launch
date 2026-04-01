@@ -7,6 +7,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { cn } from '@/lib/utils';
 import { prefetchCatalogSearch } from '@/lib/catalogCache';
+import { trackSearch } from '@/lib/tiktokPixel';
 
 const RECENT_SEARCHES_KEY = 'afrishop_recent_searches';
 const MAX_RECENT_SEARCHES = 5;
@@ -80,8 +81,8 @@ export function SearchBar({ defaultValue = '', className, onSearch, autoFocus }:
     saveRecentSearch(trimmed);
     setShowRecent(false);
 
-    // TikTok Pixel: Search
-    try { window.ttq?.track('Search', { search_string: trimmed }); } catch {}
+    // TikTok Pixel + Server: Search
+    try { trackSearch(trimmed); } catch {}
     
     if (onSearch) {
       onSearch(trimmed);

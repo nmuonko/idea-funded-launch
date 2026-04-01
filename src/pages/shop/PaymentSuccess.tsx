@@ -65,7 +65,10 @@ export default function PaymentSuccess() {
           if (!cartClearedRef.current) {
             cartClearedRef.current = true;
             const { data: orderData } = await supabase.from('orders').select('total_usd').eq('id', orderId).single();
-            trackPurchase(orderData?.total_usd || 0);
+            trackPurchase(orderData?.total_usd || 0, {
+              email: session?.user?.email ?? undefined,
+              userId: session?.user?.id ?? undefined,
+            });
             await clearCartOnPaymentSuccess();
             console.log('[PAYMENT] success orderId=', orderId, '-> cart cleared');
           }

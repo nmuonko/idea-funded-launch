@@ -141,6 +141,9 @@ export default function Checkout() {
       return;
     }
 
+    // TikTok Pixel: InitiateCheckout
+    trackInitiateCheckout(effectiveTotal);
+
     setLoading(true);
     setCheckoutError(null);
     try {

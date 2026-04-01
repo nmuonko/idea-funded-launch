@@ -61,8 +61,11 @@ export default function PaymentSuccess() {
         if (await checkStatus()) {
           setVerified(true);
           setVerifying(false);
+          // TikTok Pixel: Purchase (fire once via cartClearedRef guard)
           if (!cartClearedRef.current) {
             cartClearedRef.current = true;
+            const { data: orderData } = await supabase.from('orders').select('total_usd').eq('id', orderId).single();
+            trackPurchase(orderData?.total_usd || 0);
             await clearCartOnPaymentSuccess();
             console.log('[PAYMENT] success orderId=', orderId, '-> cart cleared');
           }

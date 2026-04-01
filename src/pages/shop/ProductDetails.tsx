@@ -612,6 +612,12 @@ export default function ProductDetailsPage() {
         productUrl: product.productUrl,
         ...(isFixedPrice ? { isFixedPrice: true } : {}),
       });
+      // TikTok Pixel: AddToCart
+      trackAddToCart({
+        id: product.id,
+        title: product.title,
+        price: isFixedPrice ? hotProductPrice! : product.priceUsd,
+      });
       setAdded(true);
       setTimeout(() => setAdded(false), 3000);
     } finally {

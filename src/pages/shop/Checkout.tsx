@@ -141,8 +141,11 @@ export default function Checkout() {
       return;
     }
 
-    // TikTok Pixel: InitiateCheckout
-    trackInitiateCheckout(checkoutTotal);
+    // TikTok Pixel + Server: InitiateCheckout
+    trackInitiateCheckout(checkoutTotal, {
+      email: sessionUser?.email ?? undefined,
+      userId: sessionUser?.id ?? undefined,
+    });
 
     setLoading(true);
     setCheckoutError(null);

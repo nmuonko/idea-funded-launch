@@ -52,7 +52,10 @@ export default function PaymentPending() {
           setStatus('paid');
           if (!cartClearedRef.current) {
             cartClearedRef.current = true;
-            trackPurchase(order.total_usd || (urlTotalUsd ? parseFloat(urlTotalUsd) : 0));
+            trackPurchase(order.total_usd || (urlTotalUsd ? parseFloat(urlTotalUsd) : 0), {
+              email: session?.user?.email ?? undefined,
+              userId: session?.user?.id ?? undefined,
+            });
             await clearCartOnPaymentSuccess();
             console.log('[PAYMENT] success orderId=', orderId, '-> cart cleared');
           }

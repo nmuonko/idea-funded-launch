@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { trackRecentlyViewed } from '@/lib/recentlyViewed';
+import { trackViewContent, trackAddToCart } from '@/lib/tiktokPixel';
 import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { filterGalleryImages } from '@/lib/imageValidation';

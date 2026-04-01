@@ -8,6 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
+import { trackPurchase } from '@/lib/tiktokPixel';
 
 export default function PaymentPending() {
   const [searchParams] = useSearchParams();

@@ -81,7 +81,7 @@ export function MiniCartPreview() {
                     <div className="flex items-center justify-between mt-1">
                       <span className="text-xs text-white/50">Qty: {item.quantity}</span>
                       <span className="text-sm text-white font-medium">
-                        ${(item.priceUsd * item.quantity).toFixed(2)}
+                        ${allInclusivePrice(item.priceUsd, feeSettings, item.quantity).toFixed(2)}
                       </span>
                     </div>
                   </div>

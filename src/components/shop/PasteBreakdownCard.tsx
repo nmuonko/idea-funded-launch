@@ -78,21 +78,19 @@ export function PasteBreakdownCard({
         </div>
       </div>
 
-      {/* Price breakdown */}
       <div className="px-4 pb-4 space-y-2">
-        <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">{isFr ? 'Prix de base' : 'Base Price'}</span>
-          <span className="text-foreground font-medium">${basePriceUsd.toFixed(2)}</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">
-            {isFr ? 'Frais de service' : 'Service Fee'}
-          </span>
-          <span className="text-foreground">${markupFee.toFixed(2)}</span>
-        </div>
-
         {isVehicle ? (
           <>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">{isFr ? 'Prix de base' : 'Base Price'}</span>
+              <span className="text-foreground font-medium">${basePriceUsd.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">
+                {isFr ? 'Frais de service' : 'Service Fee'}
+              </span>
+              <span className="text-foreground">${markupFee.toFixed(2)}</span>
+            </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">{isFr ? 'Livraison' : 'Shipping'}</span>
               <span className="text-warning text-xs font-medium">
@@ -109,8 +107,16 @@ export function PasteBreakdownCard({
         ) : (
           <>
             <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">{isFr ? 'Prix total' : 'Total Price'}</span>
+              <span className="text-foreground font-medium">${totalUsd.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">{isFr ? 'Frais de service' : 'Service Fee'}</span>
+              <span className="text-green-500 text-xs">{isFr ? 'Inclus' : 'Included'}</span>
+            </div>
+            <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">{isFr ? 'Livraison' : 'Shipping'}</span>
-              <span className="text-foreground">${shippingFee.toFixed(2)}</span>
+              <span className="text-green-500 text-xs">{isFr ? 'Inclus' : 'Included'}</span>
             </div>
             <div className="border-t border-border/50 pt-2 mt-2">
               <div className="flex justify-between text-base font-semibold">

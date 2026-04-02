@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { ShoppingCart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useShopCart } from '@/contexts/ShopCartContext';
+import { allInclusivePrice } from '@/lib/allInclusivePrice';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import {
@@ -11,7 +12,7 @@ import {
 } from '@/components/ui/hover-card';
 
 export function MiniCartPreview() {
-  const { items, itemCount, totalUsd, exchangeRate } = useShopCart();
+  const { items, itemCount, totalUsd, exchangeRate, feeSettings } = useShopCart();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = t.shop as Record<string, string>;
@@ -80,7 +81,7 @@ export function MiniCartPreview() {
                     <div className="flex items-center justify-between mt-1">
                       <span className="text-xs text-white/50">Qty: {item.quantity}</span>
                       <span className="text-sm text-white font-medium">
-                        ${(item.priceUsd * item.quantity).toFixed(2)}
+                        ${allInclusivePrice(item.priceUsd, feeSettings, item.quantity).toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -98,10 +99,17 @@ export function MiniCartPreview() {
               <div className="flex items-center justify-between">
                 <span className="text-white/60">{shop.subtotal || 'Subtotal'}:</span>
                 <div className="text-right">
-                  <span className="text-white font-bold">${totalUsd.toFixed(2)}</span>
-                  <span className="text-white/50 text-xs block">
-                    ≈ CDF {(totalUsd * exchangeRate).toLocaleString()}
-                  </span>
+                  {(() => {
+                    const cartTotal = items.reduce((sum, i) => sum + allInclusivePrice(i.priceUsd, feeSettings, i.quantity), 0);
+                    return (
+                      <>
+                        <span className="text-white font-bold">${cartTotal.toFixed(2)}</span>
+                        <span className="text-white/50 text-xs block">
+                          ≈ CDF {(cartTotal * exchangeRate).toLocaleString()}
+                        </span>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
               

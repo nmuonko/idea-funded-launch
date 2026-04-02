@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useShopCart } from '@/contexts/ShopCartContext';
+import { allInclusivePrice } from '@/lib/allInclusivePrice';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { cn } from '@/lib/utils';
@@ -14,7 +15,7 @@ interface CartDrawerProps {
 }
 
 export function CartDrawer({ className }: CartDrawerProps) {
-  const { items, itemCount, totalUsd, loading, updateQuantity, removeItem } = useShopCart();
+  const { items, itemCount, totalUsd, loading, updateQuantity, removeItem, feeSettings } = useShopCart();
   const { language } = useLanguage();
   
   const t = translations[language] || translations.en;
@@ -93,7 +94,7 @@ export function CartDrawer({ className }: CartDrawerProps) {
                         {item.title}
                       </h4>
                       <p className="text-sm font-bold text-white mb-2">
-                        ${item.priceUsd.toFixed(2)}
+                        ${allInclusivePrice(item.priceUsd, feeSettings).toFixed(2)}
                       </p>
                       
                       {/* Quantity Controls */}
@@ -137,7 +138,9 @@ export function CartDrawer({ className }: CartDrawerProps) {
             <div className="mt-6 space-y-4 border-t border-white/10 pt-4">
               <div className="flex items-center justify-between">
                 <span className="text-white/60">{shop.subtotal}</span>
-                <span className="text-lg font-bold text-white">${totalUsd.toFixed(2)}</span>
+                <span className="text-lg font-bold text-white">
+                  ${items.reduce((sum, i) => sum + allInclusivePrice(i.priceUsd, feeSettings, i.quantity), 0).toFixed(2)}
+                </span>
               </div>
               <p className="text-xs text-white/40">
                 {shop.shippingNote}

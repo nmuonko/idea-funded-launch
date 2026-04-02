@@ -4,6 +4,7 @@ import { ShoppingCart, Check, Loader2, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useShopCart } from '@/contexts/ShopCartContext';
+import { allInclusivePrice } from '@/lib/allInclusivePrice';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
@@ -36,7 +37,7 @@ function isLikelyPromotionalImageUrl(url: string): boolean {
 }
 
 export function ProductCard({ product, className, compact = false, coverImage = false }: ProductCardProps) {
-  const { addItem, addToSaved, removeFromSaved, isItemSaved, exchangeRate } = useShopCart();
+  const { addItem, addToSaved, removeFromSaved, isItemSaved, exchangeRate, feeSettings } = useShopCart();
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
   // Collect all candidate gallery images for fallback
@@ -244,12 +245,19 @@ export function ProductCard({ product, className, compact = false, coverImage = 
         {/* Price & Add to Cart */}
         <div className="flex items-center justify-between gap-2">
           <div>
-            <span className={cn("font-bold text-white", compact ? "text-sm" : "text-base sm:text-lg")}>
-              ${product.priceUsd.toFixed(2)}
-            </span>
-            <span className={cn("text-white/50 block", compact ? "text-[10px]" : "text-xs")}>
-              ≈ CDF {(product.priceUsd * exchangeRate).toLocaleString()}
-            </span>
+            {(() => {
+              const displayPrice = allInclusivePrice(product.priceUsd, feeSettings);
+              return (
+                <>
+                  <span className={cn("font-bold text-white", compact ? "text-sm" : "text-base sm:text-lg")}>
+                    ${displayPrice.toFixed(2)}
+                  </span>
+                  <span className={cn("text-white/50 block", compact ? "text-[10px]" : "text-xs")}>
+                    ≈ CDF {(displayPrice * exchangeRate).toLocaleString()}
+                  </span>
+                </>
+              );
+            })()}
           </div>
           
           <Button

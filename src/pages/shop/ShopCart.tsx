@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { allInclusivePrice } from '@/lib/allInclusivePrice';
 import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus, Car, Loader2, FileText, CheckSquare, Square, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -31,7 +32,8 @@ export default function ShopCart() {
     items, loading, updateQuantity, removeItem, clearCart, restoreFromPendingCheckout, 
     hasVehicleItems, vehicleQuoteStatus, syncCart, markQuoteRequested,
     selectedItemIds, toggleItemSelection, selectAllItems, deselectAllItems,
-    selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment
+    selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment,
+    feeSettings
   } = useShopCart();
   const { user, session, isAuthReady } = useAuth();
   const { language } = useLanguage();
@@ -288,7 +290,7 @@ export default function ShopCart() {
                           </div>
                         )}
                         <p className="text-lg font-bold text-white">
-                          ${item.priceUsd.toFixed(2)}
+                          ${item.isVehicle ? item.priceUsd.toFixed(2) : allInclusivePrice(item.priceUsd, feeSettings, item.quantity).toFixed(2)}
                         </p>
                       </div>
 

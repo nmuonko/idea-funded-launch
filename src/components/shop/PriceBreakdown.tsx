@@ -132,6 +132,9 @@ export function PriceBreakdown({
     ? (serverLineTotalUsd ?? (subtotal + serviceFee + shippingFee))
     : (subtotal + calculatedShippingFee + calculatedServiceFee);
 
+  // For non-vehicle, non-pending-quote items: show simplified all-inclusive view
+  const showSimplifiedAllInclusive = !isVehicle && !showPendingQuote;
+
   // === Product detail + vehicle: only Article + Markup + note ===
   if (isDetailVehicle) {
     return (
@@ -167,6 +170,37 @@ export function PriceBreakdown({
         <div className="flex items-center gap-2 text-amber-400 text-xs">
           <Car className="h-3.5 w-3.5 flex-shrink-0" />
           <span>{shop.shippingAfterQuote || 'Shipping will be determined after quote'}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Simplified all-inclusive view for regular products
+  if (showSimplifiedAllInclusive) {
+    return (
+      <div className={cn("space-y-3", className)}>
+        {showDetails && (
+          <>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/60 min-w-0">
+                {shop.orderSummaryItem || 'Item'}{quantity > 1 ? ` (×${quantity})` : ''}
+              </span>
+              <span className="text-white/90 flex-shrink-0">${total.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/60">{shop.markupFee || 'Service Fee'}</span>
+              <span className="text-green-400 text-xs">{language === 'fr' ? 'Inclus' : 'Included'}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/60">{shop.shippingFee || 'Shipping'}</span>
+              <span className="text-green-400 text-xs">{language === 'fr' ? 'Inclus' : 'Included'}</span>
+            </div>
+            <div className="border-t border-white/10 pt-3" />
+          </>
+        )}
+        <div className="flex items-center justify-between">
+          <span className="text-white font-medium">{shop.total || 'Total'}</span>
+          <span className="text-xl font-bold text-white">${total.toFixed(2)}</span>
         </div>
       </div>
     );

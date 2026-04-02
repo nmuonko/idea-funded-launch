@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/hover-card';
 
 export function MiniCartPreview() {
-  const { items, itemCount, totalUsd, exchangeRate } = useShopCart();
+  const { items, itemCount, totalUsd, exchangeRate, feeSettings } = useShopCart();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = t.shop as Record<string, string>;

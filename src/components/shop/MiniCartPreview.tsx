@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { ShoppingCart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useShopCart } from '@/contexts/ShopCartContext';
+import { allInclusivePrice } from '@/lib/allInclusivePrice';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import {

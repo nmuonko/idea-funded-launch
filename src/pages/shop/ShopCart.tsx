@@ -32,7 +32,8 @@ export default function ShopCart() {
     items, loading, updateQuantity, removeItem, clearCart, restoreFromPendingCheckout, 
     hasVehicleItems, vehicleQuoteStatus, syncCart, markQuoteRequested,
     selectedItemIds, toggleItemSelection, selectAllItems, deselectAllItems,
-    selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment
+    selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment,
+    feeSettings
   } = useShopCart();
   const { user, session, isAuthReady } = useAuth();
   const { language } = useLanguage();

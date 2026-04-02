@@ -126,5 +126,10 @@ export function buildItemResponse(
     merged,
     effectiveMarkupPercent: effectiveMarkupPercent ?? null,
     markupPercent: effectiveMarkupPercent ?? null,
+    // Additive metadata for cross-platform all-inclusive pricing
+    display_price_usd: totalUsd,
+    fees_included: true,
+    is_all_inclusive_display: true,
+    pricing_mode: 'all_inclusive',
   };
 }

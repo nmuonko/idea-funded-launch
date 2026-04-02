@@ -132,6 +132,9 @@ export function PriceBreakdown({
     ? (serverLineTotalUsd ?? (subtotal + serviceFee + shippingFee))
     : (subtotal + calculatedShippingFee + calculatedServiceFee);
 
+  // For non-vehicle, non-pending-quote items: show simplified all-inclusive view
+  const showSimplifiedAllInclusive = !isVehicle && !showPendingQuote;
+
   // === Product detail + vehicle: only Article + Markup + note ===
   if (isDetailVehicle) {
     return (

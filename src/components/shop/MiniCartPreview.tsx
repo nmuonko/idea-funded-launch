@@ -99,10 +99,17 @@ export function MiniCartPreview() {
               <div className="flex items-center justify-between">
                 <span className="text-white/60">{shop.subtotal || 'Subtotal'}:</span>
                 <div className="text-right">
-                  <span className="text-white font-bold">${totalUsd.toFixed(2)}</span>
-                  <span className="text-white/50 text-xs block">
-                    ≈ CDF {(totalUsd * exchangeRate).toLocaleString()}
-                  </span>
+                  {(() => {
+                    const cartTotal = items.reduce((sum, i) => sum + allInclusivePrice(i.priceUsd, feeSettings, i.quantity), 0);
+                    return (
+                      <>
+                        <span className="text-white font-bold">${cartTotal.toFixed(2)}</span>
+                        <span className="text-white/50 text-xs block">
+                          ≈ CDF {(cartTotal * exchangeRate).toLocaleString()}
+                        </span>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
               

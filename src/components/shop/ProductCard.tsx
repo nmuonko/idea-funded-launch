@@ -37,7 +37,7 @@ function isLikelyPromotionalImageUrl(url: string): boolean {
 }
 
 export function ProductCard({ product, className, compact = false, coverImage = false }: ProductCardProps) {
-  const { addItem, addToSaved, removeFromSaved, isItemSaved, exchangeRate } = useShopCart();
+  const { addItem, addToSaved, removeFromSaved, isItemSaved, exchangeRate, feeSettings } = useShopCart();
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
   // Collect all candidate gallery images for fallback

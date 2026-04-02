@@ -245,12 +245,19 @@ export function ProductCard({ product, className, compact = false, coverImage = 
         {/* Price & Add to Cart */}
         <div className="flex items-center justify-between gap-2">
           <div>
-            <span className={cn("font-bold text-white", compact ? "text-sm" : "text-base sm:text-lg")}>
-              ${product.priceUsd.toFixed(2)}
-            </span>
-            <span className={cn("text-white/50 block", compact ? "text-[10px]" : "text-xs")}>
-              ≈ CDF {(product.priceUsd * exchangeRate).toLocaleString()}
-            </span>
+            {(() => {
+              const displayPrice = allInclusivePrice(product.priceUsd, feeSettings);
+              return (
+                <>
+                  <span className={cn("font-bold text-white", compact ? "text-sm" : "text-base sm:text-lg")}>
+                    ${displayPrice.toFixed(2)}
+                  </span>
+                  <span className={cn("text-white/50 block", compact ? "text-[10px]" : "text-xs")}>
+                    ≈ CDF {(displayPrice * exchangeRate).toLocaleString()}
+                  </span>
+                </>
+              );
+            })()}
           </div>
           
           <Button

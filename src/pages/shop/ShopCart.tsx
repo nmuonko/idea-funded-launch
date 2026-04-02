@@ -290,7 +290,7 @@ export default function ShopCart() {
                           </div>
                         )}
                         <p className="text-lg font-bold text-white">
-                          ${item.priceUsd.toFixed(2)}
+                          ${item.isVehicle ? item.priceUsd.toFixed(2) : allInclusivePrice(item.priceUsd, feeSettings, item.quantity).toFixed(2)}
                         </p>
                       </div>
 

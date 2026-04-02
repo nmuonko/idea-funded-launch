@@ -15,7 +15,7 @@ interface CartDrawerProps {
 }
 
 export function CartDrawer({ className }: CartDrawerProps) {
-  const { items, itemCount, totalUsd, loading, updateQuantity, removeItem } = useShopCart();
+  const { items, itemCount, totalUsd, loading, updateQuantity, removeItem, feeSettings } = useShopCart();
   const { language } = useLanguage();
   
   const t = translations[language] || translations.en;

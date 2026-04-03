@@ -24,6 +24,20 @@ export default function FeesSettings() {
   const [shippingBaseFeeUsd, setShippingBaseFeeUsd] = useState(20);
   const [shippingPercent, setShippingPercent] = useState(10);
   
+  // Vehicle pricing tiers
+  const [vehicleTiers, setVehicleTiers] = useState({
+    tier_1_under_5000_percent: 70,
+    tier_2_5000_to_7999_percent: 58,
+    tier_3_8000_to_11999_percent: 48,
+    tier_4_12000_to_17999_percent: 40,
+    tier_5_18000_to_24999_percent: 34,
+    tier_6_25000_plus_percent: 28,
+    non_running_extra_percent: 7,
+    container_extra_percent: 8,
+    default_shipping_method: 'roro' as string,
+    default_vehicle_condition: 'running' as string,
+  });
+  
   // Advanced settings
   const [categoryMarkups, setCategoryMarkups] = useState<Record<string, number>>({});
   const [extraFees, setExtraFees] = useState<any[]>([]);

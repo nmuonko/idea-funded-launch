@@ -33,7 +33,7 @@ import {
 } from "../_shared/auth.ts";
 import { PostgrestClient } from "../_shared/postgrest.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
-import { normalizeCategorySlug, getCategoryLabel, determineShippingCategory } from "../_shared/shippingCategory.ts";
+import { calculateVehicleFinalPrice, parseTiers } from "../_shared/vehiclePricing.ts";
 import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
 import { lookupCartItemMediaCounts } from "../_shared/mediaCache.ts";
 import { 

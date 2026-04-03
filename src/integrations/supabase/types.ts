@@ -5565,6 +5565,7 @@ export type Database = {
           support_email: string | null
           support_whatsapp: string | null
           updated_at: string
+          vehicle_pricing_tiers: Json | null
         }
         Insert: {
           bank_account_holder?: string | null
@@ -5592,6 +5593,7 @@ export type Database = {
           support_email?: string | null
           support_whatsapp?: string | null
           updated_at?: string
+          vehicle_pricing_tiers?: Json | null
         }
         Update: {
           bank_account_holder?: string | null
@@ -5619,6 +5621,7 @@ export type Database = {
           support_email?: string | null
           support_whatsapp?: string | null
           updated_at?: string
+          vehicle_pricing_tiers?: Json | null
         }
         Relationships: []
       }

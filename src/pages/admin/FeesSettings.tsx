@@ -130,11 +130,12 @@ export default function FeesSettings() {
           markup_percent: markupPercent,
           global_markup_percent: markupPercent / 100,
           shipping_base_fee_usd: shippingBaseFeeUsd,
-          shipping_percent: shippingPercent, // Store as whole number (10 = 10%)
+          shipping_percent: shippingPercent,
           exchange_rate_usd_to_cdf: exchangeRateUsdToCdf,
           category_markups: updatedCategoryMarkups,
           extra_fees: extraFees,
           discount_codes: discountCodes,
+          vehicle_pricing_tiers: vehicleTiers,
           updated_at: new Date().toISOString(),
         })
         .eq('id', settings.id);

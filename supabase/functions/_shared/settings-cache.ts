@@ -108,6 +108,7 @@ async function fetchFreshSettings(supabase: any): Promise<CachedSettings> {
     shippingPercent,
     serviceFeePercent,
     minServiceFeeUsd: settings?.min_service_fee_usd ?? 5,
+    vehiclePricingTiers: parseTiers(settings?.vehicle_pricing_tiers),
     fetchedAt: now,
   };
   

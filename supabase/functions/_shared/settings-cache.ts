@@ -2,6 +2,8 @@
 // TTL: 15 minutes fresh, 1 hour stale-while-revalidate
 // Optimized for 1000+ concurrent users
 
+import { VehiclePricingTiers, parseTiers } from "./vehiclePricing.ts";
+
 interface CachedSettings {
   exchangeRate: number;
   markupPercent: number;
@@ -10,6 +12,7 @@ interface CachedSettings {
   shippingPercent: number;
   serviceFeePercent: number;
   minServiceFeeUsd: number;
+  vehiclePricingTiers: VehiclePricingTiers;
   fetchedAt: number;
 }
 

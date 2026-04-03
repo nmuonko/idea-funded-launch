@@ -195,17 +195,20 @@ function formatItem(
   }
   
   if (isVehicle && !vehicleQuoteApplied) {
-    const estimatedMargin = round2(basePriceUsd * (vehicleMarkupPercent / 100));
-    const estimatedSubtotal = round2(basePriceUsd + estimatedMargin);
+    // Auto-calculate using tiered pricing for legacy items without auto-pricing
+    const tiers = parseTiers(vehiclePricingTiers);
+    const vp = calculateVehicleFinalPrice(basePriceUsd, 'running', 'roro', tiers);
     return {
       ...baseFields, basePriceUsd, unitPriceUsd: basePriceUsd, itemBaseTotalUsd: basePriceUsd,
-      itemMarginUsd: estimatedMargin, markupFeeUsd: estimatedMargin, markup_fee_usd: estimatedMargin,
-      itemShippingUsd: 0, shippingFeeUsd: 0, shipping_fee_usd: 0, shippingCost: null,
-      shippingStatus: 'PENDING', itemSubtotalUsd: estimatedSubtotal, subtotalUsd: estimatedSubtotal, subtotal_usd: estimatedSubtotal,
-      itemTotalUsd: estimatedSubtotal, totalPriceUsd: estimatedSubtotal, total_price_usd: estimatedSubtotal, lineTotalUsd: estimatedSubtotal,
-      lineTotalCdf: round2(estimatedSubtotal * exchangeRate), priceUsd: estimatedSubtotal, price: estimatedSubtotal,
-      itemSubtotalCdf: round2(estimatedSubtotal * exchangeRate), requiresManualQuote: true, isQuoteRequired: true,
-      shippingItemType: null, vehicleMarkupPercent, effectiveMarkupPercent: vehicleMarkupPercent, markupPercent: vehicleMarkupPercent,
+      itemMarginUsd: vp.totalFeeUsd, markupFeeUsd: vp.totalFeeUsd, markup_fee_usd: vp.totalFeeUsd,
+      itemShippingUsd: 0, shippingFeeUsd: 0, shipping_fee_usd: 0, shippingCost: 0,
+      shippingStatus: 'INCLUDED', itemSubtotalUsd: vp.finalPriceUsd, subtotalUsd: vp.finalPriceUsd, subtotal_usd: vp.finalPriceUsd,
+      itemTotalUsd: vp.finalPriceUsd, totalPriceUsd: vp.finalPriceUsd, total_price_usd: vp.finalPriceUsd, lineTotalUsd: vp.finalPriceUsd,
+      lineTotalCdf: round2(vp.finalPriceUsd * exchangeRate), priceUsd: vp.finalPriceUsd, price: vp.finalPriceUsd,
+      itemSubtotalCdf: round2(vp.finalPriceUsd * exchangeRate), requiresManualQuote: false, isQuoteRequired: false,
+      shippingItemType: null, vehicleMarkupPercent, effectiveMarkupPercent: vp.totalPercent, markupPercent: vp.totalPercent,
+      vehiclePricingBreakdown: { tierPercent: vp.tierPercent, conditionSurcharge: vp.conditionSurcharge, shippingSurcharge: vp.shippingSurcharge, totalPercent: vp.totalPercent },
+      fees_included: true, is_all_inclusive_display: true, pricing_mode: 'vehicle_tiered',
     };
   }
   

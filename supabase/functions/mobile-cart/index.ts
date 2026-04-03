@@ -139,7 +139,8 @@ function isUserEditedPrice(body: any): boolean {
 // Format item for get_cart response
 function formatItem(
   item: any, markupPercent: number, vehicleMarkupPercent: number, exchangeRate: number,
-  mediaInfo?: { image_count: number; image_count_status: "cached" | "pending" }
+  mediaInfo?: { image_count: number; image_count_status: "cached" | "pending" },
+  vehiclePricingTiers?: any
 ) {
   const basePriceUsd = Number(item.base_price_usd || 0);
   const quantity = item.quantity || 1;

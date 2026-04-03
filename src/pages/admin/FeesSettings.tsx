@@ -97,6 +97,12 @@ export default function FeesSettings() {
       
       setExtraFees((data.extra_fees || []) as any[]);
       setDiscountCodes((data.discount_codes || []) as any[]);
+      
+      // Load vehicle pricing tiers
+      const tiers = data.vehicle_pricing_tiers as Record<string, any> | null;
+      if (tiers) {
+        setVehicleTiers(prev => ({ ...prev, ...tiers }));
+      }
     } catch (error: any) {
       toast({
         title: 'Error loading settings',

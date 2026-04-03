@@ -249,49 +249,13 @@ export default function ShopCart() {
                           from {item.provider}
                         </p>
                         {item.isVehicle && (
-                          <div className="space-y-3 mt-1">
-                            <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-xs">
-                              <Car className="h-3 w-3 mr-1" />
-                              {language === 'fr' ? 'Véhicule — Devis requis' : 'Vehicle — Quote Required'}
-                            </Badge>
-
-                            {user && vehicleQuoteStatus === 'none' && (
-                              <div className="border border-amber-500/40 bg-amber-500/10 rounded-lg p-3 shadow-[0_0_12px_rgba(245,158,11,0.15)]">
-                                <Button
-                                  onClick={(e) => { e.preventDefault(); requestVehicleQuote(); }}
-                                  disabled={requestingQuote}
-                                  className="w-full h-10 text-sm font-semibold bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-lg animate-pulse hover:animate-none whitespace-normal px-2 sm:px-4"
-                                >
-                                  {requestingQuote ? (
-                                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{language === 'fr' ? 'Envoi en cours...' : 'Requesting...'}</>
-                                  ) : (
-                                    <><FileText className="h-4 w-4 mr-2" />{language === 'fr' ? 'Demander un devis' : 'Request a Quote'}</>
-                                  )}
-                                </Button>
-                              </div>
-                            )}
-
-                            {user && vehicleQuoteStatus === 'pending' && (
-                              <div className="flex items-center gap-2 border border-amber-500/30 bg-amber-500/10 rounded-lg px-3 py-2">
-                                <Loader2 className="h-4 w-4 text-amber-400 animate-spin shrink-0" />
-                                <span className="text-sm font-medium text-amber-300">
-                                  {language === 'fr' ? 'Devis en attente — Vous serez notifié' : 'Quote Pending — You\'ll be notified'}
-                                </span>
-                              </div>
-                            )}
-
-                            {user && vehicleQuoteStatus === 'quoted' && (
-                              <div className="flex items-center gap-2 border border-green-500/30 bg-green-500/10 rounded-lg px-3 py-2">
-                                <FileText className="h-4 w-4 text-green-400 shrink-0" />
-                                <span className="text-sm font-medium text-green-300">
-                                  {language === 'fr' ? 'Devis reçu' : 'Quote Received'}
-                                </span>
-                              </div>
-                            )}
-                          </div>
+                          <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-xs mt-1">
+                            <Car className="h-3 w-3 mr-1" />
+                            {language === 'fr' ? 'Véhicule — Frais inclus' : 'Vehicle — Fees Included'}
+                          </Badge>
                         )}
                         <p className="text-lg font-bold text-white">
-                          ${item.isVehicle ? item.priceUsd.toFixed(2) : allInclusivePrice(item.priceUsd, feeSettings, item.quantity).toFixed(2)}
+                          ${item.isVehicle ? vehicleAllInclusivePrice(item.priceUsd).toFixed(2) : allInclusivePrice(item.priceUsd, feeSettings, item.quantity).toFixed(2)}
                         </p>
                       </div>
 

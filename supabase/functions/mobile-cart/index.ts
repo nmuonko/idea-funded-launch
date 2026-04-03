@@ -525,12 +525,22 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     const existingItem = existingResult.data;
     const newQuantity = existingItem.quantity + quantity;
     console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=false dbUpdateAttempted=true orderId=${draft.id} existingItemId=${existingItem.id}`);
-    const updateResult = await updateCartItem(db, existingItem.id, {
+    const updateFields: Record<string, unknown> = {
       quantity: newQuantity, base_price_usd: productPrice, product_image_url: productImageUrl,
       is_vehicle: isVehicleDetected || existingItem.is_vehicle,
-      requires_manual_quote: (isVehicleDetected || existingItem.requires_manual_quote) && !existingItem.vehicle_quote_applied,
+      requires_manual_quote: false, // Vehicles no longer need manual quotes
       updated_at: new Date().toISOString(),
-    }, correlationId);
+    };
+    // If vehicle, update pricing fields
+    if (isVehicleDetected && vehiclePricingResult) {
+      updateFields.markup_fee_usd = vehiclePricingResult.totalFeeUsd;
+      updateFields.shipping_fee_usd = 0;
+      updateFields.total_price_usd = vehiclePricingResult.finalPriceUsd;
+      updateFields.total_price_cdf = cartRound2(vehiclePricingResult.finalPriceUsd * settings.exchangeRate);
+      updateFields.vehicle_quote_applied = true;
+      updateFields.price_source = 'auto_vehicle_tiered';
+    }
+    const updateResult = await updateCartItem(db, existingItem.id, updateFields, correlationId);
     if (updateResult.error || !updateResult.data) {
       console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=ITEM_UPDATE_FAILED dbError=${updateResult.error?.message ?? "none"}`);
       return errorResponse("Failed to update cart item", 500);

@@ -488,16 +488,22 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   }
 
   const detection = determineShippingCategory({ title: productTitle || "", url: productUrl, store, existingCategory: null });
+  let vehiclePricingResult: any = null;
   if (detection.category === "vehicle" && detection.requiresQuote) {
-    isVehicleDetected = true; requiresManualQuote = true; finalShippingTypeId = null;
-    effectiveMarkup = settings.vehicleMarkupPercent;
-    pricing = cartPricingCalc(productPrice, quantity, effectiveMarkup, settings.exchangeRate);
+    isVehicleDetected = true;
+    requiresManualQuote = false; // No longer requires manual quote — auto-calculated
+    finalShippingTypeId = null;
+    // Auto-calculate using tiered vehicle pricing
+    const tiers = parseTiers(settings.vehiclePricingTiers);
+    vehiclePricingResult = calculateVehicleFinalPrice(productPrice, 'running', 'roro', tiers);
+    effectiveMarkup = vehiclePricingResult.totalPercent;
+    pricing = cartPricingCalc(productPrice, quantity, 0, settings.exchangeRate); // markup baked into vehicle pricing
   } else if (detection.category && detection.category !== "vehicle") {
     const catTypeResult = await getShippingTypeForCategory(db, detection.category, correlationId);
     if (catTypeResult.data) { finalShippingTypeId = catTypeResult.data.id; estWeightKg = catTypeResult.data.estWeightKg; }
   }
 
-  const shippingFeeUsd = isFixedPrice ? 0 : calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, settings.shippingPercent, requiresManualQuote);
+  const shippingFeeUsd = isFixedPrice ? 0 : (isVehicleDetected ? 0 : calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, settings.shippingPercent, requiresManualQuote));
 
   if (isGuest) {
     const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup);

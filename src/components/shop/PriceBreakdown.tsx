@@ -100,12 +100,8 @@ export function PriceBreakdown({
 
   const subtotal = itemPriceUsd * quantity;
 
-  const isDetailVehicle = isVehicle && ctx === 'product-detail';
-  const showPendingQuote = !isDetailVehicle && isVehicle && vehicleQuoteStatus !== 'quoted';
-  
-  // For quoted vehicles with server data, use server values directly
-  const hasServerBreakdown = isVehicle && vehicleQuoteStatus === 'quoted' 
-    && (serverMarginUsd != null || serverShippingUsd != null);
+  // Vehicles now use tiered auto-pricing — show simplified all-inclusive view
+  const showSimplifiedAllInclusive = !isVehicle || (isVehicle && ctx === 'product-detail');
   
   // Use vehicle markup for vehicle products, general markup otherwise
   const effectiveMarkupPercent = isVehicle
@@ -113,7 +109,7 @@ export function PriceBreakdown({
     : feeSettings.markupPercent;
   
   // Use canonical shipping formula: base + (subtotal * percent)
-  const calculatedShippingFee = calculateShippingUsd(
+  const calculatedShippingFee = isVehicle ? 0 : calculateShippingUsd(
     subtotal,
     feeSettings.shippingBaseFeeUsd,
     feeSettings.shippingPercent
@@ -123,57 +119,18 @@ export function PriceBreakdown({
   const markupRate = effectiveMarkupPercent > 1 
     ? effectiveMarkupPercent / 100 
     : effectiveMarkupPercent;
-  const calculatedServiceFee = Math.round(subtotal * markupRate * 100) / 100;
+  const calculatedServiceFee = isVehicle ? 0 : Math.round(subtotal * markupRate * 100) / 100;
   
   // Use server values for quoted vehicles, calculated values otherwise
+  const hasServerBreakdown = isVehicle && (serverMarginUsd != null || serverShippingUsd != null);
   const serviceFee = hasServerBreakdown ? (serverMarginUsd ?? calculatedServiceFee) : calculatedServiceFee;
   const shippingFee = hasServerBreakdown ? (serverShippingUsd ?? calculatedShippingFee) : calculatedShippingFee;
   const total = hasServerBreakdown 
     ? (serverLineTotalUsd ?? (subtotal + serviceFee + shippingFee))
     : (subtotal + calculatedShippingFee + calculatedServiceFee);
 
-  // For non-vehicle, non-pending-quote items: show simplified all-inclusive view
-  const showSimplifiedAllInclusive = !isVehicle && !showPendingQuote;
-
-  // === Product detail + vehicle: only Article + Markup + note ===
-  if (isDetailVehicle) {
-    return (
-      <div className={cn("space-y-3", className)}>
-        {showDetails && (
-          <>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-white/60 min-w-0">
-                {shop.orderSummaryItem || 'Item'}{quantity > 1 ? ` (×${quantity})` : ''}
-              </span>
-              <span className="text-white/90 flex-shrink-0">${subtotal.toFixed(2)}</span>
-            </div>
-
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-white/60 flex items-center gap-1 min-w-0">
-                {shop.markupFee || 'Markup Fee'}
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="h-3 w-3 text-white/40" />
-                  </TooltipTrigger>
-                  <TooltipContent className="bg-black/90 text-white border-white/10">
-                    <p>{language === 'fr' ? `Frais de service véhicule (${effectiveMarkupPercent}%)` : `Vehicle service fee (${effectiveMarkupPercent}%)`}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </span>
-              <span className="text-white/90 flex-shrink-0">${serviceFee.toFixed(2)}</span>
-            </div>
-
-            <div className="border-t border-white/10 pt-3" />
-          </>
-        )}
-
-        <div className="flex items-center gap-2 text-amber-400 text-xs">
-          <Car className="h-3.5 w-3.5 flex-shrink-0" />
-          <span>{shop.shippingAfterQuote || 'Shipping will be determined after quote'}</span>
-        </div>
-      </div>
-    );
-  }
+  // For vehicles, import and calculate using tiered pricing
+  // For non-vehicle items: show simplified all-inclusive view
 
   // Simplified all-inclusive view for regular products
   if (showSimplifiedAllInclusive) {

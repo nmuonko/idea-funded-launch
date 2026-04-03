@@ -294,6 +294,7 @@ export async function getCachedSettings(
       exchangeRate: row.exchange_rate_usd_to_cdf,
       shippingBaseFeeUsd: row.shipping_base_fee_usd,
       shippingPercent: row.shipping_percent,
+      vehiclePricingTiers: row.vehicle_pricing_tiers ?? null,
     },
     error: null,
     status: 200,

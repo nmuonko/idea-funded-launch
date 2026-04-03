@@ -100,12 +100,8 @@ export function PriceBreakdown({
 
   const subtotal = itemPriceUsd * quantity;
 
-  const isDetailVehicle = isVehicle && ctx === 'product-detail';
-  const showPendingQuote = !isDetailVehicle && isVehicle && vehicleQuoteStatus !== 'quoted';
-  
-  // For quoted vehicles with server data, use server values directly
-  const hasServerBreakdown = isVehicle && vehicleQuoteStatus === 'quoted' 
-    && (serverMarginUsd != null || serverShippingUsd != null);
+  // Vehicles now use tiered auto-pricing — show simplified all-inclusive view
+  const showSimplifiedAllInclusive = !isVehicle || (isVehicle && ctx === 'product-detail');
   
   // Use vehicle markup for vehicle products, general markup otherwise
   const effectiveMarkupPercent = isVehicle
@@ -113,7 +109,7 @@ export function PriceBreakdown({
     : feeSettings.markupPercent;
   
   // Use canonical shipping formula: base + (subtotal * percent)
-  const calculatedShippingFee = calculateShippingUsd(
+  const calculatedShippingFee = isVehicle ? 0 : calculateShippingUsd(
     subtotal,
     feeSettings.shippingBaseFeeUsd,
     feeSettings.shippingPercent
@@ -123,57 +119,18 @@ export function PriceBreakdown({
   const markupRate = effectiveMarkupPercent > 1 
     ? effectiveMarkupPercent / 100 
     : effectiveMarkupPercent;
-  const calculatedServiceFee = Math.round(subtotal * markupRate * 100) / 100;
+  const calculatedServiceFee = isVehicle ? 0 : Math.round(subtotal * markupRate * 100) / 100;
   
   // Use server values for quoted vehicles, calculated values otherwise
+  const hasServerBreakdown = isVehicle && (serverMarginUsd != null || serverShippingUsd != null);
   const serviceFee = hasServerBreakdown ? (serverMarginUsd ?? calculatedServiceFee) : calculatedServiceFee;
   const shippingFee = hasServerBreakdown ? (serverShippingUsd ?? calculatedShippingFee) : calculatedShippingFee;
   const total = hasServerBreakdown 
     ? (serverLineTotalUsd ?? (subtotal + serviceFee + shippingFee))
     : (subtotal + calculatedShippingFee + calculatedServiceFee);
 
-  // For non-vehicle, non-pending-quote items: show simplified all-inclusive view
-  const showSimplifiedAllInclusive = !isVehicle && !showPendingQuote;
-
-  // === Product detail + vehicle: only Article + Markup + note ===
-  if (isDetailVehicle) {
-    return (
-      <div className={cn("space-y-3", className)}>
-        {showDetails && (
-          <>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-white/60 min-w-0">
-                {shop.orderSummaryItem || 'Item'}{quantity > 1 ? ` (×${quantity})` : ''}
-              </span>
-              <span className="text-white/90 flex-shrink-0">${subtotal.toFixed(2)}</span>
-            </div>
-
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-white/60 flex items-center gap-1 min-w-0">
-                {shop.markupFee || 'Markup Fee'}
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="h-3 w-3 text-white/40" />
-                  </TooltipTrigger>
-                  <TooltipContent className="bg-black/90 text-white border-white/10">
-                    <p>{language === 'fr' ? `Frais de service véhicule (${effectiveMarkupPercent}%)` : `Vehicle service fee (${effectiveMarkupPercent}%)`}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </span>
-              <span className="text-white/90 flex-shrink-0">${serviceFee.toFixed(2)}</span>
-            </div>
-
-            <div className="border-t border-white/10 pt-3" />
-          </>
-        )}
-
-        <div className="flex items-center gap-2 text-amber-400 text-xs">
-          <Car className="h-3.5 w-3.5 flex-shrink-0" />
-          <span>{shop.shippingAfterQuote || 'Shipping will be determined after quote'}</span>
-        </div>
-      </div>
-    );
-  }
+  // For vehicles, import and calculate using tiered pricing
+  // For non-vehicle items: show simplified all-inclusive view
 
   // Simplified all-inclusive view for regular products
   if (showSimplifiedAllInclusive) {
@@ -206,6 +163,7 @@ export function PriceBreakdown({
     );
   }
 
+  // Fallback: full breakdown (shouldn't normally reach here with current logic)
   return (
     <div className={cn("space-y-3", className)}>
       {showDetails && (
@@ -216,125 +174,21 @@ export function PriceBreakdown({
             </span>
             <span className="text-white/90 flex-shrink-0">${subtotal.toFixed(2)}</span>
           </div>
-
-          {showPendingQuote ? (
-            <>
-              {/* Show vehicle markup with correct percentage */}
-              {isVehicle && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-white/60 flex items-center gap-1">
-                    {shop.markupFee || 'Markup Fee'}
-                    <Tooltip>
-                      <TooltipTrigger>
-                        <Info className="h-3 w-3 text-white/40" />
-                      </TooltipTrigger>
-                      <TooltipContent className="bg-black/90 text-white border-white/10">
-                        <p>{language === 'fr' ? `Frais de service véhicule (${effectiveMarkupPercent}%)` : `Vehicle service fee (${effectiveMarkupPercent}%)`}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </span>
-                  <span className="text-white/90">${serviceFee.toFixed(2)}</span>
-                </div>
-              )}
-
-              {/* Non-vehicle items in a mixed cart: mask markup */}
-              {!isVehicle && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-white/60 flex items-center gap-1">
-                    {shop.markupFee || 'Markup Fee'}
-                  </span>
-                  <span className="text-amber-400 text-xs italic">
-                    {language === 'fr' ? 'Inclus dans le devis' : 'Included in quote'}
-                  </span>
-                </div>
-              )}
-
-              <div className="flex justify-between items-start gap-2 text-sm">
-                <span className="text-white/60 flex items-center gap-1 flex-shrink-0">
-                  {shop.shippingFee || 'Shipping Fee'}
-                </span>
-                <span className="text-amber-400 text-xs italic text-right min-w-0">
-                  {language === 'fr' ? 'En attente du devis' : 'Awaiting quote'}
-                </span>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-white/60 flex items-center gap-1 min-w-0">
-                  {shop.markupFee || 'Markup Fee'}
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <Info className="h-3 w-3 text-white/40" />
-                    </TooltipTrigger>
-                    <TooltipContent className="bg-black/90 text-white border-white/10">
-                      <p>{shop.markupFeeTooltip || 'Personal shopping and procurement service'}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </span>
-                <span className="text-white/90 flex-shrink-0">${serviceFee.toFixed(2)}</span>
-              </div>
-
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-white/60 flex items-center gap-1 min-w-0">
-                  {shop.shippingFee || 'Shipping Fee'}
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <Info className="h-3 w-3 text-white/40" />
-                    </TooltipTrigger>
-                    <TooltipContent className="bg-black/90 text-white border-white/10">
-                      <p>{shop.shippingFeeTooltip || 'International shipping and customs handling'}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </span>
-                <span className="text-white/90 flex-shrink-0">${shippingFee.toFixed(2)}</span>
-              </div>
-            </>
-          )}
-
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-white/60">{shop.markupFee || 'Service Fee'}</span>
+            <span className="text-green-400 text-xs">{language === 'fr' ? 'Inclus' : 'Included'}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-white/60">{shop.shippingFee || 'Shipping'}</span>
+            <span className="text-green-400 text-xs">{language === 'fr' ? 'Inclus' : 'Included'}</span>
+          </div>
           <div className="border-t border-white/10 pt-3" />
         </>
       )}
-
-      {showPendingQuote ? (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-white font-medium">
-              {isVehicle
-                ? (language === 'fr' ? 'Sous-total estimé' : 'Estimated Subtotal')
-                : (language === 'fr' ? 'Sous-total articles' : 'Item Subtotal')}
-            </span>
-            <span className="text-xl font-bold text-white">
-              ${isVehicle ? (subtotal + serviceFee).toFixed(2) : subtotal.toFixed(2)}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 text-amber-400 text-xs">
-            <Car className="h-3.5 w-3.5 flex-shrink-0" />
-            <span>
-              {language === 'fr' 
-                ? 'Les frais de livraison seront déterminés après le devis'
-                : 'Shipping will be determined after admin quote'}
-            </span>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="flex items-center justify-between">
-            <span className="text-white font-medium">
-              {serverTotal != null ? (shop.total || 'Total') : (shop.estimatedTotal || 'Estimated Total')}
-            </span>
-            <span className="text-xl font-bold text-white">
-              ${(serverTotal != null ? serverTotal : total).toFixed(2)}
-            </span>
-          </div>
-
-          {serverTotal == null && (
-            <p className="text-xs text-white/40">
-              {shop.priceDisclaimer || 'Final price may vary based on item weight and destination'}
-            </p>
-          )}
-        </>
-      )}
+      <div className="flex items-center justify-between">
+        <span className="text-white font-medium">{shop.total || 'Total'}</span>
+        <span className="text-xl font-bold text-white">${total.toFixed(2)}</span>
+      </div>
     </div>
   );
 }

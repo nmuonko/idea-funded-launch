@@ -24,6 +24,20 @@ export default function FeesSettings() {
   const [shippingBaseFeeUsd, setShippingBaseFeeUsd] = useState(20);
   const [shippingPercent, setShippingPercent] = useState(10);
   
+  // Vehicle pricing tiers
+  const [vehicleTiers, setVehicleTiers] = useState({
+    tier_1_under_5000_percent: 70,
+    tier_2_5000_to_7999_percent: 58,
+    tier_3_8000_to_11999_percent: 48,
+    tier_4_12000_to_17999_percent: 40,
+    tier_5_18000_to_24999_percent: 34,
+    tier_6_25000_plus_percent: 28,
+    non_running_extra_percent: 7,
+    container_extra_percent: 8,
+    default_shipping_method: 'roro' as string,
+    default_vehicle_condition: 'running' as string,
+  });
+  
   // Advanced settings
   const [categoryMarkups, setCategoryMarkups] = useState<Record<string, number>>({});
   const [extraFees, setExtraFees] = useState<any[]>([]);
@@ -83,6 +97,12 @@ export default function FeesSettings() {
       
       setExtraFees((data.extra_fees || []) as any[]);
       setDiscountCodes((data.discount_codes || []) as any[]);
+      
+      // Load vehicle pricing tiers
+      const tiers = data.vehicle_pricing_tiers as Record<string, any> | null;
+      if (tiers) {
+        setVehicleTiers(prev => ({ ...prev, ...tiers }));
+      }
     } catch (error: any) {
       toast({
         title: 'Error loading settings',
@@ -110,11 +130,12 @@ export default function FeesSettings() {
           markup_percent: markupPercent,
           global_markup_percent: markupPercent / 100,
           shipping_base_fee_usd: shippingBaseFeeUsd,
-          shipping_percent: shippingPercent, // Store as whole number (10 = 10%)
+          shipping_percent: shippingPercent,
           exchange_rate_usd_to_cdf: exchangeRateUsdToCdf,
           category_markups: updatedCategoryMarkups,
           extra_fees: extraFees,
           discount_codes: discountCodes,
+          vehicle_pricing_tiers: vehicleTiers,
           updated_at: new Date().toISOString(),
         })
         .eq('id', settings.id);
@@ -323,66 +344,93 @@ export default function FeesSettings() {
         </CardContent>
       </Card>
 
-      {/* Vehicle/Car Markup - DEDICATED SECTION */}
+      {/* Vehicle Pricing Tiers (USA → Dar es Salaam) */}
       <Card className="border-amber-500/30 bg-amber-50/5">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Car className="h-5 w-5 text-amber-600" />
-            {language === 'fr' ? 'Marge Véhicules' : 'Vehicle Markup'}
+            {language === 'fr' ? 'Tarification Véhicules (USA → Dar es Salaam)' : 'Vehicle Pricing Tiers (USA → Dar es Salaam)'}
           </CardTitle>
           <CardDescription>
             {language === 'fr' 
-              ? 'Pourcentage de marge appliqué aux véhicules (Tesla, Carvana, CarGurus, etc.)'
-              : 'Markup percentage applied to vehicles (Tesla, Carvana, CarGurus, etc.)'}
+              ? 'Pourcentage all-inclusive appliqué aux véhicules par tranche de prix. Inclut logistique, marge et buffer.'
+              : 'All-inclusive percentage applied to vehicles by price bracket. Includes logistics, margin, and safety buffer.'}
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4 max-w-md">
-              <div className="flex-1 space-y-2">
-                <Label htmlFor="vehicleMarkupPercent">
-                  {language === 'fr' ? 'Marge véhicules' : 'Vehicle markup'} (%)
-                </Label>
-                <Input
-                  id="vehicleMarkupPercent"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                  value={vehicleMarkupPercent}
-                  onChange={(e) => setVehicleMarkupPercent(parseFloat(e.target.value) || 0)}
+        <CardContent className="space-y-6">
+          {/* Tier Inputs */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[
+              { key: 'tier_1_under_5000_percent', label: '< $5,000' },
+              { key: 'tier_2_5000_to_7999_percent', label: '$5,000 – $7,999' },
+              { key: 'tier_3_8000_to_11999_percent', label: '$8,000 – $11,999' },
+              { key: 'tier_4_12000_to_17999_percent', label: '$12,000 – $17,999' },
+              { key: 'tier_5_18000_to_24999_percent', label: '$18,000 – $24,999' },
+              { key: 'tier_6_25000_plus_percent', label: '$25,000+' },
+            ].map(({ key, label }) => (
+              <div key={key} className="space-y-1">
+                <Label className="text-xs">{label}</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number" min="0" max="200" step="1"
+                    value={(vehicleTiers as any)[key]}
+                    onChange={(e) => setVehicleTiers(prev => ({ ...prev, [key]: Number(e.target.value) || 0 }))}
+                    className="flex-1"
+                  />
+                  <span className="text-sm text-muted-foreground">%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Surcharges */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <Label className="text-xs">{language === 'fr' ? 'Supplément non-roulant' : 'Non-running surcharge'}</Label>
+              <div className="flex items-center gap-2">
+                <Input type="number" min="0" max="50" step="1"
+                  value={vehicleTiers.non_running_extra_percent}
+                  onChange={(e) => setVehicleTiers(prev => ({ ...prev, non_running_extra_percent: Number(e.target.value) || 0 }))}
                 />
+                <span className="text-sm text-muted-foreground">%</span>
               </div>
-              <Badge variant="outline" className="text-lg px-4 py-2 mt-6 border-amber-500 text-amber-600">
-                {vehicleMarkupPercent}%
-              </Badge>
             </div>
-            
-            {/* Live Vehicle Example */}
-            <div className="bg-amber-500/10 rounded-lg p-4 border border-amber-500/20">
-              <p className="text-sm font-medium mb-2 text-amber-700">
-                {language === 'fr' ? 'Exemple véhicule:' : 'Vehicle example:'} $50,000 Tesla
-              </p>
-              <div className="grid grid-cols-3 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground">{language === 'fr' ? 'Prix de base' : 'Base price'}</p>
-                  <p className="font-semibold">$50,000.00</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">{language === 'fr' ? 'Marge' : 'Margin'} ({vehicleMarkupPercent}%)</p>
-                  <p className="font-semibold text-amber-600">${(50000 * (vehicleMarkupPercent / 100)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">{language === 'fr' ? 'Sous-total' : 'Subtotal'}</p>
-                  <p className="font-semibold">${(50000 * (1 + vehicleMarkupPercent / 100)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                </div>
+            <div className="space-y-1">
+              <Label className="text-xs">{language === 'fr' ? 'Supplément container' : 'Container surcharge'}</Label>
+              <div className="flex items-center gap-2">
+                <Input type="number" min="0" max="50" step="1"
+                  value={vehicleTiers.container_extra_percent}
+                  onChange={(e) => setVehicleTiers(prev => ({ ...prev, container_extra_percent: Number(e.target.value) || 0 }))}
+                />
+                <span className="text-sm text-muted-foreground">%</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-3">
-                {language === 'fr' 
-                  ? '* Les frais de livraison sont calculés séparément via devis manuel'
-                  : '* Shipping costs are calculated separately via manual quote'}
-              </p>
             </div>
+          </div>
+
+          {/* Example */}
+          <div className="bg-amber-500/10 rounded-lg p-4 border border-amber-500/20">
+            <p className="text-sm font-medium mb-2 text-amber-700">
+              {language === 'fr' ? 'Exemple:' : 'Example:'} $10,000 {language === 'fr' ? 'véhicule, roulant, RORO' : 'vehicle, running, RORO'}
+            </p>
+            <div className="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <p className="text-muted-foreground">{language === 'fr' ? 'Prix de base' : 'Base price'}</p>
+                <p className="font-semibold">$10,000</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">{language === 'fr' ? 'Taux' : 'Rate'} ({vehicleTiers.tier_3_8000_to_11999_percent}%)</p>
+                <p className="font-semibold text-amber-600">${(10000 * vehicleTiers.tier_3_8000_to_11999_percent / 100).toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">{language === 'fr' ? 'Prix final' : 'Final price'}</p>
+                <p className="font-semibold">${(10000 * (1 + vehicleTiers.tier_3_8000_to_11999_percent / 100)).toLocaleString()}</p>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-3">
+              {language === 'fr' 
+                ? '* Couvre USA → Dar es Salaam uniquement. Douanes/transport DRC = couche séparée.'
+                : '* Covers USA → Dar es Salaam only. DRC customs/inland delivery is a separate layer.'}
+            </p>
           </div>
         </CardContent>
       </Card>

@@ -33,6 +33,7 @@ import {
 } from "../_shared/auth.ts";
 import { PostgrestClient } from "../_shared/postgrest.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
+import { calculateVehicleFinalPrice, parseTiers } from "../_shared/vehiclePricing.ts";
 import { normalizeCategorySlug, getCategoryLabel, determineShippingCategory } from "../_shared/shippingCategory.ts";
 import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
 import { lookupCartItemMediaCounts } from "../_shared/mediaCache.ts";
@@ -138,7 +139,8 @@ function isUserEditedPrice(body: any): boolean {
 // Format item for get_cart response
 function formatItem(
   item: any, markupPercent: number, vehicleMarkupPercent: number, exchangeRate: number,
-  mediaInfo?: { image_count: number; image_count_status: "cached" | "pending" }
+  mediaInfo?: { image_count: number; image_count_status: "cached" | "pending" },
+  vehiclePricingTiers?: any
 ) {
   const basePriceUsd = Number(item.base_price_usd || 0);
   const quantity = item.quantity || 1;
@@ -193,17 +195,20 @@ function formatItem(
   }
   
   if (isVehicle && !vehicleQuoteApplied) {
-    const estimatedMargin = round2(basePriceUsd * (vehicleMarkupPercent / 100));
-    const estimatedSubtotal = round2(basePriceUsd + estimatedMargin);
+    // Auto-calculate using tiered pricing for legacy items without auto-pricing
+    const tiers = parseTiers(vehiclePricingTiers);
+    const vp = calculateVehicleFinalPrice(basePriceUsd, 'running', 'roro', tiers);
     return {
       ...baseFields, basePriceUsd, unitPriceUsd: basePriceUsd, itemBaseTotalUsd: basePriceUsd,
-      itemMarginUsd: estimatedMargin, markupFeeUsd: estimatedMargin, markup_fee_usd: estimatedMargin,
-      itemShippingUsd: 0, shippingFeeUsd: 0, shipping_fee_usd: 0, shippingCost: null,
-      shippingStatus: 'PENDING', itemSubtotalUsd: estimatedSubtotal, subtotalUsd: estimatedSubtotal, subtotal_usd: estimatedSubtotal,
-      itemTotalUsd: estimatedSubtotal, totalPriceUsd: estimatedSubtotal, total_price_usd: estimatedSubtotal, lineTotalUsd: estimatedSubtotal,
-      lineTotalCdf: round2(estimatedSubtotal * exchangeRate), priceUsd: estimatedSubtotal, price: estimatedSubtotal,
-      itemSubtotalCdf: round2(estimatedSubtotal * exchangeRate), requiresManualQuote: true, isQuoteRequired: true,
-      shippingItemType: null, vehicleMarkupPercent, effectiveMarkupPercent: vehicleMarkupPercent, markupPercent: vehicleMarkupPercent,
+      itemMarginUsd: vp.totalFeeUsd, markupFeeUsd: vp.totalFeeUsd, markup_fee_usd: vp.totalFeeUsd,
+      itemShippingUsd: 0, shippingFeeUsd: 0, shipping_fee_usd: 0, shippingCost: 0,
+      shippingStatus: 'INCLUDED', itemSubtotalUsd: vp.finalPriceUsd, subtotalUsd: vp.finalPriceUsd, subtotal_usd: vp.finalPriceUsd,
+      itemTotalUsd: vp.finalPriceUsd, totalPriceUsd: vp.finalPriceUsd, total_price_usd: vp.finalPriceUsd, lineTotalUsd: vp.finalPriceUsd,
+      lineTotalCdf: round2(vp.finalPriceUsd * exchangeRate), priceUsd: vp.finalPriceUsd, price: vp.finalPriceUsd,
+      itemSubtotalCdf: round2(vp.finalPriceUsd * exchangeRate), requiresManualQuote: false, isQuoteRequired: false,
+      shippingItemType: null, vehicleMarkupPercent, effectiveMarkupPercent: vp.totalPercent, markupPercent: vp.totalPercent,
+      vehiclePricingBreakdown: { tierPercent: vp.tierPercent, conditionSurcharge: vp.conditionSurcharge, shippingSurcharge: vp.shippingSurcharge, totalPercent: vp.totalPercent },
+      fees_included: true, is_all_inclusive_display: true, pricing_mode: 'vehicle_tiered',
     };
   }
   
@@ -332,7 +337,7 @@ async function handleGetCart(req: Request): Promise<Response> {
 
   (items || []).forEach((item: any) => {
     const mediaInfo = mediaLookup.get(item.product_url);
-    const formattedItem = formatItem(item, markupPercent, vehicleMarkupPercent, exchangeRate, mediaInfo);
+    const formattedItem = formatItem(item, markupPercent, vehicleMarkupPercent, exchangeRate, mediaInfo, settings.vehiclePricingTiers);
     if (item.is_saved_for_later) { savedItems.push(formattedItem); return; }
     activeItems.push(formattedItem);
     if (formattedItem.hasPendingPriceConfirmation) { hasPendingPriceConfirmation = true; pendingPriceConfirmations.push(item.id); }
@@ -372,19 +377,20 @@ async function handleGetCart(req: Request): Promise<Response> {
   const grandTotalUsd = round2(itemsBaseTotalUsd + totalMarginUsd + totalShippingUsd);
   const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
 
+  // With tiered auto-pricing, all vehicles are effectively "quoted" automatically
   let vehicleQuoteStatus: 'none' | 'pending' | 'quoted' = 'none';
-  if (hasVehicleItems) { vehicleQuoteStatus = allVehiclesQuoted ? 'quoted' : anyVehicleNoQuoteRequest ? 'none' : 'pending'; }
+  if (hasVehicleItems) { vehicleQuoteStatus = 'quoted'; allVehiclesQuoted = true; }
 
-  const canProceedToPayment = !regularRequiresQuote && (!hasVehicleItems || allVehiclesQuoted) && !hasPendingPriceConfirmation;
+  const canProceedToPayment = !regularRequiresQuote && !hasPendingPriceConfirmation;
 
   const summary: Record<string, any> = {
     cartId: order.id, cartVersion: order.cart_version || 1, itemCount: totalItemCount,
     itemsTotalUsd: itemsBaseTotalUsd, markupFeeUsd: totalMarginUsd, shippingFeeUsd: totalShippingUsd,
-    shippingStatus: hasVehicleItems ? (allVehiclesQuoted ? 'QUOTED' : 'PENDING_QUOTE') : (regularRequiresQuote ? 'PENDING_QUOTE' : 'CALCULATED'),
+    shippingStatus: regularRequiresQuote ? 'PENDING_QUOTE' : 'CALCULATED',
     totalUsd: grandTotalUsd, totalCdf: grandTotalCdf, exchangeRate,
     requiresManualQuote: regularRequiresQuote, savedItemCount: savedItems.length,
-    hasVehicleItems, vehicleQuoteStatus, allVehiclesQuoted,
-    vehiclesWithPendingQuotes: vehiclesWithPendingQuotes.length, canProceedToPayment,
+    hasVehicleItems, vehicleQuoteStatus, allVehiclesQuoted: true,
+    vehiclesWithPendingQuotes: 0, canProceedToPayment,
     hasPendingPriceConfirmation, pendingPriceConfirmationCount: pendingPriceConfirmations.length,
     pendingPriceConfirmationItemIds: pendingPriceConfirmations,
     vehicleTotals: hasVehicleItems ? { basePriceUsd: vehicleBasePriceTotal, marginUsd: vehicleMarginTotal, shippingUsd: vehicleShippingTotal, totalUsd: vehicleTotalUsd } : null,
@@ -393,7 +399,6 @@ async function handleGetCart(req: Request): Promise<Response> {
     markupPercent: (hasVehicleItems && regularItemCount === 0) ? vehicleMarkupPercent : markupPercent,
   };
   if (hasPendingPriceConfirmation) { summary.message = "Le prix d'un ou plusieurs articles est en attente de confirmation."; }
-  else if (hasVehicleItems && !allVehiclesQuoted) { summary.message = "Un devis de livraison est nécessaire pour votre véhicule."; }
   
   summary.shipping_debug = {
     raw_shippingPercent: shippingPercent, normalized_shippingPercent: normalizedShippingPercent,
@@ -483,16 +488,22 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   }
 
   const detection = determineShippingCategory({ title: productTitle || "", url: productUrl, store, existingCategory: null });
+  let vehiclePricingResult: any = null;
   if (detection.category === "vehicle" && detection.requiresQuote) {
-    isVehicleDetected = true; requiresManualQuote = true; finalShippingTypeId = null;
-    effectiveMarkup = settings.vehicleMarkupPercent;
-    pricing = cartPricingCalc(productPrice, quantity, effectiveMarkup, settings.exchangeRate);
+    isVehicleDetected = true;
+    requiresManualQuote = false; // No longer requires manual quote — auto-calculated
+    finalShippingTypeId = null;
+    // Auto-calculate using tiered vehicle pricing
+    const tiers = parseTiers(settings.vehiclePricingTiers);
+    vehiclePricingResult = calculateVehicleFinalPrice(productPrice, 'running', 'roro', tiers);
+    effectiveMarkup = vehiclePricingResult.totalPercent;
+    pricing = cartPricingCalc(productPrice, quantity, 0, settings.exchangeRate); // markup baked into vehicle pricing
   } else if (detection.category && detection.category !== "vehicle") {
     const catTypeResult = await getShippingTypeForCategory(db, detection.category, correlationId);
     if (catTypeResult.data) { finalShippingTypeId = catTypeResult.data.id; estWeightKg = catTypeResult.data.estWeightKg; }
   }
 
-  const shippingFeeUsd = isFixedPrice ? 0 : calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, settings.shippingPercent, requiresManualQuote);
+  const shippingFeeUsd = isFixedPrice ? 0 : (isVehicleDetected ? 0 : calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, settings.shippingPercent, requiresManualQuote));
 
   if (isGuest) {
     const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup);
@@ -514,12 +525,22 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     const existingItem = existingResult.data;
     const newQuantity = existingItem.quantity + quantity;
     console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=false dbUpdateAttempted=true orderId=${draft.id} existingItemId=${existingItem.id}`);
-    const updateResult = await updateCartItem(db, existingItem.id, {
+    const updateFields: Record<string, unknown> = {
       quantity: newQuantity, base_price_usd: productPrice, product_image_url: productImageUrl,
       is_vehicle: isVehicleDetected || existingItem.is_vehicle,
-      requires_manual_quote: (isVehicleDetected || existingItem.requires_manual_quote) && !existingItem.vehicle_quote_applied,
+      requires_manual_quote: false, // Vehicles no longer need manual quotes
       updated_at: new Date().toISOString(),
-    }, correlationId);
+    };
+    // If vehicle, update pricing fields
+    if (isVehicleDetected && vehiclePricingResult) {
+      updateFields.markup_fee_usd = vehiclePricingResult.totalFeeUsd;
+      updateFields.shipping_fee_usd = 0;
+      updateFields.total_price_usd = vehiclePricingResult.finalPriceUsd;
+      updateFields.total_price_cdf = cartRound2(vehiclePricingResult.finalPriceUsd * settings.exchangeRate);
+      updateFields.vehicle_quote_applied = true;
+      updateFields.price_source = 'auto_vehicle_tiered';
+    }
+    const updateResult = await updateCartItem(db, existingItem.id, updateFields, correlationId);
     if (updateResult.error || !updateResult.data) {
       console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=ITEM_UPDATE_FAILED dbError=${updateResult.error?.message ?? "none"}`);
       return errorResponse("Failed to update cart item", 500);
@@ -547,26 +568,33 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       }
     }
 
-    const totalPriceUsd = cartRound2(pricing.itemSubtotalUsd + shippingFeeUsd);
+    // For vehicles, use tiered pricing; for regular items, use standard pricing
+    const isVehicleInsert = isVehicleDetected && vehiclePricingResult;
+    const totalPriceUsd = isVehicleInsert
+      ? vehiclePricingResult.finalPriceUsd
+      : cartRound2(pricing.itemSubtotalUsd + shippingFeeUsd);
     const totalPriceCdf = cartRound2(totalPriceUsd * settings.exchangeRate);
-    const newItem = {
+    const newItem: Record<string, unknown> = {
       order_id: draft.id, product_url: productUrl, title: productTitle, product_image_url: productImageUrl,
       store, quantity, base_price_usd: productPrice,
       unit_price_usd: cartRound2(productPrice),
       subtotal_usd: pricing.itemBaseTotalUsd,
-      markup_fee_usd: isFixedPrice ? 0 : pricing.itemMarginUsd,
-      shipping_fee_usd: isFixedPrice ? 0 : shippingFeeUsd,
+      markup_fee_usd: isFixedPrice ? 0 : (isVehicleInsert ? vehiclePricingResult.totalFeeUsd : pricing.itemMarginUsd),
+      shipping_fee_usd: isFixedPrice ? 0 : (isVehicleInsert ? 0 : shippingFeeUsd),
       total_price_usd: isFixedPrice ? pricing.itemBaseTotalUsd : totalPriceUsd,
       total_price_cdf: isFixedPrice ? cartRound2(pricing.itemBaseTotalUsd * settings.exchangeRate) : totalPriceCdf,
       shipping_item_type_id: finalShippingTypeId,
-      est_weight_kg: estWeightKg, is_vehicle: isVehicleDetected, requires_manual_quote: requiresManualQuote,
-      is_saved_for_later: false, price_source: isFixedPrice ? "hot_product" : (userEdited ? "manual_user" : "auto"),
+      est_weight_kg: estWeightKg, is_vehicle: isVehicleDetected,
+      requires_manual_quote: false, // Never requires manual quote now
+      vehicle_quote_applied: isVehicleInsert ? true : false,
+      is_saved_for_later: false,
+      price_source: isFixedPrice ? "hot_product" : (isVehicleInsert ? "auto_vehicle_tiered" : (userEdited ? "manual_user" : "auto")),
       price_confirmation_status: userEdited ? "pending" : null,
       captured_price: userEdited ? (addBody.capturedPrice ?? addBody.captured_price ?? null) : null,
       provider_product_id: providerProductId,
       canonical_url: canonicalUrl,
     };
-    console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=true orderId=${draft.id} insertPayload=${JSON.stringify({ order_id: draft.id, product_url: productUrl, quantity, device_id: deviceId ?? null, user_id: userId, is_vehicle: isVehicleDetected, requires_manual_quote: requiresManualQuote })}`);
+    console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=true orderId=${draft.id} insertPayload=${JSON.stringify({ order_id: draft.id, product_url: productUrl, quantity, device_id: deviceId ?? null, user_id: userId, is_vehicle: isVehicleDetected, requires_manual_quote: false, price_source: newItem.price_source })}`);
     const insertResult = await insertCartItem(db, newItem, correlationId);
     if (insertResult.error || !insertResult.data) {
       console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=500 error=ITEM_INSERT_FAILED dbError=${insertResult.error?.message ?? "none"}`);

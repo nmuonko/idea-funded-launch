@@ -2,6 +2,8 @@
 // TTL: 15 minutes fresh, 1 hour stale-while-revalidate
 // Optimized for 1000+ concurrent users
 
+import { VehiclePricingTiers, parseTiers } from "./vehiclePricing.ts";
+
 interface CachedSettings {
   exchangeRate: number;
   markupPercent: number;
@@ -10,6 +12,7 @@ interface CachedSettings {
   shippingPercent: number;
   serviceFeePercent: number;
   minServiceFeeUsd: number;
+  vehiclePricingTiers: VehiclePricingTiers;
   fetchedAt: number;
 }
 
@@ -60,7 +63,7 @@ async function fetchFreshSettings(supabase: any): Promise<CachedSettings> {
   // Fetch fresh settings - select only needed columns
   const { data: settings, error } = await supabase
     .from('settings')
-    .select('exchange_rate_usd_to_cdf, markup_percent, global_markup_percent, shipping_base_fee_usd, shipping_percent, service_fee_percent, min_service_fee_usd, category_markups')
+    .select('exchange_rate_usd_to_cdf, markup_percent, global_markup_percent, shipping_base_fee_usd, shipping_percent, service_fee_percent, min_service_fee_usd, category_markups, vehicle_pricing_tiers')
     .limit(1)
     .maybeSingle();
 
@@ -105,6 +108,7 @@ async function fetchFreshSettings(supabase: any): Promise<CachedSettings> {
     shippingPercent,
     serviceFeePercent,
     minServiceFeeUsd: settings?.min_service_fee_usd ?? 5,
+    vehiclePricingTiers: parseTiers(settings?.vehicle_pricing_tiers),
     fetchedAt: now,
   };
   

@@ -356,6 +356,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
         shipping_percent,
         service_fee_percent,
         min_service_fee_usd,
+        vehicle_pricing_tiers,
         updated_at
       `)
       .limit(1)
@@ -819,6 +820,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     runtime: runtimeConfig,
     support_whatsapp: supportWhatsapp,
     support_email: supportEmail,
+    vehiclePricingTiers: settings.vehicle_pricing_tiers || null,
   };
 }
 

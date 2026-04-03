@@ -268,8 +268,9 @@ export async function getCachedSettings(
     shipping_base_fee_usd: number;
     shipping_percent: number;
     category_markups?: Record<string, number> | null;
+    vehicle_pricing_tiers?: Record<string, unknown> | null;
   }[]>("settings")
-    .select("markup_percent, global_markup_percent, exchange_rate_usd_to_cdf, shipping_base_fee_usd, shipping_percent, category_markups")
+    .select("markup_percent, global_markup_percent, exchange_rate_usd_to_cdf, shipping_base_fee_usd, shipping_percent, category_markups, vehicle_pricing_tiers")
     .limit(1);
   
   if (result.error) {

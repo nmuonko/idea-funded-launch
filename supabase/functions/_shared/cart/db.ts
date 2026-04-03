@@ -11,6 +11,7 @@ export interface CartSettings {
   exchangeRate: number;
   shippingBaseFeeUsd: number;
   shippingPercent: number;
+  vehiclePricingTiers?: Record<string, unknown> | null;
 }
 
 export interface ShippingType {

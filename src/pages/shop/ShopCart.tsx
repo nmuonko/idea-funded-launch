@@ -41,7 +41,7 @@ export default function ShopCart() {
   const { toast } = useToast();
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
-  const [requestingQuote, setRequestingQuote] = useState(false);
+  const [requestingQuote, setRequestingQuote] = useState(false); // kept for backward compat
 
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
   const allSelected = items.length > 0 && selectedItemIds.size === items.length;

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { allInclusivePrice } from '@/lib/allInclusivePrice';
-import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus, Car, Loader2, FileText, CheckSquare, Square, AlertTriangle } from 'lucide-react';
+import { vehicleAllInclusivePrice } from '@/lib/vehiclePricing';
+import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus, Car, Loader2, CheckSquare, Square, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';

@@ -377,19 +377,20 @@ async function handleGetCart(req: Request): Promise<Response> {
   const grandTotalUsd = round2(itemsBaseTotalUsd + totalMarginUsd + totalShippingUsd);
   const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
 
+  // With tiered auto-pricing, all vehicles are effectively "quoted" automatically
   let vehicleQuoteStatus: 'none' | 'pending' | 'quoted' = 'none';
-  if (hasVehicleItems) { vehicleQuoteStatus = allVehiclesQuoted ? 'quoted' : anyVehicleNoQuoteRequest ? 'none' : 'pending'; }
+  if (hasVehicleItems) { vehicleQuoteStatus = 'quoted'; allVehiclesQuoted = true; }
 
-  const canProceedToPayment = !regularRequiresQuote && (!hasVehicleItems || allVehiclesQuoted) && !hasPendingPriceConfirmation;
+  const canProceedToPayment = !regularRequiresQuote && !hasPendingPriceConfirmation;
 
   const summary: Record<string, any> = {
     cartId: order.id, cartVersion: order.cart_version || 1, itemCount: totalItemCount,
     itemsTotalUsd: itemsBaseTotalUsd, markupFeeUsd: totalMarginUsd, shippingFeeUsd: totalShippingUsd,
-    shippingStatus: hasVehicleItems ? (allVehiclesQuoted ? 'QUOTED' : 'PENDING_QUOTE') : (regularRequiresQuote ? 'PENDING_QUOTE' : 'CALCULATED'),
+    shippingStatus: regularRequiresQuote ? 'PENDING_QUOTE' : 'CALCULATED',
     totalUsd: grandTotalUsd, totalCdf: grandTotalCdf, exchangeRate,
     requiresManualQuote: regularRequiresQuote, savedItemCount: savedItems.length,
-    hasVehicleItems, vehicleQuoteStatus, allVehiclesQuoted,
-    vehiclesWithPendingQuotes: vehiclesWithPendingQuotes.length, canProceedToPayment,
+    hasVehicleItems, vehicleQuoteStatus, allVehiclesQuoted: true,
+    vehiclesWithPendingQuotes: 0, canProceedToPayment,
     hasPendingPriceConfirmation, pendingPriceConfirmationCount: pendingPriceConfirmations.length,
     pendingPriceConfirmationItemIds: pendingPriceConfirmations,
     vehicleTotals: hasVehicleItems ? { basePriceUsd: vehicleBasePriceTotal, marginUsd: vehicleMarginTotal, shippingUsd: vehicleShippingTotal, totalUsd: vehicleTotalUsd } : null,
@@ -398,7 +399,6 @@ async function handleGetCart(req: Request): Promise<Response> {
     markupPercent: (hasVehicleItems && regularItemCount === 0) ? vehicleMarkupPercent : markupPercent,
   };
   if (hasPendingPriceConfirmation) { summary.message = "Le prix d'un ou plusieurs articles est en attente de confirmation."; }
-  else if (hasVehicleItems && !allVehiclesQuoted) { summary.message = "Un devis de livraison est nécessaire pour votre véhicule."; }
   
   summary.shipping_debug = {
     raw_shippingPercent: shippingPercent, normalized_shippingPercent: normalizedShippingPercent,

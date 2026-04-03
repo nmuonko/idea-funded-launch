@@ -820,6 +820,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     runtime: runtimeConfig,
     support_whatsapp: supportWhatsapp,
     support_email: supportEmail,
+    vehiclePricingTiers: settings.vehicle_pricing_tiers || null,
   };
 }
 

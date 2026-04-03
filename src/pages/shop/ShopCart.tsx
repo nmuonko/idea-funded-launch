@@ -336,45 +336,10 @@ export default function ShopCart() {
 
                   <div className="mt-6 space-y-3">
                     {/* Vehicle quote warning — only if a vehicle is SELECTED */}
-                    {selectedHasVehicleItems && vehicleQuoteStatus !== 'quoted' && session ? (
-                      vehicleQuoteStatus === 'pending' ? (
-                        <div className="text-center space-y-2">
-                          <div className="flex items-center justify-center gap-2 text-amber-400 text-sm">
-                            <FileText className="h-4 w-4" />
-                            {language === 'fr' ? 'Devis en attente — Vous serez notifié par email' : 'Quote pending — You\'ll be notified by email'}
-                          </div>
-                          <p className="text-xs text-white/40">
-                            {language === 'fr' 
-                              ? 'Désélectionnez le véhicule pour payer les autres articles maintenant' 
-                              : 'Deselect the vehicle to pay for other items now'}
-                          </p>
-                        </div>
-                      ) : (
-                        <>
-                          <Button
-                            onClick={requestVehicleQuote}
-                            disabled={requestingQuote}
-                            className="w-full h-12 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-full"
-                          >
-                            {requestingQuote ? (
-                              <>
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                {language === 'fr' ? 'Envoi...' : 'Requesting...'}
-                              </>
-                            ) : (
-                              <>
-                                <Car className="h-4 w-4 mr-2" />
-                                {language === 'fr' ? 'Demander un devis' : 'Request Shipping Quote'}
-                              </>
-                            )}
-                          </Button>
-                          <p className="text-xs text-white/40 text-center">
-                            {language === 'fr' 
-                              ? 'Ou désélectionnez le véhicule pour payer les autres articles' 
-                              : 'Or deselect the vehicle to pay for other items'}
-                          </p>
-                        </>
-                      )
+                    {selectedHasVehicleItems && !session ? (
+                      <p className="text-xs text-white/40 text-center">
+                        {language === 'fr' ? 'Connectez-vous pour continuer' : 'Please sign in to continue'}
+                      </p>
                     ) : !isAuthReady ? (
                       <Button
                         disabled

@@ -1,55 +1,80 @@
 
 
-# Fix "See All" to Show Relevant Items in RN App
+# Fix Price Mismatch Between Product Display and Cart in RN App
 
 ## Problem
-When a user taps "Voir Tout" (See All) on a homepage section (e.g., Phones, Gaming, Home), `catalog-home` delegates to `catalog-category` with the section key. `catalog-category` returns items based on broad DB `unified_category` values and eBay category IDs, but does NOT apply the same strict keyword include/exclude filtering that the homepage sections use (from `sectionProfiles.ts`). Result: irrelevant items leak into "See All" views.
-
-Examples found:
-- Home & Garden returns "WiFi Extender Signal Booster" (electronics)
-- Home & Garden returns "Vegetable Packaging Machine" (industrial equipment)
+The RN app shows a product at **$399** (base price from `catalog-home`), but when added to cart, the backend applies markup (30%) + shipping on top, inflating it to **$558.70**. The customer sees one price, pays another -- a trust-breaking experience.
 
 ## Root Cause
-The homepage sections use `filterItemsForProfile()` from `sectionProfiles.ts` with strict `includeAny`/`excludeAny` keyword matching. But `catalog-category` has no awareness of section context — it just queries by `unified_category` and eBay category ID, both of which are too broad.
+- `catalog-home` returns raw base prices (`price_usd: 399`)
+- The frozen RN app displays this raw price as-is on product cards
+- When adding to cart, the RN app sends `productPrice: 399`
+- The cart backend (`handleAddItem`) treats this as a base price and stacks markup + shipping on top
+- Result: display = $399, cart = $558.70
 
-## Solution
-Pass the section context from `catalog-home` to `catalog-category`, then apply the same section profile keyword filtering as a post-filter on results.
+## Solution: Two-Part Backend Fix
 
-### Changes
+### Part 1 — Make `catalog-home` return all-inclusive prices
 
-**1. `catalog-home/index.ts` — Pass `sectionKey` in delegation URL**
-- Add `&sectionKey=phones` (or whatever section) to the `catalog-category` delegation URL on line ~1081
-- This tells `catalog-category` the request originated from a section "See All"
+Modify `catalog-home/index.ts` to compute and return the all-inclusive price in the `price_usd` and `priceUsd` fields. This way the frozen RN app displays the final price the customer will actually pay.
 
-**2. `catalog-category/index.ts` — Accept `sectionKey` param and apply section keyword filter**
-- Parse `sectionKey` from query params / POST body (alongside existing `category`, `cursor`, etc.)
-- After mixing results (line ~746), if `sectionKey` is set, import and apply `filterItemsForProfile()` from `sectionProfiles.ts` to remove items that don't match the section's keyword rules
-- This reuses the existing, well-tested keyword matching logic — no new filtering code needed
-- Only applies when `sectionKey` is provided, so normal category browsing is unaffected
+- Load settings (markup_percent, shipping_base_fee_usd, shipping_percent) once per request
+- For each non-vehicle product item, compute: `allInclusivePrice = base + (base * markup%) + shippingBaseFee + (base * shipping%)`
+- For vehicles, use the tiered vehicle pricing calculation
+- Return the all-inclusive value in `price_usd` / `priceUsd` (what the RN app reads)
+- Also return `base_price_usd` with the original raw price for internal use
+- Add `fees_included: true` and `pricing_mode: "all_inclusive"` metadata
 
-**3. `_shared/sectionProfiles.ts` — Export lookup helper**
-- Add a `getSectionProfile(key: string)` export that returns the matching `SectionProfile` by key, or `null`
-- This avoids importing the full `SECTION_PROFILES` array and searching manually
+### Part 2 — Make cart addition recognize all-inclusive prices
 
-### Flow After Fix
+Modify `handleAddItem` in `mobile-cart/index.ts` to detect when the incoming price is already all-inclusive and skip double-taxing:
 
-```text
-RN: "Voir Tout" on Phones section
-  → catalog-home: section=phones
-    → catalog-category?category=phones&sectionKey=phones&limit=500
-      → Fetch Amazon DB + eBay by electronics_phones category
-      → Mix results (200 items)
-      → Post-filter with phones section profile keywords
-      → Return only items matching phone keywords, excluding accessories
-```
+- Accept a new optional flag `feesIncluded` / `fees_included` in the add-to-cart payload
+- When `feesIncluded === true`, treat the incoming `productPrice` as the final price:
+  - Set `effectiveMarkup = 0`
+  - Set `shippingFeeUsd = 0`
+  - Store the price as-is in `total_price_usd`
+  - Set `price_source = "all_inclusive_display"`
+- The frozen RN app won't send this flag, so we need a **fallback heuristic**: if the product was recently served by `catalog-home` with all-inclusive pricing, detect it by reverse-checking the price against the base price in `products` table -- BUT this is fragile
+- **Better approach for frozen app**: Since we can't change the RN app, we reverse-compute the base price from the all-inclusive price sent by the app:
+  - `basePrice = (sentPrice - shippingBaseFee) / (1 + markupRate + shippingRate)`
+  - Then apply fees normally from the true base price, arriving back at the same total the customer saw
+
+### Recommended Approach (simplest, no RN changes needed)
+
+Since the RN app sends whatever `price_usd` it received from `catalog-home`, and we're changing `catalog-home` to send all-inclusive prices:
+
+1. **`catalog-home`**: Return all-inclusive price in `price_usd` (display field) AND add `base_price_usd` with the raw price
+2. **`handleAddItem`**: Reverse-extract the base price from the all-inclusive price the RN app sends, then apply fees normally -- resulting in the same total
+
+Actually, the cleanest approach:
+1. **`catalog-home`**: Send all-inclusive in `price_usd`, keep raw in `base_price_usd`
+2. **`handleAddItem`**: Simply treat the incoming `productPrice` AS the final total (set markup=0, shipping=0) — store it directly as `total_price_usd`. The fees are already baked in.
+
+This means cart items from all-inclusive sources will have `markup_fee_usd = 0` and `shipping_fee_usd = 0` in the DB, with the full amount in `total_price_usd`. This is consistent with the `isFixedPrice` pattern already used for Hot Products.
+
+## Files to Change
+
+1. **`supabase/functions/catalog-home/index.ts`**
+   - Load pricing settings (markup, shipping) at request time
+   - Compute all-inclusive price for each item in mapping functions
+   - Return in `price_usd` / `priceUsd` fields
+   - Add `base_price_usd` and `fees_included: true` metadata
+
+2. **`supabase/functions/mobile-cart/index.ts`**
+   - In `handleAddItem`: auto-detect when the sent price matches an all-inclusive pattern (price is too high relative to what the raw product costs), OR simply always treat `productPrice` from non-vehicle, non-hot-product sources as all-inclusive
+   - Safest: check if the product exists in `products` table, compare sent price vs stored `price_usd`. If sent price > stored base * 1.1, it's all-inclusive — use it as final total
+
+3. **`supabase/functions/catalog-search/index.ts`** (if applicable)
+   - Same all-inclusive price transformation for search results consumed by RN app
 
 ## What Stays the Same
-- Normal category browsing (web tabs, direct category requests) — unchanged
-- Homepage section card display — unchanged  
-- Section profile keyword definitions — unchanged (reused as-is)
-- All existing API contracts — unchanged
-- The `see_all_category` field in cached sections — unchanged
+- Hot Products flow (already uses `isFixedPrice`)
+- Vehicle pricing (already uses tiered calculation)
+- Web app (already computes all-inclusive client-side via `allInclusivePrice.ts`)
+- Order totals recalculation at checkout
 
-## OTA Friendly
-This is a backend-only change (edge functions). The frozen RN app sends the same `section` param it always has. No mobile code changes needed.
+## Risk Mitigation
+- The web app already computes its own all-inclusive display prices client-side, so changing `catalog-home` response won't break it (web ignores `price_usd` from catalog-home for display)
+- Cart DB fields remain consistent: `total_price_usd` is the final amount regardless of how it was computed
 

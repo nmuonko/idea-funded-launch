@@ -463,7 +463,12 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   }
   const settings = settingsResult.data;
 
-  let effectiveMarkup = isFixedPrice ? 0 : settings.markupPercent;
+  // ALL-INCLUSIVE PRICING: catalog-home and catalog-search now send all-inclusive prices.
+  // The RN app sends this all-inclusive price as productPrice.
+  // Treat it as the final total — DO NOT add markup or shipping on top.
+  const feesIncluded = addBody.feesIncluded === true || addBody.fees_included === true;
+  const isAllInclusive = !isFixedPrice && !feesIncluded; // Default: treat as all-inclusive from catalog
+  let effectiveMarkup = isFixedPrice ? 0 : (isAllInclusive ? 0 : settings.markupPercent);
   let pricing = cartPricingCalc(productPrice, quantity, effectiveMarkup, settings.exchangeRate);
   const store = addCartDetectStore(productUrl);
 

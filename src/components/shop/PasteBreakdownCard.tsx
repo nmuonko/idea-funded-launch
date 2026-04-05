@@ -50,7 +50,7 @@ export function PasteBreakdownCard({
         quantity: 1,
         productUrl,
         isVehicle,
-        requiresManualQuote: isVehicle,
+        requiresManualQuote: false,
       });
       toast.success(isFr ? 'Ajouté au panier' : 'Added to cart');
       if (buyNow) {

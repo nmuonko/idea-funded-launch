@@ -168,17 +168,22 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
                 ? parsed.ok
                 : upstreamResponse.ok;
 
-            const normalizeItem = (item: any) => ({
+            const rawImg = (item: any) =>
+              item.imageUrl ?? item.productImageUrl ?? item.product_image_url ?? item.mainImageUrl ?? item.image_url ?? null;
+
+            const normalizeItem = (item: any) => {
+              const cleanImg = sanitizeImageUrl(rawImg(item));
+              return {
               ...item,
               productUrl: item.productUrl ?? item.product_url ?? null,
               product_url: item.product_url ?? item.productUrl ?? null,
               productTitle: item.productTitle ?? item.product_title ?? item.title ?? null,
               product_title: item.product_title ?? item.productTitle ?? item.title ?? null,
               title: item.title ?? item.productTitle ?? item.product_title ?? null,
-              imageUrl: item.imageUrl ?? item.productImageUrl ?? item.product_image_url ?? item.mainImageUrl ?? item.image_url ?? null,
-              productImageUrl: item.productImageUrl ?? item.product_image_url ?? item.imageUrl ?? item.mainImageUrl ?? item.image_url ?? null,
-              product_image_url: item.product_image_url ?? item.productImageUrl ?? item.imageUrl ?? item.mainImageUrl ?? item.image_url ?? null,
-              image_url: item.image_url ?? item.product_image_url ?? item.productImageUrl ?? item.imageUrl ?? item.mainImageUrl ?? null,
+              imageUrl: cleanImg,
+              productImageUrl: cleanImg,
+              product_image_url: cleanImg,
+              image_url: cleanImg,
               provider: item.provider ?? item.store ?? null,
               store: item.store ?? item.provider ?? null,
               base_price_usd: item.base_price_usd ?? item.basePriceUsd ?? item.unitPriceUsd ?? 0,

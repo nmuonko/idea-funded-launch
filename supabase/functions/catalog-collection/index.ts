@@ -584,7 +584,7 @@ async function upsertCatalogItems(
   items: CollectionItem[],
   categoryKey: string
 ): Promise<void> {
-  const rows = items.map(item => ({
+  const rows = items.map(item => {
     const galleryImages = sanitizeGallery(item.images || (item.imageUrl ? [item.imageUrl] : []));
     const primaryImage = sanitizeImageUrl(item.imageUrl) ?? galleryImages[0] ?? null;
     return {

@@ -377,7 +377,7 @@ async function upsertListings(supabase: any, provider: string, listings: CarList
   if (listings.length === 0 || dryRun) return 0;
 
   const now = new Date().toISOString();
-  const rows = listings.map((l) => ({
+  const rows = listings.map((l) => {
     const galleryImages = sanitizeGallery((l as any).images || (l.image_url ? [l.image_url] : []));
     const primaryImage = sanitizeImageUrl(l.image_url) ?? galleryImages[0] ?? null;
     return {

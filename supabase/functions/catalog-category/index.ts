@@ -20,6 +20,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
 import { isDisallowedItem, filterDisallowedItems } from "../_shared/contentBlocker.ts";
+import { getSectionProfile, filterItemsForProfile, SectionItem } from "../_shared/sectionProfiles.ts";
 import { searchEbay, searchEbayWithFallback, upsertItemsToDb, NormalizedItem } from "../_shared/ebayBrowseSearch.ts";
 import { isAllowedMotorListing } from "../_shared/motorsFilter.ts";
 import { extractBrand, applyBrandDiversity, applyItemDiversity } from "../_shared/brandExtractor.ts";

@@ -1078,7 +1078,7 @@ serve(async (req) => {
       const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY") || "";
       if (supabaseUrl) {
         try {
-          const catUrl = `${supabaseUrl}/functions/v1/catalog-category?category=${encodeURIComponent(sectionKey)}&limit=500&sort=relevance${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+          const catUrl = `${supabaseUrl}/functions/v1/catalog-category?category=${encodeURIComponent(sectionKey)}&sectionKey=${encodeURIComponent(sectionKey)}&limit=500&sort=relevance${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
           const catRes = await fetch(catUrl, {
             headers: {
               apikey: serviceRoleKey,

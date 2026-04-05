@@ -361,6 +361,7 @@ Deno.serve(async (req) => {
       if (body.filters) filtersParam = typeof body.filters === 'string' ? body.filters : JSON.stringify(body.filters);
       if (body.provider) providerParam = body.provider;
       if (body.subtab) subtabParam = body.subtab;
+      if (body.sectionKey) sectionKeyParam = body.sectionKey;
     } catch {
       // Ignore parse errors, use query params
     }

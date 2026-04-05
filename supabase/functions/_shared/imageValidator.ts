@@ -17,6 +17,11 @@ const BLOCKED_SUBSTRINGS = [
   "heliosconditionaltiles",
   "pt.ispot.tv",
 
+  // Vehicle dealer overlay/composite images
+  "autonationoverlays",
+  "nophoneoverlay",
+  "anwhitebg",
+
   // SHEIN banners
   "_thumbnail_126x",
 
@@ -81,6 +86,7 @@ const BLOCKED_SUBSTRINGS = [
   "satisfaction-guarantee", "satisfaction_guarantee",
   "free-shipping", "free_shipping", "best-seller", "best_seller",
   "warranty-badge", "warranty_badge", "money-back", "money_back",
+  "asurion", "protection-plan", "protection_plan",
   "trust-badge", "trust_badge", "guarantee-badge",
 
   // SHEIN promo paths

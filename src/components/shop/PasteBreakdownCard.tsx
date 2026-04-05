@@ -80,58 +80,37 @@ export function PasteBreakdownCard({
       </div>
 
       <div className="px-4 pb-4 space-y-2">
-        {isVehicle ? (
-          <>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{isFr ? 'Prix de base' : 'Base Price'}</span>
-              <span className="text-foreground font-medium">${basePriceUsd.toFixed(2)}</span>
+        <>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">{isFr ? 'Prix total' : 'Total Price'}</span>
+            <span className="text-foreground font-medium">${totalUsd.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">{isFr ? 'Frais de service' : 'Service Fee'}</span>
+            <span className="text-green-500 text-xs">{isFr ? 'Inclus' : 'Included'}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">{isFr ? 'Livraison' : 'Shipping'}</span>
+            <span className="text-green-500 text-xs">{isFr ? 'Inclus' : 'Included'}</span>
+          </div>
+          {isVehicle && (
+            <div className="flex items-center gap-2 text-amber-400 text-xs mt-1">
+              <Car className="h-3.5 w-3.5" />
+              <span>{isFr ? 'Véhicule détecté — frais inclus' : 'Vehicle detected — fees included'}</span>
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">
-                {isFr ? 'Frais de service' : 'Service Fee'}
-              </span>
-              <span className="text-foreground">${markupFee.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{isFr ? 'Livraison' : 'Shipping'}</span>
-              <span className="text-warning text-xs font-medium">
-                {isFr ? 'Devis requis' : 'Quote Required'}
-              </span>
-            </div>
-            <div className="border-t border-border/50 pt-2 mt-2">
-              <div className="flex items-center gap-2 text-warning text-sm">
-                <Car className="h-4 w-4" />
-                <span>{isFr ? 'Véhicule détecté — un devis sera requis' : 'Vehicle detected — a quote will be required'}</span>
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{isFr ? 'Prix total' : 'Total Price'}</span>
-              <span className="text-foreground font-medium">${totalUsd.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{isFr ? 'Frais de service' : 'Service Fee'}</span>
-              <span className="text-green-500 text-xs">{isFr ? 'Inclus' : 'Included'}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{isFr ? 'Livraison' : 'Shipping'}</span>
-              <span className="text-green-500 text-xs">{isFr ? 'Inclus' : 'Included'}</span>
-            </div>
-            <div className="border-t border-border/50 pt-2 mt-2">
-              <div className="flex justify-between text-base font-semibold">
-                <span className="text-foreground">Total</span>
-                <div className="text-right">
-                  <div className="text-primary">${totalUsd.toFixed(2)}</div>
-                  <div className="text-xs text-muted-foreground font-normal">
-                    ≈ {Math.round(totalCdf).toLocaleString()} CDF
-                  </div>
+          )}
+          <div className="border-t border-border/50 pt-2 mt-2">
+            <div className="flex justify-between text-base font-semibold">
+              <span className="text-foreground">Total</span>
+              <div className="text-right">
+                <div className="text-primary">${totalUsd.toFixed(2)}</div>
+                <div className="text-xs text-muted-foreground font-normal">
+                  ≈ {Math.round(totalCdf).toLocaleString()} CDF
                 </div>
               </div>
             </div>
-          </>
-        )}
+          </div>
+        </>
       </div>
 
       {/* Actions */}

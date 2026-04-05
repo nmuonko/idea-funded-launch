@@ -286,6 +286,13 @@ export const SECTION_PROFILES: SectionProfile[] = [
   },
 ];
 
+// ─── LOOKUP HELPER ────────────────────────────────────────────────────────────
+
+/** Look up a section profile by key. Returns null if not found. */
+export function getSectionProfile(key: string): SectionProfile | null {
+  return SECTION_PROFILES.find(p => p.key === key) ?? null;
+}
+
 // ─── FILTERING ────────────────────────────────────────────────────────────────
 
 /**

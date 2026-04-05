@@ -20,6 +20,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
 import { isDisallowedItem, filterDisallowedItems } from "../_shared/contentBlocker.ts";
+import { getSectionProfile, filterItemsForProfile, SectionItem } from "../_shared/sectionProfiles.ts";
 import { searchEbay, searchEbayWithFallback, upsertItemsToDb, NormalizedItem } from "../_shared/ebayBrowseSearch.ts";
 import { isAllowedMotorListing } from "../_shared/motorsFilter.ts";
 import { extractBrand, applyBrandDiversity, applyItemDiversity } from "../_shared/brandExtractor.ts";
@@ -345,7 +346,7 @@ Deno.serve(async (req) => {
   let filtersParam = url.searchParams.get("filters") || null;
   let providerParam = url.searchParams.get("provider") || null;
   let subtabParam = url.searchParams.get("subtab") || null;
-
+  let sectionKeyParam = url.searchParams.get("sectionKey") || null;
   // Support POST body for mobile apps using supabase.functions.invoke()
   if (req.method === "POST") {
     try {
@@ -360,6 +361,7 @@ Deno.serve(async (req) => {
       if (body.filters) filtersParam = typeof body.filters === 'string' ? body.filters : JSON.stringify(body.filters);
       if (body.provider) providerParam = body.provider;
       if (body.subtab) subtabParam = body.subtab;
+      if (body.sectionKey) sectionKeyParam = body.sectionKey;
     } catch {
       // Ignore parse errors, use query params
     }
@@ -764,6 +766,24 @@ Deno.serve(async (req) => {
       }) as CatalogProduct[];
       
       console.log(`[CATALOG_DIVERSITY] requestId=${requestId} applied diversity maxPerBrand=${diversityMaxPerBrand} items=${filteredFinalItems.length}`);
+    }
+
+    // ─── SECTION PROFILE POST-FILTER ─────────────────────────────────────────────
+    // When called from "See All" (sectionKey provided), apply the same keyword
+    // include/exclude filtering used on the homepage to remove irrelevant items.
+    if (sectionKeyParam) {
+      const sectionProfile = getSectionProfile(sectionKeyParam);
+      if (sectionProfile) {
+        const beforeCount = filteredFinalItems.length;
+        filteredFinalItems = filterItemsForProfile(
+          filteredFinalItems as unknown as SectionItem[],
+          sectionProfile
+        ) as unknown as CatalogProduct[];
+        const removed = beforeCount - filteredFinalItems.length;
+        if (removed > 0) {
+          console.log(`[CATALOG_SECTION_FILTER] requestId=${requestId} sectionKey=${sectionKeyParam} removed=${removed} remaining=${filteredFinalItems.length}`);
+        }
+      }
     }
 
     // ─── POST-MIXER DB BACKFILL: Guarantee target item count ──────────────────

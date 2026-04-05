@@ -115,33 +115,21 @@ export function PasteBreakdownCard({
 
       {/* Actions */}
       <div className="px-4 pb-4 flex gap-3">
-        {isVehicle ? (
-          <Button
-            onClick={() => handleAddToCart(true)}
-            className="flex-1 bg-warning hover:bg-warning/90 text-warning-foreground gap-2"
-          >
-            <Car className="h-4 w-4" />
-            {isFr ? 'Demander un devis' : 'Request a Quote'}
-          </Button>
-        ) : (
-          <>
-            <Button
-              onClick={() => handleAddToCart(false)}
-              variant="outline"
-              className="flex-1 gap-2"
-            >
-              <ShoppingCart className="h-4 w-4" />
-              {isFr ? 'Ajouter au panier' : 'Add to Cart'}
-            </Button>
-            <Button
-              onClick={() => handleAddToCart(true)}
-              className="flex-1 gap-2 bg-primary hover:bg-primary/90"
-            >
-              <Zap className="h-4 w-4" />
-              {isFr ? 'Acheter' : 'Buy Now'}
-            </Button>
-          </>
-        )}
+        <Button
+          onClick={() => handleAddToCart(false)}
+          variant="outline"
+          className="flex-1 gap-2"
+        >
+          <ShoppingCart className="h-4 w-4" />
+          {isFr ? 'Ajouter au panier' : 'Add to Cart'}
+        </Button>
+        <Button
+          onClick={() => handleAddToCart(true)}
+          className="flex-1 gap-2 bg-primary hover:bg-primary/90"
+        >
+          <Zap className="h-4 w-4" />
+          {isFr ? 'Acheter' : 'Buy Now'}
+        </Button>
       </div>
     </div>
   );

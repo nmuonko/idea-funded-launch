@@ -211,10 +211,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   }, [selectedItems]);
 
   const selectedCanProceedToPayment = useMemo(() => {
-    // Can proceed if no selected vehicle items need a quote
-    if (!selectedHasVehicleItems) return true;
-    return vehicleQuoteStatus === 'quoted';
-  }, [selectedHasVehicleItems, vehicleQuoteStatus]);
+    // Vehicles are now auto-priced, so all items can always proceed
+    return true;
+  }, []);
 
   // Load cart from localStorage on init — ONLY for guests
   useEffect(() => {

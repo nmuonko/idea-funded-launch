@@ -456,30 +456,7 @@ export default function Checkout() {
     );
   }
 
-  // Block checkout ONLY if selected items include a vehicle needing a quote
-  if (!selectedCanProceedToPayment) {
-    return (
-      <div className="min-h-screen bg-black">
-        <ShopHeader />
-        <div className="pt-24 px-4 text-center max-w-md mx-auto">
-          <Car className="h-16 w-16 text-amber-400 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-white mb-2">
-            {language === 'fr' ? 'Devis requis' : 'Shipping Quote Required'}
-          </h2>
-          <p className="text-white/60 mb-6">
-            {language === 'fr' 
-              ? 'Les articles sélectionnés incluent un véhicule. Désélectionnez-le dans le panier ou attendez votre devis.'
-              : 'Your selected items include a vehicle. Deselect it in the cart or wait for your shipping quote.'}
-          </p>
-          <Link to="/cart">
-            <Button className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-full px-8">
-              {language === 'fr' ? 'Retour au panier' : 'Back to Cart'}
-            </Button>
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  // Vehicles are now auto-priced — no quote blocker needed
 
   return (
     <div className="min-h-screen bg-black">

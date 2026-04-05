@@ -90,14 +90,14 @@ export function SupportedStoresGrid() {
           <h3 className="text-sm font-semibold text-white/90">
             {language === 'fr' ? 'Véhicules' : 'Vehicles'}
           </h3>
-          <span className="text-[10px] bg-primary/10 text-primary/80 px-2 py-0.5 rounded-full border border-primary/15 font-medium">
-            {language === 'fr' ? 'Devis requis' : 'Quote only'}
+          <span className="text-[10px] bg-green-500/10 text-green-400/80 px-2 py-0.5 rounded-full border border-green-500/15 font-medium">
+            {language === 'fr' ? 'Prix tout compris' : 'All-inclusive pricing'}
           </span>
         </div>
         <p className="text-[11px] text-white/35 mb-4 ml-6">
           {language === 'fr'
-            ? 'Collez un lien véhicule pour demander un devis personnalisé'
-            : 'Paste a vehicle link to request a custom quote'}
+            ? 'Collez un lien véhicule — prix calculé automatiquement'
+            : 'Paste a vehicle link — price calculated automatically'}
         </p>
         <div className="grid grid-cols-3 gap-2">
           {vehicleStores.map((store) => (

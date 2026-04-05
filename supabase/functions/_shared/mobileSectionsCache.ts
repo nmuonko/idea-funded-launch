@@ -386,6 +386,15 @@ export async function serveMobileSections(
   ttlOverride?: number
 ): Promise<Response> {
   const effectiveTtl = ttlOverride && ttlOverride > 0 ? ttlOverride : DEFAULT_TTL_SECONDS;
+  
+  // Load pricing settings for all-inclusive pricing
+  let pricingSettings: { markupPercent: number; shippingBaseFeeUsd: number; shippingPercent: number } | undefined;
+  try {
+    pricingSettings = await loadPricingSettings();
+  } catch (err) {
+    console.warn(`[MOBILE_SECTIONS] Failed to load pricing settings: ${err}`);
+  }
+
   // 1) Try cache
   const { hit, payload, ageSeconds } = await readMobileSectionsCache(env, correlationId);
 

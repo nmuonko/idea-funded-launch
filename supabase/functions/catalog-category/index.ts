@@ -346,7 +346,7 @@ Deno.serve(async (req) => {
   let filtersParam = url.searchParams.get("filters") || null;
   let providerParam = url.searchParams.get("provider") || null;
   let subtabParam = url.searchParams.get("subtab") || null;
-
+  let sectionKeyParam = url.searchParams.get("sectionKey") || null;
   // Support POST body for mobile apps using supabase.functions.invoke()
   if (req.method === "POST") {
     try {

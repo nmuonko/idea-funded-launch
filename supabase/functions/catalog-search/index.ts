@@ -40,6 +40,7 @@ import { isProviderHealthy, recordProviderFailure, recordProviderSuccess, getPro
 import { resolveCategoryWithDb } from "../_shared/categoryRegistry.ts";
 import { applyVehicleGuardrails, isVehicleLikeQuery as isVehicleLikeQueryGuardrail } from "../_shared/vehicleGuardrails.ts";
 import { lookupTranslationCache, callOpenAiTranslation, writeTranslationCache } from "../_shared/queryTranslator.ts";
+import { loadPricingSettings, applyAllInclusivePricingToItems } from "../_shared/allInclusivePricing.ts";
 import { findNearMatch, assertGlobalCacheKey, removeStopwords } from "../_shared/searchCacheSimilarity.ts";
 import { FR_EN_MAP } from "../_shared/frenchEnglishMap.ts";
 import { preNormalizeQuery, getSynonymFallbackQueries } from "../_shared/queryPreNormalizer.ts";

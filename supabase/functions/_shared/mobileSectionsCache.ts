@@ -249,7 +249,8 @@ function mapRows(rows: Array<Record<string, unknown>>, profile: SectionProfile, 
 async function buildStrictSectionsFromPool(
   pool: SectionItem[],
   lang: "fr" | "en",
-  correlationId: string
+  correlationId: string,
+  pricingSettings?: { markupPercent: number; shippingBaseFeeUsd: number; shippingPercent: number }
 ): Promise<CachedSectionsPayload> {
   const usedIds = new Set<string>();
   const sectionBuckets: Record<string, SectionItem[]> = {};

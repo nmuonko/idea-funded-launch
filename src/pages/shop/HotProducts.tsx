@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, Flame, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Loader2, Flame, Zap, Check, MessageCircle, Mail } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
@@ -11,12 +11,8 @@ import { formatCurrency } from '@/lib/formatCurrency';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/hooks/useShopCart';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSupportContact } from '@/hooks/useSupportContact';
 import { toast } from 'sonner';
-import { resizeImageUrl, IMAGE_SIZE_HERO, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
-import { filterGalleryImages } from '@/lib/imageValidation';
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
 interface HotProduct {
   id: string;
@@ -25,12 +21,10 @@ interface HotProduct {
   total_price_usd: number;
   provider: string;
   provider_product_id: string;
+  price_usd?: number;
+  markup_usd?: number;
+  shipping_usd?: number;
   product_url?: string;
-}
-
-interface EnrichedProduct extends HotProduct {
-  description?: string;
-  gallery: string[];
 }
 
 export default function HotProducts() {
@@ -38,14 +32,11 @@ export default function HotProducts() {
   const { language } = useLanguage();
   const { addItem } = useShopCart();
   const { session } = useAuth();
-  const [products, setProducts] = useState<EnrichedProduct[]>([]);
+  const { whatsappUrl, emailUrl } = useSupportContact();
+  const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
-  const [imageIndexes, setImageIndexes] = useState<Record<string, number>>({});
 
-  const locale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
-
-  // Fetch hot products then enrich with descriptions + gallery
   useEffect(() => {
     async function fetchProducts() {
       try {
@@ -57,53 +48,10 @@ export default function HotProducts() {
           .limit(10);
 
         if (error) throw error;
-        if (!data?.length) {
-          setProducts([]);
-          setLoading(false);
-          return;
-        }
-
-        const base: EnrichedProduct[] = (data as any[]).map(p => ({
-          ...p,
-          gallery: p.image_url ? [p.image_url] : [],
-        }));
-        setProducts(base);
-        setLoading(false);
-
-        // Enrich each product with description + gallery from catalog API
-        for (const product of base) {
-          try {
-            const normalizedProvider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider;
-            const apiUrl = new URL(`${SUPABASE_URL}/functions/v1/catalog-product`);
-            apiUrl.searchParams.set('provider', normalizedProvider);
-            apiUrl.searchParams.set('id', product.provider_product_id);
-            if (normalizedProvider === 'amazon') {
-              apiUrl.searchParams.set('amazon_domain', 'amazon.com');
-            }
-
-            const resp = await fetch(apiUrl.toString(), {
-              headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-            });
-            if (!resp.ok) continue;
-            const json = await resp.json();
-            const item = json?.item;
-            if (!item) continue;
-
-            const rawImages: string[] = item.images || item.imageUrls || (item.image_url ? [item.image_url] : []);
-            const filtered = filterGalleryImages(rawImages);
-            const gallery = filtered.length > 0 ? filtered : (product.image_url ? [product.image_url] : []);
-
-            setProducts(prev => prev.map(p =>
-              p.id === product.id
-                ? { ...p, description: item.description || undefined, gallery }
-                : p
-            ));
-          } catch {
-            // Keep original data if enrichment fails
-          }
-        }
+        if (data) setProducts(data as any);
       } catch (err: any) {
         console.error('Failed to fetch hot products:', err);
+      } finally {
         setLoading(false);
       }
     }
@@ -114,7 +62,9 @@ export default function HotProducts() {
     const key = `${product.provider}-${product.provider_product_id}`;
     if (processingIds.has(key)) return;
 
+    // If not logged in, redirect to auth with return URL
     if (!session) {
+      // Encode product info in the redirect so we can auto-buy after login
       const returnUrl = encodeURIComponent(`/hot-products?buy=${product.id}`);
       navigate(`/shop-auth?redirect=${returnUrl}`);
       return;
@@ -122,6 +72,7 @@ export default function HotProducts() {
 
     setProcessingIds(prev => new Set(prev).add(key));
     try {
+      // Add to cart with admin-set price, then immediately go to checkout
       await addItem({
         productId: product.provider_product_id,
         provider: product.provider,
@@ -130,8 +81,10 @@ export default function HotProducts() {
         priceUsd: product.total_price_usd,
         quantity: 1,
         productUrl: product.product_url || `https://afrishop-usa.com/product/${product.provider}/${product.provider_product_id}`,
-        isFixedPrice: true,
+        isFixedPrice: true, // Hot products use admin-set final price, no extra markup/shipping
       });
+
+      // Navigate directly to checkout
       navigate('/checkout');
     } catch {
       toast.error(locale === 'fr' ? 'Erreur, réessayez' : 'Error, please retry');
@@ -144,29 +97,29 @@ export default function HotProducts() {
     }
   };
 
-  // After login redirect: auto-trigger buy
+  // After login redirect: auto-trigger buy if ?buy= param exists
   useEffect(() => {
     if (!session || products.length === 0) return;
     const params = new URLSearchParams(window.location.search);
     const buyId = params.get('buy');
     if (!buyId) return;
+
     const product = products.find(p => p.id === buyId);
     if (product) {
+      // Clean the URL param first
       window.history.replaceState({}, '', '/hot-products');
       handleBuyNow(product);
     }
   }, [session, products]);
 
-  const getImageIndex = (id: string) => imageIndexes[id] || 0;
-  const setImageIndex = (id: string, idx: number) =>
-    setImageIndexes(prev => ({ ...prev, [id]: idx }));
+  const locale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
 
   return (
     <div className="min-h-screen bg-black pb-safe-nav">
       <ShopHeader />
 
       <main className="pt-20 px-3 sm:px-4 pb-24">
-        <div className="mx-auto max-w-5xl">
+        <div className="mx-auto max-w-6xl">
           <Button
             variant="ghost"
             size="sm"
@@ -177,10 +130,43 @@ export default function HotProducts() {
             {locale === 'fr' ? 'Retour' : 'Back'}
           </Button>
 
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white mb-6 flex items-center gap-2">
-            <Flame className="w-7 h-7 text-orange-400" />
-            {locale === 'fr' ? 'Produits Populaires' : 'Hot Products'}
-          </h1>
+          {/* Hero Banner */}
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative overflow-hidden rounded-2xl mb-8 bg-gradient-to-br from-orange-600 via-red-600 to-pink-600 p-6 sm:p-8"
+          >
+            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjA4KSIvPjwvc3ZnPg==')] opacity-50" />
+            <div className="relative z-10 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="flex-shrink-0 w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                  <Flame className="w-8 h-8 sm:w-9 sm:h-9 text-yellow-300" />
+                </div>
+                <div>
+                  <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
+                    {locale === 'fr' ? '🔥 Produits Populaires' : '🔥 Hot Products'}
+                  </h1>
+                  <p className="text-white/80 text-sm sm:text-base mt-1">
+                    {locale === 'fr'
+                      ? 'Prix tout inclus · Livraison en RDC incluse'
+                      : 'All-inclusive pricing · Shipping to DRC included'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <a href={whatsappUrl(session?.user?.email)} target="_blank" rel="noopener noreferrer">
+                  <Button size="icon" className="h-11 w-11 rounded-full bg-green-500 hover:bg-green-400 text-white shadow-lg border-2 border-white/30">
+                    <MessageCircle className="h-5 w-5" />
+                  </Button>
+                </a>
+                <a href={emailUrl(session?.user?.email)} target="_blank" rel="noopener noreferrer">
+                  <Button size="icon" className="h-11 w-11 rounded-full bg-white/20 hover:bg-white/30 text-white shadow-lg border-2 border-white/30 backdrop-blur-sm">
+                    <Mail className="h-5 w-5" />
+                  </Button>
+                </a>
+              </div>
+            </div>
+          </motion.div>
 
           {loading && (
             <div className="flex items-center justify-center py-20">
@@ -189,155 +175,81 @@ export default function HotProducts() {
           )}
 
           {!loading && products.length > 0 && (
-            <div className="space-y-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
               {products.map((product, index) => {
                 const key = `${product.provider}-${product.provider_product_id}`;
                 const isProcessing = processingIds.has(key);
-                const imgIdx = getImageIndex(product.id);
-                const gallery = product.gallery.length > 0 ? product.gallery : [product.image_url || '/placeholder.svg'];
-                const safeIdx = Math.min(imgIdx, gallery.length - 1);
 
                 return (
                   <motion.div
                     key={product.id}
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="bg-[#1a1d23] border border-white/[0.08] rounded-2xl overflow-hidden hover:border-orange-500/30 transition-all"
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: index * 0.04 }}
+                    className="relative bg-[#1a1d23] border border-white/[0.08] rounded-xl overflow-hidden group hover:border-orange-500/40 transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.15)]"
                   >
-                    <div className="flex flex-col md:flex-row">
-                      {/* Image Gallery */}
-                      <div className="md:w-[380px] flex-shrink-0">
-                        <div
-                          className="relative aspect-square bg-white cursor-pointer overflow-hidden"
-                          onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`, {
-                            state: {
-                              isFixedPrice: true,
-                              hotProductPrice: product.total_price_usd,
-                              hotProductId: product.id,
-                            },
-                          })}
-                        >
-                          <img
-                            src={resizeImageUrl(gallery[safeIdx], IMAGE_SIZE_HERO)}
-                            alt={product.title}
-                            className="w-full h-full object-contain p-4"
-                            loading="lazy"
-                            onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }}
-                          />
+                    <div className="absolute top-2 left-2 z-10">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wide shadow-lg">
+                        <Flame className="w-3 h-3" /> Deal
+                      </span>
+                    </div>
 
-                          {gallery.length > 1 && (
-                            <>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setImageIndex(product.id, (safeIdx - 1 + gallery.length) % gallery.length); }}
-                                className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 z-10"
-                              >
-                                <ChevronLeft className="h-4 w-4" />
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setImageIndex(product.id, (safeIdx + 1) % gallery.length); }}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 z-10"
-                              >
-                                <ChevronRight className="h-4 w-4" />
-                              </button>
-                              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
-                                {gallery.slice(0, 8).map((_, i) => (
-                                  <div key={i} className={`w-1.5 h-1.5 rounded-full ${i === safeIdx ? 'bg-orange-400' : 'bg-black/30'}`} />
-                                ))}
-                                {gallery.length > 8 && <span className="text-[9px] text-black/50 ml-1">+{gallery.length - 8}</span>}
-                              </div>
-                            </>
-                          )}
+                    <div
+                      className="aspect-square bg-white overflow-hidden cursor-pointer"
+                      onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`, {
+                        state: {
+                          isFixedPrice: true,
+                          hotProductPrice: product.total_price_usd,
+                          hotProductId: product.id,
+                        },
+                      })}
+                    >
+                      <img
+                        src={product.image_url}
+                        alt={product.title}
+                        className="w-full h-full object-contain p-3 group-hover:scale-105 transition-transform duration-300"
+                        loading="lazy"
+                      />
+                    </div>
 
-                          <span className="absolute top-3 left-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wide shadow-lg z-10">
-                            <Flame className="w-3 h-3" /> Deal
-                          </span>
-                        </div>
+                    <div className="p-3 space-y-2">
+                      <p
+                        className="text-white text-xs sm:text-sm font-medium line-clamp-2 min-h-[2.5rem] cursor-pointer hover:text-orange-300 transition-colors"
+                        onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`, {
+                          state: {
+                            isFixedPrice: true,
+                            hotProductPrice: product.total_price_usd,
+                            hotProductId: product.id,
+                          },
+                        })}
+                      >
+                        {product.title}
+                      </p>
 
-                        {/* Thumbnail strip */}
-                        {gallery.length > 1 && (
-                          <div className="flex gap-1.5 p-2 overflow-x-auto bg-[#1a1d23]">
-                            {gallery.slice(0, 8).map((img, i) => (
-                              <button
-                                key={i}
-                                onClick={() => setImageIndex(product.id, i)}
-                                className={`flex-shrink-0 w-12 h-12 rounded-md overflow-hidden border-2 transition-all ${
-                                  i === safeIdx ? 'border-orange-500' : 'border-white/10 hover:border-white/30'
-                                }`}
-                              >
-                                <img
-                                  src={resizeImageUrl(img, IMAGE_SIZE_THUMB)}
-                                  alt=""
-                                  className="w-full h-full object-contain bg-white p-0.5"
-                                  loading="lazy"
-                                  onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }}
-                                />
-                              </button>
-                            ))}
-                          </div>
+                      <div>
+                        <p className="text-orange-400 font-extrabold text-lg sm:text-xl leading-tight">
+                          {formatCurrency(product.total_price_usd, { locale: locale as any })}
+                        </p>
+                        <p className="text-emerald-400/80 text-[10px] font-medium mt-0.5">
+                          ✓ {locale === 'fr' ? 'Livraison incluse' : 'Shipping included'}
+                        </p>
+                      </div>
+
+                      <Button
+                        size="sm"
+                        className="w-full text-xs h-9 font-bold transition-all bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleBuyNow(product);
+                        }}
+                        disabled={isProcessing}
+                      >
+                        {isProcessing ? (
+                          <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> {locale === 'fr' ? 'Chargement...' : 'Loading...'}</>
+                        ) : (
+                          <><Zap className="w-4 h-4 mr-1" /> {locale === 'fr' ? 'Payer maintenant' : 'Pay Now'}</>
                         )}
-                      </div>
-
-                      {/* Product Info */}
-                      <div className="flex-1 p-4 sm:p-6 flex flex-col justify-between min-w-0">
-                        <div className="space-y-3">
-                          <h2
-                            className="text-lg sm:text-xl font-bold text-white cursor-pointer hover:text-orange-300 transition-colors line-clamp-2"
-                            onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`, {
-                              state: {
-                                isFixedPrice: true,
-                                hotProductPrice: product.total_price_usd,
-                                hotProductId: product.id,
-                              },
-                            })}
-                          >
-                            {product.title}
-                          </h2>
-
-                          <div>
-                            <p className="text-orange-400 font-extrabold text-2xl sm:text-3xl">
-                              {formatCurrency(product.total_price_usd, { locale: locale as any })}
-                            </p>
-                            <p className="text-emerald-400/80 text-xs font-medium mt-1">
-                              ✓ {locale === 'fr' ? 'Livraison et frais inclus' : 'Shipping & fees included'}
-                            </p>
-                          </div>
-
-                          {/* Description */}
-                          {product.description && (
-                            <p className="text-white/60 text-sm leading-relaxed line-clamp-4 whitespace-pre-line">
-                              {product.description}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="mt-4 flex flex-col sm:flex-row gap-3">
-                          <Button
-                            className="flex-1 h-12 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-full"
-                            onClick={(e) => { e.stopPropagation(); handleBuyNow(product); }}
-                            disabled={isProcessing}
-                          >
-                            {isProcessing ? (
-                              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {locale === 'fr' ? 'Chargement...' : 'Loading...'}</>
-                            ) : (
-                              <><Zap className="w-4 h-4 mr-2" /> {locale === 'fr' ? 'Payer maintenant' : 'Pay Now'}</>
-                            )}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            className="h-12 text-sm font-medium border-white/20 text-white hover:bg-white/10 rounded-full"
-                            onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`, {
-                              state: {
-                                isFixedPrice: true,
-                                hotProductPrice: product.total_price_usd,
-                                hotProductId: product.id,
-                              },
-                            })}
-                          >
-                            {locale === 'fr' ? 'Voir détails' : 'View Details'}
-                          </Button>
-                        </div>
-                      </div>
+                      </Button>
                     </div>
                   </motion.div>
                 );
@@ -357,6 +269,7 @@ export default function HotProducts() {
           )}
         </div>
       </main>
+
 
       <ShopFooter />
       <BottomNavigation />

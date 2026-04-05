@@ -328,6 +328,17 @@ async function buildStrictSectionsFromPool(
     refurbished: "refurbished",
   };
 
+  // Apply all-inclusive pricing to all section items
+  if (pricingSettings) {
+    for (const profile of SECTION_PROFILES) {
+      sectionBuckets[profile.key] = applyAllInclusivePricingToItems(
+        sectionBuckets[profile.key],
+        pricingSettings
+      );
+    }
+    console.log(`[MOBILE_SECTIONS] all-inclusive pricing applied markup=${pricingSettings.markupPercent}% correlationId=${correlationId}`);
+  }
+
   // Build final sections
   const sections: Array<{ key: string; title: string; title_en: string; title_fr: string; see_all_category: string; items: SectionItem[] }> = [];
   const itemCounts: Record<string, number> = {};

@@ -1,6 +1,7 @@
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart, FeeSettings } from '@/contexts/ShopCartContext';
 import { calculateShippingUsd } from '@/lib/shippingCalculation';
+import { vehicleAllInclusivePrice } from '@/lib/vehiclePricing';
 import { VehicleDetectionResult } from '@/lib/vehicleDetection';
 import { ShoppingCart, Zap, Car } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -35,7 +36,7 @@ export function PasteBreakdownCard({
   const markupPercent = isVehicle ? feeSettings.vehicleMarkupPercent : feeSettings.markupPercent;
   const markupFee = basePriceUsd * (markupPercent / 100);
   const shippingFee = isVehicle ? 0 : calculateShippingUsd(basePriceUsd, feeSettings.shippingBaseFeeUsd, feeSettings.shippingPercent);
-  const totalUsd = isVehicle ? 0 : basePriceUsd + markupFee + shippingFee;
+  const totalUsd = isVehicle ? vehicleAllInclusivePrice(basePriceUsd) : basePriceUsd + markupFee + shippingFee;
   const totalCdf = totalUsd * exchangeRate;
 
   const handleAddToCart = async (buyNow = false) => {
@@ -49,7 +50,7 @@ export function PasteBreakdownCard({
         quantity: 1,
         productUrl,
         isVehicle,
-        requiresManualQuote: isVehicle,
+        requiresManualQuote: false,
       });
       toast.success(isFr ? 'Ajouté au panier' : 'Added to cart');
       if (buyNow) {
@@ -79,89 +80,56 @@ export function PasteBreakdownCard({
       </div>
 
       <div className="px-4 pb-4 space-y-2">
-        {isVehicle ? (
-          <>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{isFr ? 'Prix de base' : 'Base Price'}</span>
-              <span className="text-foreground font-medium">${basePriceUsd.toFixed(2)}</span>
+        <>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">{isFr ? 'Prix total' : 'Total Price'}</span>
+            <span className="text-foreground font-medium">${totalUsd.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">{isFr ? 'Frais de service' : 'Service Fee'}</span>
+            <span className="text-green-500 text-xs">{isFr ? 'Inclus' : 'Included'}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">{isFr ? 'Livraison' : 'Shipping'}</span>
+            <span className="text-green-500 text-xs">{isFr ? 'Inclus' : 'Included'}</span>
+          </div>
+          {isVehicle && (
+            <div className="flex items-center gap-2 text-amber-400 text-xs mt-1">
+              <Car className="h-3.5 w-3.5" />
+              <span>{isFr ? 'Véhicule détecté — frais inclus' : 'Vehicle detected — fees included'}</span>
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">
-                {isFr ? 'Frais de service' : 'Service Fee'}
-              </span>
-              <span className="text-foreground">${markupFee.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{isFr ? 'Livraison' : 'Shipping'}</span>
-              <span className="text-warning text-xs font-medium">
-                {isFr ? 'Devis requis' : 'Quote Required'}
-              </span>
-            </div>
-            <div className="border-t border-border/50 pt-2 mt-2">
-              <div className="flex items-center gap-2 text-warning text-sm">
-                <Car className="h-4 w-4" />
-                <span>{isFr ? 'Véhicule détecté — un devis sera requis' : 'Vehicle detected — a quote will be required'}</span>
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{isFr ? 'Prix total' : 'Total Price'}</span>
-              <span className="text-foreground font-medium">${totalUsd.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{isFr ? 'Frais de service' : 'Service Fee'}</span>
-              <span className="text-green-500 text-xs">{isFr ? 'Inclus' : 'Included'}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{isFr ? 'Livraison' : 'Shipping'}</span>
-              <span className="text-green-500 text-xs">{isFr ? 'Inclus' : 'Included'}</span>
-            </div>
-            <div className="border-t border-border/50 pt-2 mt-2">
-              <div className="flex justify-between text-base font-semibold">
-                <span className="text-foreground">Total</span>
-                <div className="text-right">
-                  <div className="text-primary">${totalUsd.toFixed(2)}</div>
-                  <div className="text-xs text-muted-foreground font-normal">
-                    ≈ {Math.round(totalCdf).toLocaleString()} CDF
-                  </div>
+          )}
+          <div className="border-t border-border/50 pt-2 mt-2">
+            <div className="flex justify-between text-base font-semibold">
+              <span className="text-foreground">Total</span>
+              <div className="text-right">
+                <div className="text-primary">${totalUsd.toFixed(2)}</div>
+                <div className="text-xs text-muted-foreground font-normal">
+                  ≈ {Math.round(totalCdf).toLocaleString()} CDF
                 </div>
               </div>
             </div>
-          </>
-        )}
+          </div>
+        </>
       </div>
 
       {/* Actions */}
       <div className="px-4 pb-4 flex gap-3">
-        {isVehicle ? (
-          <Button
-            onClick={() => handleAddToCart(true)}
-            className="flex-1 bg-warning hover:bg-warning/90 text-warning-foreground gap-2"
-          >
-            <Car className="h-4 w-4" />
-            {isFr ? 'Demander un devis' : 'Request a Quote'}
-          </Button>
-        ) : (
-          <>
-            <Button
-              onClick={() => handleAddToCart(false)}
-              variant="outline"
-              className="flex-1 gap-2"
-            >
-              <ShoppingCart className="h-4 w-4" />
-              {isFr ? 'Ajouter au panier' : 'Add to Cart'}
-            </Button>
-            <Button
-              onClick={() => handleAddToCart(true)}
-              className="flex-1 gap-2 bg-primary hover:bg-primary/90"
-            >
-              <Zap className="h-4 w-4" />
-              {isFr ? 'Acheter' : 'Buy Now'}
-            </Button>
-          </>
-        )}
+        <Button
+          onClick={() => handleAddToCart(false)}
+          variant="outline"
+          className="flex-1 gap-2"
+        >
+          <ShoppingCart className="h-4 w-4" />
+          {isFr ? 'Ajouter au panier' : 'Add to Cart'}
+        </Button>
+        <Button
+          onClick={() => handleAddToCart(true)}
+          className="flex-1 gap-2 bg-primary hover:bg-primary/90"
+        >
+          <Zap className="h-4 w-4" />
+          {isFr ? 'Acheter' : 'Buy Now'}
+        </Button>
       </div>
     </div>
   );

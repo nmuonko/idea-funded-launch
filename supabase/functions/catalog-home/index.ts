@@ -8,6 +8,7 @@ import {
   nonEmpty
 } from "../_shared/titleNormalizer.ts";
 import { buildStrictMobileSections, type SectionItem } from "../_shared/sectionProfiles.ts";
+import { sanitizeImageUrl } from "../_shared/imageValidator.ts";
 import { serveMobileSections, emptyMobileSectionsResponse } from "../_shared/mobileSectionsCache.ts";
 import {
   readMobileCache,
@@ -525,8 +526,8 @@ async function bootstrapFromDatabase(correlationId: string): Promise<CatalogItem
       price_usd: row.price_usd as number | null,
       priceUsd: row.price_usd as number | null,
       currency: "USD",
-      image_url: row.image_url as string | null,
-      imageUrl: row.image_url as string | null,
+      image_url: sanitizeImageUrl(row.image_url as string | null),
+      imageUrl: sanitizeImageUrl(row.image_url as string | null),
       product_url: row.product_url as string | null,
       productUrl: row.product_url as string | null,
       in_stock: true,
@@ -652,7 +653,8 @@ function isValidAsin(asin: string): boolean {
 
 function mapEbayItem(item: Record<string, unknown>, segment?: string): CatalogItem | null {
   const priceUsd = extractPriceFromEbay(item);
-  const imageUrl = (item.image as Record<string, unknown>)?.imageUrl as string || null;
+  const rawImageUrl = (item.image as Record<string, unknown>)?.imageUrl as string || null;
+  const imageUrl = sanitizeImageUrl(rawImageUrl);
   const productUrl = (item.itemWebUrl as string) || null;
   const priceObj = item.price as Record<string, unknown> | undefined;
   const itemId = item.itemId as string || "";
@@ -684,7 +686,8 @@ function mapRainforestItem(item: Record<string, unknown>, segment?: string): Cat
   const asin = (item.asin as string || "").toUpperCase();
   const price = item.price as Record<string, unknown> | undefined;
   const priceValue = price?.value as number || null;
-  const imageUrl = item.image as string || (item.main_image as Record<string, unknown>)?.link as string || null;
+  const rawImageUrl = item.image as string || (item.main_image as Record<string, unknown>)?.link as string || null;
+  const imageUrl = sanitizeImageUrl(rawImageUrl);
   
   if (!isValidAsin(asin)) {
     return null;

@@ -40,6 +40,7 @@ import { isProviderHealthy, recordProviderFailure, recordProviderSuccess, getPro
 import { resolveCategoryWithDb } from "../_shared/categoryRegistry.ts";
 import { applyVehicleGuardrails, isVehicleLikeQuery as isVehicleLikeQueryGuardrail } from "../_shared/vehicleGuardrails.ts";
 import { lookupTranslationCache, callOpenAiTranslation, writeTranslationCache } from "../_shared/queryTranslator.ts";
+import { loadPricingSettings, applyAllInclusivePricingToItems } from "../_shared/allInclusivePricing.ts";
 import { findNearMatch, assertGlobalCacheKey, removeStopwords } from "../_shared/searchCacheSimilarity.ts";
 import { FR_EN_MAP } from "../_shared/frenchEnglishMap.ts";
 import { preNormalizeQuery, getSynonymFallbackQueries } from "../_shared/queryPreNormalizer.ts";
@@ -2034,6 +2035,24 @@ Deno.serve(async (req: Request) => {
         inferredCategory: preNorm.inferredCategory,
         providerItemsBeforeFallback: totalAfterAlt,
       };
+    }
+
+    // Apply all-inclusive pricing for mobile clients
+    const isMobileClient = (clientPlatform || "").toLowerCase().includes("android") ||
+      (clientPlatform || "").toLowerCase().includes("ios") ||
+      (req.headers.get("user-agent") || "").toLowerCase().includes("okhttp") ||
+      (req.headers.get("user-agent") || "").toLowerCase().includes("expo") ||
+      (req.headers.get("user-agent") || "").toLowerCase().includes("dart") ||
+      !!(req.headers.get("x-device-id"));
+    
+    if (isMobileClient && finalItems.length > 0) {
+      try {
+        const searchPricingSettings = await loadPricingSettings();
+        finalItems = applyAllInclusivePricingToItems(finalItems, searchPricingSettings) as typeof finalItems;
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} all-inclusive pricing applied to ${finalItems.length} items for mobile`);
+      } catch (pricingErr) {
+        console.warn(`[CATALOG_SEARCH] requestId=${requestId} pricing transform error: ${pricingErr}`);
+      }
     }
 
     // Compute explicit page from cursor for response

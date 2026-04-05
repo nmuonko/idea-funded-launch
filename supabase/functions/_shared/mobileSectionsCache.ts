@@ -12,10 +12,11 @@ import { SECTION_PROFILES, filterItemsForProfile, type SectionProfile, type Sect
 import { isValidProductImageUrl, upgradeToHighRes } from "./imageValidator.ts";
 import { normalizeSectionTitles, calculateTotalItems } from "./titleNormalizer.ts";
 import { isDisallowedItem } from "./contentBlocker.ts";
+import { loadPricingSettings, applyAllInclusivePricingToItems } from "./allInclusivePricing.ts";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const MOBILE_SECTIONS_SCHEMA_VERSION = 15;
+export const MOBILE_SECTIONS_SCHEMA_VERSION = 16; // v16: all-inclusive pricing
 const DEFAULT_TTL_SECONDS = 1800; // 30 min default — overridden by admin settings
 const ITEMS_PER_SECTION_RESPONSE = 40; // returned to client
 const ITEMS_PER_SECTION_CACHE = 60; // stored in cache for stability
@@ -248,7 +249,8 @@ function mapRows(rows: Array<Record<string, unknown>>, profile: SectionProfile, 
 async function buildStrictSectionsFromPool(
   pool: SectionItem[],
   lang: "fr" | "en",
-  correlationId: string
+  correlationId: string,
+  pricingSettings?: { markupPercent: number; shippingBaseFeeUsd: number; shippingPercent: number }
 ): Promise<CachedSectionsPayload> {
   const usedIds = new Set<string>();
   const sectionBuckets: Record<string, SectionItem[]> = {};
@@ -326,6 +328,17 @@ async function buildStrictSectionsFromPool(
     refurbished: "refurbished",
   };
 
+  // Apply all-inclusive pricing to all section items
+  if (pricingSettings) {
+    for (const profile of SECTION_PROFILES) {
+      sectionBuckets[profile.key] = applyAllInclusivePricingToItems(
+        sectionBuckets[profile.key],
+        pricingSettings
+      );
+    }
+    console.log(`[MOBILE_SECTIONS] all-inclusive pricing applied markup=${pricingSettings.markupPercent}% correlationId=${correlationId}`);
+  }
+
   // Build final sections
   const sections: Array<{ key: string; title: string; title_en: string; title_fr: string; see_all_category: string; items: SectionItem[] }> = [];
   const itemCounts: Record<string, number> = {};
@@ -373,15 +386,27 @@ export async function serveMobileSections(
   ttlOverride?: number
 ): Promise<Response> {
   const effectiveTtl = ttlOverride && ttlOverride > 0 ? ttlOverride : DEFAULT_TTL_SECONDS;
+  
+  // Load pricing settings for all-inclusive pricing
+  let pricingSettings: { markupPercent: number; shippingBaseFeeUsd: number; shippingPercent: number } | undefined;
+  try {
+    pricingSettings = await loadPricingSettings();
+  } catch (err) {
+    console.warn(`[MOBILE_SECTIONS] Failed to load pricing settings: ${err}`);
+  }
+
   // 1) Try cache
   const { hit, payload, ageSeconds } = await readMobileSectionsCache(env, correlationId);
 
   if (hit && payload) {
-    // Slice items to ITEMS_PER_SECTION_RESPONSE for the response
-    const sliced = payload.sections.map(s => ({
-      ...s,
-      items: s.items.slice(0, ITEMS_PER_SECTION_RESPONSE),
-    }));
+    // Apply all-inclusive pricing to cached items (cache may have raw prices)
+    const sliced = payload.sections.map(s => {
+      let items = s.items.slice(0, ITEMS_PER_SECTION_RESPONSE);
+      if (pricingSettings) {
+        items = applyAllInclusivePricingToItems(items, pricingSettings);
+      }
+      return { ...s, items };
+    });
     const normalized = normalizeSectionTitles(sliced, lang) as typeof sliced;
     const totalItems = calculateTotalItems(normalized);
     console.log(`[CATALOG_HOME][MODE] envRequested=${envRequested} envUsed=${env} isMobile=true sections=${normalized.length} keys=${normalized.map(s=>s.key).join(",")}`);
@@ -421,10 +446,13 @@ export async function serveMobileSections(
     console.log(`[MOBILE_SECTIONS_CACHE] env=${env} pool empty, trying production fallback correlationId=${correlationId}`);
     const prodCache = await readMobileSectionsCache("production", correlationId);
     if (prodCache.hit && prodCache.payload) {
-      const sliced = prodCache.payload.sections.map(s => ({
-        ...s,
-        items: s.items.slice(0, ITEMS_PER_SECTION_RESPONSE),
-      }));
+      const sliced = prodCache.payload.sections.map(s => {
+        let items = s.items.slice(0, ITEMS_PER_SECTION_RESPONSE);
+        if (pricingSettings) {
+          items = applyAllInclusivePricingToItems(items, pricingSettings);
+        }
+        return { ...s, items };
+      });
       const normalized = normalizeSectionTitles(sliced, lang) as typeof sliced;
       const totalItems = calculateTotalItems(normalized);
       console.log(`[CATALOG_HOME][MODE] envRequested=${envRequested} envUsed=production isMobile=true sections=${normalized.length} keys=${normalized.map(s=>s.key).join(",")}`);
@@ -463,7 +491,7 @@ export async function serveMobileSections(
   // 3) Rebuild strict sections from pool
   console.log(`[MOBILE_SECTIONS_CACHE] rebuilding env=${env} poolSize=${poolItems.length} correlationId=${correlationId}`);
 
-  const built = await buildStrictSectionsFromPool(poolItems, lang, correlationId);
+  const built = await buildStrictSectionsFromPool(poolItems, lang, correlationId, pricingSettings);
 
   // 3) Save to cache (fire-and-forget)
   writeMobileSectionsCache(env, built, correlationId, effectiveTtl).catch(() => {});

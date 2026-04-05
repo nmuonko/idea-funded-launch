@@ -463,7 +463,12 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   }
   const settings = settingsResult.data;
 
-  let effectiveMarkup = isFixedPrice ? 0 : settings.markupPercent;
+  // ALL-INCLUSIVE PRICING: catalog-home and catalog-search now send all-inclusive prices.
+  // The RN app sends this all-inclusive price as productPrice.
+  // Treat it as the final total — DO NOT add markup or shipping on top.
+  const feesIncluded = addBody.feesIncluded === true || addBody.fees_included === true;
+  const isAllInclusive = !isFixedPrice && !feesIncluded; // Default: treat as all-inclusive from catalog
+  let effectiveMarkup = isFixedPrice ? 0 : (isAllInclusive ? 0 : settings.markupPercent);
   let pricing = cartPricingCalc(productPrice, quantity, effectiveMarkup, settings.exchangeRate);
   const store = addCartDetectStore(productUrl);
 
@@ -503,7 +508,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     if (catTypeResult.data) { finalShippingTypeId = catTypeResult.data.id; estWeightKg = catTypeResult.data.estWeightKg; }
   }
 
-  const shippingFeeUsd = isFixedPrice ? 0 : (isVehicleDetected ? 0 : calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, settings.shippingPercent, requiresManualQuote));
+  const shippingFeeUsd = (isFixedPrice || isAllInclusive) ? 0 : (isVehicleDetected ? 0 : calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, settings.shippingPercent, requiresManualQuote));
 
   if (isGuest) {
     const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup);
@@ -588,7 +593,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       requires_manual_quote: false, // Never requires manual quote now
       vehicle_quote_applied: isVehicleInsert ? true : false,
       is_saved_for_later: false,
-      price_source: isFixedPrice ? "hot_product" : (isVehicleInsert ? "auto_vehicle_tiered" : (userEdited ? "manual_user" : "auto")),
+      price_source: isFixedPrice ? "hot_product" : (isVehicleInsert ? "auto_vehicle_tiered" : (isAllInclusive ? "all_inclusive_display" : (userEdited ? "manual_user" : "auto"))),
       price_confirmation_status: userEdited ? "pending" : null,
       captured_price: userEdited ? (addBody.capturedPrice ?? addBody.captured_price ?? null) : null,
       provider_product_id: providerProductId,

@@ -446,10 +446,13 @@ export async function serveMobileSections(
     console.log(`[MOBILE_SECTIONS_CACHE] env=${env} pool empty, trying production fallback correlationId=${correlationId}`);
     const prodCache = await readMobileSectionsCache("production", correlationId);
     if (prodCache.hit && prodCache.payload) {
-      const sliced = prodCache.payload.sections.map(s => ({
-        ...s,
-        items: s.items.slice(0, ITEMS_PER_SECTION_RESPONSE),
-      }));
+      const sliced = prodCache.payload.sections.map(s => {
+        let items = s.items.slice(0, ITEMS_PER_SECTION_RESPONSE);
+        if (pricingSettings) {
+          items = applyAllInclusivePricingToItems(items, pricingSettings);
+        }
+        return { ...s, items };
+      });
       const normalized = normalizeSectionTitles(sliced, lang) as typeof sliced;
       const totalItems = calculateTotalItems(normalized);
       console.log(`[CATALOG_HOME][MODE] envRequested=${envRequested} envUsed=production isMobile=true sections=${normalized.length} keys=${normalized.map(s=>s.key).join(",")}`);

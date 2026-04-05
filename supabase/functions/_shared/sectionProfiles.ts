@@ -49,14 +49,19 @@ export interface SectionItem {
 // ─── KEYWORD LISTS ────────────────────────────────────────────────────────────
 
 const VEHICLE_CORE = [
-  // Removed generic "car","van" — too many false positives (car vacuum, canvas, vanguard)
-  // Removed "pickup" — matches "PICKUP ONLY" in eBay laptop/electronics titles
   "used car","new car","cars","truck","trucks","suv",
   "pickup truck","pickup 4x4",
   "sedan","coupe","hatchback",
   "motorcycle","motorbike","scooter","atv","utv","powersports",
   "rv","camper","trailer","boat","jetski","watercraft",
   "ebay motors","vin","mileage","dealer","auction",
+  // CarGurus/Carvana title patterns ("Used [Make] [Model] for Sale")
+  "for sale","cargurus","carvana",
+  "toyota","honda","ford","chevrolet","chevy","bmw","mercedes","audi",
+  "nissan","hyundai","kia","subaru","mazda","lexus","infiniti","acura",
+  "dodge","jeep","ram","chrysler","buick","cadillac","gmc","lincoln",
+  "porsche","tesla","volvo","jaguar","land rover","range rover",
+  "volkswagen","mitsubishi","genesis",
 ];
 
 const PARTS_WORDS = [

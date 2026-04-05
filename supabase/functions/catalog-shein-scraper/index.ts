@@ -9,6 +9,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { sanitizeGallery, sanitizeImageUrl } from "../_shared/imageValidator.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -412,7 +413,9 @@ async function upsertProducts(supabase: any, products: SheinProduct[], dryRun: b
     const ex = existingMap.get(p.provider_product_id);
     // COALESCE: never overwrite a valid price/image with null
     const price = p.price_usd > 0 ? p.price_usd : (ex?.price_usd > 0 ? ex.price_usd : null);
-    const image = p.image_url || ex?.image_url || null;
+    const rawPrimaryImage = p.image_url || ex?.image_url || null;
+    const galleryImages = sanitizeGallery(p.images.length > 0 ? p.images : rawPrimaryImage ? [rawPrimaryImage] : []);
+    const image = sanitizeImageUrl(rawPrimaryImage) ?? galleryImages[0] ?? null;
     return {
       provider: "shein",
       provider_product_id: p.provider_product_id,
@@ -429,7 +432,7 @@ async function upsertProducts(supabase: any, products: SheinProduct[], dryRun: b
       is_disallowed: false,
       last_seen_at: now,
       last_checked_at: now,
-      images: p.images.length > 0 ? p.images : image ? [image] : null,
+      images: galleryImages.length > 0 ? galleryImages : null,
       metadata: { source: "firecrawl_search" },
     };
   });

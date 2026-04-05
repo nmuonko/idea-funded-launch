@@ -15,7 +15,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { sanitizeImageUrl } from "../_shared/imageValidator.ts";
+import { sanitizeGallery, sanitizeImageUrl } from "../_shared/imageValidator.ts";
 
 // ─── CORS Headers ────────────────────────────────────────────────────────────
 
@@ -585,19 +585,23 @@ async function upsertCatalogItems(
   categoryKey: string
 ): Promise<void> {
   const rows = items.map(item => ({
+    const galleryImages = sanitizeGallery(item.images || (item.imageUrl ? [item.imageUrl] : []));
+    const primaryImage = sanitizeImageUrl(item.imageUrl) ?? galleryImages[0] ?? null;
+    return {
     id: item.id,
     provider: item.provider,
     provider_product_id: item.providerProductId,
     title: item.title,
     price_usd: item.priceUsd,
-    image_url: sanitizeImageUrl(item.imageUrl),
-    images: item.images,
+    image_url: primaryImage,
+    images: galleryImages,
     product_url: item.productUrl,
     in_stock: item.inStock,
     category_key: categoryKey,
     is_disallowed: false,
     updated_at: new Date().toISOString(),
-  }));
+    };
+  });
 
   if (rows.length > 0) {
     await supabase.from("catalog_items").upsert(rows, { onConflict: "id" });

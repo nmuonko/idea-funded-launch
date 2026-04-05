@@ -3,7 +3,7 @@
  * Used by catalog-search and catalog-category
  */
 
-import { sanitizeImageUrl } from "./imageValidator.ts";
+import { sanitizeGallery, sanitizeImageUrl } from "./imageValidator.ts";
 
 // Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
 type SupabaseClientAny = any;
@@ -210,12 +210,14 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
         const { category, subcategory } = mapCategoryAndSubcategory({
           title: item.title, provider: "ebay", productUrl: item.product_url,
         });
+        const galleryImages = sanitizeGallery(item.images || (item.image_url ? [item.image_url] : []));
+        const primaryImage = sanitizeImageUrl(item.image_url) ?? galleryImages[0] ?? null;
 
         return {
           id: item.id, provider: "ebay",
           provider_product_id: item.provider_product_id,
           title: item.title, price_usd: item.price_usd,
-          image_url: sanitizeImageUrl(item.image_url), images: item.images,
+          image_url: primaryImage, images: galleryImages,
           product_url: item.product_url, in_stock: item.in_stock,
           rating: item.rating,
           unified_category: category !== "blocked" ? category : "electronics",

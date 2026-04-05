@@ -768,6 +768,24 @@ Deno.serve(async (req) => {
       console.log(`[CATALOG_DIVERSITY] requestId=${requestId} applied diversity maxPerBrand=${diversityMaxPerBrand} items=${filteredFinalItems.length}`);
     }
 
+    // ─── SECTION PROFILE POST-FILTER ─────────────────────────────────────────────
+    // When called from "See All" (sectionKey provided), apply the same keyword
+    // include/exclude filtering used on the homepage to remove irrelevant items.
+    if (sectionKeyParam) {
+      const sectionProfile = getSectionProfile(sectionKeyParam);
+      if (sectionProfile) {
+        const beforeCount = filteredFinalItems.length;
+        filteredFinalItems = filterItemsForProfile(
+          filteredFinalItems as unknown as SectionItem[],
+          sectionProfile
+        ) as unknown as CatalogProduct[];
+        const removed = beforeCount - filteredFinalItems.length;
+        if (removed > 0) {
+          console.log(`[CATALOG_SECTION_FILTER] requestId=${requestId} sectionKey=${sectionKeyParam} removed=${removed} remaining=${filteredFinalItems.length}`);
+        }
+      }
+    }
+
     // ─── POST-MIXER DB BACKFILL: Guarantee target item count ──────────────────
     // If mixer + diversity produced fewer than limit, fill from DB directly
     if (filteredFinalItems.length < limit) {

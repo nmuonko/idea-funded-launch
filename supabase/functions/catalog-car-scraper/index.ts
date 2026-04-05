@@ -12,7 +12,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { cronAuthErrorResponse } from "../_shared/cronAuth.ts";
-import { sanitizeImageUrl } from "../_shared/imageValidator.ts";
+import { sanitizeGallery, sanitizeImageUrl } from "../_shared/imageValidator.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -378,11 +378,14 @@ async function upsertListings(supabase: any, provider: string, listings: CarList
 
   const now = new Date().toISOString();
   const rows = listings.map((l) => ({
+    const galleryImages = sanitizeGallery((l as any).images || (l.image_url ? [l.image_url] : []));
+    const primaryImage = sanitizeImageUrl(l.image_url) ?? galleryImages[0] ?? null;
+    return {
     provider,
     provider_product_id: l.provider_product_id,
     title: l.title,
     price_usd: l.price_usd,
-    image_url: sanitizeImageUrl(l.image_url),
+    image_url: primaryImage,
     product_url: l.product_url,
     category_key: "vehicles",
     unified_category: "vehicles",
@@ -392,9 +395,10 @@ async function upsertListings(supabase: any, provider: string, listings: CarList
     is_disallowed: false,
     last_seen_at: now,
     last_checked_at: now,
-    images: (l as any).images || (l.image_url ? [l.image_url] : []),
+    images: galleryImages,
     metadata: { year: l.year, mileage: l.mileage, condition: l.condition, source: "firecrawl_search_v2" },
-  }));
+    };
+  });
 
   let upserted = 0;
   for (let i = 0; i < rows.length; i += 50) {

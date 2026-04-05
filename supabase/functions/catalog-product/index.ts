@@ -62,7 +62,7 @@ function buildDiagHeaders(opts: {
 // isPromotionalImage is now imported from the shared imageUpgrade module
 // to prevent drift between local and shared copies.
 import { isPromotionalImage, filterProductImages } from "../_shared/imageUpgrade.ts";
-import { sanitizeGallery, upgradeToHighRes } from "../_shared/imageValidator.ts";
+import { sanitizeGallery, sanitizeImageUrl, upgradeToHighRes } from "../_shared/imageValidator.ts";
 
 /**
  * Upgrade ALL gallery images to high-resolution for product detail view.
@@ -1329,14 +1329,21 @@ Deno.serve(async (req: Request) => {
           return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
         }
         
+        const rawImages = ebayItem.images || [];
+        if (ebayItem.imageUrl && !rawImages.includes(ebayItem.imageUrl)) {
+          rawImages.unshift(ebayItem.imageUrl);
+        }
+        const allImages = upgradeGalleryImages(rawImages, "ebay");
+        const mainImage = allImages[0] || sanitizeImageUrl(ebayItem.imageUrl) || null;
+
         // Cache to catalog_items using provider+provider_product_id constraint
         const toCache = {
           provider: "ebay",
           provider_product_id: ebayItem.providerProductId,
           title: ebayItem.title,
           price_usd: ebayItem.priceUsd,
-          image_url: ebayItem.imageUrl,
-          images: ebayItem.images || [],
+          image_url: mainImage,
+          images: allImages,
           product_url: ebayItem.productUrl,
           in_stock: ebayItem.inStock,
           rating: null,
@@ -1346,13 +1353,6 @@ Deno.serve(async (req: Request) => {
         };
         
         await db.from("catalog_items").upsert(toCache, { onConflict: "provider,provider_product_id" });
-        
-        const rawImages = ebayItem.images || [];
-        if (ebayItem.imageUrl && !rawImages.includes(ebayItem.imageUrl)) {
-          rawImages.unshift(ebayItem.imageUrl);
-        }
-        const allImages = upgradeGalleryImages(rawImages, "ebay");
-        const mainImage = allImages[0] || null;
         
         const item: CatalogItem = {
           id: fullProductId,

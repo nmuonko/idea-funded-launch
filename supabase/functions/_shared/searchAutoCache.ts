@@ -6,7 +6,7 @@
  * Never blocks the response.
  */
 
-import { sanitizeImageUrl } from "./imageValidator.ts";
+import { sanitizeGallery, sanitizeImageUrl } from "./imageValidator.ts";
 
 /**
  * Sanitize Amazon product URLs — convert sspa/click redirects to clean /dp/ASIN format
@@ -91,16 +91,18 @@ export async function autoCacheLiveResults(
   const records = validItems.map(item => {
     const providerProductId = item.providerProductId || item.provider_product_id || item.id || "";
     // Collect full images array if available
-    const imagesArray = item.images || item.imageUrls || [];
+    const rawImagesArray = item.images || item.imageUrls || [];
     const mainImage = item.imageUrl || item.image_url;
+    const galleryImages = sanitizeGallery(rawImagesArray.length > 0 ? rawImagesArray : (mainImage ? [mainImage] : []));
+    const primaryImage = sanitizeImageUrl(mainImage) ?? galleryImages[0] ?? null;
     return {
       // Do NOT set `id` — let DB keep existing PK or auto-generate.
       // Upsert matches on (provider, provider_product_id) unique constraint.
       provider: item.provider,
       provider_product_id: providerProductId,
       title: item.title,
-      image_url: sanitizeImageUrl(mainImage),
-      images: imagesArray.length > 0 ? imagesArray : (mainImage ? [mainImage] : []),
+      image_url: primaryImage,
+      images: galleryImages,
       product_url: sanitizeAmazonUrl(item.provider, providerProductId, item.productUrl || item.product_url || ""),
       price_usd: item.priceUsd || item.price_usd,
       currency: item.currency || "USD",

@@ -13,7 +13,7 @@ import { searchRainforest, fetchProductDetails } from "../_shared/rainforestAdap
 import { checkBudget, incrementBudget } from "../_shared/providerBudget.ts";
 import { getCatalogSettings } from "../_shared/catalogSettings.ts";
 import { mapCategoryAndSubcategory } from "../_shared/categoryMapper.ts";
-import { sanitizeImageUrl } from "../_shared/imageValidator.ts";
+import { sanitizeGallery, sanitizeImageUrl } from "../_shared/imageValidator.ts";
 
 
 const corsHeaders = {
@@ -379,14 +379,17 @@ async function processQueueItem(
         title: product.title || "", provider: "rainforest", productUrl: product.productUrl || "",
       });
 
+      const galleryImages = sanitizeGallery(product.images?.length > 0 ? product.images : (product.imageUrl ? [product.imageUrl] : []));
+      const primaryImage = sanitizeImageUrl(product.imageUrl) ?? galleryImages[0] ?? null;
+
       await liveClient.from("catalog_items").upsert({
         id: `amazon_${product.providerProductId}`,
         provider: "rainforest",
         provider_product_id: product.providerProductId,
         title: product.title,
         price_usd: product.priceUsd,
-        image_url: sanitizeImageUrl(product.imageUrl),
-        images: product.images || [],
+        image_url: primaryImage,
+        images: galleryImages,
         product_url: product.productUrl,
         in_stock: product.inStock ?? true,
         rating: product.rating,
@@ -415,14 +418,16 @@ async function processQueueItem(
           const { category: mappedCat, subcategory } = mapCategoryAndSubcategory({
             title: p.title || "", provider: "rainforest", productUrl: p.productUrl || "",
           });
+          const galleryImages = sanitizeGallery((p.images?.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []));
+          const primaryImage = sanitizeImageUrl(p.imageUrl) ?? galleryImages[0] ?? null;
           return {
             id: `amazon_${p.providerProductId}`,
             provider: "rainforest",
             provider_product_id: p.providerProductId,
             title: p.title,
             price_usd: p.priceUsd,
-              image_url: sanitizeImageUrl(p.imageUrl),
-              images: (p.images?.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
+            image_url: primaryImage,
+            images: galleryImages,
             product_url: p.productUrl,
             in_stock: p.inStock ?? true,
             rating: p.rating,
@@ -590,14 +595,16 @@ Deno.serve(async (req: Request) => {
             const { category: mappedCat, subcategory } = mapCategoryAndSubcategory({
               title: p.title || "", provider: "rainforest", productUrl: p.productUrl || "",
             });
+            const galleryImages = sanitizeGallery((p.images?.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []));
+            const primaryImage = sanitizeImageUrl(p.imageUrl) ?? galleryImages[0] ?? null;
             return {
               id: `amazon_${p.providerProductId}`,
               provider: "rainforest",
               provider_product_id: p.providerProductId,
               title: p.title,
               price_usd: p.priceUsd,
-              image_url: sanitizeImageUrl(p.imageUrl),
-              images: (p.images?.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
+              image_url: primaryImage,
+              images: galleryImages,
               product_url: p.productUrl,
               in_stock: p.inStock ?? true,
               rating: p.rating,

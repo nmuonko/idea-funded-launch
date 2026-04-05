@@ -66,6 +66,11 @@ export const BLOCKED_IMAGE_PATTERNS: RegExp[] = [
   // SHEIN color swatch images (tiny solid-color squares)
   /ltwebstatic\.com\/v4\/p\/ccc\//i,
   /ltwebstatic\.com\/images3_ccc\//i,
+
+  // Vehicle dealer overlay/composite images
+  /autonationoverlays/i,
+  /nophoneoverlay/i,
+  /anwhitebg/i,
   
   // Macy's generic images
   /macys.*logo/i,
@@ -91,6 +96,35 @@ export const BLOCKED_IMAGE_PATTERNS: RegExp[] = [
   /1x1\.(gif|png)/i,
   /pixel\.(gif|png)/i,
   /spacer\.(gif|png)/i,
+
+  // CTA / promotional overlay images
+  /shop[_-]?now/i,
+  /buy[_-]?now/i,
+  /add[_-]?to[_-]?cart/i,
+  /sponsored/i,
+  /review[_-]?badge/i,
+  /warranty[_-]?badge/i,
+  /trust[_-]?badge/i,
+  /guarantee[_-]?badge/i,
+  /promo[_-]?overlay/i,
+  /text[_-]?overlay/i,
+  /badge[_-]?overlay/i,
+
+  // Amazon overlay/support-plan images
+  /pkmb-play-button-overlay/i,
+  /play[_-]?button[_-]?overlay/i,
+  /asurion/i,
+  /protection[_-]?plan/i,
+
+  // Marketing/brand-story images
+  /aplus[_-]?media/i,
+  /\/aplus\//i,
+  /brand[_-]?story/i,
+  /from[_-]?the[_-]?brand/i,
+  /rich[_-]?product[_-]?description/i,
+  /social[_-]?share/i,
+  /gift[_-]?card/i,
+  /watermark/i,
 ];
 
 /**

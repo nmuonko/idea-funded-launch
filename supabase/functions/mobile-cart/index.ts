@@ -508,7 +508,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     if (catTypeResult.data) { finalShippingTypeId = catTypeResult.data.id; estWeightKg = catTypeResult.data.estWeightKg; }
   }
 
-  const shippingFeeUsd = isFixedPrice ? 0 : (isVehicleDetected ? 0 : calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, settings.shippingPercent, requiresManualQuote));
+  const shippingFeeUsd = (isFixedPrice || isAllInclusive) ? 0 : (isVehicleDetected ? 0 : calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, settings.shippingPercent, requiresManualQuote));
 
   if (isGuest) {
     const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup);

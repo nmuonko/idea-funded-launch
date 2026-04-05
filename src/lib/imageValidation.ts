@@ -46,6 +46,7 @@ const BLOCKED_TOKENS = [
   'ltwebstatic.com/she_dist/', 'ltwebstatic.com/images/bg/',
   '/v4/p/ccc/', 'images3_ccc/',
   '1585556531965e5d98ef5a432eab61147c16af31c6',
+  'site_failover',
 
   // Carvana merchandising
   'assets.fastly.carvana.io/merchui/images',

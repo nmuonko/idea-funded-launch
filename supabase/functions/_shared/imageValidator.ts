@@ -22,8 +22,9 @@ const BLOCKED_SUBSTRINGS = [
   "nophoneoverlay",
   "anwhitebg",
 
-  // SHEIN banners
+  // SHEIN banners & failover
   "_thumbnail_126x",
+  "site_failover",
 
   // Generic banner/promo patterns
   "/banner",

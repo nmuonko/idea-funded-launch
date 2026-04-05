@@ -399,11 +399,14 @@ export async function serveMobileSections(
   const { hit, payload, ageSeconds } = await readMobileSectionsCache(env, correlationId);
 
   if (hit && payload) {
-    // Slice items to ITEMS_PER_SECTION_RESPONSE for the response
-    const sliced = payload.sections.map(s => ({
-      ...s,
-      items: s.items.slice(0, ITEMS_PER_SECTION_RESPONSE),
-    }));
+    // Apply all-inclusive pricing to cached items (cache may have raw prices)
+    const sliced = payload.sections.map(s => {
+      let items = s.items.slice(0, ITEMS_PER_SECTION_RESPONSE);
+      if (pricingSettings) {
+        items = applyAllInclusivePricingToItems(items, pricingSettings);
+      }
+      return { ...s, items };
+    });
     const normalized = normalizeSectionTitles(sliced, lang) as typeof sliced;
     const totalItems = calculateTotalItems(normalized);
     console.log(`[CATALOG_HOME][MODE] envRequested=${envRequested} envUsed=${env} isMobile=true sections=${normalized.length} keys=${normalized.map(s=>s.key).join(",")}`);

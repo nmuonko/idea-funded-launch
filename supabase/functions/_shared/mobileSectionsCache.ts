@@ -485,7 +485,7 @@ export async function serveMobileSections(
   // 3) Rebuild strict sections from pool
   console.log(`[MOBILE_SECTIONS_CACHE] rebuilding env=${env} poolSize=${poolItems.length} correlationId=${correlationId}`);
 
-  const built = await buildStrictSectionsFromPool(poolItems, lang, correlationId);
+  const built = await buildStrictSectionsFromPool(poolItems, lang, correlationId, pricingSettings);
 
   // 3) Save to cache (fire-and-forget)
   writeMobileSectionsCache(env, built, correlationId, effectiveTtl).catch(() => {});

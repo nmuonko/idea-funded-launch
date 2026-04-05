@@ -653,7 +653,8 @@ function isValidAsin(asin: string): boolean {
 
 function mapEbayItem(item: Record<string, unknown>, segment?: string): CatalogItem | null {
   const priceUsd = extractPriceFromEbay(item);
-  const imageUrl = (item.image as Record<string, unknown>)?.imageUrl as string || null;
+  const rawImageUrl = (item.image as Record<string, unknown>)?.imageUrl as string || null;
+  const imageUrl = sanitizeImageUrl(rawImageUrl);
   const productUrl = (item.itemWebUrl as string) || null;
   const priceObj = item.price as Record<string, unknown> | undefined;
   const itemId = item.itemId as string || "";

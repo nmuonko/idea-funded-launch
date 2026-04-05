@@ -200,7 +200,7 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
               is_vehicle: item.is_vehicle ?? item.isVehicle ?? false,
               vehicle_quote_applied: item.vehicle_quote_applied ?? item.vehicleQuoteApplied ?? false,
               price_confirmation_status: item.price_confirmation_status ?? item.priceConfirmationStatus ?? null,
-            });
+            };}
 
             const activeItems = rawActiveItems.map(normalizeItem);
             const savedItems = rawSavedItems.map(normalizeItem);

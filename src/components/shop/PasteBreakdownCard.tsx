@@ -1,6 +1,7 @@
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart, FeeSettings } from '@/contexts/ShopCartContext';
 import { calculateShippingUsd } from '@/lib/shippingCalculation';
+import { vehicleAllInclusivePrice } from '@/lib/vehiclePricing';
 import { VehicleDetectionResult } from '@/lib/vehicleDetection';
 import { ShoppingCart, Zap, Car } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -35,7 +36,7 @@ export function PasteBreakdownCard({
   const markupPercent = isVehicle ? feeSettings.vehicleMarkupPercent : feeSettings.markupPercent;
   const markupFee = basePriceUsd * (markupPercent / 100);
   const shippingFee = isVehicle ? 0 : calculateShippingUsd(basePriceUsd, feeSettings.shippingBaseFeeUsd, feeSettings.shippingPercent);
-  const totalUsd = isVehicle ? 0 : basePriceUsd + markupFee + shippingFee;
+  const totalUsd = isVehicle ? vehicleAllInclusivePrice(basePriceUsd) : basePriceUsd + markupFee + shippingFee;
   const totalCdf = totalUsd * exchangeRate;
 
   const handleAddToCart = async (buyNow = false) => {

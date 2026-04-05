@@ -1,0 +1,1 @@
+UPDATE catalog_builder_sources SET enabled = false, updated_at = now() WHERE provider = 'ebay' AND enabled = true;

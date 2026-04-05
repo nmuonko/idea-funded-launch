@@ -686,7 +686,8 @@ function mapRainforestItem(item: Record<string, unknown>, segment?: string): Cat
   const asin = (item.asin as string || "").toUpperCase();
   const price = item.price as Record<string, unknown> | undefined;
   const priceValue = price?.value as number || null;
-  const imageUrl = item.image as string || (item.main_image as Record<string, unknown>)?.link as string || null;
+  const rawImageUrl = item.image as string || (item.main_image as Record<string, unknown>)?.link as string || null;
+  const imageUrl = sanitizeImageUrl(rawImageUrl);
   
   if (!isValidAsin(asin)) {
     return null;

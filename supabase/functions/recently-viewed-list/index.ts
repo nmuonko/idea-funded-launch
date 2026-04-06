@@ -71,11 +71,20 @@ Deno.serve(async (req) => {
 
     console.log(`[recently-viewed-list] Success: found ${data?.length || 0} items`);
 
+    // Apply all-inclusive pricing to recently viewed items
+    let items = data || [];
+    try {
+      const pricingSettings = await loadPricingSettings();
+      items = applyAllInclusivePricingToItems(items as Record<string, unknown>[], pricingSettings);
+    } catch (e) {
+      console.error('[recently-viewed-list] Pricing transform error:', e);
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
-        items: data || [],
-        count: data?.length || 0
+        items,
+        count: items.length
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

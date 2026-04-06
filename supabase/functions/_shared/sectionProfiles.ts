@@ -237,7 +237,11 @@ export const SECTION_PROFILES: SectionProfile[] = [
     key: "parts_accessories",
     title: { en: "Parts & Accessories", fr: "Pièces & Accessoires" },
     includeAny: PARTS_WORDS,
-    excludeAny: PHONE_EXCLUDE.concat(GAMING_EXCLUDE, TOYS_WORDS),
+    excludeAny: PHONE_EXCLUDE.concat(GAMING_EXCLUDE, TOYS_WORDS, HOME_WORDS, CLOTHING_WORDS, [
+      "vanity","makeup","cosmetic","beauty","skincare","candle",
+      "pillow","blanket","towel","vase","planter","artwork","painting",
+      "perfume","fragrance","lotion","shampoo","conditioner",
+    ]),
     preferProviders: ["ebay", "amazon"],
     minItems: 12,
   },

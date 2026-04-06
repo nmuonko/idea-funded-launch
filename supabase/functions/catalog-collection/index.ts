@@ -15,7 +15,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { sanitizeGallery, sanitizeImageUrl } from "../_shared/imageValidator.ts";
+import { sanitizeGallery, sanitizeImageUrl, bestProductImage } from "../_shared/imageValidator.ts";
 
 // ─── CORS Headers ────────────────────────────────────────────────────────────
 

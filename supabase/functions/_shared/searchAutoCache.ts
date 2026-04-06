@@ -6,7 +6,7 @@
  * Never blocks the response.
  */
 
-import { sanitizeGallery, sanitizeImageUrl } from "./imageValidator.ts";
+import { sanitizeGallery, sanitizeImageUrl, bestProductImage } from "./imageValidator.ts";
 
 /**
  * Sanitize Amazon product URLs — convert sspa/click redirects to clean /dp/ASIN format

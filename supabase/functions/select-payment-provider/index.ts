@@ -41,15 +41,26 @@ const VALID_PROVIDERS: ProviderSelection[] = ['pawapay', 'stripe'];
 // Payment statuses for state machine
 type PaymentAttemptStatus = 'pending' | 'processing' | 'paid' | 'failed' | 'expired' | 'cancelled';
 
-function getPawaPayProviderLimit(provider: any, currency: 'USD' | 'CDF'): number | null {
-  const rawLimit = provider?.config_public?.limits?.[currency]?.max;
+async function getMobileMoneyLimit(supabase: any, currency: 'USD' | 'CDF'): Promise<number | null> {
+  try {
+    const { data, error } = await supabase
+      .from('payment_settings')
+      .select('mobile_money_max_usd, mobile_money_max_cdf')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .single();
 
-  if (rawLimit === null || rawLimit === undefined) {
-    return provider?.provider_key === 'pawapay' && currency === 'USD' ? 2500 : null;
+    if (error || !data) {
+      console.warn('[PAYMENT_FLOW] Could not read payment_settings, skipping limit check');
+      return null;
+    }
+
+    const limit = currency === 'USD' ? data.mobile_money_max_usd : data.mobile_money_max_cdf;
+    return typeof limit === 'number' && Number.isFinite(limit) ? limit : null;
+  } catch (e) {
+    console.warn('[PAYMENT_FLOW] Error reading payment_settings:', e);
+    return null;
   }
-
-  const parsedLimit = Number(rawLimit);
-  return Number.isFinite(parsedLimit) ? parsedLimit : null;
 }
 
 function formatProviderLimit(currency: 'USD' | 'CDF', amount: number): string {

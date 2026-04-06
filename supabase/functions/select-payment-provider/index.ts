@@ -247,8 +247,7 @@ serve(async (req) => {
     });
 
     if (provider === 'pawapay') {
-      const pawaProvider = await getActiveProvider(supabase, 'COD', 'MOBILE_MONEY');
-      const maxAllowedAmount = pawaProvider ? getPawaPayProviderLimit(pawaProvider, currency) : null;
+      const maxAllowedAmount = await getMobileMoneyLimit(supabase, currency);
 
       if (maxAllowedAmount !== null && amount > maxAllowedAmount) {
         const formattedLimit = formatProviderLimit(currency, maxAllowedAmount);

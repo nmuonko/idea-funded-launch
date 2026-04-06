@@ -214,7 +214,6 @@ export const SECTION_PROFILES: SectionProfile[] = [
       "macbook","imac","monitor","display","oled","lcd","ultrawide",
       "microphone","webcam","printer","projector","keyboard","mouse",
       "pickup only","local pickup","in-store pickup",
-      // Strengthen: block all electronics/computing items
       "laptop","notebook","desktop","computer","pc","cpu","gpu","ssd","hdd",
       "hard drive","ram","memory","motherboard","graphics card",
       "tablet","ipad","surface","chromebook","server","workstation",
@@ -232,6 +231,15 @@ export const SECTION_PROFILES: SectionProfile[] = [
     preferProviders: ["cargurus", "carvana", "ebay"],
     minItems: 12,
     minPrice: 500,
+    diversityQueries: [
+      "tesla model 3 model y",
+      "ford explorer f-150 suv",
+      "toyota camry rav4 highlander",
+      "bmw x3 x5 sedan",
+      "chevrolet silverado equinox tahoe",
+      "honda civic accord cr-v",
+      "jeep wrangler grand cherokee",
+    ],
   },
   {
     key: "parts_accessories",

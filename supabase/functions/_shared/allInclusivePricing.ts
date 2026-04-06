@@ -99,6 +99,9 @@ export function computeAllInclusivePrice(basePriceUsd: number, settings: Pricing
 function isVehicleItem(item: Record<string, unknown>): boolean {
   const provider = ((item.provider as string) || "").toLowerCase();
   if (provider === "cargurus" || provider === "carvana") return true;
+  // Category-based detection (most reliable for eBay vehicles)
+  const category = ((item.unified_category ?? item.unifiedCategory ?? item.category_key ?? item.categoryKey) as string || "").toLowerCase();
+  if (category === "vehicles" || category === "cars" || category === "cars_trucks") return true;
   // Title-based heuristic for vehicle items from other providers
   const title = ((item.title as string) || "").toLowerCase();
   const rawPrice = (item.price_usd ?? item.priceUsd) as number | null;

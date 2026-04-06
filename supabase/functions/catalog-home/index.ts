@@ -8,7 +8,7 @@ import {
   nonEmpty
 } from "../_shared/titleNormalizer.ts";
 import { buildStrictMobileSections, type SectionItem } from "../_shared/sectionProfiles.ts";
-import { sanitizeImageUrl } from "../_shared/imageValidator.ts";
+import { sanitizeImageUrl, bestProductImage } from "../_shared/imageValidator.ts";
 import { serveMobileSections, emptyMobileSectionsResponse } from "../_shared/mobileSectionsCache.ts";
 import { loadPricingSettings, applyAllInclusivePricingToItems } from "../_shared/allInclusivePricing.ts";
 import {
@@ -527,8 +527,8 @@ async function bootstrapFromDatabase(correlationId: string): Promise<CatalogItem
       price_usd: row.price_usd as number | null,
       priceUsd: row.price_usd as number | null,
       currency: "USD",
-      image_url: sanitizeImageUrl(row.image_url as string | null),
-      imageUrl: sanitizeImageUrl(row.image_url as string | null),
+      image_url: bestProductImage(row.image_url as string | null, row.images),
+      imageUrl: bestProductImage(row.image_url as string | null, row.images),
       product_url: row.product_url as string | null,
       productUrl: row.product_url as string | null,
       in_stock: true,

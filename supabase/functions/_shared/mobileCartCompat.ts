@@ -1,5 +1,5 @@
 import { buildCorsHeaders, corsPreflightResponse, logStartupRequest } from "./mobileCors.ts";
-import { sanitizeImageUrl } from "./imageValidator.ts";
+import { sanitizeImageUrl, bestProductImage } from "./imageValidator.ts";
 
 type CompatOptions = {
   legacyPath: string;
@@ -173,7 +173,7 @@ export function createMobileCartCompatHandler(options: CompatOptions) {
               item.imageUrl ?? item.productImageUrl ?? item.product_image_url ?? item.mainImageUrl ?? item.image_url ?? null;
 
             const normalizeItem = (item: any) => {
-              const cleanImg = sanitizeImageUrl(rawImg(item));
+              const cleanImg = bestProductImage(rawImg(item), item.images ?? item.gallery ?? []);
               return {
               ...item,
               productUrl: item.productUrl ?? item.product_url ?? null,

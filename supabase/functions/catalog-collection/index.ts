@@ -15,7 +15,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { sanitizeGallery, sanitizeImageUrl } from "../_shared/imageValidator.ts";
+import { sanitizeGallery, sanitizeImageUrl, bestProductImage } from "../_shared/imageValidator.ts";
 
 // ─── CORS Headers ────────────────────────────────────────────────────────────
 
@@ -586,7 +586,7 @@ async function upsertCatalogItems(
 ): Promise<void> {
   const rows = items.map(item => {
     const galleryImages = sanitizeGallery(item.images || (item.imageUrl ? [item.imageUrl] : []));
-    const primaryImage = sanitizeImageUrl(item.imageUrl) ?? galleryImages[0] ?? null;
+    const primaryImage = bestProductImage(item.imageUrl, item.images) ?? galleryImages[0] ?? null;
     return {
     id: item.id,
     provider: item.provider,

@@ -93,6 +93,7 @@ const BLOCKED_SUBSTRINGS = [
   // SHEIN promo paths
   "ltwebstatic.com/she_dist/", "ltwebstatic.com/images/bg/",
   "images3_ccc/",
+  "/v4/j/ccc/",
 
   // Filename-level markers
   "-logo.", "_logo.", "-badge.", "_badge.", "-stamp.", "_stamp.",

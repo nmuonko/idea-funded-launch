@@ -142,7 +142,33 @@ serve(async (req) => {
       }
 
       draftOrderId = existingOrder.id;
-      itemIdsToCheckout = cart_item_ids;
+      
+      // Check if RN sent non-UUID IDs (provider_product_id) instead of order_items UUIDs
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const hasNonUuidIds = cart_item_ids.some((id: string) => !UUID_RE.test(id));
+      
+      if (hasNonUuidIds) {
+        console.warn('[mobile-create-payment] NON_UUID_CART_ITEM_IDS, using provider_product_id lookup');
+        const { data: byProvider } = await supabase
+          .from('order_items')
+          .select('id')
+          .in('provider_product_id', cart_item_ids)
+          .eq('order_id', draftOrderId)
+          .eq('is_saved_for_later', false);
+        itemIdsToCheckout = (byProvider || []).map((i: any) => i.id);
+        
+        if (itemIdsToCheckout.length === 0) {
+          // Fallback: get all active items
+          const { data: allItems } = await supabase
+            .from('order_items')
+            .select('id')
+            .eq('order_id', draftOrderId)
+            .eq('is_saved_for_later', false);
+          itemIdsToCheckout = (allItems || []).map((i: any) => i.id);
+        }
+      } else {
+        itemIdsToCheckout = cart_item_ids;
+      }
       console.log('[mobile-create-payment] Using cart_item_ids mode, checking', itemIdsToCheckout.length, 'items');
 
     } else {

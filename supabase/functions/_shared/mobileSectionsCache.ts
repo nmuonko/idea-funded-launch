@@ -9,7 +9,7 @@
  */
 
 import { SECTION_PROFILES, filterItemsForProfile, type SectionProfile, type SectionItem } from "./sectionProfiles.ts";
-import { isValidProductImageUrl, upgradeToHighRes } from "./imageValidator.ts";
+import { isValidProductImageUrl, upgradeToHighRes, bestProductImage } from "./imageValidator.ts";
 import { normalizeSectionTitles, calculateTotalItems } from "./titleNormalizer.ts";
 import { isDisallowedItem } from "./contentBlocker.ts";
 import { loadPricingSettings, applyAllInclusivePricingToItems } from "./allInclusivePricing.ts";

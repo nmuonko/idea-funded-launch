@@ -742,6 +742,92 @@ export default function ShopAuth() {
             </motion.form>
           )}
 
+          {/* OTP Verification Screen */}
+          {mode === 'verify-otp' && (
+            <motion.div
+              key="verify-otp"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="w-full max-w-sm space-y-6"
+            >
+              <div className="text-center space-y-2">
+                <div className="mx-auto w-16 h-16 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center mb-4">
+                  <ShieldCheck className="h-8 w-8 text-white" />
+                </div>
+                <h2 className="text-2xl font-bold text-white">
+                  {language === 'fr' ? 'Vérification du téléphone' : 'Phone Verification'}
+                </h2>
+                <p className="text-white/60 text-sm">
+                  {language === 'fr'
+                    ? `Entrez le code à 6 chiffres envoyé au ${phone}`
+                    : `Enter the 6-digit code sent to ${phone}`}
+                </p>
+              </div>
+
+              <div className="flex justify-center gap-2">
+                {[0, 1, 2, 3, 4, 5].map((i) => (
+                  <input
+                    key={i}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={otpCode[i] || ''}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^0-9]/g, '');
+                      const newCode = otpCode.split('');
+                      newCode[i] = val;
+                      setOtpCode(newCode.join(''));
+                      if (val && i < 5) {
+                        const next = e.target.nextElementSibling as HTMLInputElement;
+                        if (next) next.focus();
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Backspace' && !otpCode[i] && i > 0) {
+                        const prev = (e.target as HTMLElement).previousElementSibling as HTMLInputElement;
+                        if (prev) prev.focus();
+                      }
+                    }}
+                    className="w-12 h-14 text-center text-xl font-bold bg-white/5 border border-white/20 rounded-xl text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
+                  />
+                ))}
+              </div>
+
+              <Button
+                onClick={handleVerifyOtp}
+                disabled={loading || otpCode.length < 6}
+                className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full text-base"
+              >
+                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : (language === 'fr' ? 'Vérifier' : 'Verify')}
+              </Button>
+
+              <div className="text-center">
+                <p className="text-white/50 text-sm">
+                  {language === 'fr' ? "Vous n'avez pas reçu le code ?" : "Didn't receive the code?"}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={otpResendDisabled}
+                  className={`text-sm mt-1 ${otpResendDisabled ? 'text-white/30 cursor-not-allowed' : 'text-blue-400 hover:text-blue-300'}`}
+                >
+                  {otpResendDisabled
+                    ? `${language === 'fr' ? 'Renvoyer dans' : 'Resend in'} ${otpTimer}s`
+                    : (language === 'fr' ? 'Renvoyer le code' : 'Resend Code')}
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setMode('signup')}
+                className="block w-full text-center text-white/60 hover:text-white text-sm"
+              >
+                ← {language === 'fr' ? "Retour à l'inscription" : 'Back to Sign Up'}
+              </button>
+            </motion.div>
+          )}
+
           {/* Forgot Password Screen */}
           {mode === 'forgot' && (
             <motion.form

@@ -236,6 +236,22 @@ export default function ShopAuth() {
       return;
     }
 
+    // Show OTP verification screen instead of immediately creating account
+    setOtpCode('');
+    startOtpTimer();
+    setMode('verify-otp');
+  };
+
+  const handleVerifyOtp = async () => {
+    if (otpCode.length < 6) {
+      toast({
+        title: language === 'fr' ? 'Veuillez entrer le code à 6 chiffres' : 'Please enter the 6-digit code',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Accept any 6-digit code (fake verification)
     setLoading(true);
     try {
       const result = await signUp(email, password, fullName, phone, {
@@ -246,7 +262,6 @@ export default function ShopAuth() {
       });
       
       if (!result.error) {
-        // Auto-confirmed — user is now signed in
         toast({
           title: auth.signUpSuccess || 'Account created successfully!',
         });
@@ -261,6 +276,14 @@ export default function ShopAuth() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleResendOtp = () => {
+    startOtpTimer();
+    toast({
+      title: language === 'fr' ? 'Code renvoyé!' : 'Code resent!',
+      description: language === 'fr' ? `Un nouveau code a été envoyé au ${phone}` : `A new code has been sent to ${phone}`,
+    });
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {

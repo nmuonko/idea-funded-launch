@@ -16,7 +16,7 @@ import { loadPricingSettings, applyAllInclusivePricingToItems } from "./allInclu
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const MOBILE_SECTIONS_SCHEMA_VERSION = 16; // v16: all-inclusive pricing
+export const MOBILE_SECTIONS_SCHEMA_VERSION = 17; // v17: force stale cache purge — consistent all-inclusive pricing
 const DEFAULT_TTL_SECONDS = 1800; // 30 min default — overridden by admin settings
 const ITEMS_PER_SECTION_RESPONSE = 40; // returned to client
 const ITEMS_PER_SECTION_CACHE = 60; // stored in cache for stability
@@ -399,7 +399,10 @@ export async function serveMobileSections(
   const { hit, payload, ageSeconds } = await readMobileSectionsCache(env, correlationId);
 
   if (hit && payload) {
-    // Apply all-inclusive pricing to cached items (cache may have raw prices)
+    // Items in cache are ALREADY all-inclusive (applied during build).
+    // The idempotency guard in applyAllInclusivePricingToItems will skip
+    // items with fees_included=true, but we still call it as a safety net
+    // in case any items slipped through without pricing.
     const sliced = payload.sections.map(s => {
       let items = s.items.slice(0, ITEMS_PER_SECTION_RESPONSE);
       if (pricingSettings) {

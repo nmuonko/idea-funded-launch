@@ -41,6 +41,23 @@ const VALID_PROVIDERS: ProviderSelection[] = ['pawapay', 'stripe'];
 // Payment statuses for state machine
 type PaymentAttemptStatus = 'pending' | 'processing' | 'paid' | 'failed' | 'expired' | 'cancelled';
 
+function getPawaPayProviderLimit(provider: any, currency: 'USD' | 'CDF'): number | null {
+  const rawLimit = provider?.config_public?.limits?.[currency]?.max;
+
+  if (rawLimit === null || rawLimit === undefined) {
+    return provider?.provider_key === 'pawapay' && currency === 'USD' ? 2500 : null;
+  }
+
+  const parsedLimit = Number(rawLimit);
+  return Number.isFinite(parsedLimit) ? parsedLimit : null;
+}
+
+function formatProviderLimit(currency: 'USD' | 'CDF', amount: number): string {
+  return currency === 'USD'
+    ? `$${amount.toLocaleString('en-US')}`
+    : `${Math.round(amount).toLocaleString('fr-FR')} FC`;
+}
+
 serve(async (req) => {
   console.log('[PAYMENT_FLOW] select-payment-provider invoked');
   
@@ -217,6 +234,34 @@ serve(async (req) => {
       currency,
       endpoint: 'select-payment-provider',
     });
+
+    if (provider === 'pawapay') {
+      const pawaProvider = await getActiveProvider(supabase, 'COD', 'MOBILE_MONEY');
+      const maxAllowedAmount = pawaProvider ? getPawaPayProviderLimit(pawaProvider, currency) : null;
+
+      if (maxAllowedAmount !== null && amount > maxAllowedAmount) {
+        const formattedLimit = formatProviderLimit(currency, maxAllowedAmount);
+
+        console.warn('[PAYMENT_FLOW] PAWAPAY_LIMIT_EXCEEDED', {
+          order_id: orderId,
+          checkout_session_id,
+          amount,
+          currency,
+          max_allowed_amount: maxAllowedAmount,
+        });
+
+        return jsonResponse({
+          ok: false,
+          success: false,
+          code: 'MOBILE_MONEY_LIMIT_EXCEEDED',
+          message: `Mobile money is only available up to ${formattedLimit} per transaction. Please use card payment for this order.`,
+          message_fr: `Le mobile money est disponible jusqu'à ${formattedLimit} par transaction. Veuillez utiliser le paiement par carte pour cette commande.`,
+          order_id: orderId,
+          max_amount: maxAllowedAmount,
+          currency,
+        }, 200);
+      }
+    }
 
     // ============================================
     // STEP 5: Check idempotency - reuse existing payment_attempt

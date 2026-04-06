@@ -49,6 +49,7 @@ import {
   ProviderStats,
 } from "../_shared/providerMixer.ts";
 import { enrichItemsWithMediaCounts } from "../_shared/mediaCache.ts";
+import { loadPricingSettings, applyAllInclusivePricingToItems } from "../_shared/allInclusivePricing.ts";
 import {
   SortOption,
   CatalogFilters,
@@ -852,6 +853,18 @@ Deno.serve(async (req) => {
 
     // Build next cursor
     const nextCursor = mixResult.nextCursor ? encodeMixerCursor(mixResult.nextCursor) : null;
+
+    // Apply all-inclusive pricing (markup + shipping) before returning
+    try {
+      const pricingSettings = await loadPricingSettings();
+      const pricedItems = applyAllInclusivePricingToItems(finalItems as unknown as Record<string, unknown>[], pricingSettings);
+      // Overwrite finalItems in-place for the response
+      for (let i = 0; i < finalItems.length; i++) {
+        Object.assign(finalItems[i], pricedItems[i]);
+      }
+    } catch (pricingErr) {
+      console.error(`[CATALOG] requestId=${requestId} pricing transform error:`, pricingErr);
+    }
 
     console.log(`[CATALOG] requestId=${requestId} cursorIn=${cursor} cursorOut=${nextCursor} items=${finalItems.length} hasMore=${mixResult.hasMore} phase=${mixResult.mixingPhase}`);
 

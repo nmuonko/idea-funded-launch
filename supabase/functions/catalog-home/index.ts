@@ -10,6 +10,7 @@ import {
 import { buildStrictMobileSections, type SectionItem } from "../_shared/sectionProfiles.ts";
 import { sanitizeImageUrl } from "../_shared/imageValidator.ts";
 import { serveMobileSections, emptyMobileSectionsResponse } from "../_shared/mobileSectionsCache.ts";
+import { loadPricingSettings, applyAllInclusivePricingToItems } from "../_shared/allInclusivePricing.ts";
 import {
   readMobileCache,
   readWebCache,
@@ -1287,7 +1288,9 @@ serve(async (req) => {
               if (homepageFallbackItems.length > 0) {
                 const totalPages = Math.ceil(homepageFallbackItems.length / pageSize) || 1;
                 const offset = (page - 1) * pageSize;
-                const pageItems = homepageFallbackItems.slice(offset, offset + pageSize);
+                let pageItems = homepageFallbackItems.slice(offset, offset + pageSize);
+                try { const ps = await loadPricingSettings(); pageItems = applyAllInclusivePricingToItems(pageItems as unknown as Record<string, unknown>[], ps) as typeof pageItems; } catch {}
+
                 const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
                 let sections = [{
                   key: "featured",
@@ -1330,7 +1333,9 @@ serve(async (req) => {
             if (allItems.length > 0) {
               const totalPages = Math.ceil(allItems.length / pageSize) || 1;
               const offset = (page - 1) * pageSize;
-              const pageItems = allItems.slice(offset, offset + pageSize);
+              let pageItems = allItems.slice(offset, offset + pageSize);
+              try { const ps = await loadPricingSettings(); pageItems = applyAllInclusivePricingToItems(pageItems as unknown as Record<string, unknown>[], ps) as typeof pageItems; } catch {}
+
               const hasMoreCached = page < totalPages;
               const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
               
@@ -1386,7 +1391,9 @@ serve(async (req) => {
               console.log(`[CATALOG_HOME] recipe_web_cache_stale correlationId=${correlationId} serving_stale poolSize=${allItems.length}`);
               const totalPages = Math.ceil(allItems.length / pageSize) || 1;
               const offset = (page - 1) * pageSize;
-              const pageItems = allItems.slice(offset, offset + pageSize);
+              let pageItems = allItems.slice(offset, offset + pageSize);
+              try { const ps = await loadPricingSettings(); pageItems = applyAllInclusivePricingToItems(pageItems as unknown as Record<string, unknown>[], ps) as typeof pageItems; } catch {}
+
               const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
               
               let sections = [{
@@ -1500,7 +1507,12 @@ serve(async (req) => {
       
       if (page <= actualTotalPages) {
         const offset = (page - 1) * pageSize;
-        const pageItems = cached.items.slice(offset, offset + pageSize);
+        let pageItems = cached.items.slice(offset, offset + pageSize);
+        // Apply all-inclusive pricing for web clients
+        try {
+          const pSettings = await loadPricingSettings();
+          pageItems = applyAllInclusivePricingToItems(pageItems as unknown as Record<string, unknown>[], pSettings) as typeof pageItems;
+        } catch (e) { console.error(`[CATALOG_HOME] pricing transform error:`, e); }
         const hasMoreCached = page < actualTotalPages;
         
         console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} client=${clientType} isStale=${isStale} poolSize=${cached.items.length} page=${page}/${actualTotalPages} returning=${pageItems.length} cacheEnvUsed=${cacheEnvUsed}`);
@@ -1680,7 +1692,12 @@ serve(async (req) => {
     }
 
     const offset = (page - 1) * pageSize;
-    const pageItems = items.slice(offset, offset + pageSize);
+    let pageItems = items.slice(offset, offset + pageSize);
+    // Apply all-inclusive pricing for web clients
+    try {
+      const pSettings = await loadPricingSettings();
+      pageItems = applyAllInclusivePricingToItems(pageItems as unknown as Record<string, unknown>[], pSettings) as typeof pageItems;
+    } catch (e) { console.error(`[CATALOG_HOME] pricing transform error:`, e); }
     const actualTotalPages = Math.ceil(items.length / pageSize);
 
     const totalMs = Date.now() - startTime;

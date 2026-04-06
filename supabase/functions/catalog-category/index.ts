@@ -49,6 +49,7 @@ import {
   ProviderStats,
 } from "../_shared/providerMixer.ts";
 import { enrichItemsWithMediaCounts } from "../_shared/mediaCache.ts";
+import { loadPricingSettings, applyAllInclusivePricingToItems } from "../_shared/allInclusivePricing.ts";
 import {
   SortOption,
   CatalogFilters,

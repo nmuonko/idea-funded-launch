@@ -1245,13 +1245,14 @@ Deno.serve(async (req: Request) => {
       const variantsCacheStatus = cachedVariantsResult ? "HIT" : "MISS";
       console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: externalProvider, id: productId, dbHit: true, variantsCacheHit: !!cachedVariantsResult, liveFetch: false, variantsCount: cachedVariantsResult?.length ?? 0, imageCount: item.images?.length ?? 0, totalMs: Date.now() - startTime }));
       
+      const pricedItem = applyAllInclusivePriceToItem(item);
       return new Response(JSON.stringify({
         ok: true,
         status: "success",
         env: envName,
         id: fullProductId,
-        item,
-        product: item,
+        item: pricedItem,
+        product: pricedItem,
         source: "db",
         cached: true,
         error: null,

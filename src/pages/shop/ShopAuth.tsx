@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Eye, EyeOff, Loader2, Mail, Lock, User, Phone, Check, MapPin, Building, Globe, ChevronDown, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, Loader2, Mail, Lock, User, Phone, Check, MapPin, Building, Globe, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-type AuthMode = 'welcome' | 'signin' | 'signup' | 'forgot' | 'verify-otp';
+type AuthMode = 'welcome' | 'signin' | 'signup' | 'forgot';
 
 export default function ShopAuth() {
   const navigate = useNavigate();
@@ -47,36 +47,6 @@ export default function ShopAuth() {
   const [country] = useState('DR Congo'); // Prefilled and locked
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-
-  // OTP verification state
-  const [otpCode, setOtpCode] = useState('');
-  const [otpTimer, setOtpTimer] = useState(60);
-  const [otpResendDisabled, setOtpResendDisabled] = useState(true);
-  const otpTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Start OTP countdown timer
-  const startOtpTimer = useCallback(() => {
-    setOtpTimer(60);
-    setOtpResendDisabled(true);
-    if (otpTimerRef.current) clearInterval(otpTimerRef.current);
-    otpTimerRef.current = setInterval(() => {
-      setOtpTimer((prev) => {
-        if (prev <= 1) {
-          clearInterval(otpTimerRef.current!);
-          setOtpResendDisabled(false);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  }, []);
-
-  // Cleanup timer
-  useEffect(() => {
-    return () => {
-      if (otpTimerRef.current) clearInterval(otpTimerRef.current);
-    };
-  }, []);
 
   const t = translations[language] || translations.en;
   const auth = (t as any).auth || {};
@@ -236,22 +206,6 @@ export default function ShopAuth() {
       return;
     }
 
-    // Show OTP verification screen instead of immediately creating account
-    setOtpCode('');
-    startOtpTimer();
-    setMode('verify-otp');
-  };
-
-  const handleVerifyOtp = async () => {
-    if (otpCode.length < 6) {
-      toast({
-        title: language === 'fr' ? 'Veuillez entrer le code à 6 chiffres' : 'Please enter the 6-digit code',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    // Accept any 6-digit code (fake verification)
     setLoading(true);
     try {
       const result = await signUp(email, password, fullName, phone, {
@@ -262,6 +216,7 @@ export default function ShopAuth() {
       });
       
       if (!result.error) {
+        // Auto-confirmed — user is now signed in
         toast({
           title: auth.signUpSuccess || 'Account created successfully!',
         });
@@ -276,14 +231,6 @@ export default function ShopAuth() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleResendOtp = () => {
-    startOtpTimer();
-    toast({
-      title: language === 'fr' ? 'Code renvoyé!' : 'Code resent!',
-      description: language === 'fr' ? `Un nouveau code a été envoyé au ${phone}` : `A new code has been sent to ${phone}`,
-    });
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
@@ -740,92 +687,6 @@ export default function ShopAuth() {
                 </button>
               </p>
             </motion.form>
-          )}
-
-          {/* OTP Verification Screen */}
-          {mode === 'verify-otp' && (
-            <motion.div
-              key="verify-otp"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="w-full max-w-sm space-y-6"
-            >
-              <div className="text-center space-y-2">
-                <div className="mx-auto w-16 h-16 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center mb-4">
-                  <ShieldCheck className="h-8 w-8 text-white" />
-                </div>
-                <h2 className="text-2xl font-bold text-white">
-                  {language === 'fr' ? 'Vérification du téléphone' : 'Phone Verification'}
-                </h2>
-                <p className="text-white/60 text-sm">
-                  {language === 'fr'
-                    ? `Entrez le code à 6 chiffres envoyé au ${phone}`
-                    : `Enter the 6-digit code sent to ${phone}`}
-                </p>
-              </div>
-
-              <div className="flex justify-center gap-2">
-                {[0, 1, 2, 3, 4, 5].map((i) => (
-                  <input
-                    key={i}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={otpCode[i] || ''}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/[^0-9]/g, '');
-                      const newCode = otpCode.split('');
-                      newCode[i] = val;
-                      setOtpCode(newCode.join(''));
-                      if (val && i < 5) {
-                        const next = e.target.nextElementSibling as HTMLInputElement;
-                        if (next) next.focus();
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Backspace' && !otpCode[i] && i > 0) {
-                        const prev = (e.target as HTMLElement).previousElementSibling as HTMLInputElement;
-                        if (prev) prev.focus();
-                      }
-                    }}
-                    className="w-12 h-14 text-center text-xl font-bold bg-white/5 border border-white/20 rounded-xl text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
-                  />
-                ))}
-              </div>
-
-              <Button
-                onClick={handleVerifyOtp}
-                disabled={loading || otpCode.length < 6}
-                className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full text-base"
-              >
-                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : (language === 'fr' ? 'Vérifier' : 'Verify')}
-              </Button>
-
-              <div className="text-center">
-                <p className="text-white/50 text-sm">
-                  {language === 'fr' ? "Vous n'avez pas reçu le code ?" : "Didn't receive the code?"}
-                </p>
-                <button
-                  type="button"
-                  onClick={handleResendOtp}
-                  disabled={otpResendDisabled}
-                  className={`text-sm mt-1 ${otpResendDisabled ? 'text-white/30 cursor-not-allowed' : 'text-blue-400 hover:text-blue-300'}`}
-                >
-                  {otpResendDisabled
-                    ? `${language === 'fr' ? 'Renvoyer dans' : 'Resend in'} ${otpTimer}s`
-                    : (language === 'fr' ? 'Renvoyer le code' : 'Resend Code')}
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setMode('signup')}
-                className="block w-full text-center text-white/60 hover:text-white text-sm"
-              >
-                ← {language === 'fr' ? "Retour à l'inscription" : 'Back to Sign Up'}
-              </button>
-            </motion.div>
           )}
 
           {/* Forgot Password Screen */}

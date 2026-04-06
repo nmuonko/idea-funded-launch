@@ -21,7 +21,7 @@ import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
 import { getEbayItem } from "../_shared/ebayAdapter.ts";
 import { getDeviceId } from "../_shared/catalogCache.ts";
 import { isDisallowedItem, getBlockedSearchMessage } from "../_shared/contentBlocker.ts";
-import { loadPricingSettings, computeAllInclusivePrice } from "../_shared/allInclusivePricing.ts";
+import { loadPricingSettings, computeAllInclusivePrice, applyAllInclusivePricingToItems } from "../_shared/allInclusivePricing.ts";
 import { 
   upgradeEbayImageToHighRes, 
   upgradeAmazonImageToHighRes,

@@ -1167,23 +1167,50 @@ serve(async (req) => {
 
     perf.mark('order_fetched');
 
-    // Fetch requested items from DB (server-side source of truth)
-    const { data: dbItemsRaw, error: itemsError } = await supabase
-      .from('order_items')
-      .select('*')
-      .in('id', cart_item_ids)
-      .eq('order_id', existingOrder.id);
+    // Detect if RN app sent non-UUID IDs (e.g. provider_product_id like "opt_1775...")
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const hasNonUuidIds = cart_item_ids.some((id: string) => !UUID_RE.test(id));
+
+    let dbItems: any[] = [];
+    let missingItemIds: string[] = [];
+
+    if (hasNonUuidIds) {
+      // RN app sent product IDs instead of order_items UUIDs — try provider_product_id lookup first
+      console.warn('[mobile-checkout] NON_UUID_CART_ITEM_IDS detected, trying provider_product_id lookup', {
+        sample: cart_item_ids.slice(0, 3),
+      });
+      const { data: byProvider, error: byProviderErr } = await supabase
+        .from('order_items')
+        .select('*')
+        .in('provider_product_id', cart_item_ids)
+        .eq('order_id', existingOrder.id)
+        .eq('is_saved_for_later', false);
+      
+      if (!byProviderErr && byProvider && byProvider.length > 0) {
+        dbItems = [...byProvider];
+        const foundProviderIds = new Set(byProvider.map((i: any) => i.provider_product_id));
+        missingItemIds = cart_item_ids.filter((id: string) => !foundProviderIds.has(id));
+      }
+      // If provider lookup also failed/empty, the desync fallback below will handle it
+    } else {
+      // Normal UUID-based lookup
+      const { data: dbItemsRaw, error: itemsError } = await supabase
+        .from('order_items')
+        .select('*')
+        .in('id', cart_item_ids)
+        .eq('order_id', existingOrder.id);
+
+      if (itemsError) {
+        console.error('[mobile-checkout] Error fetching items:', itemsError);
+        return jsonResponse({ ok: false, success: false, code: 'CHECKOUT_ITEM_FETCH_FAILED', message: 'Failed to fetch cart items.', message_fr: 'Impossible de récupérer les articles du panier.' }, 200);
+      }
+
+      dbItems = Array.isArray(dbItemsRaw) ? [...dbItemsRaw] : [];
+      const foundItemIds = new Set(dbItems.map(item => item.id));
+      missingItemIds = cart_item_ids.filter((id: string) => !foundItemIds.has(id));
+    }
     
     perf.mark('items_fetched');
-
-    if (itemsError) {
-      console.error('[mobile-checkout] Error fetching items:', itemsError);
-      return jsonResponse({ ok: false, success: false, code: 'CHECKOUT_ITEM_FETCH_FAILED', message: 'Failed to fetch cart items.', message_fr: 'Impossible de récupérer les articles du panier.' }, 200);
-    }
-
-    const dbItems = Array.isArray(dbItemsRaw) ? [...dbItemsRaw] : [];
-    const foundItemIds = new Set(dbItems.map(item => item.id));
-    const missingItemIds = cart_item_ids.filter((id: string) => !foundItemIds.has(id));
     
     if (dbItems.length !== cart_item_ids.length) {
       console.warn('[mobile-checkout] CHECKOUT_CART_DESYNC', {

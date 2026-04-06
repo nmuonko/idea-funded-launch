@@ -171,6 +171,30 @@ const BLOCKED_SUBSTRINGS = [
   "play-button-overlay",
   "play_button_overlay",
 
+  // Amazon shared banner/placeholder images (used across 10+ products = not product photos)
+  "/I/21dM81tBHEL",   // "Shop top categories that ship internationally" banner
+  "/I/11KzL4MVpQL",   // shared placeholder
+  "/I/21mfYj1UciL",   // shared placeholder
+  "/I/11SZyH2kDLL",   // shared placeholder
+  "/I/41AnTRJUFPL",   // shared placeholder
+  "/I/31HsXnT3BEL",   // shared placeholder
+  "/I/31pOhhzbBeL",   // shared placeholder
+  "/I/31A7L6TAn0L",   // shared placeholder
+  "/I/21fmKqMiaNL",   // shared placeholder
+  "/I/B1pppR4gVKL",   // shared placeholder
+  "/I/41WhKIMKHlL",   // shared placeholder
+  "/I/31WB-8JsNXL",   // shared placeholder
+  "/I/317BjXJ4y3L",   // shared placeholder
+  "/I/21etarNrlZL",   // shared placeholder
+  "/I/31BeYpeDggL",   // shared placeholder
+  "/I/217SmvHdMlL",   // shared placeholder
+  "/I/21JqSSiQ3nL",   // shared placeholder
+  "/I/31RgPYlBOGL",   // shared placeholder
+  "/I/31vQAjTt7bL",   // shared placeholder
+  "/I/31YOGaXh7yL",   // shared placeholder
+  "/I/A16YlCTQRlL",   // shared placeholder
+  "/I/A1WybKOVPyL",   // shared placeholder
+
   // Category banners
   "category-banner", "category_banner",
   "announcement-bar", "announcement_bar",

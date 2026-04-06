@@ -16,7 +16,7 @@ import { loadPricingSettings, applyAllInclusivePricingToItems } from "./allInclu
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const MOBILE_SECTIONS_SCHEMA_VERSION = 16; // v16: all-inclusive pricing
+export const MOBILE_SECTIONS_SCHEMA_VERSION = 17; // v17: force stale cache purge — consistent all-inclusive pricing
 const DEFAULT_TTL_SECONDS = 1800; // 30 min default — overridden by admin settings
 const ITEMS_PER_SECTION_RESPONSE = 40; // returned to client
 const ITEMS_PER_SECTION_CACHE = 60; // stored in cache for stability

@@ -373,3 +373,26 @@ export function sanitizeGallery(urls: string[]): string[] {
   }
   return result;
 }
+
+/**
+ * Given a primary image_url and a gallery (images array), return
+ * the best valid product image. If the primary is a banner/ad,
+ * fall back to the first valid gallery image.
+ */
+export function bestProductImage(
+  imageUrl: string | null | undefined,
+  images: unknown,
+): string | null {
+  const sanitized = sanitizeImageUrl(imageUrl);
+  if (sanitized) return sanitized;
+
+  // Primary was blocked — try gallery
+  if (Array.isArray(images)) {
+    for (const u of images) {
+      if (typeof u !== "string") continue;
+      const valid = sanitizeImageUrl(u);
+      if (valid) return valid;
+    }
+  }
+  return null;
+}

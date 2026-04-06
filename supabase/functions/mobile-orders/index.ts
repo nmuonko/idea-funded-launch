@@ -225,9 +225,10 @@ async function handleCreate(user: any, supabase: any, url: URL): Promise<Respons
 
   console.log(`[CREATE_ORDER] correlationId=${correlationId} Found order: orderId=${existingOrder.id} itemCount=${existingOrder.order_items.length}`);
 
-  // Get pricing settings from cache
+  // Get pricing settings from cache — use admin client to bypass RLS on settings table
   const { getCachedGlobalSettings } = await import("../_shared/settingsMemoryCache.ts");
-  const settings = await getCachedGlobalSettings(supabase) as Record<string, any>;
+  const adminClient = createAdminClient();
+  const settings = await getCachedGlobalSettings(adminClient) as Record<string, any>;
 
   if (!settings || Object.keys(settings).length === 0) {
     return jsonResponse({ 

@@ -1407,13 +1407,14 @@ Deno.serve(async (req: Request) => {
 
         console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: "ebay", id: productId, dbHit: false, variantsCacheHit: false, liveFetch: true, variantsCount: item.variants?.length ?? 0, totalMs: Date.now() - startTime }));
         
+        const pricedEbayItem = applyAllInclusivePriceToItem(item);
         return new Response(JSON.stringify({
           ok: true,
           status: "success",
           env: envName,
           id: fullProductId,
-          item,
-          product: item,
+          item: pricedEbayItem,
+          product: pricedEbayItem,
           source: "live",
           cached: false,
           error: null,

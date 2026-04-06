@@ -1,5 +1,5 @@
 import { buildCorsHeaders, corsPreflightResponse, logStartupRequest } from "./mobileCors.ts";
-import { sanitizeImageUrl } from "./imageValidator.ts";
+import { sanitizeImageUrl, bestProductImage } from "./imageValidator.ts";
 
 type CompatOptions = {
   legacyPath: string;

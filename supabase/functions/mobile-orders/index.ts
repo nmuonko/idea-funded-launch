@@ -27,6 +27,7 @@ import {
   buildForwardHeaders,
   extractDownstreamAuthFailure,
   authErrorResponse,
+  createAdminClient,
 } from "../_shared/auth.ts";
 
 // ─── Proxy Helper (for actions not yet inlined) ──────────

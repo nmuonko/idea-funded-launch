@@ -48,6 +48,36 @@ export default function ShopAuth() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
 
+  // OTP verification state
+  const [otpCode, setOtpCode] = useState('');
+  const [otpTimer, setOtpTimer] = useState(60);
+  const [otpResendDisabled, setOtpResendDisabled] = useState(true);
+  const otpTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Start OTP countdown timer
+  const startOtpTimer = useCallback(() => {
+    setOtpTimer(60);
+    setOtpResendDisabled(true);
+    if (otpTimerRef.current) clearInterval(otpTimerRef.current);
+    otpTimerRef.current = setInterval(() => {
+      setOtpTimer((prev) => {
+        if (prev <= 1) {
+          clearInterval(otpTimerRef.current!);
+          setOtpResendDisabled(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  // Cleanup timer
+  useEffect(() => {
+    return () => {
+      if (otpTimerRef.current) clearInterval(otpTimerRef.current);
+    };
+  }, []);
+
   const t = translations[language] || translations.en;
   const auth = (t as any).auth || {};
   const common = t.common as Record<string, string>;

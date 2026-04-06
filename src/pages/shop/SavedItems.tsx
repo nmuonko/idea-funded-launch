@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
+import { sanitizeCartImage } from '@/lib/imageValidation';
 
 export default function SavedItems() {
   const { savedItems, removeFromSaved, addItem, removeItem, exchangeRate } = useShopCart();

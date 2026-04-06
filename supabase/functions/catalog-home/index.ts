@@ -1391,7 +1391,9 @@ serve(async (req) => {
               console.log(`[CATALOG_HOME] recipe_web_cache_stale correlationId=${correlationId} serving_stale poolSize=${allItems.length}`);
               const totalPages = Math.ceil(allItems.length / pageSize) || 1;
               const offset = (page - 1) * pageSize;
-              const pageItems = allItems.slice(offset, offset + pageSize);
+              let pageItems = allItems.slice(offset, offset + pageSize);
+              try { const ps = await loadPricingSettings(); pageItems = applyAllInclusivePricingToItems(pageItems as unknown as Record<string, unknown>[], ps) as typeof pageItems; } catch {}
+
               const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
               
               let sections = [{

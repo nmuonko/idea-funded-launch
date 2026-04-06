@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { trackInitiateCheckout } from '@/lib/tiktokPixel';
+import { sanitizeCartImage } from '@/lib/imageValidation';
 
 interface ShippingAddress {
   fullName: string;

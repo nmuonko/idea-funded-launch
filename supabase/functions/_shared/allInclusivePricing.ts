@@ -97,6 +97,9 @@ export function applyAllInclusivePricingToItems<T extends Record<string, unknown
   settings: PricingSettings,
 ): T[] {
   return items.map(item => {
+    // Skip items that already have all-inclusive pricing applied (prevent double-pricing)
+    if (item.fees_included === true || item.is_all_inclusive_display === true) return item;
+
     const rawPrice = (item.price_usd ?? item.priceUsd) as number | null;
     if (!rawPrice || rawPrice <= 0) return item;
 

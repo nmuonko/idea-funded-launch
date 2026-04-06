@@ -1319,9 +1319,10 @@ Deno.serve(async (req: Request) => {
         if (legacyCachedVariants) {
           item.variants = legacyCachedVariants;
           console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: "amazon", id: productId, dbHit: false, dbLegacyHit: true, variantsCacheHit: true, liveFetch: false, variantsCount: legacyCachedVariants.length, totalMs: Date.now() - startTime }));
+          const pricedLegacyItem = applyAllInclusivePriceToItem(item);
           return new Response(JSON.stringify({
             ok: true, status: "success", env: envName, id: fullProductId,
-            item, product: item, source: "db-legacy", cached: true, error: null,
+            item: pricedLegacyItem, product: pricedLegacyItem, source: "db-legacy", cached: true, error: null,
           }), {
             status: 200,
             headers: buildDiagHeaders({ variantsCache: "HIT", provider: "amazon", upstreamMs: 0, totalMs: Date.now() - startTime, source: "db-legacy+variants_cache" }),

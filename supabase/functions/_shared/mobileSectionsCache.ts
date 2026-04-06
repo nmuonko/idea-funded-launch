@@ -16,7 +16,7 @@ import { loadPricingSettings, applyAllInclusivePricingToItems } from "./allInclu
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const MOBILE_SECTIONS_SCHEMA_VERSION = 19; // v19: fix parts relevance, add vehicle diversity queries
+export const MOBILE_SECTIONS_SCHEMA_VERSION = 20; // v20: block SHEIN placeholder images and force clothing refresh
 const DEFAULT_TTL_SECONDS = 1800; // 30 min default — overridden by admin settings
 const ITEMS_PER_SECTION_RESPONSE = 40; // returned to client
 const ITEMS_PER_SECTION_CACHE = 60; // stored in cache for stability

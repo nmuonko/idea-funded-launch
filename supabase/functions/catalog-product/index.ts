@@ -826,7 +826,31 @@ Deno.serve(async (req: Request) => {
   const envName = getEnvironmentFromRequest(req);
   const amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
 
-  // Parse product ID from GET params or POST body
+  // Load all-inclusive pricing settings once per request
+  let pricingSettings: Awaited<ReturnType<typeof loadPricingSettings>> | null = null;
+  try {
+    pricingSettings = await loadPricingSettings();
+  } catch (e) {
+    console.warn(`[CATALOG_PRODUCT] pricing settings load failed: ${e}`);
+  }
+
+  /** Apply all-inclusive pricing to a CatalogItem before returning to client */
+  function applyAllInclusivePriceToItem(item: CatalogItem): CatalogItem {
+    if (!pricingSettings || !item.priceUsd || item.priceUsd <= 0) return item;
+    // Skip vehicles — they have their own tiered pricing
+    const prov = (item.provider || "").toLowerCase();
+    if (prov === "cargurus" || prov === "carvana") return item;
+    const basePriceUsd = item.priceUsd;
+    const allInclusive = computeAllInclusivePrice(basePriceUsd, pricingSettings);
+    return {
+      ...item,
+      priceUsd: allInclusive,
+      basePriceUsd: basePriceUsd,
+      feesIncluded: true,
+      pricingMode: "all_inclusive",
+    } as CatalogItem & { basePriceUsd: number; feesIncluded: boolean; pricingMode: string };
+  }
+
   let provider: string | null = null;
   let productId: string | null = null;
   let rawId: string = "";

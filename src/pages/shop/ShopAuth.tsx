@@ -52,7 +52,7 @@ export default function ShopAuth() {
   const [otpCode, setOtpCode] = useState('');
   const [otpTimer, setOtpTimer] = useState(60);
   const [otpResendDisabled, setOtpResendDisabled] = useState(true);
-  const otpTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const otpTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Start OTP countdown timer
   const startOtpTimer = useCallback(() => {

@@ -399,7 +399,10 @@ export async function serveMobileSections(
   const { hit, payload, ageSeconds } = await readMobileSectionsCache(env, correlationId);
 
   if (hit && payload) {
-    // Apply all-inclusive pricing to cached items (cache may have raw prices)
+    // Items in cache are ALREADY all-inclusive (applied during build).
+    // The idempotency guard in applyAllInclusivePricingToItems will skip
+    // items with fees_included=true, but we still call it as a safety net
+    // in case any items slipped through without pricing.
     const sliced = payload.sections.map(s => {
       let items = s.items.slice(0, ITEMS_PER_SECTION_RESPONSE);
       if (pricingSettings) {

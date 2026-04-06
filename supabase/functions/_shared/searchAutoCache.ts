@@ -94,7 +94,7 @@ export async function autoCacheLiveResults(
     const rawImagesArray = item.images || item.imageUrls || [];
     const mainImage = item.imageUrl || item.image_url;
     const galleryImages = sanitizeGallery(rawImagesArray.length > 0 ? rawImagesArray : (mainImage ? [mainImage] : []));
-    const primaryImage = sanitizeImageUrl(mainImage) ?? galleryImages[0] ?? null;
+    const primaryImage = bestProductImage(mainImage, rawImagesArray) ?? galleryImages[0] ?? null;
     return {
       // Do NOT set `id` — let DB keep existing PK or auto-generate.
       // Upsert matches on (provider, provider_product_id) unique constraint.

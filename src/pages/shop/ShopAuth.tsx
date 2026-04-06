@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Eye, EyeOff, Loader2, Mail, Lock, User, Phone, Check, MapPin, Building, Globe, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, Loader2, Mail, Lock, User, Phone, Check, MapPin, Building, Globe, ChevronDown, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

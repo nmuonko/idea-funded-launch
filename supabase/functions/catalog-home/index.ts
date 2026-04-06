@@ -1686,7 +1686,12 @@ serve(async (req) => {
     }
 
     const offset = (page - 1) * pageSize;
-    const pageItems = items.slice(offset, offset + pageSize);
+    let pageItems = items.slice(offset, offset + pageSize);
+    // Apply all-inclusive pricing for web clients
+    try {
+      const pSettings = await loadPricingSettings();
+      pageItems = applyAllInclusivePricingToItems(pageItems as unknown as Record<string, unknown>[], pSettings) as typeof pageItems;
+    } catch (e) { console.error(`[CATALOG_HOME] pricing transform error:`, e); }
     const actualTotalPages = Math.ceil(items.length / pageSize);
 
     const totalMs = Date.now() - startTime;

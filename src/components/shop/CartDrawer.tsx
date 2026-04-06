@@ -82,7 +82,7 @@ export function CartDrawer({ className }: CartDrawerProps) {
                     {/* Image */}
                     <div className="w-20 h-20 rounded-lg overflow-hidden bg-white/5 flex-shrink-0">
                       <img
-                        src={item.imageUrl || '/placeholder.svg'}
+                        src={sanitizeCartImage(item.imageUrl)}
                         alt={item.title}
                         className="w-full h-full object-contain p-1"
                       />

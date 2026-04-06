@@ -228,7 +228,7 @@ export default function ShopCart() {
                         className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden bg-white/5 flex-shrink-0"
                       >
                         <img
-                          src={item.imageUrl || '/placeholder.svg'}
+                          src={sanitizeCartImage(item.imageUrl)}
                           alt={item.title}
                           className="w-full h-full object-contain p-2"
                         />

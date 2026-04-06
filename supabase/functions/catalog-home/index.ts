@@ -1333,7 +1333,9 @@ serve(async (req) => {
             if (allItems.length > 0) {
               const totalPages = Math.ceil(allItems.length / pageSize) || 1;
               const offset = (page - 1) * pageSize;
-              const pageItems = allItems.slice(offset, offset + pageSize);
+              let pageItems = allItems.slice(offset, offset + pageSize);
+              try { const ps = await loadPricingSettings(); pageItems = applyAllInclusivePricingToItems(pageItems as unknown as Record<string, unknown>[], ps) as typeof pageItems; } catch {}
+
               const hasMoreCached = page < totalPages;
               const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
               

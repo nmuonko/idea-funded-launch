@@ -4,15 +4,22 @@
  * Transforms raw base prices into all-inclusive display prices
  * that include markup + shipping fees.
  * 
- * Used by catalog-home and catalog-search to ensure the RN app
- * shows the FINAL price the customer will pay — preventing
- * price inflation shock when items are added to cart.
+ * For regular products: base + markup% + shippingBase + shipping%
+ * For vehicles (cargurus/carvana): tiered percentage model via vehiclePricing.ts
+ * 
+ * Used by catalog-home, catalog-search, catalog-category, catalog-product,
+ * and recently-viewed-list to ensure the RN app shows the FINAL price
+ * the customer will pay — preventing price inflation shock when items
+ * are added to cart.
  */
+
+import { calculateVehicleFinalPrice, parseTiers, type VehiclePricingTiers } from "./vehiclePricing.ts";
 
 interface PricingSettings {
   markupPercent: number;
   shippingBaseFeeUsd: number;
   shippingPercent: number;
+  vehiclePricingTiers: VehiclePricingTiers | null;
 }
 
 let cachedPricingSettings: PricingSettings | null = null;
@@ -33,12 +40,12 @@ export async function loadPricingSettings(): Promise<PricingSettings> {
 
   if (!supabaseUrl || !serviceRoleKey) {
     console.warn("[ALL_INCLUSIVE] Missing env vars, using defaults");
-    return { markupPercent: 30, shippingBaseFeeUsd: 20, shippingPercent: 10 };
+    return { markupPercent: 30, shippingBaseFeeUsd: 20, shippingPercent: 10, vehiclePricingTiers: null };
   }
 
   try {
     const res = await fetch(
-      `${supabaseUrl}/rest/v1/settings?select=markup_percent,global_markup_percent,shipping_base_fee_usd,shipping_percent&limit=1`,
+      `${supabaseUrl}/rest/v1/settings?select=markup_percent,global_markup_percent,shipping_base_fee_usd,shipping_percent,vehicle_pricing_tiers&limit=1`,
       {
         headers: {
           apikey: serviceRoleKey,
@@ -50,7 +57,7 @@ export async function loadPricingSettings(): Promise<PricingSettings> {
 
     if (!res.ok) {
       console.error(`[ALL_INCLUSIVE] settings fetch failed: ${res.status}`);
-      return cachedPricingSettings || { markupPercent: 30, shippingBaseFeeUsd: 20, shippingPercent: 10 };
+      return cachedPricingSettings || { markupPercent: 30, shippingBaseFeeUsd: 20, shippingPercent: 10, vehiclePricingTiers: null };
     }
 
     const row = await res.json();
@@ -58,18 +65,19 @@ export async function loadPricingSettings(): Promise<PricingSettings> {
       markupPercent: row?.markup_percent ?? row?.global_markup_percent ?? 30,
       shippingBaseFeeUsd: row?.shipping_base_fee_usd ?? 20,
       shippingPercent: row?.shipping_percent ?? 10,
+      vehiclePricingTiers: row?.vehicle_pricing_tiers ? parseTiers(row.vehicle_pricing_tiers) : null,
     };
     cachedAt = now;
-    console.log(`[ALL_INCLUSIVE] settings loaded: markup=${cachedPricingSettings.markupPercent}% shippingBase=$${cachedPricingSettings.shippingBaseFeeUsd} shippingPct=${cachedPricingSettings.shippingPercent}%`);
+    console.log(`[ALL_INCLUSIVE] settings loaded: markup=${cachedPricingSettings.markupPercent}% shippingBase=$${cachedPricingSettings.shippingBaseFeeUsd} shippingPct=${cachedPricingSettings.shippingPercent}% vehicleTiers=${cachedPricingSettings.vehiclePricingTiers ? 'loaded' : 'defaults'}`);
     return cachedPricingSettings;
   } catch (err) {
     console.error(`[ALL_INCLUSIVE] settings load error: ${err}`);
-    return cachedPricingSettings || { markupPercent: 30, shippingBaseFeeUsd: 20, shippingPercent: 10 };
+    return cachedPricingSettings || { markupPercent: 30, shippingBaseFeeUsd: 20, shippingPercent: 10, vehiclePricingTiers: null };
   }
 }
 
 /**
- * Compute all-inclusive price from base price.
+ * Compute all-inclusive price from base price (regular products).
  * Formula: base + (base * markup%) + shippingBase + (base * shipping%)
  */
 export function computeAllInclusivePrice(basePriceUsd: number, settings: PricingSettings): number {
@@ -86,11 +94,25 @@ export function computeAllInclusivePrice(basePriceUsd: number, settings: Pricing
 }
 
 /**
+ * Check if an item is a vehicle based on provider or title heuristics.
+ */
+function isVehicleItem(item: Record<string, unknown>): boolean {
+  const provider = ((item.provider as string) || "").toLowerCase();
+  if (provider === "cargurus" || provider === "carvana") return true;
+  // Title-based heuristic for vehicle items from other providers
+  const title = ((item.title as string) || "").toLowerCase();
+  const rawPrice = (item.price_usd ?? item.priceUsd) as number | null;
+  if (rawPrice && rawPrice > 3000 && /\b(car|truck|suv|sedan|van|motorcycle|vehicle)\b/i.test(title)) return true;
+  return false;
+}
+
+/**
  * Transform an array of catalog items to use all-inclusive pricing.
  * Mutates price_usd/priceUsd to all-inclusive values.
  * Adds base_price_usd, fees_included, pricing_mode metadata.
  * 
- * Skips vehicle items (they use tiered pricing separately).
+ * Regular products: markup + shipping formula
+ * Vehicles: tiered percentage model (same as cart auto-pricer)
  */
 export function applyAllInclusivePricingToItems<T extends Record<string, unknown>>(
   items: T[],
@@ -103,12 +125,25 @@ export function applyAllInclusivePricingToItems<T extends Record<string, unknown
     const rawPrice = (item.price_usd ?? item.priceUsd) as number | null;
     if (!rawPrice || rawPrice <= 0) return item;
 
-    // Skip vehicles — they have their own tiered pricing
-    const provider = (item.provider as string || "").toLowerCase();
-    if (provider === "cargurus" || provider === "carvana") return item;
-    const title = ((item.title as string) || "").toLowerCase();
-    if (/\b(car|truck|suv|sedan|van|motorcycle|vehicle)\b/i.test(title) && rawPrice > 3000) return item;
+    // Vehicle items use tiered pricing
+    if (isVehicleItem(item)) {
+      const tiers = settings.vehiclePricingTiers || parseTiers(null);
+      const vp = calculateVehicleFinalPrice(rawPrice, 'running', 'roro', tiers);
+      return {
+        ...item,
+        base_price_usd: rawPrice,
+        basePriceUsd: rawPrice,
+        price_usd: vp.finalPriceUsd,
+        priceUsd: vp.finalPriceUsd,
+        fees_included: true,
+        is_all_inclusive_display: true,
+        pricing_mode: "vehicle_tiered",
+        vehicle_tier_percent: vp.tierPercent,
+        vehicle_total_percent: vp.totalPercent,
+      };
+    }
 
+    // Regular products use markup + shipping formula
     const allInclusivePrice = computeAllInclusivePrice(rawPrice, settings);
 
     return {

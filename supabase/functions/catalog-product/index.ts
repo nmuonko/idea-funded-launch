@@ -21,7 +21,7 @@ import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
 import { getEbayItem } from "../_shared/ebayAdapter.ts";
 import { getDeviceId } from "../_shared/catalogCache.ts";
 import { isDisallowedItem, getBlockedSearchMessage } from "../_shared/contentBlocker.ts";
-import { loadPricingSettings, computeAllInclusivePrice } from "../_shared/allInclusivePricing.ts";
+import { loadPricingSettings, computeAllInclusivePrice, applyAllInclusivePricingToItems } from "../_shared/allInclusivePricing.ts";
 import { 
   upgradeEbayImageToHighRes, 
   upgradeAmazonImageToHighRes,
@@ -837,18 +837,11 @@ Deno.serve(async (req: Request) => {
   /** Apply all-inclusive pricing to a CatalogItem before returning to client */
   function applyAllInclusivePriceToItem(item: CatalogItem): CatalogItem {
     if (!pricingSettings || !item.priceUsd || item.priceUsd <= 0) return item;
-    // Skip vehicles — they have their own tiered pricing
-    const prov = (item.provider || "").toLowerCase();
-    if (prov === "cargurus" || prov === "carvana") return item;
-    const basePriceUsd = item.priceUsd;
-    const allInclusive = computeAllInclusivePrice(basePriceUsd, pricingSettings);
-    return {
-      ...item,
-      priceUsd: allInclusive,
-      basePriceUsd: basePriceUsd,
-      feesIncluded: true,
-      pricingMode: "all_inclusive",
-    } as CatalogItem & { basePriceUsd: number; feesIncluded: boolean; pricingMode: string };
+    // Skip items already processed
+    if ((item as any).fees_included === true || (item as any).is_all_inclusive_display === true) return item;
+    // Use unified pricing function (handles both regular + vehicle items)
+    const [transformed] = applyAllInclusivePricingToItems([item as any], pricingSettings);
+    return transformed as unknown as CatalogItem;
   }
 
   let provider: string | null = null;

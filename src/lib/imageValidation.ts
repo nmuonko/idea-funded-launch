@@ -257,6 +257,14 @@ export function pickBestImage(images: string[], currentUrl?: string): string {
 }
 
 /**
+ * Returns the URL if it's a valid product image, otherwise returns fallback.
+ * Use in cart/checkout to block ad banners inline.
+ */
+export function sanitizeCartImage(url: string | null | undefined, fallback = '/placeholder.svg'): string {
+  return isRenderableImageUrl(url) ? url! : fallback;
+}
+
+/**
  * Runtime image load error handler for <img> elements.
  * Tries next valid image from data-fallback-images before placeholder.
  */

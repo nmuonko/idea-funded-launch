@@ -1501,7 +1501,12 @@ serve(async (req) => {
       
       if (page <= actualTotalPages) {
         const offset = (page - 1) * pageSize;
-        const pageItems = cached.items.slice(offset, offset + pageSize);
+        let pageItems = cached.items.slice(offset, offset + pageSize);
+        // Apply all-inclusive pricing for web clients
+        try {
+          const pSettings = await loadPricingSettings();
+          pageItems = applyAllInclusivePricingToItems(pageItems as unknown as Record<string, unknown>[], pSettings) as typeof pageItems;
+        } catch (e) { console.error(`[CATALOG_HOME] pricing transform error:`, e); }
         const hasMoreCached = page < actualTotalPages;
         
         console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} client=${clientType} isStale=${isStale} poolSize=${cached.items.length} page=${page}/${actualTotalPages} returning=${pageItems.length} cacheEnvUsed=${cacheEnvUsed}`);

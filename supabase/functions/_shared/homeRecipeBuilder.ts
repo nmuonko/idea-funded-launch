@@ -11,6 +11,7 @@
  */
 
 import { isValidProductImageUrl, upgradeToHighRes } from "./imageValidator.ts";
+import { loadPricingSettings, applyAllInclusivePricingToItems } from "./allInclusivePricing.ts";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 

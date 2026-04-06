@@ -508,7 +508,15 @@ export async function buildMobileHomepage(env: string, recipeKey?: string | null
   // Build each section from its own seeds
   for (const recipe of recipes) {
     const seeds = await loadSeedsForRecipe(recipe.id);
-    const items = await fetchItemsForRecipe(recipe, seeds, MOBILE_ITEMS_PER_SECTION, ebayToken);
+    let items = await fetchItemsForRecipe(recipe, seeds, MOBILE_ITEMS_PER_SECTION, ebayToken);
+    
+    // Apply all-inclusive pricing so mobile cache has final prices
+    try {
+      const pricingSettings = await loadPricingSettings();
+      items = applyAllInclusivePricingToItems(items, pricingSettings);
+    } catch (e) {
+      console.error(`[HOME_RECIPE] pricing transform error for ${recipe.key}: ${e}`);
+    }
     
     const titleEn = recipe.title_en || TITLE_FALLBACK[recipe.key]?.en || recipe.key;
     const titleFr = recipe.title_fr || TITLE_FALLBACK[recipe.key]?.fr || recipe.key;

@@ -83,7 +83,7 @@ export default function SavedItems() {
                     className="w-24 h-24 flex-shrink-0 rounded-lg overflow-hidden bg-white/5"
                   >
                     <img
-                      src={item.imageUrl || '/placeholder.svg'}
+                      src={sanitizeCartImage(item.imageUrl)}
                       alt={item.title}
                       className="w-full h-full object-contain p-2"
                     />

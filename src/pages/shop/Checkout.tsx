@@ -716,7 +716,7 @@ export default function Checkout() {
                     {checkoutItems.slice(0, 3).map((item) => (
                       <div key={item.id} className="flex gap-3">
                         <img
-                          src={item.imageUrl || '/placeholder.svg'}
+                          src={sanitizeCartImage(item.imageUrl)}
                           alt={item.title}
                           className="w-12 h-12 rounded-lg object-contain bg-white/5"
                         />

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { allInclusivePrice } from '@/lib/allInclusivePrice';
+import { sanitizeCartImage } from '@/lib/imageValidation';
 import { vehicleAllInclusivePrice } from '@/lib/vehiclePricing';
 import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus, Car, Loader2, CheckSquare, Square, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -228,7 +229,7 @@ export default function ShopCart() {
                         className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden bg-white/5 flex-shrink-0"
                       >
                         <img
-                          src={item.imageUrl || '/placeholder.svg'}
+                          src={sanitizeCartImage(item.imageUrl)}
                           alt={item.title}
                           className="w-full h-full object-contain p-2"
                         />

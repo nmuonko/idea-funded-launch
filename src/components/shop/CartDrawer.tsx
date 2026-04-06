@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { allInclusivePrice } from '@/lib/allInclusivePrice';
+import { sanitizeCartImage } from '@/lib/imageValidation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { cn } from '@/lib/utils';
@@ -82,7 +83,7 @@ export function CartDrawer({ className }: CartDrawerProps) {
                     {/* Image */}
                     <div className="w-20 h-20 rounded-lg overflow-hidden bg-white/5 flex-shrink-0">
                       <img
-                        src={item.imageUrl || '/placeholder.svg'}
+                        src={sanitizeCartImage(item.imageUrl)}
                         alt={item.title}
                         className="w-full h-full object-contain p-1"
                       />

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
+import { sanitizeCartImage } from '@/lib/imageValidation';
 
 export default function SavedItems() {
   const { savedItems, removeFromSaved, addItem, removeItem, exchangeRate } = useShopCart();
@@ -83,7 +84,7 @@ export default function SavedItems() {
                     className="w-24 h-24 flex-shrink-0 rounded-lg overflow-hidden bg-white/5"
                   >
                     <img
-                      src={item.imageUrl || '/placeholder.svg'}
+                      src={sanitizeCartImage(item.imageUrl)}
                       alt={item.title}
                       className="w-full h-full object-contain p-2"
                     />

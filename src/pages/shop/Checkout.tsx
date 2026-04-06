@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { trackInitiateCheckout } from '@/lib/tiktokPixel';
+import { sanitizeCartImage } from '@/lib/imageValidation';
 
 interface ShippingAddress {
   fullName: string;
@@ -715,7 +716,7 @@ export default function Checkout() {
                     {checkoutItems.slice(0, 3).map((item) => (
                       <div key={item.id} className="flex gap-3">
                         <img
-                          src={item.imageUrl || '/placeholder.svg'}
+                          src={sanitizeCartImage(item.imageUrl)}
                           alt={item.title}
                           className="w-12 h-12 rounded-lg object-contain bg-white/5"
                         />

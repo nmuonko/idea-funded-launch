@@ -21,6 +21,7 @@ import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
 import { getEbayItem } from "../_shared/ebayAdapter.ts";
 import { getDeviceId } from "../_shared/catalogCache.ts";
 import { isDisallowedItem, getBlockedSearchMessage } from "../_shared/contentBlocker.ts";
+import { loadPricingSettings, computeAllInclusivePrice } from "../_shared/allInclusivePricing.ts";
 import { 
   upgradeEbayImageToHighRes, 
   upgradeAmazonImageToHighRes,
@@ -825,7 +826,31 @@ Deno.serve(async (req: Request) => {
   const envName = getEnvironmentFromRequest(req);
   const amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
 
-  // Parse product ID from GET params or POST body
+  // Load all-inclusive pricing settings once per request
+  let pricingSettings: Awaited<ReturnType<typeof loadPricingSettings>> | null = null;
+  try {
+    pricingSettings = await loadPricingSettings();
+  } catch (e) {
+    console.warn(`[CATALOG_PRODUCT] pricing settings load failed: ${e}`);
+  }
+
+  /** Apply all-inclusive pricing to a CatalogItem before returning to client */
+  function applyAllInclusivePriceToItem(item: CatalogItem): CatalogItem {
+    if (!pricingSettings || !item.priceUsd || item.priceUsd <= 0) return item;
+    // Skip vehicles — they have their own tiered pricing
+    const prov = (item.provider || "").toLowerCase();
+    if (prov === "cargurus" || prov === "carvana") return item;
+    const basePriceUsd = item.priceUsd;
+    const allInclusive = computeAllInclusivePrice(basePriceUsd, pricingSettings);
+    return {
+      ...item,
+      priceUsd: allInclusive,
+      basePriceUsd: basePriceUsd,
+      feesIncluded: true,
+      pricingMode: "all_inclusive",
+    } as CatalogItem & { basePriceUsd: number; feesIncluded: boolean; pricingMode: string };
+  }
+
   let provider: string | null = null;
   let productId: string | null = null;
   let rawId: string = "";
@@ -1220,13 +1245,14 @@ Deno.serve(async (req: Request) => {
       const variantsCacheStatus = cachedVariantsResult ? "HIT" : "MISS";
       console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: externalProvider, id: productId, dbHit: true, variantsCacheHit: !!cachedVariantsResult, liveFetch: false, variantsCount: cachedVariantsResult?.length ?? 0, imageCount: item.images?.length ?? 0, totalMs: Date.now() - startTime }));
       
+      const pricedItem = applyAllInclusivePriceToItem(item);
       return new Response(JSON.stringify({
         ok: true,
         status: "success",
         env: envName,
         id: fullProductId,
-        item,
-        product: item,
+        item: pricedItem,
+        product: pricedItem,
         source: "db",
         cached: true,
         error: null,
@@ -1293,9 +1319,10 @@ Deno.serve(async (req: Request) => {
         if (legacyCachedVariants) {
           item.variants = legacyCachedVariants;
           console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: "amazon", id: productId, dbHit: false, dbLegacyHit: true, variantsCacheHit: true, liveFetch: false, variantsCount: legacyCachedVariants.length, totalMs: Date.now() - startTime }));
+          const pricedLegacyItem = applyAllInclusivePriceToItem(item);
           return new Response(JSON.stringify({
             ok: true, status: "success", env: envName, id: fullProductId,
-            item, product: item, source: "db-legacy", cached: true, error: null,
+            item: pricedLegacyItem, product: pricedLegacyItem, source: "db-legacy", cached: true, error: null,
           }), {
             status: 200,
             headers: buildDiagHeaders({ variantsCache: "HIT", provider: "amazon", upstreamMs: 0, totalMs: Date.now() - startTime, source: "db-legacy+variants_cache" }),
@@ -1380,13 +1407,14 @@ Deno.serve(async (req: Request) => {
 
         console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: "ebay", id: productId, dbHit: false, variantsCacheHit: false, liveFetch: true, variantsCount: item.variants?.length ?? 0, totalMs: Date.now() - startTime }));
         
+        const pricedEbayItem = applyAllInclusivePriceToItem(item);
         return new Response(JSON.stringify({
           ok: true,
           status: "success",
           env: envName,
           id: fullProductId,
-          item,
-          product: item,
+          item: pricedEbayItem,
+          product: pricedEbayItem,
           source: "live",
           cached: false,
           error: null,

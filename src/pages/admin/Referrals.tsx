@@ -96,6 +96,29 @@ export default function AdminReferrals() {
         .select('*')
         .order('created_at', { ascending: false });
 
+      // Load click counts per ref_code
+      const { data: clickEvents } = await supabase
+        .from('referral_events')
+        .select('ref_code')
+        .eq('event_type', 'click');
+      const clickMap = new Map<string, number>();
+      clickEvents?.forEach(e => clickMap.set(e.ref_code, (clickMap.get(e.ref_code) || 0) + 1));
+
+      // Load signup counts per ref_code from profiles (with platform)
+      const { data: signupProfiles } = await supabase
+        .from('profiles')
+        .select('referred_by_code, signup_platform')
+        .not('referred_by_code', 'is', null);
+      const signupMap = new Map<string, { total: number; web: number; mobile: number }>();
+      signupProfiles?.forEach(p => {
+        const code = p.referred_by_code || '';
+        const entry = signupMap.get(code) || { total: 0, web: 0, mobile: 0 };
+        entry.total++;
+        if (p.signup_platform === 'mobile') entry.mobile++;
+        else entry.web++;
+        signupMap.set(code, entry);
+      });
+
       if (refData) {
         const enriched: Referrer[] = [];
         for (const r of refData) {
@@ -104,11 +127,16 @@ export default function AdminReferrals() {
             .select('commission_amount_usd, status')
             .eq('referrer_id', r.id);
           
+          const signupStats = signupMap.get(r.ref_code) || { total: 0, web: 0, mobile: 0 };
           enriched.push({
             ...r,
             purchase_count: commData?.length || 0,
             total_commission: commData?.reduce((sum, c) => sum + (c.commission_amount_usd || 0), 0) || 0,
             pending_commission: commData?.filter(c => c.status === 'pending').reduce((sum, c) => sum + (c.commission_amount_usd || 0), 0) || 0,
+            click_count: clickMap.get(r.ref_code) || 0,
+            signup_count: signupStats.total,
+            signups_web: signupStats.web,
+            signups_mobile: signupStats.mobile,
           });
         }
         setReferrers(enriched);

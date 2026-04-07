@@ -28,6 +28,7 @@ const t = {
     twitter: 'X',
     telegram: 'Telegram',
     shareMsg: 'Shop African products delivered worldwide on AfriShop USA! Use my referral link:',
+    shareMsgHot: '🔥 Check out these Hot Products on AfriShop USA — limited deals at amazing prices!',
     howIt: 'How it works',
     step1title: 'Sign Up',
     step1desc: 'Register with your Mobile Money number',

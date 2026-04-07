@@ -23,6 +23,10 @@ interface Referrer {
   purchase_count?: number;
   total_commission?: number;
   pending_commission?: number;
+  click_count?: number;
+  signup_count?: number;
+  signups_web?: number;
+  signups_mobile?: number;
 }
 
 interface Commission {

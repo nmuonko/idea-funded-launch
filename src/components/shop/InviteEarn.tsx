@@ -94,6 +94,7 @@ const t = {
     twitter: 'X',
     telegram: 'Telegram',
     shareMsg: 'Nunua bidhaa za Kiafrika kwenye AfriShop USA! Tumia kiungo changu:',
+    shareMsgHot: '🔥 Angalia Bidhaa Moto kwenye AfriShop USA — ofa za bei nzuri!',
     howIt: 'Jinsi inavyofanya kazi',
     step1title: 'Jisajili',
     step1desc: 'Kwa nambari yako ya Mobile Money',

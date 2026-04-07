@@ -211,6 +211,7 @@ export function InviteEarn({ language }: InviteEarnProps) {
   const [form, setForm] = useState({ full_name: '', email: '', phone: '' });
   const [mode, setMode] = useState<'register' | 'retrieve'>('register');
   const [retrieveEmail, setRetrieveEmail] = useState('');
+  const [shareType, setShareType] = useState<'store' | 'hot'>('store');
 
   const handleRegister = async () => {
     if (!form.full_name || !form.email || !form.phone) {

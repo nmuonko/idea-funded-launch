@@ -356,13 +356,12 @@ export default function AdminReferrals() {
       <h1 className="text-2xl font-bold">{isFr ? 'Parrainages & Commissions' : 'Referrals & Commissions'}</h1>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { icon: MousePointerClick, color: 'text-blue-500', value: stats.clicks, label: isFr ? 'Clics' : 'Clicks' },
+          { icon: Users, color: 'text-primary', value: stats.totalReferrers, label: isFr ? 'Total parrains' : 'Total Referrers' },
+          { icon: MousePointerClick, color: 'text-blue-500', value: stats.clicks, label: isFr ? 'Clics sur liens' : 'Link Clicks' },
           { icon: UserPlus, color: 'text-purple-500', value: stats.totalReferredSignups, label: isFr ? 'Inscrits via parrainage' : 'Referred Signups' },
-          { icon: Users, color: 'text-orange-500', value: stats.signups, label: isFr ? 'Événements inscription' : 'Signup Events' },
           { icon: ShoppingCart, color: 'text-green-500', value: stats.purchases, label: isFr ? 'Achats' : 'Purchases' },
-          { icon: DollarSign, color: 'text-yellow-500', value: `$${stats.pendingCommissions}`, label: isFr ? 'Commissions en attente' : 'Pending Commissions' },
         ].map((s, i) => (
           <Card key={i}>
             <CardContent className="p-4 flex items-center gap-3">
@@ -374,6 +373,48 @@ export default function AdminReferrals() {
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      {/* Secondary Stats Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <Globe className="h-8 w-8 text-blue-500" />
+            <div>
+              <p className="text-2xl font-bold">{stats.signupsWeb}</p>
+              <p className="text-sm text-muted-foreground">{isFr ? 'Inscrits via Web' : 'Signups via Web'}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <Smartphone className="h-8 w-8 text-purple-500" />
+            <div>
+              <p className="text-2xl font-bold">{stats.signupsMobile}</p>
+              <p className="text-sm text-muted-foreground">{isFr ? 'Inscrits via App' : 'Signups via App'}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <DollarSign className="h-8 w-8 text-yellow-500" />
+            <div>
+              <p className="text-2xl font-bold">${stats.pendingCommissions}</p>
+              <p className="text-sm text-muted-foreground">{isFr ? 'Commissions en attente' : 'Pending Commissions'}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <Percent className="h-8 w-8 text-orange-500" />
+            <div>
+              <p className="text-2xl font-bold">
+                {stats.clicks > 0 ? `${Math.round((stats.totalReferredSignups / stats.clicks) * 100)}%` : '0%'}
+              </p>
+              <p className="text-sm text-muted-foreground">{isFr ? 'Taux de conversion' : 'Conversion Rate'}</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <Tabs defaultValue="referrers">

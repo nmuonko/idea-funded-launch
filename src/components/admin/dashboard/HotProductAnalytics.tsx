@@ -24,7 +24,7 @@ async function fetchHotProductAnalytics(days: number) {
 
   const [clicksRes, showcaseRes] = await Promise.all([
     supabase
-      .from('hot_product_clicks' as any)
+      .from('hot_product_clicks')
       .select('provider_product_id, provider, event_type, source, created_at')
       .gte('created_at', since)
       .order('created_at', { ascending: false })
@@ -34,6 +34,9 @@ async function fetchHotProductAnalytics(days: number) {
       .select('provider_product_id, provider, title, image_url')
       .eq('is_active', true),
   ]);
+
+  if (clicksRes.error) console.error('[HotProductAnalytics] clicks error:', clicksRes.error);
+  if (showcaseRes.error) console.error('[HotProductAnalytics] showcase error:', showcaseRes.error);
 
   const clicks = (clicksRes.data || []) as any[];
   const showcase = (showcaseRes.data || []) as any[];

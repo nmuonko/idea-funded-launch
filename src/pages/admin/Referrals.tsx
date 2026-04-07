@@ -78,7 +78,7 @@ export default function AdminReferrals() {
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [referredUsers, setReferredUsers] = useState<ReferredUser[]>([]);
-  const [stats, setStats] = useState({ clicks: 0, signups: 0, purchases: 0, pendingCommissions: 0, totalReferredSignups: 0 });
+  const [stats, setStats] = useState({ totalReferrers: 0, clicks: 0, signups: 0, purchases: 0, pendingCommissions: 0, totalReferredSignups: 0, signupsWeb: 0, signupsMobile: 0 });
   const [loading, setLoading] = useState(true);
   const [commissionPercent, setCommissionPercent] = useState('10');
   const [payoutMode, setPayoutMode] = useState<'automatic' | 'manual'>('manual');

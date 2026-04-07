@@ -755,6 +755,11 @@ export default function HotProducts() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ====== TAB 3: ANALYTICS ====== */}
+        <TabsContent value="analytics" className="mt-4">
+          <HotProductAnalytics />
+        </TabsContent>
       </Tabs>
     </div>
   );

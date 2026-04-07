@@ -13,6 +13,7 @@ import { calculateShippingUsd } from '@/lib/shippingCalculation';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { HotProductAnalytics } from '@/components/admin/dashboard/HotProductAnalytics';
 
 function inferProvider(url: string): string | null {
   if (/amazon\.\w/.test(url)) return 'amazon';

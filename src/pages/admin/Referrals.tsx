@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Users, MousePointerClick, ShoppingCart, DollarSign, Loader2, Percent, Send, History, Zap, UserPlus } from 'lucide-react';
+import { Users, MousePointerClick, ShoppingCart, DollarSign, Loader2, Percent, Send, History, Zap, UserPlus, Smartphone, Globe, Monitor } from 'lucide-react';
 
 interface Referrer {
   id: string;
@@ -23,6 +23,10 @@ interface Referrer {
   purchase_count?: number;
   total_commission?: number;
   pending_commission?: number;
+  click_count?: number;
+  signup_count?: number;
+  signups_web?: number;
+  signups_mobile?: number;
 }
 
 interface Commission {
@@ -74,7 +78,7 @@ export default function AdminReferrals() {
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [referredUsers, setReferredUsers] = useState<ReferredUser[]>([]);
-  const [stats, setStats] = useState({ clicks: 0, signups: 0, purchases: 0, pendingCommissions: 0, totalReferredSignups: 0 });
+  const [stats, setStats] = useState({ totalReferrers: 0, clicks: 0, signups: 0, purchases: 0, pendingCommissions: 0, totalReferredSignups: 0, signupsWeb: 0, signupsMobile: 0 });
   const [loading, setLoading] = useState(true);
   const [commissionPercent, setCommissionPercent] = useState('10');
   const [payoutMode, setPayoutMode] = useState<'automatic' | 'manual'>('manual');
@@ -92,6 +96,29 @@ export default function AdminReferrals() {
         .select('*')
         .order('created_at', { ascending: false });
 
+      // Load click counts per ref_code
+      const { data: clickEvents } = await supabase
+        .from('referral_events')
+        .select('ref_code')
+        .eq('event_type', 'click');
+      const clickMap = new Map<string, number>();
+      clickEvents?.forEach(e => clickMap.set(e.ref_code, (clickMap.get(e.ref_code) || 0) + 1));
+
+      // Load signup counts per ref_code from profiles (with platform)
+      const { data: signupProfiles } = await supabase
+        .from('profiles')
+        .select('referred_by_code, signup_platform')
+        .not('referred_by_code', 'is', null);
+      const signupMap = new Map<string, { total: number; web: number; mobile: number }>();
+      signupProfiles?.forEach(p => {
+        const code = p.referred_by_code || '';
+        const entry = signupMap.get(code) || { total: 0, web: 0, mobile: 0 };
+        entry.total++;
+        if (p.signup_platform === 'mobile') entry.mobile++;
+        else entry.web++;
+        signupMap.set(code, entry);
+      });
+
       if (refData) {
         const enriched: Referrer[] = [];
         for (const r of refData) {
@@ -100,11 +127,16 @@ export default function AdminReferrals() {
             .select('commission_amount_usd, status')
             .eq('referrer_id', r.id);
           
+          const signupStats = signupMap.get(r.ref_code) || { total: 0, web: 0, mobile: 0 };
           enriched.push({
             ...r,
             purchase_count: commData?.length || 0,
             total_commission: commData?.reduce((sum, c) => sum + (c.commission_amount_usd || 0), 0) || 0,
             pending_commission: commData?.filter(c => c.status === 'pending').reduce((sum, c) => sum + (c.commission_amount_usd || 0), 0) || 0,
+            click_count: clickMap.get(r.ref_code) || 0,
+            signup_count: signupStats.total,
+            signups_web: signupStats.web,
+            signups_mobile: signupStats.mobile,
           });
         }
         setReferrers(enriched);
@@ -228,12 +260,19 @@ export default function AdminReferrals() {
         })));
       }
 
+      // Compute device breakdown from signupMap
+      let totalSignupsWeb = 0, totalSignupsMobile = 0;
+      signupMap.forEach(v => { totalSignupsWeb += v.web; totalSignupsMobile += v.mobile; });
+
       setStats({
+        totalReferrers: refData?.length || 0,
         clicks: clickCount || 0,
         signups: signupCount || 0,
         purchases: purchaseCount,
         pendingCommissions: Math.round(pendingAmount * 100) / 100,
         totalReferredSignups: totalReferredCount || 0,
+        signupsWeb: totalSignupsWeb,
+        signupsMobile: totalSignupsMobile,
       });
     } catch (err) {
       console.error('Error loading referral data:', err);
@@ -317,13 +356,12 @@ export default function AdminReferrals() {
       <h1 className="text-2xl font-bold">{isFr ? 'Parrainages & Commissions' : 'Referrals & Commissions'}</h1>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { icon: MousePointerClick, color: 'text-blue-500', value: stats.clicks, label: isFr ? 'Clics' : 'Clicks' },
+          { icon: Users, color: 'text-primary', value: stats.totalReferrers, label: isFr ? 'Total parrains' : 'Total Referrers' },
+          { icon: MousePointerClick, color: 'text-blue-500', value: stats.clicks, label: isFr ? 'Clics sur liens' : 'Link Clicks' },
           { icon: UserPlus, color: 'text-purple-500', value: stats.totalReferredSignups, label: isFr ? 'Inscrits via parrainage' : 'Referred Signups' },
-          { icon: Users, color: 'text-orange-500', value: stats.signups, label: isFr ? 'Événements inscription' : 'Signup Events' },
           { icon: ShoppingCart, color: 'text-green-500', value: stats.purchases, label: isFr ? 'Achats' : 'Purchases' },
-          { icon: DollarSign, color: 'text-yellow-500', value: `$${stats.pendingCommissions}`, label: isFr ? 'Commissions en attente' : 'Pending Commissions' },
         ].map((s, i) => (
           <Card key={i}>
             <CardContent className="p-4 flex items-center gap-3">
@@ -335,6 +373,48 @@ export default function AdminReferrals() {
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      {/* Secondary Stats Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <Globe className="h-8 w-8 text-blue-500" />
+            <div>
+              <p className="text-2xl font-bold">{stats.signupsWeb}</p>
+              <p className="text-sm text-muted-foreground">{isFr ? 'Inscrits via Web' : 'Signups via Web'}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <Smartphone className="h-8 w-8 text-purple-500" />
+            <div>
+              <p className="text-2xl font-bold">{stats.signupsMobile}</p>
+              <p className="text-sm text-muted-foreground">{isFr ? 'Inscrits via App' : 'Signups via App'}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <DollarSign className="h-8 w-8 text-yellow-500" />
+            <div>
+              <p className="text-2xl font-bold">${stats.pendingCommissions}</p>
+              <p className="text-sm text-muted-foreground">{isFr ? 'Commissions en attente' : 'Pending Commissions'}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <Percent className="h-8 w-8 text-orange-500" />
+            <div>
+              <p className="text-2xl font-bold">
+                {stats.clicks > 0 ? `${Math.round((stats.totalReferredSignups / stats.clicks) * 100)}%` : '0%'}
+              </p>
+              <p className="text-sm text-muted-foreground">{isFr ? 'Taux de conversion' : 'Conversion Rate'}</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <Tabs defaultValue="referrers">
@@ -358,13 +438,15 @@ export default function AdminReferrals() {
               ) : (
                 <Table>
                   <TableHeader>
-                    <TableRow>
+                     <TableRow>
                       <TableHead>{isFr ? 'Nom' : 'Name'}</TableHead>
                       <TableHead>Email</TableHead>
-                      <TableHead>{isFr ? 'Téléphone' : 'Phone'}</TableHead>
                       <TableHead>Code</TableHead>
+                      <TableHead>{isFr ? 'Clics' : 'Clicks'}</TableHead>
+                      <TableHead>{isFr ? 'Inscrits' : 'Signups'}</TableHead>
+                      <TableHead>{isFr ? 'Web / App' : 'Web / App'}</TableHead>
                       <TableHead>{isFr ? 'Achats' : 'Purchases'}</TableHead>
-                      <TableHead>{isFr ? 'Commission totale' : 'Total Commission'}</TableHead>
+                      <TableHead>{isFr ? 'Commission' : 'Commission'}</TableHead>
                       <TableHead>{isFr ? 'En attente' : 'Pending'}</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead></TableHead>
@@ -375,8 +457,14 @@ export default function AdminReferrals() {
                       <TableRow key={r.id}>
                         <TableCell className="font-medium">{r.full_name}</TableCell>
                         <TableCell className="text-sm">{r.email}</TableCell>
-                        <TableCell className="text-sm">{r.phone}</TableCell>
                         <TableCell><code className="text-xs">{r.ref_code}</code></TableCell>
+                        <TableCell className="font-bold">{r.click_count || 0}</TableCell>
+                        <TableCell className="font-bold">{r.signup_count || 0}</TableCell>
+                        <TableCell className="text-xs">
+                          <span title="Web">🌐 {r.signups_web || 0}</span>
+                          {' / '}
+                          <span title="Mobile App">📱 {r.signups_mobile || 0}</span>
+                        </TableCell>
                         <TableCell className="font-bold">{r.purchase_count || 0}</TableCell>
                         <TableCell className="font-bold text-green-600">${(r.total_commission || 0).toFixed(2)}</TableCell>
                         <TableCell className="font-bold text-yellow-600">${(r.pending_commission || 0).toFixed(2)}</TableCell>

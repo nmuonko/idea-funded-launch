@@ -438,13 +438,15 @@ export default function AdminReferrals() {
               ) : (
                 <Table>
                   <TableHeader>
-                    <TableRow>
+                     <TableRow>
                       <TableHead>{isFr ? 'Nom' : 'Name'}</TableHead>
                       <TableHead>Email</TableHead>
-                      <TableHead>{isFr ? 'Téléphone' : 'Phone'}</TableHead>
                       <TableHead>Code</TableHead>
+                      <TableHead>{isFr ? 'Clics' : 'Clicks'}</TableHead>
+                      <TableHead>{isFr ? 'Inscrits' : 'Signups'}</TableHead>
+                      <TableHead>{isFr ? 'Web / App' : 'Web / App'}</TableHead>
                       <TableHead>{isFr ? 'Achats' : 'Purchases'}</TableHead>
-                      <TableHead>{isFr ? 'Commission totale' : 'Total Commission'}</TableHead>
+                      <TableHead>{isFr ? 'Commission' : 'Commission'}</TableHead>
                       <TableHead>{isFr ? 'En attente' : 'Pending'}</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead></TableHead>
@@ -455,8 +457,14 @@ export default function AdminReferrals() {
                       <TableRow key={r.id}>
                         <TableCell className="font-medium">{r.full_name}</TableCell>
                         <TableCell className="text-sm">{r.email}</TableCell>
-                        <TableCell className="text-sm">{r.phone}</TableCell>
                         <TableCell><code className="text-xs">{r.ref_code}</code></TableCell>
+                        <TableCell className="font-bold">{r.click_count || 0}</TableCell>
+                        <TableCell className="font-bold">{r.signup_count || 0}</TableCell>
+                        <TableCell className="text-xs">
+                          <span title="Web">🌐 {r.signups_web || 0}</span>
+                          {' / '}
+                          <span title="Mobile App">📱 {r.signups_mobile || 0}</span>
+                        </TableCell>
                         <TableCell className="font-bold">{r.purchase_count || 0}</TableCell>
                         <TableCell className="font-bold text-green-600">${(r.total_commission || 0).toFixed(2)}</TableCell>
                         <TableCell className="font-bold text-yellow-600">${(r.pending_commission || 0).toFixed(2)}</TableCell>

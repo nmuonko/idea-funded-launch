@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, Flame, Zap, Check, MessageCircle, Mail } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -13,6 +13,9 @@ import { useShopCart } from '@/hooks/useShopCart';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSupportContact } from '@/hooks/useSupportContact';
 import { toast } from 'sonner';
+
+const REF_STORAGE_KEY = 'afrishop_ref_code';
+const REF_CLICK_SESSION_KEY = 'afrishop_ref_click_sent';
 
 interface HotProduct {
   id: string;
@@ -36,6 +39,38 @@ export default function HotProducts() {
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
+
+  // Handle referral code from URL
+  const refCode = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('ref');
+  }, []);
+
+  useEffect(() => {
+    if (!refCode) return;
+    // Store ref code for 30 days
+    const data = { code: refCode, expires: Date.now() + 30 * 24 * 60 * 60 * 1000 };
+    localStorage.setItem(REF_STORAGE_KEY, JSON.stringify(data));
+  }, [refCode]);
+
+  useEffect(() => {
+    if (!refCode) return;
+    const sessionKey = `${REF_CLICK_SESSION_KEY}_${refCode}`;
+    if (sessionStorage.getItem(sessionKey)) return;
+
+    const anonSessionId = crypto.randomUUID();
+    supabase.rpc('validate_ref_code', { code: refCode })
+      .maybeSingle()
+      .then(({ data: referrer }) => {
+        if (!referrer || referrer.status !== 'active') return;
+        supabase.from('referral_events').insert({
+          ref_code: refCode,
+          event_type: 'click',
+          anon_session_id: anonSessionId,
+          meta: { user_agent: navigator.userAgent, referrer: document.referrer || null, page: 'hot-products' },
+        }).then(() => sessionStorage.setItem(sessionKey, '1'));
+      });
+  }, [refCode]);
 
   useEffect(() => {
     async function fetchProducts() {

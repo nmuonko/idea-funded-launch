@@ -127,6 +127,7 @@ const t = {
     twitter: 'X',
     telegram: 'Telegram',
     shareMsg: 'Somba biloko ya Afrika na AfriShop USA! Salelá lien na ngai:',
+    shareMsgHot: '🔥 Talá biloko ya moto na AfriShop USA — mbongo moke, biloko kitoko!',
     howIt: 'Ndenge esalamaka',
     step1title: 'Komisa nkombo',
     step1desc: 'Na nambala na yo ya Mobile Money',

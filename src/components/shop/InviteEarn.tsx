@@ -143,6 +143,7 @@ const t = {
 
 const REF_CODE_KEY = 'afrishop_referrer_ref_code';
 const buildLink = (code: string) => `https://afrishop-usa.com/get?ref=${code}`;
+const buildHotLink = (code: string) => `https://afrishop-usa.com/hot-products?ref=${code}`;
 
 const shareWhatsApp = (msg: string, link: string) =>
   `https://wa.me/?text=${encodeURIComponent(msg + ' ' + link)}`;

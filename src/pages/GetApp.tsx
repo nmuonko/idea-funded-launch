@@ -53,12 +53,10 @@ export default function GetApp() {
     const anonSessionId = crypto.randomUUID();
     
     // Validate code exists in referrers and is active, then log click
-    supabase.from('referrers')
-      .select('id, status')
-      .eq('ref_code', refCode)
-      .eq('status', 'active')
+    supabase.rpc('validate_ref_code', { code: refCode })
       .maybeSingle()
       .then(({ data: referrer }) => {
+        if (referrer && referrer.status !== 'active') return; // Inactive code
         if (!referrer) return; // Invalid or inactive code
         
         supabase.from('referral_events').insert({

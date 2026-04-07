@@ -576,7 +576,7 @@ export default function ProductDetailsPage() {
 
     supabase
       .from('hot_products_showcase')
-      .select('total_price_usd')
+      .select('total_price_usd, title')
       .eq('provider_product_id', cleanId)
       .eq('provider', lookupProvider)
       .eq('is_active', true)
@@ -584,6 +584,17 @@ export default function ProductDetailsPage() {
       .then(({ data }) => {
         setHotProductPrice(typeof data?.total_price_usd === 'number' ? data.total_price_usd : null);
         setHotPriceLookupDone(true);
+        // Override product title with hot product title if the catalog returned a generic fallback
+        if (data?.title) {
+          setProduct(prev => {
+            if (!prev) return prev;
+            const currentTitle = prev.title;
+            if (!currentTitle || currentTitle === 'Product' || currentTitle.length < 3) {
+              return { ...prev, title: data.title };
+            }
+            return prev;
+          });
+        }
       });
   }, [location.state, product?.id, product?.provider, id, provider]);
 

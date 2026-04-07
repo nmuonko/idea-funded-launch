@@ -300,6 +300,7 @@ export default function HotProducts() {
                         className="w-full text-xs h-9 font-bold transition-all bg-emerald-600 hover:bg-emerald-700 text-white"
                         onClick={(e) => {
                           e.stopPropagation();
+                          trackClick(product, 'buy_now');
                           handleBuyNow(product);
                         }}
                         disabled={isProcessing}

@@ -55,11 +55,9 @@ export default function AcceptInvite() {
       const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(token!));
       const tokenHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
       
-      // Query by token_hash instead of plaintext token
+      // Query by token_hash via secure RPC (avoids exposing all invitations)
       const { data, error: fetchError } = await supabase
-        .from('admin_invitations')
-        .select('id, email, role, status, expires_at')
-        .eq('token_hash', tokenHash)
+        .rpc('verify_invitation_token', { token_hash_input: tokenHash })
         .maybeSingle();
 
       console.log('[AcceptInvite] Query result:', { data, error: fetchError?.message });

@@ -422,7 +422,7 @@ export default function HotProducts() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="storefront" className="gap-2">
             <ShoppingBag className="h-4 w-4" />
             {t('Storefront Products', 'Produits Vitrine')}
@@ -430,6 +430,10 @@ export default function HotProducts() {
           <TabsTrigger value="campaigns" className="gap-2">
             <Mail className="h-4 w-4" />
             {t('Email Campaigns', 'Campagnes Email')}
+          </TabsTrigger>
+          <TabsTrigger value="analytics" className="gap-2">
+            <BarChart3 className="h-4 w-4" />
+            {t('Analytics', 'Analytique')}
           </TabsTrigger>
         </TabsList>
 

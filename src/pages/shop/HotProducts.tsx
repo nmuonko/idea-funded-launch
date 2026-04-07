@@ -272,13 +272,16 @@ export default function HotProducts() {
                     <div className="p-3 space-y-2">
                       <p
                         className="text-white text-xs sm:text-sm font-medium line-clamp-2 min-h-[2.5rem] cursor-pointer hover:text-orange-300 transition-colors"
-                        onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`, {
-                          state: {
-                            isFixedPrice: true,
-                            hotProductPrice: product.total_price_usd,
-                            hotProductId: product.id,
-                          },
-                        })}
+                        onClick={() => {
+                          trackClick(product, 'click');
+                          navigate(`/product/${product.provider}/${product.provider_product_id}`, {
+                            state: {
+                              isFixedPrice: true,
+                              hotProductPrice: product.total_price_usd,
+                              hotProductId: product.id,
+                            },
+                          });
+                        }}
                       >
                         {product.title}
                       </p>

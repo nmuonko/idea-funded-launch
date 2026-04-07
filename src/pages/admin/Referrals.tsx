@@ -260,12 +260,19 @@ export default function AdminReferrals() {
         })));
       }
 
+      // Compute device breakdown from signupMap
+      let totalSignupsWeb = 0, totalSignupsMobile = 0;
+      signupMap.forEach(v => { totalSignupsWeb += v.web; totalSignupsMobile += v.mobile; });
+
       setStats({
+        totalReferrers: refData?.length || 0,
         clicks: clickCount || 0,
         signups: signupCount || 0,
         purchases: purchaseCount,
         pendingCommissions: Math.round(pendingAmount * 100) / 100,
         totalReferredSignups: totalReferredCount || 0,
+        signupsWeb: totalSignupsWeb,
+        signupsMobile: totalSignupsMobile,
       });
     } catch (err) {
       console.error('Error loading referral data:', err);

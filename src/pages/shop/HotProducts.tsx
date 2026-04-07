@@ -93,6 +93,25 @@ export default function HotProducts() {
     fetchProducts();
   }, []);
 
+  // Track hot product interactions (fire-and-forget)
+  const trackClick = (product: HotProduct, eventType: 'view' | 'click' | 'buy_now') => {
+    supabase.from('hot_product_clicks' as any).insert({
+      provider_product_id: product.provider_product_id,
+      provider: product.provider,
+      event_type: eventType,
+      source: 'web',
+      referrer_code: refCode || null,
+      session_id: sessionStorage.getItem('hp_session') || (() => { const s = crypto.randomUUID(); sessionStorage.setItem('hp_session', s); return s; })(),
+      user_id: session?.user?.id || null,
+    }).then(() => {});
+  };
+
+  // Track page views for all products once loaded
+  useEffect(() => {
+    if (products.length === 0) return;
+    products.forEach(p => trackClick(p, 'view'));
+  }, [products.length]);
+
   const handleBuyNow = async (product: HotProduct) => {
     const key = `${product.provider}-${product.provider_product_id}`;
     if (processingIds.has(key)) return;
@@ -231,13 +250,16 @@ export default function HotProducts() {
 
                     <div
                       className="aspect-square bg-white overflow-hidden cursor-pointer"
-                      onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`, {
-                        state: {
-                          isFixedPrice: true,
-                          hotProductPrice: product.total_price_usd,
-                          hotProductId: product.id,
-                        },
-                      })}
+                      onClick={() => {
+                        trackClick(product, 'click');
+                        navigate(`/product/${product.provider}/${product.provider_product_id}`, {
+                          state: {
+                            isFixedPrice: true,
+                            hotProductPrice: product.total_price_usd,
+                            hotProductId: product.id,
+                          },
+                        });
+                      }}
                     >
                       <img
                         src={product.image_url}
@@ -250,13 +272,16 @@ export default function HotProducts() {
                     <div className="p-3 space-y-2">
                       <p
                         className="text-white text-xs sm:text-sm font-medium line-clamp-2 min-h-[2.5rem] cursor-pointer hover:text-orange-300 transition-colors"
-                        onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`, {
-                          state: {
-                            isFixedPrice: true,
-                            hotProductPrice: product.total_price_usd,
-                            hotProductId: product.id,
-                          },
-                        })}
+                        onClick={() => {
+                          trackClick(product, 'click');
+                          navigate(`/product/${product.provider}/${product.provider_product_id}`, {
+                            state: {
+                              isFixedPrice: true,
+                              hotProductPrice: product.total_price_usd,
+                              hotProductId: product.id,
+                            },
+                          });
+                        }}
                       >
                         {product.title}
                       </p>
@@ -275,6 +300,7 @@ export default function HotProducts() {
                         className="w-full text-xs h-9 font-bold transition-all bg-emerald-600 hover:bg-emerald-700 text-white"
                         onClick={(e) => {
                           e.stopPropagation();
+                          trackClick(product, 'buy_now');
                           handleBuyNow(product);
                         }}
                         disabled={isProcessing}

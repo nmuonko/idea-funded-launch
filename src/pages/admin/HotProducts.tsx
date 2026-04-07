@@ -7,12 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText } from 'lucide-react';
+import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { calculateShippingUsd } from '@/lib/shippingCalculation';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { HotProductAnalytics } from '@/components/admin/dashboard/HotProductAnalytics';
 
 function inferProvider(url: string): string | null {
   if (/amazon\.\w/.test(url)) return 'amazon';
@@ -421,7 +422,7 @@ export default function HotProducts() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="storefront" className="gap-2">
             <ShoppingBag className="h-4 w-4" />
             {t('Storefront Products', 'Produits Vitrine')}
@@ -429,6 +430,10 @@ export default function HotProducts() {
           <TabsTrigger value="campaigns" className="gap-2">
             <Mail className="h-4 w-4" />
             {t('Email Campaigns', 'Campagnes Email')}
+          </TabsTrigger>
+          <TabsTrigger value="analytics" className="gap-2">
+            <BarChart3 className="h-4 w-4" />
+            {t('Analytics', 'Analytique')}
           </TabsTrigger>
         </TabsList>
 
@@ -749,6 +754,11 @@ export default function HotProducts() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ====== TAB 3: ANALYTICS ====== */}
+        <TabsContent value="analytics" className="mt-4">
+          <HotProductAnalytics />
         </TabsContent>
       </Tabs>
     </div>

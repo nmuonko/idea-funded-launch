@@ -250,13 +250,16 @@ export default function HotProducts() {
 
                     <div
                       className="aspect-square bg-white overflow-hidden cursor-pointer"
-                      onClick={() => navigate(`/product/${product.provider}/${product.provider_product_id}`, {
-                        state: {
-                          isFixedPrice: true,
-                          hotProductPrice: product.total_price_usd,
-                          hotProductId: product.id,
-                        },
-                      })}
+                      onClick={() => {
+                        trackClick(product, 'click');
+                        navigate(`/product/${product.provider}/${product.provider_product_id}`, {
+                          state: {
+                            isFixedPrice: true,
+                            hotProductPrice: product.total_price_usd,
+                            hotProductId: product.id,
+                          },
+                        });
+                      }}
                     >
                       <img
                         src={product.image_url}

@@ -301,6 +301,32 @@ export function InviteEarn({ language }: InviteEarnProps) {
       {refCode ? (
         /* ── SHARE VIEW ── */
         <div className="px-5 pb-6 space-y-5">
+          {/* Share type selector */}
+          <div className="flex rounded-xl bg-white/5 border border-white/10 p-1 gap-1">
+            <button
+              onClick={() => setShareType('store')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+                shareType === 'store'
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                  : 'text-white/50 hover:text-white/70'
+              }`}
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              {language === 'fr' ? 'Lien boutique' : 'Store Link'}
+            </button>
+            <button
+              onClick={() => setShareType('hot')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+                shareType === 'hot'
+                  ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                  : 'text-white/50 hover:text-white/70'
+              }`}
+            >
+              <Flame className="h-3.5 w-3.5" />
+              {language === 'fr' ? 'Produits vedettes' : 'Hot Products'}
+            </button>
+          </div>
+
           {/* Link card */}
           <div>
             <p className="text-[11px] font-semibold text-white/40 uppercase tracking-widest mb-2">

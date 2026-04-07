@@ -61,6 +61,7 @@ const t = {
     twitter: 'X',
     telegram: 'Telegram',
     shareMsg: 'Achetez des produits africains livrés partout dans le monde sur AfriShop USA ! Utilisez mon lien :',
+    shareMsgHot: '🔥 Découvrez les Produits Vedettes sur AfriShop USA — offres limitées à prix incroyables !',
     howIt: 'Comment ça marche',
     step1title: 'Inscrivez-vous',
     step1desc: 'Avec votre numéro Mobile Money',

@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Flame } from 'lucide-react';
 import { Gift, Copy, Check, Loader2, User, Mail, Phone, Share2, ArrowRight, DollarSign, Users, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -147,7 +146,6 @@ const t = {
 
 const REF_CODE_KEY = 'afrishop_referrer_ref_code';
 const buildLink = (code: string) => `https://afrishop-usa.com/get?ref=${code}`;
-const buildHotLink = (code: string) => `https://afrishop-usa.com/hot-products?ref=${code}`;
 
 const shareWhatsApp = (msg: string, link: string) =>
   `https://wa.me/?text=${encodeURIComponent(msg + ' ' + link)}`;
@@ -215,7 +213,7 @@ export function InviteEarn({ language }: InviteEarnProps) {
   const [form, setForm] = useState({ full_name: '', email: '', phone: '' });
   const [mode, setMode] = useState<'register' | 'retrieve'>('register');
   const [retrieveEmail, setRetrieveEmail] = useState('');
-  const [shareType, setShareType] = useState<'store' | 'hot'>('store');
+
 
   const handleRegister = async () => {
     if (!form.full_name || !form.email || !form.phone) {
@@ -268,14 +266,13 @@ export function InviteEarn({ language }: InviteEarnProps) {
 
   const handleCopy = async () => {
     if (!refCode) return;
-    const activeLink = shareType === 'hot' ? buildHotLink(refCode) : buildLink(refCode);
-    await navigator.clipboard.writeText(activeLink);
+    await navigator.clipboard.writeText(buildLink(refCode));
     setCopied(true);
     toast({ title: lang.copied });
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const link = refCode ? (shareType === 'hot' ? buildHotLink(refCode) : buildLink(refCode)) : '';
+  const link = refCode ? buildLink(refCode) : '';
 
   const stepIcons = [
     <Users className="h-5 w-5" />,
@@ -305,32 +302,6 @@ export function InviteEarn({ language }: InviteEarnProps) {
       {refCode ? (
         /* ── SHARE VIEW ── */
         <div className="px-5 pb-6 space-y-5">
-          {/* Share type selector */}
-          <div className="flex rounded-xl bg-white/5 border border-white/10 p-1 gap-1">
-            <button
-              onClick={() => setShareType('store')}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-                shareType === 'store'
-                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                  : 'text-white/50 hover:text-white/70'
-              }`}
-            >
-              <Share2 className="h-3.5 w-3.5" />
-              {language === 'fr' ? 'Lien boutique' : 'Store Link'}
-            </button>
-            <button
-              onClick={() => setShareType('hot')}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-                shareType === 'hot'
-                  ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
-                  : 'text-white/50 hover:text-white/70'
-              }`}
-            >
-              <Flame className="h-3.5 w-3.5" />
-              {language === 'fr' ? 'Produits vedettes' : 'Hot Products'}
-            </button>
-          </div>
-
           {/* Link card */}
           <div>
             <p className="text-[11px] font-semibold text-white/40 uppercase tracking-widest mb-2">
@@ -379,7 +350,7 @@ export function InviteEarn({ language }: InviteEarnProps) {
             {socialButtons.map(({ key, fn, bg, iconColor, icon }) => (
               <a
                 key={key}
-                href={fn(shareType === 'hot' ? (lang.shareMsgHot || lang.shareMsg) : lang.shareMsg, link)}
+                href={fn(lang.shareMsg, link)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={`${bg} ${iconColor} flex flex-col items-center justify-center gap-1.5 rounded-xl py-3.5 transition-all duration-200 active:scale-95 border border-white/5`}

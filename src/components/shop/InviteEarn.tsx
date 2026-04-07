@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Gift, Copy, Check, Loader2, User, Mail, Phone, Share2, ArrowRight, DollarSign, Users, TrendingUp } from 'lucide-react';
-import { Gift, Copy, Check, Loader2, User, Mail, Phone, Share2, ArrowRight, DollarSign, Users, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';

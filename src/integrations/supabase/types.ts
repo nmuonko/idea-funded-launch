@@ -6789,6 +6789,24 @@ export type Database = {
               error: true
             } & "Could not choose the best candidate function between: public.urlencode(string => bytea), public.urlencode(string => varchar). Try renaming the parameters or the function itself in the database so function overloading can be resolved"
           }
+      validate_ref_code: {
+        Args: { code: string }
+        Returns: {
+          id: string
+          ref_code: string
+          status: string
+        }[]
+      }
+      verify_invitation_token: {
+        Args: { token_hash_input: string }
+        Returns: {
+          email: string
+          expires_at: string
+          id: string
+          role: string
+          status: string
+        }[]
+      }
     }
     Enums: {
       app_role: "admin" | "user"

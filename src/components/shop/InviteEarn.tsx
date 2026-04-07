@@ -266,14 +266,13 @@ export function InviteEarn({ language }: InviteEarnProps) {
 
   const handleCopy = async () => {
     if (!refCode) return;
-    const activeLink = shareType === 'hot' ? buildHotLink(refCode) : buildLink(refCode);
-    await navigator.clipboard.writeText(activeLink);
+    await navigator.clipboard.writeText(buildLink(refCode));
     setCopied(true);
     toast({ title: lang.copied });
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const link = refCode ? (shareType === 'hot' ? buildHotLink(refCode) : buildLink(refCode)) : '';
+  const link = refCode ? buildLink(refCode) : '';
 
   const stepIcons = [
     <Users className="h-5 w-5" />,

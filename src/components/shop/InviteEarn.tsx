@@ -350,7 +350,7 @@ export function InviteEarn({ language }: InviteEarnProps) {
             {socialButtons.map(({ key, fn, bg, iconColor, icon }) => (
               <a
                 key={key}
-                href={fn(shareType === 'hot' ? (lang.shareMsgHot || lang.shareMsg) : lang.shareMsg, link)}
+                href={fn(lang.shareMsg, link)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={`${bg} ${iconColor} flex flex-col items-center justify-center gap-1.5 rounded-xl py-3.5 transition-all duration-200 active:scale-95 border border-white/5`}

@@ -584,15 +584,11 @@ export default function ProductDetailsPage() {
       .then(({ data }) => {
         setHotProductPrice(typeof data?.total_price_usd === 'number' ? data.total_price_usd : null);
         setHotPriceLookupDone(true);
-        // Override product title with hot product title if the catalog returned a generic fallback
+        // Always override product title with hot product title for hot products
         if (data?.title) {
           setProduct(prev => {
             if (!prev) return prev;
-            const currentTitle = prev.title;
-            if (!currentTitle || currentTitle === 'Product' || currentTitle.length < 3) {
-              return { ...prev, title: data.title };
-            }
-            return prev;
+            return { ...prev, title: data.title };
           });
         }
       });

@@ -634,11 +634,13 @@ export default function FeesSettings() {
           </form>
         </DialogContent>
       </Dialog>
+        </>
+      )}
 
-
-
-
-      {/* Advanced Settings (Collapsible) */}
+      {/* ── ADVANCED TAB ── */}
+      {activeTab === 'advanced' && (
+        <>
+      {/* Advanced Settings */}
       <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
         <Card>
           <CollapsibleTrigger asChild>

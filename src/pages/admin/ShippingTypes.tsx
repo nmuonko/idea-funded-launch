@@ -130,7 +130,7 @@ export default function ShippingTypes() {
       est_weight_kg: weight,
       flat_shipping_usd: flatShipping,
       shipping_buffer_percent: bufferPercent,
-      requires_manual_quote: formData.requires_manual_quote || weight > HEAVY_THRESHOLD_KG,
+      requires_manual_quote: formData.requires_manual_quote,
       active: formData.active,
     };
 

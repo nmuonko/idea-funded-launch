@@ -22,10 +22,19 @@ interface ShippingConfig {
   shipping_base_fee_usd: number;
   shipping_percent: number;
   shipping_percent_display: number;
+  shipping_rate_per_kg: number;
   service_fee_percent: number;
   service_fee_percent_display: number;
   min_service_fee_usd: number;
   exchange_rate_usd_to_cdf: number;
+  shipping_categories: Array<{
+    key: string;
+    label: string;
+    est_weight_kg: number;
+    flat_shipping_usd: number | null;
+    shipping_buffer_percent: number;
+    requires_manual_quote: boolean;
+  }>;
 }
 
 interface CachedResponse {

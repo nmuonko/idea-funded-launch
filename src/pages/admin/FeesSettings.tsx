@@ -579,13 +579,20 @@ export default function FeesSettings() {
       {/* Shipping Settings */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Truck className="h-5 w-5" />
-            {t.settings.shippingSettings}
-          </CardTitle>
-          <CardDescription>
-            Weight-based shipping per category. Manage categories in Shipping Types page.
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Truck className="h-5 w-5" />
+                {t.settings.shippingSettings}
+              </CardTitle>
+              <CardDescription>
+                Weight-based shipping per category. Buffer applies to shipping cost only, not the product price.
+              </CardDescription>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => { setSimIsVehicle(false); setSimPrice(50); setSimulatorOpen(true); }}>
+              <Calculator className="h-4 w-4 mr-1" /> Simulate
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

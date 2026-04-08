@@ -35,7 +35,8 @@ export function PriceBreakdown({
   serverMarginUsd,
   serverShippingUsd,
   serverLineTotalUsd,
-  
+  productTitle,
+  productCategoryKey,
 }: PriceBreakdownProps) {
   const ctx = context ?? 'cart';
   const { feeSettings, hasVehicleItems, vehicleQuoteStatus } = useShopCart();

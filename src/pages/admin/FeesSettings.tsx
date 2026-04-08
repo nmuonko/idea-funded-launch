@@ -829,10 +829,10 @@ export default function FeesSettings() {
                   </div>
                 )}
               </div>
-            </CardContent>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
+          </CardContent>
+      </Card>
+        </>
+      )}
 
       {/* Price Simulator Dialog */}
       <Dialog open={simulatorOpen} onOpenChange={setSimulatorOpen}>

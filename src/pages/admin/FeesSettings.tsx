@@ -62,7 +62,7 @@ export default function FeesSettings() {
   const [categoryMarkups, setCategoryMarkups] = useState<Record<string, number>>({});
   const [extraFees, setExtraFees] = useState<any[]>([]);
   const [discountCodes, setDiscountCodes] = useState<any[]>([]);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  
 
   // Shipping categories (inline management)
   const [shippingTypes, setShippingTypes] = useState<any[]>([]);

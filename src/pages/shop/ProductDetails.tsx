@@ -1064,30 +1064,30 @@ export default function ProductDetailsPage() {
               </Button>
 
               {/* View Original */}
-              {product.productUrl && (
+              {(displayProvider === 'amazon' || product.productUrl) && (
                 <a
                   href={(() => {
-                    // Build slugged Amazon URL to avoid bare /dp/ASIN redirecting to category pages
-                    if (displayProvider === 'amazon' && product.title) {
-                      const asinMatch = product.productUrl.match(/\/dp\/([A-Z0-9]{10})/i);
-                      if (asinMatch) {
-                        const asin = asinMatch[1];
-                        const slug = product.title.replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '-').substring(0, 120);
-                        if (slug.length > 2) {
-                          const hostMatch = product.productUrl.match(/^https?:\/\/([^/]*amazon\.[^/]+)/i);
-                          const host = hostMatch?.[1] || 'www.amazon.com';
-                          return `https://${host}/${slug}/dp/${asin}`;
-                        }
-                      }
+                    if (displayProvider !== 'amazon') {
+                      return product.productUrl || '#';
                     }
-                    return product.productUrl;
+
+                    const asinFromId = /^[A-Z0-9]{10}$/i.test(product.id || '') ? product.id.toUpperCase() : '';
+                    const asinFromUrl = product.productUrl?.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/|\/product\/)([A-Z0-9]{10})/i)?.[1]?.toUpperCase() || '';
+                    const asin = asinFromId || asinFromUrl;
+                    const host = product.productUrl?.match(/^https?:\/\/([^/]*amazon\.[^/]+)/i)?.[1] || 'www.amazon.com';
+                    const titleQuery = product.title?.trim() || '';
+                    const query = [asin, titleQuery].filter(Boolean).join(' ');
+
+                    return `https://${host}/s?k=${encodeURIComponent(query)}`;
                   })()}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-2 text-sm text-white/60 hover:text-white transition-colors"
                 >
                   <ExternalLink className="h-4 w-4" />
-                  View on {displayProvider === 'amazon' ? 'Amazon' : displayProvider === 'ebay' ? 'eBay' : displayProvider}
+                  {displayProvider === 'amazon'
+                    ? 'Find on Amazon'
+                    : `View on ${displayProvider === 'ebay' ? 'eBay' : displayProvider}`}
                 </a>
               )}
 

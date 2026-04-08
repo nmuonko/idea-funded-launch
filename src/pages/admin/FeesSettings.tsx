@@ -82,6 +82,7 @@ export default function FeesSettings() {
       
       setExchangeRateUsdToCdf(data.exchange_rate_usd_to_cdf || 2800);
       setShippingBaseFeeUsd(data.shipping_base_fee_usd || 20);
+      setShippingRatePerKg((data as any).shipping_rate_per_kg ?? 20);
       
       // Shipping percent stored as whole number (10 = 10%)
       const shippingVal = data.shipping_percent ?? 10;

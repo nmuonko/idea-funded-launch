@@ -615,40 +615,8 @@ export default function FeesSettings() {
         </DialogContent>
       </Dialog>
 
-      <Card className="border-primary/20 bg-primary/5">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <DollarSign className="h-5 w-5" />
-            {t.settings.exampleCalculation}
-          </CardTitle>
-          <CardDescription>
-            {t.settings.sampleOrder}: ${examplePrice} × {exampleQty} {t.common.items}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">{t.common.itemsSubtotal}</p>
-              <p className="text-lg font-semibold">${exampleSubtotal.toFixed(2)}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">{t.common.margin} ({markupPercent}%)</p>
-              <p className="text-lg font-semibold">${exampleMargin.toFixed(2)}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">{t.common.shippingFee}</p>
-              <p className="text-lg font-semibold">${exampleShipping.toFixed(2)}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">{t.common.grandTotal}</p>
-              <p className="text-lg font-bold text-primary">${exampleGrandTotal.toFixed(2)}</p>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground mt-4">
-            CDF: {(exampleGrandTotal * exchangeRateUsdToCdf).toLocaleString()} FC
-          </p>
-        </CardContent>
-      </Card>
+
+
 
       {/* Advanced Settings (Collapsible) */}
       <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>

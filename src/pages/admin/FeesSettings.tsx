@@ -85,7 +85,64 @@ export default function FeesSettings() {
 
   useEffect(() => {
     loadSettings();
+    loadShippingTypes();
   }, []);
+
+  const loadShippingTypes = async () => {
+    const { data, error } = await supabase
+      .from('shipping_item_types')
+      .select('*')
+      .order('label');
+    if (!error) setShippingTypes((data as any[]) || []);
+  };
+
+  const openEditShippingType = (type: any) => {
+    setEditingShippingType(type);
+    setShippingTypeForm({
+      key: type.key, label: type.label, description: type.description || '',
+      est_weight_kg: type.est_weight_kg.toString(),
+      flat_shipping_usd: type.flat_shipping_usd?.toString() || '',
+      shipping_buffer_percent: type.shipping_buffer_percent.toString(),
+      requires_manual_quote: type.requires_manual_quote, active: type.active,
+    });
+    setShippingTypeDialogOpen(true);
+  };
+
+  const openAddShippingType = () => {
+    setEditingShippingType(null);
+    setShippingTypeForm({
+      key: '', label: '', description: '', est_weight_kg: '',
+      flat_shipping_usd: '', shipping_buffer_percent: '25',
+      requires_manual_quote: false, active: true,
+    });
+    setShippingTypeDialogOpen(true);
+  };
+
+  const handleShippingTypeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const weight = parseFloat(shippingTypeForm.est_weight_kg);
+    if (isNaN(weight) || weight <= 0) { toast({ title: 'Invalid weight', variant: 'destructive' }); return; }
+    const payload: any = {
+      key: shippingTypeForm.key.toLowerCase().replace(/\s+/g, '_'),
+      label: shippingTypeForm.label,
+      description: shippingTypeForm.description || null,
+      est_weight_kg: weight,
+      flat_shipping_usd: shippingTypeForm.flat_shipping_usd ? parseFloat(shippingTypeForm.flat_shipping_usd) : null,
+      shipping_buffer_percent: parseFloat(shippingTypeForm.shipping_buffer_percent) || 0,
+      requires_manual_quote: shippingTypeForm.requires_manual_quote || weight > 9,
+      active: shippingTypeForm.active,
+    };
+    const { error } = editingShippingType
+      ? await supabase.from('shipping_item_types').update(payload).eq('id', editingShippingType.id)
+      : await supabase.from('shipping_item_types').insert(payload);
+    if (error) {
+      toast({ title: 'Error saving shipping type', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: editingShippingType ? 'Shipping type updated' : 'Shipping type created' });
+      setShippingTypeDialogOpen(false);
+      loadShippingTypes();
+    }
+  };
 
   const loadSettings = async () => {
     try {

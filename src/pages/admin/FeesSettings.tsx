@@ -641,28 +641,14 @@ export default function FeesSettings() {
       {activeTab === 'advanced' && (
         <>
       {/* Advanced Settings */}
-      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <Card>
-          <CollapsibleTrigger asChild>
-            <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Tag className="h-5 w-5" />
-                    {t.settings.advancedSettings}
-                  </CardTitle>
-                  <CardDescription>
-                    {t.settings.advancedSettingsDesc}
-                  </CardDescription>
-                </div>
-                <Badge variant="outline">
-                  {advancedOpen ? t.common.clickToCollapse : t.common.clickToExpand}
-                </Badge>
-              </div>
-            </CardHeader>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <CardContent className="space-y-8 pt-0">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Tag className="h-4 w-4" /> {t.settings.advancedSettings}
+          </CardTitle>
+          <CardDescription className="text-xs">{t.settings.advancedSettingsDesc}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-8">
               {/* Category Markups */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">

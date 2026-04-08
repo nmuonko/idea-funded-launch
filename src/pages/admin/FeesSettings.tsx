@@ -60,6 +60,16 @@ export default function FeesSettings() {
   const [extraFees, setExtraFees] = useState<any[]>([]);
   const [discountCodes, setDiscountCodes] = useState<any[]>([]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  // Shipping categories (inline management)
+  const [shippingTypes, setShippingTypes] = useState<any[]>([]);
+  const [shippingTypeDialogOpen, setShippingTypeDialogOpen] = useState(false);
+  const [editingShippingType, setEditingShippingType] = useState<any>(null);
+  const [shippingTypeForm, setShippingTypeForm] = useState({
+    key: '', label: '', description: '', est_weight_kg: '',
+    flat_shipping_usd: '', shipping_buffer_percent: '25',
+    requires_manual_quote: false, active: true,
+  });
   
   const { toast } = useToast();
   const { language, setLanguage } = useLanguage();

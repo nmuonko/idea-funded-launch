@@ -1011,6 +1011,8 @@ export default function ProductDetailsPage() {
                   isVehicle={isVehicle}
                   isFixedPrice={isFixedPrice}
                   context="product-detail"
+                  productTitle={product.title}
+                  productCategoryKey={product.categoryKey}
                 />
               </div>
 

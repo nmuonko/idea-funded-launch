@@ -256,7 +256,7 @@ export default function ShopCart() {
                           </Badge>
                         )}
                         <p className="text-lg font-bold text-white">
-                          ${item.isVehicle ? vehicleAllInclusivePrice(item.priceUsd).toFixed(2) : allInclusivePrice(item.priceUsd, feeSettings, item.quantity).toFixed(2)}
+                          ${item.isVehicle ? vehicleAllInclusivePrice(item.priceUsd).toFixed(2) : allInclusivePrice(item.priceUsd, feeSettings, item.quantity, null, item.title).toFixed(2)}
                         </p>
                       </div>
 

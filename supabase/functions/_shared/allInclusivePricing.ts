@@ -138,25 +138,30 @@ function detectShippingCategory(item: Record<string, unknown>, categories: Shipp
   const directMatch = categories.find(c => c.key === categoryKey);
   if (directMatch) return directMatch;
 
-  // Keyword-based matching
-  const phoneKeywords = ['phone', 'iphone', 'samsung galaxy', 'pixel', 'earbuds', 'airpods', 'smartwatch', 'apple watch', 'camera', 'gopro'];
-  const laptopKeywords = ['laptop', 'macbook', 'chromebook', 'ipad', 'tablet', 'surface pro', 'notebook'];
-  const clothesKeywords = ['shirt', 'dress', 'shoes', 'sneakers', 'jacket', 'pants', 'jeans', 'hoodie', 'sweater', 'clothing', 'apparel', 'boots', 'sandals'];
-  const consoleKeywords = ['playstation', 'xbox', 'nintendo', 'ps5', 'ps4', 'printer', 'monitor', 'speaker'];
-  const largeKeywords = ['tv', 'television', 'refrigerator', 'washer', 'dryer', 'furniture', 'sofa', 'couch'];
+  // Keyword-based matching — maps keywords to category keys (current DB keys)
+  const catMap: [string[], string[]][] = [
+    // Phone / Camera (flat $50)
+    [['phone_camera'], ['phone', 'iphone', 'samsung galaxy s', 'pixel', 'motorola', 'oneplus', 'camera', 'gopro', 'dslr', 'mirrorless']],
+    // Small accessories (weight-based, cheap shipping)
+    [['small_accessories'], ['earbuds', 'airpods', 'earbud', 'smartwatch', 'apple watch', 'charger', 'cable', 'adapter', 'power bank', 'memory card', 'usb', 'dongle', 'stylus', 'airtag']],
+    // Laptop (flat $80)
+    [['laptop'], ['laptop', 'macbook', 'chromebook', 'notebook', 'thinkpad', 'surface laptop', 'surface pro', 'surface book']],
+    // Tablet (flat $40)
+    [['tablet'], ['ipad', 'tablet', 'galaxy tab', 'fire hd', 'kindle']],
+    // Clothes / Shoes
+    [['clothes_shoes'], ['shirt', 'dress', 'shoes', 'sneakers', 'jacket', 'pants', 'jeans', 'hoodie', 'sweater', 'clothing', 'apparel', 'boots', 'sandals', 'handbag', 'backpack']],
+    // Console / Medium electronics
+    [['console_medium'], ['playstation', 'xbox', 'nintendo', 'ps5', 'ps4', 'switch', 'printer', 'monitor', 'speaker', 'projector', 'router', 'steam deck']],
+    // TV / Large appliance / Furniture
+    [['tv_large_appliance'], ['tv', 'television', 'refrigerator', 'washer', 'dryer', 'furniture', 'sofa', 'couch', 'dishwasher', 'oven', 'microwave']],
+  ];
 
-  const catMap: Record<string, string[]> = {
-    small_electronics: phoneKeywords,
-    laptop_tablet: laptopKeywords,
-    clothes_shoes: clothesKeywords,
-    console_medium: consoleKeywords,
-    tv_large_appliance: largeKeywords,
-  };
-
-  for (const [catKey, keywords] of Object.entries(catMap)) {
+  for (const [catKeys, keywords] of catMap) {
     if (keywords.some(kw => title.includes(kw))) {
-      const match = categories.find(c => c.key === catKey);
-      if (match) return match;
+      for (const catKey of catKeys) {
+        const match = categories.find(c => c.key === catKey);
+        if (match) return match;
+      }
     }
   }
 

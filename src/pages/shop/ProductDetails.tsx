@@ -1066,7 +1066,22 @@ export default function ProductDetailsPage() {
               {/* View Original */}
               {product.productUrl && (
                 <a
-                  href={product.productUrl}
+                  href={(() => {
+                    // Build slugged Amazon URL to avoid bare /dp/ASIN redirecting to category pages
+                    if (displayProvider === 'amazon' && product.title) {
+                      const asinMatch = product.productUrl.match(/\/dp\/([A-Z0-9]{10})/i);
+                      if (asinMatch) {
+                        const asin = asinMatch[1];
+                        const slug = product.title.replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '-').substring(0, 120);
+                        if (slug.length > 2) {
+                          const hostMatch = product.productUrl.match(/^https?:\/\/([^/]*amazon\.[^/]+)/i);
+                          const host = hostMatch?.[1] || 'www.amazon.com';
+                          return `https://${host}/${slug}/dp/${asin}`;
+                        }
+                      }
+                    }
+                    return product.productUrl;
+                  })()}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-2 text-sm text-white/60 hover:text-white transition-colors"

@@ -245,10 +245,9 @@ export default function ShippingTypes() {
                   placeholder="2.5"
                   required
                 />
-                {parseFloat(formData.est_weight_kg) > HEAVY_THRESHOLD_KG && (
-                  <p className="text-xs text-amber-500 flex items-center gap-1">
-                    <AlertTriangle className="h-3 w-3" />
-                    Weight exceeds {HEAVY_THRESHOLD_KG}kg - will require manual quote
+                {parseFloat(formData.est_weight_kg) > 12 && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    Heavy item — shipping = {formData.est_weight_kg}kg × rate/kg + buffer
                   </p>
                 )}
               </div>

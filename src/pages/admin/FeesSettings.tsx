@@ -71,6 +71,53 @@ export default function FeesSettings() {
     flat_shipping_usd: '', shipping_buffer_percent: '25',
     requires_manual_quote: false, active: true,
   });
+
+  // Price simulator
+  const [simulatorOpen, setSimulatorOpen] = useState(false);
+  const [simPrice, setSimPrice] = useState(50);
+  const [simWeight, setSimWeight] = useState(2);
+  const [simCategory, setSimCategory] = useState('custom');
+  const [simIsVehicle, setSimIsVehicle] = useState(false);
+
+  const simResult = useMemo(() => {
+    if (simIsVehicle) {
+      // Vehicle tier calculation
+      const tiers = [
+        { max: 5000, pct: vehicleTiers.tier_1_under_5000_percent },
+        { max: 8000, pct: vehicleTiers.tier_2_5000_to_7999_percent },
+        { max: 12000, pct: vehicleTiers.tier_3_8000_to_11999_percent },
+        { max: 18000, pct: vehicleTiers.tier_4_12000_to_17999_percent },
+        { max: 25000, pct: vehicleTiers.tier_5_18000_to_24999_percent },
+        { max: Infinity, pct: vehicleTiers.tier_6_25000_plus_percent },
+      ];
+      const tier = tiers.find(t => simPrice < t.max) || tiers[tiers.length - 1];
+      const fee = simPrice * (tier.pct / 100);
+      return { base: simPrice, markup: 0, shipping: fee, buffer: 0, total: simPrice + fee, tierPct: tier.pct, mode: 'vehicle' as const };
+    }
+
+    // Regular product
+    const cat = shippingTypes.find((s: any) => s.key === simCategory);
+    const weight = cat ? cat.est_weight_kg : simWeight;
+    const flatRate = cat?.flat_shipping_usd;
+    const bufferPct = cat ? cat.shipping_buffer_percent : 25;
+
+    const markupAmt = simPrice * (markupPercent / 100);
+    let baseShipping: number;
+    if (flatRate != null && flatRate > 0) {
+      baseShipping = flatRate;
+    } else {
+      baseShipping = weight * shippingRatePerKg;
+    }
+    const bufferAmt = baseShipping * (bufferPct / 100);
+    const totalShipping = baseShipping + bufferAmt;
+    const total = simPrice + markupAmt + totalShipping;
+
+    return {
+      base: simPrice, markup: markupAmt, shipping: baseShipping, buffer: bufferAmt,
+      total: Math.round(total * 100) / 100, weight, bufferPct, flatRate,
+      mode: 'regular' as const,
+    };
+  }, [simPrice, simWeight, simCategory, simIsVehicle, markupPercent, shippingRatePerKg, shippingTypes, vehicleTiers]);
   
   const { toast } = useToast();
   const { language, setLanguage } = useLanguage();

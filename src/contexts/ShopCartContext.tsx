@@ -10,6 +10,8 @@ export interface FeeSettings {
   vehicleMarkupPercent: number;
   shippingBaseFeeUsd: number;
   shippingPercent: number;
+  shippingRatePerKg: number;
+  shippingCategories: import('@/lib/shippingCategoryDetector').ShippingCategoryRow[];
 }
 
 export interface CartItem {

@@ -1,61 +1,60 @@
 
 
-# Risk Assessment: Multi-App Transaction Tagging Plan
+## Forward MaishaMarket Callbacks from pawaPay
 
-## Verdict: LOW RISK — but with two precautions
+### What we're doing
+Adding a routing layer in the `pawapay-callback` handler so that MaishaMarket-tagged callbacks are forwarded to MaishaMarket's own endpoint instead of being processed locally.
 
-The plan is safe because every change is **additive** (new column, new metadata field). Nothing existing gets removed or rewritten. Here's the breakdown:
+### Where the change goes
+**File:** `supabase/functions/pawapay-callback/index.ts`
 
----
+Insert forwarding logic at **line 790** — right after Zod validation succeeds and `validatedPayload` is available, but before the payout check and any AfriShop database lookups.
 
-## ✅ Zero-Risk Changes (safe)
+### Logic
 
-| Change | Why safe |
-|--------|----------|
-| Add `app` column with `DEFAULT 'afrishop'` | All existing rows automatically get the correct value. No data loss, no schema breakage |
-| Add `metadata` array to pawaPay deposit requests | pawaPay's API accepts optional metadata — adding it doesn't change how the deposit is processed |
-| Tag new records with `app: 'afrishop'` on insert | Just setting a column that already has the right default — purely defensive |
+```typescript
+// ===== Multi-App Routing =====
+const callbackMetadata = validatedPayload.metadata || [];
+const appField = callbackMetadata.find((m: any) => m.fieldName === 'app');
+const appValue = appField?.fieldValue || 'afrishop'; // backward compat
 
-## ⚠️ One Real Risk: Callback Routing Logic
-
-The plan says: *"If `app !== 'afrishop'`, skip processing."*
-
-**The risk**: If a MaishaMarket callback arrives and the `depositId` isn't found in AfriShop's database, the current code **already handles this gracefully** — line 895-900 returns HTTP 200 with `"Payment not found"`. This is safe and prevents retries.
-
-**Adding a metadata-based skip** is fine BUT introduces a subtle danger: if the metadata field is missing or malformed (e.g., pawaPay strips it in a future API change), we must **default to processing**, not skipping. Otherwise a real AfriShop payment could be silently dropped.
-
-### Safeguard: Default to `'afrishop'` when metadata is absent
-
+if (appValue === 'maishamarket') {
+  console.log(`[${traceId}] Forwarding callback to MaishaMarket`, {
+    depositId: validatedPayload.depositId,
+    payoutId: validatedPayload.payoutId,
+    status: validatedPayload.status,
+  });
+  try {
+    const forwardRes = await fetch(
+      'https://xuoihucaummfcbgazrja.supabase.co/functions/v1/pawapay-callback',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload), // forward original payload
+      }
+    );
+    const forwardData = await forwardRes.json();
+    return new Response(JSON.stringify({ forwarded: true, ...forwardData }), {
+      status: forwardRes.status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (forwardErr: any) {
+    console.error(`[${traceId}] MaishaMarket forward failed:`, forwardErr.message);
+    // Return 200 so pawaPay doesn't retry — MaishaMarket can reconcile later
+    return new Response(JSON.stringify({ forwarded: false, error: 'forward_failed' }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+}
 ```
-const appTag = metadata?.find(m => m.fieldName === 'app')?.fieldValue || 'afrishop';
-// Only skip if explicitly tagged as another app
-if (appTag !== 'afrishop') { return 200 skipped; }
-```
 
-This means: old transactions without metadata → processed normally. Only explicitly-tagged non-AfriShop transactions get skipped.
+### Safety
+- **Default to `'afrishop'`** when metadata is missing — all legacy transactions process normally
+- Returns HTTP 200 even on forward failure to prevent pawaPay retries
+- No changes to any existing AfriShop processing logic
+- Security verification (signature/IP) still runs before this — MaishaMarket callbacks get the same security checks
 
-## ⚠️ Second Precaution: Don't touch the deposit request structure unnecessarily
-
-The `PawaPayDepositRequest` type (line 28-41) doesn't include `metadata`. Adding it requires updating the type AND the request builder. This is straightforward but:
-- We must verify pawaPay's API version supports the `metadata` field (their v2 docs confirm it does)
-- The field must be sent as an array of `{fieldName, fieldValue}` objects — wrong format = deposit rejection
-
-## What We Will NOT Change
-
-- No changes to signature verification logic
-- No changes to payment status transitions (COMPLETED → PAID)
-- No changes to idempotency checks
-- No changes to referral commission flow
-- No changes to email notifications
-- No changes to Stripe flow at all (separate provider, separate keys)
-
-## Summary
-
-| Risk | Mitigation |
-|------|-----------|
-| Metadata missing → payment skipped | Default `app` to `'afrishop'` when metadata absent |
-| Wrong metadata format → deposit rejected by pawaPay | Follow exact `{fieldName, fieldValue}` schema from pawaPay v2 docs |
-| Database migration breaks existing data | `DEFAULT 'afrishop'` ensures zero impact on existing rows |
-
-**Bottom line**: No regression risk to payments if we implement the "default to afrishop" safeguard. The callback handler already gracefully handles unknown deposits. We're just adding a smarter skip layer on top.
+### Deployment
+Redeploy `pawapay-callback` edge function after the change.
 

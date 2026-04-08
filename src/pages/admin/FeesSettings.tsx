@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Percent, DollarSign, Tag, Plus, Trash2, Save, Truck, RefreshCw, Car, Pencil, Package, Calculator } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -28,10 +28,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
+type SettingsTab = 'general' | 'vehicles' | 'shipping' | 'advanced';
+
 export default function FeesSettings() {
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   
   // Core settings
   const [exchangeRateUsdToCdf, setExchangeRateUsdToCdf] = useState(2800);
@@ -59,7 +62,7 @@ export default function FeesSettings() {
   const [categoryMarkups, setCategoryMarkups] = useState<Record<string, number>>({});
   const [extraFees, setExtraFees] = useState<any[]>([]);
   const [discountCodes, setDiscountCodes] = useState<any[]>([]);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  
 
   // Shipping categories (inline management)
   const [shippingTypes, setShippingTypes] = useState<any[]>([]);
@@ -348,6 +351,28 @@ export default function FeesSettings() {
         </Button>
       </div>
 
+      {/* Section Tabs */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {([
+          { key: 'general' as SettingsTab, label: 'General', icon: <Percent className="h-4 w-4 mr-1" /> },
+          { key: 'vehicles' as SettingsTab, label: 'Vehicles', icon: <Car className="h-4 w-4 mr-1" /> },
+          { key: 'shipping' as SettingsTab, label: 'Shipping', icon: <Truck className="h-4 w-4 mr-1" /> },
+          { key: 'advanced' as SettingsTab, label: 'Advanced', icon: <Tag className="h-4 w-4 mr-1" /> },
+        ]).map(tab => (
+          <Button
+            key={tab.key}
+            size="sm"
+            variant={activeTab === tab.key ? 'default' : 'outline'}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.icon} {tab.label}
+          </Button>
+        ))}
+      </div>
+
+      {/* ── GENERAL TAB ── */}
+      {activeTab === 'general' && (
+        <>
       {/* Exchange Rate + Markup — compact row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
@@ -381,7 +406,12 @@ export default function FeesSettings() {
           </CardContent>
         </Card>
       </div>
+        </>
+      )}
 
+      {/* ── VEHICLES TAB ── */}
+      {activeTab === 'vehicles' && (
+        <>
       {/* Vehicle Pricing Tiers */}
       <Card className="border-amber-500/30">
         <CardHeader className="pb-3">
@@ -452,7 +482,12 @@ export default function FeesSettings() {
           </p>
         </CardContent>
       </Card>
+        </>
+      )}
 
+      {/* ── SHIPPING TAB ── */}
+      {activeTab === 'shipping' && (
+        <>
       {/* Shipping Settings */}
       <Card>
         <CardHeader className="pb-3">
@@ -599,33 +634,21 @@ export default function FeesSettings() {
           </form>
         </DialogContent>
       </Dialog>
+        </>
+      )}
 
-
-
-
-      {/* Advanced Settings (Collapsible) */}
-      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <Card>
-          <CollapsibleTrigger asChild>
-            <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Tag className="h-5 w-5" />
-                    {t.settings.advancedSettings}
-                  </CardTitle>
-                  <CardDescription>
-                    {t.settings.advancedSettingsDesc}
-                  </CardDescription>
-                </div>
-                <Badge variant="outline">
-                  {advancedOpen ? t.common.clickToCollapse : t.common.clickToExpand}
-                </Badge>
-              </div>
-            </CardHeader>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <CardContent className="space-y-8 pt-0">
+      {/* ── ADVANCED TAB ── */}
+      {activeTab === 'advanced' && (
+        <>
+      {/* Advanced Settings */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Tag className="h-4 w-4" /> {t.settings.advancedSettings}
+          </CardTitle>
+          <CardDescription className="text-xs">{t.settings.advancedSettingsDesc}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-8">
               {/* Category Markups */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -806,10 +829,10 @@ export default function FeesSettings() {
                   </div>
                 )}
               </div>
-            </CardContent>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
+          </CardContent>
+      </Card>
+        </>
+      )}
 
       {/* Price Simulator Dialog */}
       <Dialog open={simulatorOpen} onOpenChange={setSimulatorOpen}>

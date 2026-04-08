@@ -111,12 +111,16 @@ export function PriceBreakdown({
     ? feeSettings.vehicleMarkupPercent
     : feeSettings.markupPercent;
   
-  // Use canonical shipping formula: base + (subtotal * percent)
-  const calculatedShippingFee = isVehicle ? 0 : calculateShippingUsd(
-    subtotal,
-    feeSettings.shippingBaseFeeUsd,
-    feeSettings.shippingPercent
-  );
+  // Use weight-based shipping when categories are available
+  let calculatedShippingFee: number;
+  if (isVehicle) {
+    calculatedShippingFee = 0;
+  } else if (feeSettings.shippingCategories?.length && feeSettings.shippingRatePerKg && productTitle) {
+    const detected = detectShippingCategory(productTitle, productCategoryKey, feeSettings.shippingCategories);
+    calculatedShippingFee = calculateWeightBasedShipping(detected, feeSettings.shippingRatePerKg, quantity);
+  } else {
+    calculatedShippingFee = calculateShippingUsd(subtotal, feeSettings.shippingBaseFeeUsd, feeSettings.shippingPercent);
+  }
   
   // Service fee: subtotal * markup percent (normalize if > 1)
   const markupRate = effectiveMarkupPercent > 1 

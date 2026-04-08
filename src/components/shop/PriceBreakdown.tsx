@@ -2,7 +2,8 @@ import { Info, Car } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useShopCart } from '@/contexts/ShopCartContext';
-import { calculateShippingUsd } from '@/lib/shippingCalculation';
+import { calculateShippingUsd, calculateWeightBasedShipping } from '@/lib/shippingCalculation';
+import { detectShippingCategory } from '@/lib/shippingCategoryDetector';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 

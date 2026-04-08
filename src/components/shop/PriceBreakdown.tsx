@@ -19,7 +19,8 @@ interface PriceBreakdownProps {
   serverMarginUsd?: number;
   serverShippingUsd?: number;
   serverLineTotalUsd?: number;
-  
+  productTitle?: string;
+  productCategoryKey?: string | null;
 }
 
 export function PriceBreakdown({

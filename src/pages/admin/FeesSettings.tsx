@@ -668,10 +668,14 @@ export default function FeesSettings() {
                 Per-category weights, flat rates, and buffer percentages used in shipping calculations
               </CardDescription>
             </div>
-            <Button size="sm" onClick={openAddShippingType}>
-              <Plus className="h-4 w-4 mr-1" /> Add
-            </Button>
-          </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => { setSimIsVehicle(false); setSimPrice(50); setSimulatorOpen(true); }}>
+                <Calculator className="h-4 w-4 mr-1" /> Simulate
+              </Button>
+              <Button size="sm" onClick={openAddShippingType}>
+                <Plus className="h-4 w-4 mr-1" /> Add
+              </Button>
+            </div>
         </CardHeader>
         <CardContent>
           <Table>

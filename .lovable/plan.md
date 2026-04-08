@@ -1,45 +1,61 @@
 
 
-# Fix Mobile Sections: Relevance, Image Quality, and Vehicle Curation
+# Risk Assessment: Multi-App Transaction Tagging Plan
 
-## Problem
-1. **Parts & Accessories** section shows irrelevant items (vanity mirrors, furniture) instead of actual car parts
-2. Some sections show low-quality or non-product images (ad banners still slipping through)
-3. **Vehicles** section needs to prominently feature popular makes (Tesla, Ford SUVs, etc.) from CarGurus/Carvana with attractive prices
+## Verdict: LOW RISK — but with two precautions
 
-## Changes
+The plan is safe because every change is **additive** (new column, new metadata field). Nothing existing gets removed or rewritten. Here's the breakdown:
 
-### 1. Fix "Parts & Accessories" relevance (`sectionProfiles.ts`)
-Add HOME_WORDS, CLOTHING_WORDS, and furniture/cosmetic keywords to the `parts_accessories` `excludeAny` list. Currently it only excludes phones and gaming — home/furniture items leak in because "mirror" isn't excluded.
+---
 
-**Add to excludeAny for parts_accessories:**
-- All of `HOME_WORDS` (sofa, bed, mattress, table, lamp, rug, curtain, furniture, decor, etc.)
-- All of `CLOTHING_WORDS` (shirt, hoodie, shoes, sneakers, etc.)
-- Additional: `"vanity"`, `"makeup"`, `"cosmetic"`, `"beauty"`, `"skincare"`, `"candle"`, `"pillow"`, `"blanket"`, `"towel"`, `"vase"`, `"planter"`
+## ✅ Zero-Risk Changes (safe)
 
-### 2. Boost Vehicles section with diversity queries (`sectionProfiles.ts`)
-Add `diversityQueries` to the vehicles profile so backfill pulls specific popular makes/types from the database, ensuring a curated mix of Teslas, Ford SUVs, Toyota trucks, etc.
+| Change | Why safe |
+|--------|----------|
+| Add `app` column with `DEFAULT 'afrishop'` | All existing rows automatically get the correct value. No data loss, no schema breakage |
+| Add `metadata` array to pawaPay deposit requests | pawaPay's API accepts optional metadata — adding it doesn't change how the deposit is processed |
+| Tag new records with `app: 'afrishop'` on insert | Just setting a column that already has the right default — purely defensive |
+
+## ⚠️ One Real Risk: Callback Routing Logic
+
+The plan says: *"If `app !== 'afrishop'`, skip processing."*
+
+**The risk**: If a MaishaMarket callback arrives and the `depositId` isn't found in AfriShop's database, the current code **already handles this gracefully** — line 895-900 returns HTTP 200 with `"Payment not found"`. This is safe and prevents retries.
+
+**Adding a metadata-based skip** is fine BUT introduces a subtle danger: if the metadata field is missing or malformed (e.g., pawaPay strips it in a future API change), we must **default to processing**, not skipping. Otherwise a real AfriShop payment could be silently dropped.
+
+### Safeguard: Default to `'afrishop'` when metadata is absent
 
 ```
-diversityQueries: [
-  "tesla model 3 model y",
-  "ford explorer f-150 suv",
-  "toyota camry rav4 highlander",
-  "bmw x3 x5 sedan",
-  "chevrolet silverado equinox tahoe",
-  "honda civic accord cr-v",
-  "jeep wrangler grand cherokee",
-]
+const appTag = metadata?.find(m => m.fieldName === 'app')?.fieldValue || 'afrishop';
+// Only skip if explicitly tagged as another app
+if (appTag !== 'afrishop') { return 200 skipped; }
 ```
 
-### 3. Bump cache schema version (`mobileSectionsCache.ts`)
-Change `MOBILE_SECTIONS_SCHEMA_VERSION` from **18** to **19** to invalidate stale cached sections and force a rebuild with the new filtering rules.
+This means: old transactions without metadata → processed normally. Only explicitly-tagged non-AfriShop transactions get skipped.
 
-### 4. Redeploy affected functions
-Deploy `catalog-home` (which imports both files) so the new profiles and cache version take effect immediately.
+## ⚠️ Second Precaution: Don't touch the deposit request structure unnecessarily
 
-## Technical Details
-- **Files modified**: `supabase/functions/_shared/sectionProfiles.ts`, `supabase/functions/_shared/mobileSectionsCache.ts`
-- **Functions redeployed**: `catalog-home`
-- After deployment, trigger "Rebuild Mobile" from admin to regenerate the homepage cache with clean sections
+The `PawaPayDepositRequest` type (line 28-41) doesn't include `metadata`. Adding it requires updating the type AND the request builder. This is straightforward but:
+- We must verify pawaPay's API version supports the `metadata` field (their v2 docs confirm it does)
+- The field must be sent as an array of `{fieldName, fieldValue}` objects — wrong format = deposit rejection
+
+## What We Will NOT Change
+
+- No changes to signature verification logic
+- No changes to payment status transitions (COMPLETED → PAID)
+- No changes to idempotency checks
+- No changes to referral commission flow
+- No changes to email notifications
+- No changes to Stripe flow at all (separate provider, separate keys)
+
+## Summary
+
+| Risk | Mitigation |
+|------|-----------|
+| Metadata missing → payment skipped | Default `app` to `'afrishop'` when metadata absent |
+| Wrong metadata format → deposit rejected by pawaPay | Follow exact `{fieldName, fieldValue}` schema from pawaPay v2 docs |
+| Database migration breaks existing data | `DEFAULT 'afrishop'` ensures zero impact on existing rows |
+
+**Bottom line**: No regression risk to payments if we implement the "default to afrishop" safeguard. The callback handler already gracefully handles unknown deposits. We're just adding a smarter skip layer on top.
 

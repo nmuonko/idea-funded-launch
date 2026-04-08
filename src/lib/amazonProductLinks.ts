@@ -1,7 +1,6 @@
 const AMAZON_ASIN_PATTERN = /(?:\/dp\/|\/gp\/(?:product|aw\/d)\/|\/product\/)([A-Z0-9]{10})/i;
 const AMAZON_HOST_PATTERN = /^https?:\/\/([^/]*amazon\.[^/]+)\//i;
 const AMAZON_HOME_PATTERN = /^https?:\/\/(?:www\.)?amazon\.[^/]+\/?$/i;
-const AMAZON_BARE_DP_PATTERN = /^https?:\/\/[^/]*amazon\.[^/]+\/dp\/[A-Z0-9]{10}\/?$/i;
 
 function stripQueryAndHash(url: string): string {
   try {
@@ -40,14 +39,6 @@ function isAmazonProductDetailUrl(url?: string | null): boolean {
   return AMAZON_ASIN_PATTERN.test(url);
 }
 
-function isAmazonSluggedDetailUrl(url?: string | null): boolean {
-  if (!url) return false;
-  if (!isAmazonProductDetailUrl(url)) return false;
-
-  const cleanUrl = stripQueryAndHash(url);
-  return !AMAZON_BARE_DP_PATTERN.test(cleanUrl);
-}
-
 function extractAmazonAsin(productUrl?: string | null, productId?: string | null): string | null {
   const cleanProductId = productId?.trim().toUpperCase() || '';
   if (/^[A-Z0-9]{10}$/.test(cleanProductId)) {
@@ -69,12 +60,12 @@ export function buildAmazonProductDetailUrl({
   productId?: string | null;
   productUrl?: string | null;
 }): string | null {
-  if (productUrl && isAmazonSluggedDetailUrl(productUrl)) {
-    return stripQueryAndHash(productUrl);
-  }
-
   const asin = extractAmazonAsin(productUrl, productId);
-  if (!asin) return productUrl || null;
+  if (!asin) {
+    return productUrl && isAmazonProductDetailUrl(productUrl)
+      ? stripQueryAndHash(productUrl)
+      : productUrl || null;
+  }
 
   const host = normalizeAmazonHost(productUrl);
   return `https://${host}/gp/product/${asin}`;

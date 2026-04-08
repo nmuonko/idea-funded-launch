@@ -24,6 +24,14 @@ export interface CartSettings {
   exchangeRate: number;
   shippingBaseFeeUsd: number;
   shippingPercent: number;
+  shippingRatePerKg: number;
+}
+
+export interface ShippingCategoryInfo {
+  est_weight_kg: number;
+  flat_shipping_usd: number | null;
+  shipping_buffer_percent: number;
+  requires_manual_quote: boolean;
 }
 
 /**
@@ -51,7 +59,28 @@ export function calculateItemPricing(
 }
 
 /**
- * Calculate shipping fee for an item
+ * NEW: Weight-based shipping fee calculation
+ */
+export function calculateWeightBasedShippingFee(
+  category: ShippingCategoryInfo,
+  shippingRatePerKg: number,
+  quantity: number,
+): number {
+  if (category.requires_manual_quote) return 0;
+
+  let baseShipping: number;
+  if (category.flat_shipping_usd != null && category.flat_shipping_usd > 0) {
+    baseShipping = category.flat_shipping_usd * quantity;
+  } else {
+    baseShipping = category.est_weight_kg * shippingRatePerKg * quantity;
+  }
+
+  const bufferMultiplier = 1 + (category.shipping_buffer_percent / 100);
+  return round2(baseShipping * bufferMultiplier);
+}
+
+/**
+ * LEGACY: Calculate shipping fee for an item (flat + percent)
  */
 export function calculateShippingFee(
   itemBaseTotalUsd: number,

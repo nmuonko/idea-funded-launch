@@ -31,6 +31,8 @@ interface ShippingItemType {
   label: string;
   description: string | null;
   est_weight_kg: number;
+  flat_shipping_usd: number | null;
+  shipping_buffer_percent: number;
   requires_manual_quote: boolean;
   active: boolean;
   created_at: string;
@@ -50,6 +52,8 @@ export default function ShippingTypes() {
     label: "",
     description: "",
     est_weight_kg: "",
+    flat_shipping_usd: "",
+    shipping_buffer_percent: "25",
     requires_manual_quote: false,
     active: true,
   });
@@ -64,7 +68,7 @@ export default function ShippingTypes() {
       toast.error("Failed to load shipping types");
       console.error(error);
     } else {
-      setTypes(data || []);
+      setTypes((data as any[]) || []);
     }
     setLoading(false);
   };
@@ -79,6 +83,8 @@ export default function ShippingTypes() {
       label: "",
       description: "",
       est_weight_kg: "",
+      flat_shipping_usd: "",
+      shipping_buffer_percent: "25",
       requires_manual_quote: false,
       active: true,
     });
@@ -97,6 +103,8 @@ export default function ShippingTypes() {
       label: type.label,
       description: type.description || "",
       est_weight_kg: type.est_weight_kg.toString(),
+      flat_shipping_usd: type.flat_shipping_usd?.toString() || "",
+      shipping_buffer_percent: type.shipping_buffer_percent.toString(),
       requires_manual_quote: type.requires_manual_quote,
       active: type.active,
     });
@@ -112,11 +120,16 @@ export default function ShippingTypes() {
       return;
     }
 
-    const payload = {
+    const flatShipping = formData.flat_shipping_usd ? parseFloat(formData.flat_shipping_usd) : null;
+    const bufferPercent = parseFloat(formData.shipping_buffer_percent) || 0;
+
+    const payload: any = {
       key: formData.key.toLowerCase().replace(/\s+/g, "_"),
       label: formData.label,
       description: formData.description || null,
       est_weight_kg: weight,
+      flat_shipping_usd: flatShipping,
+      shipping_buffer_percent: bufferPercent,
       requires_manual_quote: formData.requires_manual_quote || weight > HEAVY_THRESHOLD_KG,
       active: formData.active,
     };
@@ -174,7 +187,7 @@ export default function ShippingTypes() {
             Shipping Item Types
           </h1>
           <p className="text-muted-foreground mt-1">
-            Manage item categories for shipping weight estimation
+            Manage shipping categories — weight, flat rates, and buffer percentages used in pricing
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -239,6 +252,37 @@ export default function ShippingTypes() {
                   </p>
                 )}
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="flat_shipping">Flat Shipping ($) — leave blank for weight-based</Label>
+                <Input
+                  id="flat_shipping"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.flat_shipping_usd}
+                  onChange={(e) => setFormData({ ...formData, flat_shipping_usd: e.target.value })}
+                  placeholder="50.00"
+                />
+                <p className="text-xs text-muted-foreground">
+                  If set, overrides weight × rate/kg calculation (e.g., $50 flat for phones)
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="buffer">Shipping Buffer (%)</Label>
+                <Input
+                  id="buffer"
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="100"
+                  value={formData.shipping_buffer_percent}
+                  onChange={(e) => setFormData({ ...formData, shipping_buffer_percent: e.target.value })}
+                  placeholder="25"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Safety buffer added on top of shipping cost (25% = adds 25% to calculated shipping)
+                </p>
+              </div>
               <div className="flex items-center justify-between">
                 <Label htmlFor="manual_quote">Always requires manual quote</Label>
                 <Switch
@@ -275,6 +319,8 @@ export default function ShippingTypes() {
               <TableHead>Label</TableHead>
               <TableHead>Key</TableHead>
               <TableHead className="text-right">Weight (kg)</TableHead>
+              <TableHead className="text-right">Flat Ship ($)</TableHead>
+              <TableHead className="text-right">Buffer (%)</TableHead>
               <TableHead className="text-center">Manual Quote</TableHead>
               <TableHead className="text-center">Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -283,13 +329,13 @@ export default function ShippingTypes() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
+                <TableCell colSpan={8} className="text-center py-8">
                   Loading...
                 </TableCell>
               </TableRow>
             ) : types.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                   No shipping types configured
                 </TableCell>
               </TableRow>
@@ -309,6 +355,20 @@ export default function ShippingTypes() {
                     {type.est_weight_kg} kg
                     {type.est_weight_kg > HEAVY_THRESHOLD_KG && (
                       <AlertTriangle className="h-3 w-3 text-amber-500 inline ml-1" />
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {type.flat_shipping_usd != null ? (
+                      <span className="font-medium">${type.flat_shipping_usd}</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {type.shipping_buffer_percent > 0 ? (
+                      <span>{type.shipping_buffer_percent}%</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
                   <TableCell className="text-center">

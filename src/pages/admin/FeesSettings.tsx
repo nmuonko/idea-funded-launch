@@ -23,6 +23,7 @@ export default function FeesSettings() {
   const [vehicleMarkupPercent, setVehicleMarkupPercent] = useState(18);
   const [shippingBaseFeeUsd, setShippingBaseFeeUsd] = useState(20);
   const [shippingPercent, setShippingPercent] = useState(10);
+  const [shippingRatePerKg, setShippingRatePerKg] = useState(20);
   
   // Vehicle pricing tiers
   const [vehicleTiers, setVehicleTiers] = useState({

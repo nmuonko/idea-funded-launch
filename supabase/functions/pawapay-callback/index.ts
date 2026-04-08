@@ -787,7 +787,42 @@ serve(async (req) => {
     }
     
     const validatedPayload = parseResult.data;
-    
+
+    // ===== Multi-App Routing =====
+    const callbackMetadata = validatedPayload.metadata || [];
+    const appField = callbackMetadata.find((m: any) => m.fieldName === 'app');
+    const appValue = appField?.fieldValue || 'afrishop'; // backward compat
+
+    if (appValue === 'maishamarket') {
+      console.log(`[${traceId}] Forwarding callback to MaishaMarket`, {
+        depositId: validatedPayload.depositId,
+        payoutId: validatedPayload.payoutId,
+        status: validatedPayload.status,
+      });
+      try {
+        const forwardRes = await fetch(
+          'https://xuoihucaummfcbgazrja.supabase.co/functions/v1/pawapay-callback',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }
+        );
+        const forwardData = await forwardRes.json();
+        return new Response(JSON.stringify({ forwarded: true, ...forwardData }), {
+          status: forwardRes.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (forwardErr: any) {
+        console.error(`[${traceId}] MaishaMarket forward failed:`, forwardErr.message);
+        return new Response(JSON.stringify({ forwarded: false, error: 'forward_failed' }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+
     // ==================== Check if this is a PAYOUT callback ====================
     // PawaPay sends payout callbacks with payoutId instead of depositId
     if (validatedPayload.payoutId || (validatedPayload.metadata?.some?.((m: any) => m.fieldName === 'type' && m.fieldValue === 'referral_payout'))) {

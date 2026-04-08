@@ -119,16 +119,8 @@ export default function FeesSettings() {
   }, [simPrice, simWeight, simCategory, simIsVehicle, markupPercent, shippingRatePerKg, shippingTypes, vehicleTiers]);
   
   const { toast } = useToast();
-  const { language, setLanguage } = useLanguage();
+  const { language } = useLanguage();
   const t = getAdminTranslation(language);
-
-  const handleLanguageChange = (newLang: Language) => {
-    setLanguage(newLang);
-    toast({
-      title: t.settings.languageUpdated,
-      description: `${languages.find(l => l.code === newLang)?.name}`,
-    });
-  };
 
   useEffect(() => {
     loadSettings();

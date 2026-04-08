@@ -177,7 +177,7 @@ export default function FeesSettings() {
       est_weight_kg: weight,
       flat_shipping_usd: shippingTypeForm.flat_shipping_usd ? parseFloat(shippingTypeForm.flat_shipping_usd) : null,
       shipping_buffer_percent: parseFloat(shippingTypeForm.shipping_buffer_percent) || 0,
-      requires_manual_quote: shippingTypeForm.requires_manual_quote || weight > 9,
+      requires_manual_quote: shippingTypeForm.requires_manual_quote,
       active: shippingTypeForm.active,
     };
     const { error } = editingShippingType

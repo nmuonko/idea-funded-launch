@@ -5598,6 +5598,7 @@ export type Database = {
           service_fee_percent: number
           shipping_base_fee_usd: number
           shipping_percent: number
+          shipping_rate_per_kg: number
           support_email: string | null
           support_whatsapp: string | null
           updated_at: string
@@ -5626,6 +5627,7 @@ export type Database = {
           service_fee_percent?: number
           shipping_base_fee_usd?: number
           shipping_percent?: number
+          shipping_rate_per_kg?: number
           support_email?: string | null
           support_whatsapp?: string | null
           updated_at?: string
@@ -5654,6 +5656,7 @@ export type Database = {
           service_fee_percent?: number
           shipping_base_fee_usd?: number
           shipping_percent?: number
+          shipping_rate_per_kg?: number
           support_email?: string | null
           support_whatsapp?: string | null
           updated_at?: string
@@ -5667,10 +5670,12 @@ export type Database = {
           created_at: string
           description: string | null
           est_weight_kg: number
+          flat_shipping_usd: number | null
           id: string
           key: string
           label: string
           requires_manual_quote: boolean
+          shipping_buffer_percent: number
           updated_at: string
         }
         Insert: {
@@ -5678,10 +5683,12 @@ export type Database = {
           created_at?: string
           description?: string | null
           est_weight_kg: number
+          flat_shipping_usd?: number | null
           id?: string
           key: string
           label: string
           requires_manual_quote?: boolean
+          shipping_buffer_percent?: number
           updated_at?: string
         }
         Update: {
@@ -5689,10 +5696,12 @@ export type Database = {
           created_at?: string
           description?: string | null
           est_weight_kg?: number
+          flat_shipping_usd?: number | null
           id?: string
           key?: string
           label?: string
           requires_manual_quote?: boolean
+          shipping_buffer_percent?: number
           updated_at?: string
         }
         Relationships: []

@@ -95,7 +95,7 @@ export function CartDrawer({ className }: CartDrawerProps) {
                         {item.title}
                       </h4>
                       <p className="text-sm font-bold text-white mb-2">
-                        ${allInclusivePrice(item.priceUsd, feeSettings).toFixed(2)}
+                        ${allInclusivePrice(item.priceUsd, feeSettings, 1, null, item.title).toFixed(2)}
                       </p>
                       
                       {/* Quantity Controls */}

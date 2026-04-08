@@ -110,6 +110,8 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     vehicleMarkupPercent: 15,
     shippingBaseFeeUsd: 20,
     shippingPercent: 10,
+    shippingRatePerKg: 20,
+    shippingCategories: [],
   });
   const [hasVehicleItems, setHasVehicleItems] = useState(false);
   const [vehicleQuoteStatus, setVehicleQuoteStatus] = useState<VehicleQuoteStatus>('none');

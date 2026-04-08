@@ -2,44 +2,65 @@
  * Canonical shipping calculation utility
  * SINGLE SOURCE OF TRUTH for shipping fee calculation
  * 
+ * NEW MODEL (weight-based):
+ *   If flat_shipping_usd is set:  shipping = flat_shipping_usd × quantity
+ *   Else:                          shipping = est_weight_kg × shipping_rate_per_kg × quantity
+ *   Then:                          shipping = shipping × (1 + buffer_percent / 100)
+ * 
+ * LEGACY FALLBACK (when no category info available):
+ *   shipping = baseFee + (baseItemsTotal × shippingPercent)
+ */
+
+export interface ShippingCategoryInfo {
+  est_weight_kg: number;
+  flat_shipping_usd: number | null;
+  shipping_buffer_percent: number;
+  requires_manual_quote: boolean;
+}
+
+/**
+ * NEW: Weight-based shipping calculation per category
+ */
+export function calculateWeightBasedShipping(
+  category: ShippingCategoryInfo,
+  shippingRatePerKg: number,
+  quantity: number = 1,
+): number {
+  if (category.requires_manual_quote) return 0;
+
+  let baseShipping: number;
+  if (category.flat_shipping_usd != null && category.flat_shipping_usd > 0) {
+    baseShipping = category.flat_shipping_usd * quantity;
+  } else {
+    baseShipping = category.est_weight_kg * shippingRatePerKg * quantity;
+  }
+
+  const bufferMultiplier = 1 + (category.shipping_buffer_percent / 100);
+  return Math.round(baseShipping * bufferMultiplier * 100) / 100;
+}
+
+/**
+ * LEGACY: Flat fee + percentage shipping calculation
+ * Kept for backward compatibility when category info is unavailable
+ * 
  * FORMULA: baseFee + (baseItemsTotal × shippingPercent)
- * 
- * @param baseItemsTotalUsd - Sum of item BASE prices (before markup/margin)
- * @param baseFeeUsd - Flat base shipping fee (e.g., $40)
- * @param shippingPercent - Shipping percentage (can be decimal 0.1 or whole 10)
- * @returns Shipping fee rounded to 2 decimal places
- * 
- * @example
- * calculateShippingUsd(12.36, 40, 10)  → 41.24  (10 normalized to 0.1)
- * calculateShippingUsd(12.36, 40, 0.1) → 41.24  (0.1 used directly)
- * calculateShippingUsd(100, 40, 10)    → 50.00  (40 + 100*0.1)
  */
 export function calculateShippingUsd(
   baseItemsTotalUsd: number,
   baseFeeUsd: number,
   shippingPercent: number
 ): number {
-  // Validate inputs
   const base = Number(baseFeeUsd) || 0;
   const subtotal = Number(baseItemsTotalUsd) || 0;
   const pctRaw = Number(shippingPercent) || 0;
   
-  // Guard: normalize if passed as whole number (10) instead of decimal (0.1)
-  // Values > 1 are treated as percentages and divided by 100
-  const normalizedPercent = pctRaw > 1 
-    ? pctRaw / 100 
-    : pctRaw;
-  
-  // Calculate shipping: base fee + (subtotal × percent)
+  const normalizedPercent = pctRaw > 1 ? pctRaw / 100 : pctRaw;
   const shipping = base + (subtotal * normalizedPercent);
-  
-  // Round to 2 decimal places
   return Math.round(shipping * 100) / 100;
 }
 
 /**
  * Debug utility - returns calculation breakdown
- * Use for development/debugging only
  */
 export function calculateShippingUsdDebug(
   baseItemsTotalUsd: number,

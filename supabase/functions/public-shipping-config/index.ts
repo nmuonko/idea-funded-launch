@@ -22,10 +22,19 @@ interface ShippingConfig {
   shipping_base_fee_usd: number;
   shipping_percent: number;
   shipping_percent_display: number;
+  shipping_rate_per_kg: number;
   service_fee_percent: number;
   service_fee_percent_display: number;
   min_service_fee_usd: number;
   exchange_rate_usd_to_cdf: number;
+  shipping_categories: Array<{
+    key: string;
+    label: string;
+    est_weight_kg: number;
+    flat_shipping_usd: number | null;
+    shipping_buffer_percent: number;
+    requires_manual_quote: boolean;
+  }>;
 }
 
 interface CachedResponse {
@@ -59,6 +68,13 @@ async function fetchShippingConfig(): Promise<CachedResponse> {
     throw new Error('NOT_CONFIGURED: Pricing settings not configured');
   }
 
+  // Also fetch shipping categories
+  const { data: categories } = await supabase
+    .from('shipping_item_types')
+    .select('key, label, est_weight_kg, flat_shipping_usd, shipping_buffer_percent, requires_manual_quote')
+    .eq('active', true)
+    .order('label');
+
   // Normalize percentages
   const shippingPercent = data.shipping_percent > 1 
     ? data.shipping_percent / 100 
@@ -82,10 +98,19 @@ async function fetchShippingConfig(): Promise<CachedResponse> {
       shipping_base_fee_usd: Number(data.shipping_base_fee_usd) || 0,
       shipping_percent: shippingPercent,
       shipping_percent_display: data.shipping_percent,
+      shipping_rate_per_kg: Number(data.shipping_rate_per_kg) || 20,
       service_fee_percent: serviceFeePercent,
       service_fee_percent_display: data.service_fee_percent,
       min_service_fee_usd: Number(data.min_service_fee_usd) || 0,
       exchange_rate_usd_to_cdf: Number(data.exchange_rate_usd_to_cdf) || 2500,
+      shipping_categories: (categories || []).map((c: any) => ({
+        key: c.key,
+        label: c.label,
+        est_weight_kg: Number(c.est_weight_kg) || 0,
+        flat_shipping_usd: c.flat_shipping_usd != null ? Number(c.flat_shipping_usd) : null,
+        shipping_buffer_percent: Number(c.shipping_buffer_percent) || 0,
+        requires_manual_quote: c.requires_manual_quote || false,
+      })),
     },
     updated_at: data.updated_at,
     version,

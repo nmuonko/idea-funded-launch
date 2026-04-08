@@ -23,6 +23,7 @@ export default function FeesSettings() {
   const [vehicleMarkupPercent, setVehicleMarkupPercent] = useState(18);
   const [shippingBaseFeeUsd, setShippingBaseFeeUsd] = useState(20);
   const [shippingPercent, setShippingPercent] = useState(10);
+  const [shippingRatePerKg, setShippingRatePerKg] = useState(20);
   
   // Vehicle pricing tiers
   const [vehicleTiers, setVehicleTiers] = useState({
@@ -81,6 +82,7 @@ export default function FeesSettings() {
       
       setExchangeRateUsdToCdf(data.exchange_rate_usd_to_cdf || 2800);
       setShippingBaseFeeUsd(data.shipping_base_fee_usd || 20);
+      setShippingRatePerKg((data as any).shipping_rate_per_kg ?? 20);
       
       // Shipping percent stored as whole number (10 = 10%)
       const shippingVal = data.shipping_percent ?? 10;
@@ -131,6 +133,7 @@ export default function FeesSettings() {
           global_markup_percent: markupPercent / 100,
           shipping_base_fee_usd: shippingBaseFeeUsd,
           shipping_percent: shippingPercent,
+          shipping_rate_per_kg: shippingRatePerKg,
           exchange_rate_usd_to_cdf: exchangeRateUsdToCdf,
           category_markups: updatedCategoryMarkups,
           extra_fees: extraFees,
@@ -443,13 +446,28 @@ export default function FeesSettings() {
             {t.settings.shippingSettings}
           </CardTitle>
           <CardDescription>
-            {t.settings.shippingFormula}
+            Weight-based shipping per category. Manage categories in Shipping Types page.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
-              <Label htmlFor="shippingBase">{t.settings.baseShippingFee}</Label>
+              <Label htmlFor="shippingRatePerKg">Shipping Rate per KG ($)</Label>
+              <Input
+                id="shippingRatePerKg"
+                type="number"
+                step="0.5"
+                min="0"
+                value={shippingRatePerKg}
+                onChange={(e) => setShippingRatePerKg(Number(e.target.value))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Your agency's per-kg rate. Used when category has no flat rate override.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="shippingBase">{t.settings.baseShippingFee} (legacy fallback)</Label>
               <Input
                 id="shippingBase"
                 type="number"
@@ -458,12 +476,12 @@ export default function FeesSettings() {
                 onChange={(e) => setShippingBaseFeeUsd(Number(e.target.value))}
               />
               <p className="text-xs text-muted-foreground">
-                {t.settings.flatFeeDesc}
+                Only used if category detection fails
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="shippingPercent">{t.settings.shippingPercentage}</Label>
+              <Label htmlFor="shippingPercent">{t.settings.shippingPercentage} (legacy fallback)</Label>
               <div className="flex items-center gap-2">
                 <Input
                   id="shippingPercent"
@@ -475,16 +493,19 @@ export default function FeesSettings() {
                 <Badge variant="outline">{shippingPercent}%</Badge>
               </div>
               <p className="text-xs text-muted-foreground">
-                {t.settings.shippingPercentDesc}
+                Only used if category detection fails
               </p>
             </div>
           </div>
 
           <div className="bg-muted/50 rounded-lg p-4">
-            <p className="text-sm font-medium mb-2">{t.settings.shippingFormula}:</p>
-            <code className="text-xs bg-background px-2 py-1 rounded">
-              ${shippingBaseFeeUsd.toFixed(2)} + ({t.common.orderSubtotal} × {shippingPercent}%)
+            <p className="text-sm font-medium mb-2">New formula:</p>
+            <code className="text-xs bg-background px-2 py-1 rounded block">
+              Shipping = (Weight × ${shippingRatePerKg}/kg OR Flat Rate) × (1 + Buffer%)
             </code>
+            <p className="text-xs text-muted-foreground mt-2">
+              Example: 0.5kg shirt → ${(0.5 * shippingRatePerKg * 1.25).toFixed(2)} | $50 flat phone → ${(50 * 1.25).toFixed(2)}
+            </p>
           </div>
         </CardContent>
       </Card>

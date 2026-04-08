@@ -593,7 +593,118 @@ export default function FeesSettings() {
         </CardContent>
       </Card>
 
-      {/* Example Calculation */}
+      {/* Shipping Categories (inline) */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" />
+                Shipping Categories
+              </CardTitle>
+              <CardDescription>
+                Per-category weights, flat rates, and buffer percentages used in shipping calculations
+              </CardDescription>
+            </div>
+            <Button size="sm" onClick={openAddShippingType}>
+              <Plus className="h-4 w-4 mr-1" /> Add
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Category</TableHead>
+                <TableHead className="text-right">Weight (kg)</TableHead>
+                <TableHead className="text-right">Flat Ship ($)</TableHead>
+                <TableHead className="text-right">Buffer (%)</TableHead>
+                <TableHead className="text-center">Manual Quote</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+                <TableHead className="text-right">Edit</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {shippingTypes.map((st: any) => (
+                <TableRow key={st.id} className={!st.active ? 'opacity-50' : ''}>
+                  <TableCell>
+                    <div className="font-medium">{st.label}</div>
+                    {st.description && <div className="text-xs text-muted-foreground">{st.description}</div>}
+                  </TableCell>
+                  <TableCell className="text-right">{st.est_weight_kg} kg</TableCell>
+                  <TableCell className="text-right">
+                    {st.flat_shipping_usd != null ? `$${st.flat_shipping_usd}` : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {st.shipping_buffer_percent > 0 ? `${st.shipping_buffer_percent}%` : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {st.requires_manual_quote ? <Badge variant="secondary">Yes</Badge> : <span className="text-muted-foreground">No</span>}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Badge variant={st.active ? 'default' : 'outline'}>{st.active ? 'Active' : 'Off'}</Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button size="sm" variant="ghost" onClick={() => openEditShippingType(st)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Shipping Type Edit Dialog */}
+      <Dialog open={shippingTypeDialogOpen} onOpenChange={setShippingTypeDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingShippingType ? 'Edit Shipping Category' : 'Add Shipping Category'}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleShippingTypeSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Key (internal)</Label>
+              <Input value={shippingTypeForm.key} onChange={(e) => setShippingTypeForm({ ...shippingTypeForm, key: e.target.value })} placeholder="small_electronics" required />
+            </div>
+            <div className="space-y-2">
+              <Label>Label</Label>
+              <Input value={shippingTypeForm.label} onChange={(e) => setShippingTypeForm({ ...shippingTypeForm, label: e.target.value })} placeholder="Small electronics" required />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea value={shippingTypeForm.description} onChange={(e) => setShippingTypeForm({ ...shippingTypeForm, description: e.target.value })} placeholder="Phones, earbuds, cameras" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Weight (kg)</Label>
+                <Input type="number" step="0.1" min="0.1" value={shippingTypeForm.est_weight_kg} onChange={(e) => setShippingTypeForm({ ...shippingTypeForm, est_weight_kg: e.target.value })} required />
+              </div>
+              <div className="space-y-2">
+                <Label>Flat Shipping ($)</Label>
+                <Input type="number" step="0.01" min="0" value={shippingTypeForm.flat_shipping_usd} onChange={(e) => setShippingTypeForm({ ...shippingTypeForm, flat_shipping_usd: e.target.value })} placeholder="Leave blank for weight-based" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Buffer (%)</Label>
+              <Input type="number" step="1" min="0" max="100" value={shippingTypeForm.shipping_buffer_percent} onChange={(e) => setShippingTypeForm({ ...shippingTypeForm, shipping_buffer_percent: e.target.value })} />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label>Requires manual quote</Label>
+              <Switch checked={shippingTypeForm.requires_manual_quote} onCheckedChange={(c) => setShippingTypeForm({ ...shippingTypeForm, requires_manual_quote: c })} />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label>Active</Label>
+              <Switch checked={shippingTypeForm.active} onCheckedChange={(c) => setShippingTypeForm({ ...shippingTypeForm, active: c })} />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={() => setShippingTypeDialogOpen(false)}>Cancel</Button>
+              <Button type="submit">{editingShippingType ? 'Update' : 'Create'}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       <Card className="border-primary/20 bg-primary/5">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

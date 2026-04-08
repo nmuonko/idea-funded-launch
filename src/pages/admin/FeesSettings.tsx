@@ -351,6 +351,28 @@ export default function FeesSettings() {
         </Button>
       </div>
 
+      {/* Section Tabs */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {([
+          { key: 'general' as SettingsTab, label: 'General', icon: <Percent className="h-4 w-4 mr-1" /> },
+          { key: 'vehicles' as SettingsTab, label: 'Vehicles', icon: <Car className="h-4 w-4 mr-1" /> },
+          { key: 'shipping' as SettingsTab, label: 'Shipping', icon: <Truck className="h-4 w-4 mr-1" /> },
+          { key: 'advanced' as SettingsTab, label: 'Advanced', icon: <Tag className="h-4 w-4 mr-1" /> },
+        ]).map(tab => (
+          <Button
+            key={tab.key}
+            size="sm"
+            variant={activeTab === tab.key ? 'default' : 'outline'}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.icon} {tab.label}
+          </Button>
+        ))}
+      </div>
+
+      {/* ── GENERAL TAB ── */}
+      {activeTab === 'general' && (
+        <>
       {/* Exchange Rate + Markup — compact row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>

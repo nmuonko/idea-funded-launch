@@ -7,10 +7,9 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Percent, DollarSign, Tag, Plus, Trash2, Save, Globe, Truck, RefreshCw, Car, Pencil, Package, AlertTriangle, Calculator } from 'lucide-react';
+import { Loader2, Percent, DollarSign, Tag, Plus, Trash2, Save, Truck, RefreshCw, Car, Pencil, Package, Calculator } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { languages, Language, getAdminTranslation } from '@/lib/i18n/translations';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { getAdminTranslation } from '@/lib/i18n/translations';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
@@ -120,16 +119,8 @@ export default function FeesSettings() {
   }, [simPrice, simWeight, simCategory, simIsVehicle, markupPercent, shippingRatePerKg, shippingTypes, vehicleTiers]);
   
   const { toast } = useToast();
-  const { language, setLanguage } = useLanguage();
+  const { language } = useLanguage();
   const t = getAdminTranslation(language);
-
-  const handleLanguageChange = (newLang: Language) => {
-    setLanguage(newLang);
-    toast({
-      title: t.settings.languageUpdated,
-      description: `${languages.find(l => l.code === newLang)?.name}`,
-    });
-  };
 
   useEffect(() => {
     loadSettings();
@@ -333,14 +324,8 @@ export default function FeesSettings() {
     setDiscountCodes(discountCodes.filter((_, i) => i !== index));
   };
 
-  // Calculate example pricing
-  const examplePrice = 100;
-  const exampleQty = 2;
-  const exampleSubtotal = examplePrice * exampleQty;
-  const exampleMargin = exampleSubtotal * (markupPercent / 100);
-  const exampleItemsTotal = exampleSubtotal + exampleMargin;
-  const exampleShipping = shippingBaseFeeUsd + (exampleSubtotal * (shippingPercent / 100));
-  const exampleGrandTotal = exampleItemsTotal + exampleShipping;
+
+
 
   if (loading) {
     return (
@@ -351,154 +336,67 @@ export default function FeesSettings() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">{t.settings.title}</h1>
-          <p className="text-muted-foreground mt-2">
-            {t.settings.description}
-          </p>
+          <h1 className="text-2xl font-bold">{t.settings.title}</h1>
+          <p className="text-sm text-muted-foreground">{t.settings.description}</p>
         </div>
-        <Button onClick={saveSettings} disabled={saving}>
-          {saving ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <Save className="h-4 w-4 mr-2" />
-          )}
+        <Button onClick={saveSettings} disabled={saving} size="sm">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
           {t.settings.saveChanges}
         </Button>
       </div>
 
-      {/* Language Preferences */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5" />
-            {t.settings.languagePreferences}
-          </CardTitle>
-          <CardDescription>
-            {t.settings.languageDescription}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <RadioGroup
-            value={language}
-            onValueChange={(value) => handleLanguageChange(value as Language)}
-            className="grid grid-cols-2 md:grid-cols-4 gap-4"
-          >
-            {languages.map((lang) => (
-              <div
-                key={lang.code}
-                className={`flex items-center space-x-3 rounded-lg border p-4 cursor-pointer transition-colors ${
-                  language === lang.code
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border hover:bg-muted/50'
-                }`}
-                onClick={() => handleLanguageChange(lang.code)}
-              >
-                <RadioGroupItem value={lang.code} id={`lang-${lang.code}`} />
-                <Label
-                  htmlFor={`lang-${lang.code}`}
-                  className="flex items-center gap-2 cursor-pointer"
-                >
-                  <span className="text-xl">{lang.flag}</span>
-                  <span className="font-medium">{lang.name}</span>
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </CardContent>
-      </Card>
-
-      {/* Currency Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <RefreshCw className="h-5 w-5" />
-            {t.settings.exchangeRate}
-          </CardTitle>
-          <CardDescription>
-            USD to Congolese Franc conversion rate
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2 max-w-md">
-            <Label htmlFor="exchangeRate">1 USD =</Label>
+      {/* Exchange Rate + Markup — compact row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <RefreshCw className="h-4 w-4" /> {t.settings.exchangeRate}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
             <div className="flex items-center gap-2">
-              <Input
-                id="exchangeRate"
-                type="number"
-                step="1"
-                value={exchangeRateUsdToCdf}
-                onChange={(e) => setExchangeRateUsdToCdf(Number(e.target.value))}
-                className="flex-1"
-              />
-              <Badge variant="secondary" className="text-base px-3 py-1">
-                FC
-              </Badge>
+              <Label className="shrink-0">1 USD =</Label>
+              <Input type="number" step="1" value={exchangeRateUsdToCdf} onChange={(e) => setExchangeRateUsdToCdf(Number(e.target.value))} className="w-32" />
+              <Badge variant="secondary">FC</Badge>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      {/* Profit Margin */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Percent className="h-5 w-5" />
-            {t.settings.profitMargin}
-          </CardTitle>
-          <CardDescription>
-            {t.settings.profitMarginDesc}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4 max-w-md">
-              <div className="flex-1 space-y-2">
-                <Label htmlFor="markupPercent">{t.settings.markupPercent}</Label>
-                <Input
-                  id="markupPercent"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                  value={markupPercent}
-                  onChange={(e) => setMarkupPercent(parseFloat(e.target.value) || 0)}
-                />
-              </div>
-              <Badge variant="outline" className="text-lg px-4 py-2 mt-6">
-                {markupPercent}%
-              </Badge>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Percent className="h-4 w-4" /> {t.settings.profitMargin}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Label className="shrink-0">{t.settings.markupPercent}</Label>
+              <Input type="number" min="0" max="100" step="0.1" value={markupPercent} onChange={(e) => setMarkupPercent(parseFloat(e.target.value) || 0)} className="w-24" />
+              <Badge variant="outline">{markupPercent}%</Badge>
             </div>
-            <p className="text-sm text-muted-foreground">
-              {t.settings.marginFormula}: {t.common.itemMargin} = {t.common.itemSubtotal} × {markupPercent}%
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+            <p className="text-xs text-muted-foreground mt-1">{t.common.itemMargin} = {t.common.itemSubtotal} × {markupPercent}%</p>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Vehicle Pricing Tiers (USA → Dar es Salaam) */}
-      <Card className="border-amber-500/30 bg-amber-50/5">
-        <CardHeader>
+      {/* Vehicle Pricing Tiers */}
+      <Card className="border-amber-500/30">
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Car className="h-5 w-5 text-amber-600" />
-                {language === 'fr' ? 'Tarification Véhicules (USA → Dar es Salaam)' : 'Vehicle Pricing Tiers (USA → Dar es Salaam)'}
-              </CardTitle>
-              <CardDescription>
-                {language === 'fr' 
-                  ? 'Pourcentage all-inclusive appliqué aux véhicules par tranche de prix. Inclut logistique, marge et buffer.'
-                  : 'All-inclusive percentage applied to vehicles by price bracket. Includes logistics, margin, and safety buffer.'}
-              </CardDescription>
-            </div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Car className="h-4 w-4 text-amber-600" />
+              Vehicle Pricing Tiers (USA → Dar es Salaam)
+            </CardTitle>
             <Button size="sm" variant="outline" onClick={() => { setSimIsVehicle(true); setSimPrice(10000); setSimulatorOpen(true); }}>
               <Calculator className="h-4 w-4 mr-1" /> Simulate
             </Button>
           </div>
+          <CardDescription className="text-xs">All-inclusive % by price bracket. Includes logistics, margin, and buffer.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-4">
           {/* Tier Inputs */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
@@ -548,126 +446,56 @@ export default function FeesSettings() {
             </div>
           </div>
 
-          {/* Example */}
-          <div className="bg-amber-500/10 rounded-lg p-4 border border-amber-500/20">
-            <p className="text-sm font-medium mb-2 text-amber-700">
-              {language === 'fr' ? 'Exemple:' : 'Example:'} $10,000 {language === 'fr' ? 'véhicule, roulant, RORO' : 'vehicle, running, RORO'}
-            </p>
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div>
-                <p className="text-muted-foreground">{language === 'fr' ? 'Prix de base' : 'Base price'}</p>
-                <p className="font-semibold">$10,000</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">{language === 'fr' ? 'Taux' : 'Rate'} ({vehicleTiers.tier_3_8000_to_11999_percent}%)</p>
-                <p className="font-semibold text-amber-600">${(10000 * vehicleTiers.tier_3_8000_to_11999_percent / 100).toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">{language === 'fr' ? 'Prix final' : 'Final price'}</p>
-                <p className="font-semibold">${(10000 * (1 + vehicleTiers.tier_3_8000_to_11999_percent / 100)).toLocaleString()}</p>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-3">
-              {language === 'fr' 
-                ? '* Couvre USA → Dar es Salaam uniquement. Douanes/transport DRC = couche séparée.'
-                : '* Covers USA → Dar es Salaam only. DRC customs/inland delivery is a separate layer.'}
-            </p>
-          </div>
+          {/* Inline example */}
+          <p className="text-xs text-muted-foreground">
+            Example: $10,000 vehicle at {vehicleTiers.tier_3_8000_to_11999_percent}% → ${(10000 * (1 + vehicleTiers.tier_3_8000_to_11999_percent / 100)).toLocaleString()} final. USA → Dar es Salaam only.
+          </p>
         </CardContent>
       </Card>
 
       {/* Shipping Settings */}
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <Truck className="h-5 w-5" />
-                {t.settings.shippingSettings}
+              <CardTitle className="text-base flex items-center gap-2">
+                <Truck className="h-4 w-4" /> {t.settings.shippingSettings}
               </CardTitle>
-              <CardDescription>
-                Weight-based shipping per category. Buffer applies to shipping cost only, not the product price.
-              </CardDescription>
+              <CardDescription className="text-xs">Buffer applies to shipping cost only, not the product price.</CardDescription>
             </div>
             <Button size="sm" variant="outline" onClick={() => { setSimIsVehicle(false); setSimPrice(50); setSimulatorOpen(true); }}>
               <Calculator className="h-4 w-4 mr-1" /> Simulate
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="space-y-2">
-              <Label htmlFor="shippingRatePerKg">Shipping Rate per KG ($)</Label>
-              <Input
-                id="shippingRatePerKg"
-                type="number"
-                step="0.5"
-                min="0"
-                value={shippingRatePerKg}
-                onChange={(e) => setShippingRatePerKg(Number(e.target.value))}
-              />
-              <p className="text-xs text-muted-foreground">
-                Your agency's per-kg rate. Used when category has no flat rate override.
-              </p>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-1">
+              <Label className="text-xs">Rate per KG ($)</Label>
+              <Input type="number" step="0.5" min="0" value={shippingRatePerKg} onChange={(e) => setShippingRatePerKg(Number(e.target.value))} />
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="shippingBase">{t.settings.baseShippingFee} (legacy fallback)</Label>
-              <Input
-                id="shippingBase"
-                type="number"
-                step="0.01"
-                value={shippingBaseFeeUsd}
-                onChange={(e) => setShippingBaseFeeUsd(Number(e.target.value))}
-              />
-              <p className="text-xs text-muted-foreground">
-                Only used if category detection fails
-              </p>
+            <div className="space-y-1">
+              <Label className="text-xs">Legacy Base Fee ($)</Label>
+              <Input type="number" step="0.01" value={shippingBaseFeeUsd} onChange={(e) => setShippingBaseFeeUsd(Number(e.target.value))} />
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="shippingPercent">{t.settings.shippingPercentage} (legacy fallback)</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="shippingPercent"
-                  type="number"
-                  step="0.1"
-                  value={shippingPercent}
-                  onChange={(e) => setShippingPercent(Number(e.target.value))}
-                />
-                <Badge variant="outline">{shippingPercent}%</Badge>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Only used if category detection fails
-              </p>
+            <div className="space-y-1">
+              <Label className="text-xs">Legacy Shipping %</Label>
+              <Input type="number" step="0.1" value={shippingPercent} onChange={(e) => setShippingPercent(Number(e.target.value))} />
             </div>
           </div>
-
-          <div className="bg-muted/50 rounded-lg p-4">
-            <p className="text-sm font-medium mb-2">New formula:</p>
-            <code className="text-xs bg-background px-2 py-1 rounded block">
-              Shipping = (Weight × ${shippingRatePerKg}/kg OR Flat Rate) × (1 + Buffer%)
-            </code>
-            <p className="text-xs text-muted-foreground mt-2">
-              Example: 0.5kg shirt → ${(0.5 * shippingRatePerKg * 1.25).toFixed(2)} | $50 flat phone → ${(50 * 1.25).toFixed(2)}
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Formula: (Weight × ${shippingRatePerKg}/kg OR Flat Rate) × (1 + Buffer%). Legacy fields used only if category detection fails.
+          </p>
         </CardContent>
       </Card>
 
       {/* Shipping Categories (inline) */}
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Package className="h-5 w-5" />
-                Shipping Categories
-              </CardTitle>
-              <CardDescription>
-                Per-category weights, flat rates, and buffer percentages used in shipping calculations
-              </CardDescription>
-            </div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Package className="h-4 w-4" /> Shipping Categories
+            </CardTitle>
             <div className="flex items-center gap-2">
               <Button size="sm" variant="outline" onClick={() => { setSimIsVehicle(false); setSimPrice(50); setSimulatorOpen(true); }}>
                 <Calculator className="h-4 w-4 mr-1" /> Simulate
@@ -772,40 +600,8 @@ export default function FeesSettings() {
         </DialogContent>
       </Dialog>
 
-      <Card className="border-primary/20 bg-primary/5">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <DollarSign className="h-5 w-5" />
-            {t.settings.exampleCalculation}
-          </CardTitle>
-          <CardDescription>
-            {t.settings.sampleOrder}: ${examplePrice} × {exampleQty} {t.common.items}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">{t.common.itemsSubtotal}</p>
-              <p className="text-lg font-semibold">${exampleSubtotal.toFixed(2)}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">{t.common.margin} ({markupPercent}%)</p>
-              <p className="text-lg font-semibold">${exampleMargin.toFixed(2)}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">{t.common.shippingFee}</p>
-              <p className="text-lg font-semibold">${exampleShipping.toFixed(2)}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">{t.common.grandTotal}</p>
-              <p className="text-lg font-bold text-primary">${exampleGrandTotal.toFixed(2)}</p>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground mt-4">
-            CDF: {(exampleGrandTotal * exchangeRateUsdToCdf).toLocaleString()} FC
-          </p>
-        </CardContent>
-      </Card>
+
+
 
       {/* Advanced Settings (Collapsible) */}
       <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>

@@ -7,9 +7,10 @@ import { VehiclePricingTiers, parseTiers } from "./vehiclePricing.ts";
 interface CachedSettings {
   exchangeRate: number;
   markupPercent: number;
-  vehicleMarkupPercent: number;  // Vehicle-specific markup
+  vehicleMarkupPercent: number;
   shippingBaseFeeUsd: number;
   shippingPercent: number;
+  shippingRatePerKg: number;
   serviceFeePercent: number;
   minServiceFeeUsd: number;
   vehiclePricingTiers: VehiclePricingTiers;

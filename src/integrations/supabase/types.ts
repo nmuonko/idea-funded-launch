@@ -6307,6 +6307,10 @@ export type Database = {
           user_id: string
         }[]
       }
+      admin_has_permission: {
+        Args: { check_user_id: string; permission_name: string }
+        Returns: boolean
+      }
       aggregate_popularity_scores: { Args: never; Returns: Json }
       autoprewarm_dump_now: { Args: never; Returns: number }
       autoprewarm_start_worker: { Args: never; Returns: undefined }

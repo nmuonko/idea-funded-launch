@@ -482,7 +482,12 @@ export default function FeesSettings() {
           </p>
         </CardContent>
       </Card>
+        </>
+      )}
 
+      {/* ── SHIPPING TAB ── */}
+      {activeTab === 'shipping' && (
+        <>
       {/* Shipping Settings */}
       <Card>
         <CardHeader className="pb-3">

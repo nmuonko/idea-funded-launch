@@ -886,18 +886,7 @@ serve(async (req) => {
       });
     }
 
-    // ==================== Multi-App Routing ====================
-    // Default to 'afrishop' when metadata is absent (backward compat)
-    const callbackMetadata = validatedPayload.metadata;
-    const appTag = callbackMetadata?.find((m: { fieldName: string; fieldValue: string }) => m.fieldName === 'app')?.fieldValue || 'afrishop';
-
-    if (appTag !== 'afrishop') {
-      console.log(`[${traceId}] Skipping non-afrishop callback (app=${appTag})`);
-      return new Response(JSON.stringify({ status: 'skipped', reason: 'different_app', app: appTag }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    // (Multi-App routing already handled above — only afrishop reaches here)
 
     // ==================== Process Deposit Callback ====================
     

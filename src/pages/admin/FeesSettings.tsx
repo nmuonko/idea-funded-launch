@@ -461,31 +461,10 @@ export default function FeesSettings() {
             </div>
           </div>
 
-          {/* Example */}
-          <div className="bg-amber-500/10 rounded-lg p-4 border border-amber-500/20">
-            <p className="text-sm font-medium mb-2 text-amber-700">
-              {language === 'fr' ? 'Exemple:' : 'Example:'} $10,000 {language === 'fr' ? 'véhicule, roulant, RORO' : 'vehicle, running, RORO'}
-            </p>
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div>
-                <p className="text-muted-foreground">{language === 'fr' ? 'Prix de base' : 'Base price'}</p>
-                <p className="font-semibold">$10,000</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">{language === 'fr' ? 'Taux' : 'Rate'} ({vehicleTiers.tier_3_8000_to_11999_percent}%)</p>
-                <p className="font-semibold text-amber-600">${(10000 * vehicleTiers.tier_3_8000_to_11999_percent / 100).toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">{language === 'fr' ? 'Prix final' : 'Final price'}</p>
-                <p className="font-semibold">${(10000 * (1 + vehicleTiers.tier_3_8000_to_11999_percent / 100)).toLocaleString()}</p>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-3">
-              {language === 'fr' 
-                ? '* Couvre USA → Dar es Salaam uniquement. Douanes/transport DRC = couche séparée.'
-                : '* Covers USA → Dar es Salaam only. DRC customs/inland delivery is a separate layer.'}
-            </p>
-          </div>
+          {/* Inline example */}
+          <p className="text-xs text-muted-foreground">
+            Example: $10,000 vehicle at {vehicleTiers.tier_3_8000_to_11999_percent}% → ${(10000 * (1 + vehicleTiers.tier_3_8000_to_11999_percent / 100)).toLocaleString()} final. USA → Dar es Salaam only.
+          </p>
         </CardContent>
       </Card>
 

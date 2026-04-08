@@ -26,6 +26,7 @@ import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { resizeImageUrl, imageQualityScore, IMAGE_SIZE_HERO, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
+import { buildAmazonProductDetailUrl } from '@/lib/amazonProductLinks';
 
 /**
  * Determine if a product is a vehicle listing.
@@ -1068,27 +1069,16 @@ export default function ProductDetailsPage() {
               {/* View Original */}
               {(displayProvider === 'amazon' || product.productUrl) && (
                 <a
-                  href={(() => {
-                    if (displayProvider !== 'amazon') {
-                      return product.productUrl || '#';
-                    }
-
-                    const asinFromId = /^[A-Z0-9]{10}$/i.test(product.id || '') ? product.id.toUpperCase() : '';
-                    const asinFromUrl = product.productUrl?.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/|\/product\/)([A-Z0-9]{10})/i)?.[1]?.toUpperCase() || '';
-                    const asin = asinFromId || asinFromUrl;
-                    const host = product.productUrl?.match(/^https?:\/\/([^/]*amazon\.[^/]+)/i)?.[1] || 'www.amazon.com';
-                    const titleQuery = product.title?.trim() || '';
-                    const query = [asin, titleQuery].filter(Boolean).join(' ');
-
-                    return `https://${host}/s?k=${encodeURIComponent(query)}`;
-                  })()}
+                  href={displayProvider === 'amazon'
+                    ? buildAmazonProductDetailUrl({ productId: product.id, productUrl: product.productUrl }) || '#'
+                    : product.productUrl || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-2 text-sm text-white/60 hover:text-white transition-colors"
                 >
                   <ExternalLink className="h-4 w-4" />
                   {displayProvider === 'amazon'
-                    ? 'Find on Amazon'
+                    ? 'View on Amazon'
                     : `View on ${displayProvider === 'ebay' ? 'eBay' : displayProvider}`}
                 </a>
               )}

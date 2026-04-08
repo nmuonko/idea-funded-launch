@@ -1,3 +1,5 @@
+import { buildAmazonProductDetailUrl } from '@/lib/amazonProductLinks';
+
 export interface AdminOrderProductLinkItem {
   store?: string | null;
   product_url?: string | null;
@@ -75,28 +77,10 @@ export function buildAmazonCanonicalOrderUrl(item: AdminOrderProductLinkItem): s
   const asin = extractAmazonAsinFromOrderItem(item);
   if (!asin) return null;
 
-  // 1. Prefer an existing slugged product_url
-  if (isAmazonSluggedDetailUrl(item.product_url)) {
-    return item.product_url!;
-  }
-
-  // 2. Prefer an existing slugged canonical_url
-  if (isAmazonSluggedDetailUrl(item.canonical_url)) {
-    return item.canonical_url!;
-  }
-
-  // 3. Build a slugged URL from title + ASIN
-  const host = normalizeAmazonHost(item.product_url || item.canonical_url);
-  const title = item.title?.trim();
-  if (title && title !== 'Product') {
-    const slug = slugifyTitle(title);
-    if (slug.length > 2) {
-      return `https://${host}/${slug}/dp/${asin}`;
-    }
-  }
-
-  // 4. Last resort: bare /dp/ (may still redirect on some browsers)
-  return `https://${host}/dp/${asin}`;
+  return buildAmazonProductDetailUrl({
+    productId: asin,
+    productUrl: item.product_url || item.canonical_url,
+  });
 }
 
 export function getAdminOrderProductLink(item: AdminOrderProductLinkItem): string | null {

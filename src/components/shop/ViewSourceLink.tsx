@@ -1,6 +1,7 @@
 import { ExternalLink } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
+import { buildAmazonProductDetailUrl } from '@/lib/amazonProductLinks';
 
 interface ViewSourceLinkProps {
   productUrl: string;
@@ -17,9 +18,8 @@ export function ViewSourceLink({ productUrl, provider, title, className }: ViewS
   const isAmazon = provider === 'amazon' || provider === 'rainforest' ||
     (productUrl && productUrl.includes('amazon.com'));
 
-  // For Amazon/Rainforest, use search URL so customers always land on results
-  const resolvedUrl = isAmazon && title
-    ? `https://www.amazon.com/s?k=${encodeURIComponent(title)}`
+  const resolvedUrl = isAmazon
+    ? buildAmazonProductDetailUrl({ productUrl }) || productUrl
     : productUrl;
 
   const getStoreName = () => {

@@ -676,6 +676,7 @@ export default function FeesSettings() {
                 <Plus className="h-4 w-4 mr-1" /> Add
               </Button>
             </div>
+          </div>
         </CardHeader>
         <CardContent>
           <Table>

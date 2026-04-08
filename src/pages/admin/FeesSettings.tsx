@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Percent, DollarSign, Tag, Plus, Trash2, Save, Globe, Truck, RefreshCw, Car, Pencil, Package, AlertTriangle } from 'lucide-react';
+import { Loader2, Percent, DollarSign, Tag, Plus, Trash2, Save, Globe, Truck, RefreshCw, Car, Pencil, Package, AlertTriangle, Calculator } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { languages, Language, getAdminTranslation } from '@/lib/i18n/translations';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -70,6 +71,53 @@ export default function FeesSettings() {
     flat_shipping_usd: '', shipping_buffer_percent: '25',
     requires_manual_quote: false, active: true,
   });
+
+  // Price simulator
+  const [simulatorOpen, setSimulatorOpen] = useState(false);
+  const [simPrice, setSimPrice] = useState(50);
+  const [simWeight, setSimWeight] = useState(2);
+  const [simCategory, setSimCategory] = useState('custom');
+  const [simIsVehicle, setSimIsVehicle] = useState(false);
+
+  const simResult = useMemo(() => {
+    if (simIsVehicle) {
+      // Vehicle tier calculation
+      const tiers = [
+        { max: 5000, pct: vehicleTiers.tier_1_under_5000_percent },
+        { max: 8000, pct: vehicleTiers.tier_2_5000_to_7999_percent },
+        { max: 12000, pct: vehicleTiers.tier_3_8000_to_11999_percent },
+        { max: 18000, pct: vehicleTiers.tier_4_12000_to_17999_percent },
+        { max: 25000, pct: vehicleTiers.tier_5_18000_to_24999_percent },
+        { max: Infinity, pct: vehicleTiers.tier_6_25000_plus_percent },
+      ];
+      const tier = tiers.find(t => simPrice < t.max) || tiers[tiers.length - 1];
+      const fee = simPrice * (tier.pct / 100);
+      return { base: simPrice, markup: 0, shipping: fee, buffer: 0, total: simPrice + fee, tierPct: tier.pct, mode: 'vehicle' as const };
+    }
+
+    // Regular product
+    const cat = shippingTypes.find((s: any) => s.key === simCategory);
+    const weight = cat ? cat.est_weight_kg : simWeight;
+    const flatRate = cat?.flat_shipping_usd;
+    const bufferPct = cat ? cat.shipping_buffer_percent : 25;
+
+    const markupAmt = simPrice * (markupPercent / 100);
+    let baseShipping: number;
+    if (flatRate != null && flatRate > 0) {
+      baseShipping = flatRate;
+    } else {
+      baseShipping = weight * shippingRatePerKg;
+    }
+    const bufferAmt = baseShipping * (bufferPct / 100);
+    const totalShipping = baseShipping + bufferAmt;
+    const total = simPrice + markupAmt + totalShipping;
+
+    return {
+      base: simPrice, markup: markupAmt, shipping: baseShipping, buffer: bufferAmt,
+      total: Math.round(total * 100) / 100, weight, bufferPct, flatRate,
+      mode: 'regular' as const,
+    };
+  }, [simPrice, simWeight, simCategory, simIsVehicle, markupPercent, shippingRatePerKg, shippingTypes, vehicleTiers]);
   
   const { toast } = useToast();
   const { language, setLanguage } = useLanguage();
@@ -129,7 +177,7 @@ export default function FeesSettings() {
       est_weight_kg: weight,
       flat_shipping_usd: shippingTypeForm.flat_shipping_usd ? parseFloat(shippingTypeForm.flat_shipping_usd) : null,
       shipping_buffer_percent: parseFloat(shippingTypeForm.shipping_buffer_percent) || 0,
-      requires_manual_quote: shippingTypeForm.requires_manual_quote || weight > 9,
+      requires_manual_quote: shippingTypeForm.requires_manual_quote,
       active: shippingTypeForm.active,
     };
     const { error } = editingShippingType
@@ -433,15 +481,22 @@ export default function FeesSettings() {
       {/* Vehicle Pricing Tiers (USA → Dar es Salaam) */}
       <Card className="border-amber-500/30 bg-amber-50/5">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Car className="h-5 w-5 text-amber-600" />
-            {language === 'fr' ? 'Tarification Véhicules (USA → Dar es Salaam)' : 'Vehicle Pricing Tiers (USA → Dar es Salaam)'}
-          </CardTitle>
-          <CardDescription>
-            {language === 'fr' 
-              ? 'Pourcentage all-inclusive appliqué aux véhicules par tranche de prix. Inclut logistique, marge et buffer.'
-              : 'All-inclusive percentage applied to vehicles by price bracket. Includes logistics, margin, and safety buffer.'}
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Car className="h-5 w-5 text-amber-600" />
+                {language === 'fr' ? 'Tarification Véhicules (USA → Dar es Salaam)' : 'Vehicle Pricing Tiers (USA → Dar es Salaam)'}
+              </CardTitle>
+              <CardDescription>
+                {language === 'fr' 
+                  ? 'Pourcentage all-inclusive appliqué aux véhicules par tranche de prix. Inclut logistique, marge et buffer.'
+                  : 'All-inclusive percentage applied to vehicles by price bracket. Includes logistics, margin, and safety buffer.'}
+              </CardDescription>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => { setSimIsVehicle(true); setSimPrice(10000); setSimulatorOpen(true); }}>
+              <Calculator className="h-4 w-4 mr-1" /> Simulate
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Tier Inputs */}
@@ -524,13 +579,20 @@ export default function FeesSettings() {
       {/* Shipping Settings */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Truck className="h-5 w-5" />
-            {t.settings.shippingSettings}
-          </CardTitle>
-          <CardDescription>
-            Weight-based shipping per category. Manage categories in Shipping Types page.
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Truck className="h-5 w-5" />
+                {t.settings.shippingSettings}
+              </CardTitle>
+              <CardDescription>
+                Weight-based shipping per category. Buffer applies to shipping cost only, not the product price.
+              </CardDescription>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => { setSimIsVehicle(false); setSimPrice(50); setSimulatorOpen(true); }}>
+              <Calculator className="h-4 w-4 mr-1" /> Simulate
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -606,9 +668,14 @@ export default function FeesSettings() {
                 Per-category weights, flat rates, and buffer percentages used in shipping calculations
               </CardDescription>
             </div>
-            <Button size="sm" onClick={openAddShippingType}>
-              <Plus className="h-4 w-4 mr-1" /> Add
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => { setSimIsVehicle(false); setSimPrice(50); setSimulatorOpen(true); }}>
+                <Calculator className="h-4 w-4 mr-1" /> Simulate
+              </Button>
+              <Button size="sm" onClick={openAddShippingType}>
+                <Plus className="h-4 w-4 mr-1" /> Add
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -947,6 +1014,82 @@ export default function FeesSettings() {
           </CollapsibleContent>
         </Card>
       </Collapsible>
+
+      {/* Price Simulator Dialog */}
+      <Dialog open={simulatorOpen} onOpenChange={setSimulatorOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calculator className="h-5 w-5" />
+              Price Simulator
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Toggle vehicle vs regular */}
+            <div className="flex items-center gap-4">
+              <Button size="sm" variant={!simIsVehicle ? 'default' : 'outline'} onClick={() => setSimIsVehicle(false)}>
+                <Package className="h-4 w-4 mr-1" /> Regular Item
+              </Button>
+              <Button size="sm" variant={simIsVehicle ? 'default' : 'outline'} onClick={() => setSimIsVehicle(true)}>
+                <Car className="h-4 w-4 mr-1" /> Vehicle
+              </Button>
+            </div>
+
+            {/* Inputs */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label>Item Price ($)</Label>
+                <Input type="number" min="1" step="1" value={simPrice} onChange={e => setSimPrice(Number(e.target.value) || 0)} />
+              </div>
+              {!simIsVehicle && (
+                <div className="space-y-1">
+                  <Label>Category</Label>
+                  <Select value={simCategory} onValueChange={v => { setSimCategory(v); if (v === 'custom') setSimWeight(2); }}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="custom">Custom weight</SelectItem>
+                      {shippingTypes.filter((s: any) => s.active).map((s: any) => (
+                        <SelectItem key={s.key} value={s.key}>{s.label} ({s.est_weight_kg}kg{s.flat_shipping_usd ? `, $${s.flat_shipping_usd} flat` : ''})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {!simIsVehicle && simCategory === 'custom' && (
+                <div className="space-y-1">
+                  <Label>Weight (kg)</Label>
+                  <Input type="number" min="0.1" step="0.1" value={simWeight} onChange={e => setSimWeight(Number(e.target.value) || 0)} />
+                </div>
+              )}
+            </div>
+
+            {/* Results */}
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+              <p className="text-sm font-semibold">Breakdown</p>
+              {simResult.mode === 'vehicle' ? (
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Base price</span><span>${simResult.base.toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Tier fee ({simResult.tierPct}%)</span><span className="text-amber-600">${simResult.shipping.toLocaleString()}</span></div>
+                  <div className="border-t pt-2 flex justify-between font-bold"><span>Customer pays</span><span className="text-primary">${simResult.total.toLocaleString()}</span></div>
+                </div>
+              ) : (
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Base price</span><span>${simResult.base.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Markup ({markupPercent}%)</span><span>+${simResult.markup.toFixed(2)}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">
+                      Shipping {simResult.flatRate ? `($${simResult.flatRate} flat)` : `(${simResult.weight}kg × $${shippingRatePerKg}/kg)`}
+                    </span>
+                    <span>+${simResult.shipping.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Buffer ({simResult.bufferPct}% of shipping)</span><span>+${simResult.buffer.toFixed(2)}</span></div>
+                  <div className="border-t pt-2 flex justify-between font-bold"><span>Customer pays</span><span className="text-primary">${simResult.total.toFixed(2)}</span></div>
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

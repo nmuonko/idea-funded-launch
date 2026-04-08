@@ -351,132 +351,51 @@ export default function FeesSettings() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">{t.settings.title}</h1>
-          <p className="text-muted-foreground mt-2">
-            {t.settings.description}
-          </p>
+          <h1 className="text-2xl font-bold">{t.settings.title}</h1>
+          <p className="text-sm text-muted-foreground">{t.settings.description}</p>
         </div>
-        <Button onClick={saveSettings} disabled={saving}>
-          {saving ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <Save className="h-4 w-4 mr-2" />
-          )}
+        <Button onClick={saveSettings} disabled={saving} size="sm">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
           {t.settings.saveChanges}
         </Button>
       </div>
 
-      {/* Language Preferences */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5" />
-            {t.settings.languagePreferences}
-          </CardTitle>
-          <CardDescription>
-            {t.settings.languageDescription}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <RadioGroup
-            value={language}
-            onValueChange={(value) => handleLanguageChange(value as Language)}
-            className="grid grid-cols-2 md:grid-cols-4 gap-4"
-          >
-            {languages.map((lang) => (
-              <div
-                key={lang.code}
-                className={`flex items-center space-x-3 rounded-lg border p-4 cursor-pointer transition-colors ${
-                  language === lang.code
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border hover:bg-muted/50'
-                }`}
-                onClick={() => handleLanguageChange(lang.code)}
-              >
-                <RadioGroupItem value={lang.code} id={`lang-${lang.code}`} />
-                <Label
-                  htmlFor={`lang-${lang.code}`}
-                  className="flex items-center gap-2 cursor-pointer"
-                >
-                  <span className="text-xl">{lang.flag}</span>
-                  <span className="font-medium">{lang.name}</span>
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </CardContent>
-      </Card>
-
-      {/* Currency Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <RefreshCw className="h-5 w-5" />
-            {t.settings.exchangeRate}
-          </CardTitle>
-          <CardDescription>
-            USD to Congolese Franc conversion rate
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2 max-w-md">
-            <Label htmlFor="exchangeRate">1 USD =</Label>
+      {/* Exchange Rate + Markup — compact row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <RefreshCw className="h-4 w-4" /> {t.settings.exchangeRate}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
             <div className="flex items-center gap-2">
-              <Input
-                id="exchangeRate"
-                type="number"
-                step="1"
-                value={exchangeRateUsdToCdf}
-                onChange={(e) => setExchangeRateUsdToCdf(Number(e.target.value))}
-                className="flex-1"
-              />
-              <Badge variant="secondary" className="text-base px-3 py-1">
-                FC
-              </Badge>
+              <Label className="shrink-0">1 USD =</Label>
+              <Input type="number" step="1" value={exchangeRateUsdToCdf} onChange={(e) => setExchangeRateUsdToCdf(Number(e.target.value))} className="w-32" />
+              <Badge variant="secondary">FC</Badge>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      {/* Profit Margin */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Percent className="h-5 w-5" />
-            {t.settings.profitMargin}
-          </CardTitle>
-          <CardDescription>
-            {t.settings.profitMarginDesc}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4 max-w-md">
-              <div className="flex-1 space-y-2">
-                <Label htmlFor="markupPercent">{t.settings.markupPercent}</Label>
-                <Input
-                  id="markupPercent"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                  value={markupPercent}
-                  onChange={(e) => setMarkupPercent(parseFloat(e.target.value) || 0)}
-                />
-              </div>
-              <Badge variant="outline" className="text-lg px-4 py-2 mt-6">
-                {markupPercent}%
-              </Badge>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Percent className="h-4 w-4" /> {t.settings.profitMargin}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Label className="shrink-0">{t.settings.markupPercent}</Label>
+              <Input type="number" min="0" max="100" step="0.1" value={markupPercent} onChange={(e) => setMarkupPercent(parseFloat(e.target.value) || 0)} className="w-24" />
+              <Badge variant="outline">{markupPercent}%</Badge>
             </div>
-            <p className="text-sm text-muted-foreground">
-              {t.settings.marginFormula}: {t.common.itemMargin} = {t.common.itemSubtotal} × {markupPercent}%
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+            <p className="text-xs text-muted-foreground mt-1">{t.common.itemMargin} = {t.common.itemSubtotal} × {markupPercent}%</p>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Vehicle Pricing Tiers (USA → Dar es Salaam) */}
       <Card className="border-amber-500/30 bg-amber-50/5">

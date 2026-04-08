@@ -506,17 +506,11 @@ export default function FeesSettings() {
 
       {/* Shipping Categories (inline) */}
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Package className="h-5 w-5" />
-                Shipping Categories
-              </CardTitle>
-              <CardDescription>
-                Per-category weights, flat rates, and buffer percentages used in shipping calculations
-              </CardDescription>
-            </div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Package className="h-4 w-4" /> Shipping Categories
+            </CardTitle>
             <div className="flex items-center gap-2">
               <Button size="sm" variant="outline" onClick={() => { setSimIsVehicle(false); setSimPrice(50); setSimulatorOpen(true); }}>
                 <Calculator className="h-4 w-4 mr-1" /> Simulate

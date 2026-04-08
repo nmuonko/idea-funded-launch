@@ -28,10 +28,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
+type SettingsTab = 'general' | 'vehicles' | 'shipping' | 'advanced';
+
 export default function FeesSettings() {
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   
   // Core settings
   const [exchangeRateUsdToCdf, setExchangeRateUsdToCdf] = useState(2800);

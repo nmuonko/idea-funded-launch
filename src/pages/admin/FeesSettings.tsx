@@ -406,7 +406,12 @@ export default function FeesSettings() {
           </CardContent>
         </Card>
       </div>
+        </>
+      )}
 
+      {/* ── VEHICLES TAB ── */}
+      {activeTab === 'vehicles' && (
+        <>
       {/* Vehicle Pricing Tiers */}
       <Card className="border-amber-500/30">
         <CardHeader className="pb-3">

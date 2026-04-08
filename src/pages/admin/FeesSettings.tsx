@@ -1014,6 +1014,82 @@ export default function FeesSettings() {
           </CollapsibleContent>
         </Card>
       </Collapsible>
+
+      {/* Price Simulator Dialog */}
+      <Dialog open={simulatorOpen} onOpenChange={setSimulatorOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calculator className="h-5 w-5" />
+              Price Simulator
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Toggle vehicle vs regular */}
+            <div className="flex items-center gap-4">
+              <Button size="sm" variant={!simIsVehicle ? 'default' : 'outline'} onClick={() => setSimIsVehicle(false)}>
+                <Package className="h-4 w-4 mr-1" /> Regular Item
+              </Button>
+              <Button size="sm" variant={simIsVehicle ? 'default' : 'outline'} onClick={() => setSimIsVehicle(true)}>
+                <Car className="h-4 w-4 mr-1" /> Vehicle
+              </Button>
+            </div>
+
+            {/* Inputs */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label>Item Price ($)</Label>
+                <Input type="number" min="1" step="1" value={simPrice} onChange={e => setSimPrice(Number(e.target.value) || 0)} />
+              </div>
+              {!simIsVehicle && (
+                <div className="space-y-1">
+                  <Label>Category</Label>
+                  <Select value={simCategory} onValueChange={v => { setSimCategory(v); if (v === 'custom') setSimWeight(2); }}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="custom">Custom weight</SelectItem>
+                      {shippingTypes.filter((s: any) => s.active).map((s: any) => (
+                        <SelectItem key={s.key} value={s.key}>{s.label} ({s.est_weight_kg}kg{s.flat_shipping_usd ? `, $${s.flat_shipping_usd} flat` : ''})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {!simIsVehicle && simCategory === 'custom' && (
+                <div className="space-y-1">
+                  <Label>Weight (kg)</Label>
+                  <Input type="number" min="0.1" step="0.1" value={simWeight} onChange={e => setSimWeight(Number(e.target.value) || 0)} />
+                </div>
+              )}
+            </div>
+
+            {/* Results */}
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+              <p className="text-sm font-semibold">Breakdown</p>
+              {simResult.mode === 'vehicle' ? (
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Base price</span><span>${simResult.base.toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Tier fee ({simResult.tierPct}%)</span><span className="text-amber-600">${simResult.shipping.toLocaleString()}</span></div>
+                  <div className="border-t pt-2 flex justify-between font-bold"><span>Customer pays</span><span className="text-primary">${simResult.total.toLocaleString()}</span></div>
+                </div>
+              ) : (
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Base price</span><span>${simResult.base.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Markup ({markupPercent}%)</span><span>+${simResult.markup.toFixed(2)}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">
+                      Shipping {simResult.flatRate ? `($${simResult.flatRate} flat)` : `(${simResult.weight}kg × $${shippingRatePerKg}/kg)`}
+                    </span>
+                    <span>+${simResult.shipping.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Buffer ({simResult.bufferPct}% of shipping)</span><span>+${simResult.buffer.toFixed(2)}</span></div>
+                  <div className="border-t pt-2 flex justify-between font-bold"><span>Customer pays</span><span className="text-primary">${simResult.total.toFixed(2)}</span></div>
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

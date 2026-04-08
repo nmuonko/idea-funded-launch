@@ -38,6 +38,7 @@ export interface PawaPayDepositRequest {
   };
   customerTimestamp: string;
   statementDescription: string;
+  metadata?: Array<{ fieldName: string; fieldValue: string }>;
 }
 
 export interface PawaPayDepositResponse {

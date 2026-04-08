@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Percent, DollarSign, Tag, Plus, Trash2, Save, Globe, Truck, RefreshCw, Car, Pencil, Package, AlertTriangle } from 'lucide-react';
+import { Loader2, Percent, DollarSign, Tag, Plus, Trash2, Save, Globe, Truck, RefreshCw, Car, Pencil, Package, AlertTriangle, Calculator } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { languages, Language, getAdminTranslation } from '@/lib/i18n/translations';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';

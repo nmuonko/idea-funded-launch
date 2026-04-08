@@ -100,7 +100,7 @@ export function MiniCartPreview() {
                 <span className="text-white/60">{shop.subtotal || 'Subtotal'}:</span>
                 <div className="text-right">
                   {(() => {
-                    const cartTotal = items.reduce((sum, i) => sum + allInclusivePrice(i.priceUsd, feeSettings, i.quantity), 0);
+                    const cartTotal = items.reduce((sum, i) => sum + allInclusivePrice(i.priceUsd, feeSettings, i.quantity, null, i.title), 0);
                     return (
                       <>
                         <span className="text-white font-bold">${cartTotal.toFixed(2)}</span>

@@ -397,27 +397,21 @@ export default function FeesSettings() {
         </Card>
       </div>
 
-      {/* Vehicle Pricing Tiers (USA → Dar es Salaam) */}
-      <Card className="border-amber-500/30 bg-amber-50/5">
-        <CardHeader>
+      {/* Vehicle Pricing Tiers */}
+      <Card className="border-amber-500/30">
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Car className="h-5 w-5 text-amber-600" />
-                {language === 'fr' ? 'Tarification Véhicules (USA → Dar es Salaam)' : 'Vehicle Pricing Tiers (USA → Dar es Salaam)'}
-              </CardTitle>
-              <CardDescription>
-                {language === 'fr' 
-                  ? 'Pourcentage all-inclusive appliqué aux véhicules par tranche de prix. Inclut logistique, marge et buffer.'
-                  : 'All-inclusive percentage applied to vehicles by price bracket. Includes logistics, margin, and safety buffer.'}
-              </CardDescription>
-            </div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Car className="h-4 w-4 text-amber-600" />
+              Vehicle Pricing Tiers (USA → Dar es Salaam)
+            </CardTitle>
             <Button size="sm" variant="outline" onClick={() => { setSimIsVehicle(true); setSimPrice(10000); setSimulatorOpen(true); }}>
               <Calculator className="h-4 w-4 mr-1" /> Simulate
             </Button>
           </div>
+          <CardDescription className="text-xs">All-inclusive % by price bracket. Includes logistics, margin, and buffer.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-4">
           {/* Tier Inputs */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {[

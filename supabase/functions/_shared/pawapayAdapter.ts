@@ -338,6 +338,10 @@ export async function createDeposit(
       params.description || `AfriShop ${params.reference || params.orderId}`,
       params.orderId
     ),
+    metadata: [
+      { fieldName: 'app', fieldValue: 'afrishop' },
+      { fieldName: 'order_id', fieldValue: params.orderId || '' },
+    ],
   };
 
   // SAFE LOGGING: mask phone, no secrets

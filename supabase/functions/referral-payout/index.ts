@@ -119,6 +119,10 @@ async function executePayoutForReferrer(
       },
       customerTimestamp: new Date().toISOString(),
       statementDescription: 'AFRISHOP-COMMISSION',
+      metadata: [
+        { fieldName: 'app', fieldValue: 'afrishop' },
+        { fieldName: 'referrer_id', fieldValue: referrerId },
+      ],
     };
 
     console.log(`${TAG} Sending PawaPay payout request:`, {

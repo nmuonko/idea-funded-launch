@@ -282,17 +282,53 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
             setExchangeRate(data.exchangeRate);
           }
           if (data) {
+            // Load shipping categories from DB in parallel
+            let shippingCategories: FeeSettings['shippingCategories'] = [];
+            try {
+              const catRes = await fetch(
+                `${SUPABASE_URL}/rest/v1/shipping_item_types?select=key,est_weight_kg,flat_shipping_usd,shipping_buffer_percent,requires_manual_quote&active=eq.true`,
+                { headers: { 'apikey': SUPABASE_ANON_KEY } },
+              );
+              if (catRes.ok) {
+                shippingCategories = await catRes.json();
+              }
+            } catch (e) {
+              console.error('[CART] Failed to load shipping categories:', e);
+            }
+
+            // Get shipping rate per kg from settings
+            let shippingRatePerKg = 20;
+            try {
+              const settingsRes = await fetch(
+                `${SUPABASE_URL}/rest/v1/settings?select=shipping_rate_per_kg&limit=1`,
+                {
+                  headers: {
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Accept': 'application/vnd.pgrst.object+json',
+                  },
+                },
+              );
+              if (settingsRes.ok) {
+                const sRow = await settingsRes.json();
+                shippingRatePerKg = sRow?.shipping_rate_per_kg ?? 20;
+              }
+            } catch (e) {
+              console.error('[CART] Failed to load shipping rate per kg:', e);
+            }
+
             setFeeSettings({
               markupPercent: data.markup?.value ?? data.markupPercent ?? 15,
               vehicleMarkupPercent: data.markup?.vehicleValue ?? data.markupVehiclePercent ?? data.markup?.value ?? 15,
               shippingBaseFeeUsd: data.shipping?.flatUsd ?? data.shippingBaseFeeUsd ?? 20,
               shippingPercent: data.shipping?.percentValue ?? data.shippingPercent ?? 10,
+              shippingRatePerKg,
+              shippingCategories,
             });
             console.log('[CART] Fee settings loaded:', {
               markupPercent: data.markup?.value,
               vehicleMarkupPercent: data.markup?.vehicleValue,
-              shippingBaseFeeUsd: data.shipping?.flatUsd,
-              shippingPercent: data.shipping?.percentValue,
+              shippingRatePerKg,
+              shippingCategories: shippingCategories.length,
             });
           }
         }

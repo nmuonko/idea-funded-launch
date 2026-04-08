@@ -101,12 +101,12 @@ async function fetchFreshSettings(supabase: any): Promise<CachedSettings> {
   }
   
   settingsCache = {
-    // Use DB value or log error - never silently use wrong rate
-    exchangeRate: dbExchangeRate || 2500, // Emergency fallback only if DB is empty
+    exchangeRate: dbExchangeRate || 2500,
     markupPercent,
     vehicleMarkupPercent,
     shippingBaseFeeUsd: settings?.shipping_base_fee_usd ?? 20,
     shippingPercent,
+    shippingRatePerKg: settings?.shipping_rate_per_kg ?? 20,
     serviceFeePercent,
     minServiceFeeUsd: settings?.min_service_fee_usd ?? 5,
     vehiclePricingTiers: parseTiers(settings?.vehicle_pricing_tiers),

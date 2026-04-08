@@ -324,14 +324,8 @@ export default function FeesSettings() {
     setDiscountCodes(discountCodes.filter((_, i) => i !== index));
   };
 
-  // Calculate example pricing
-  const examplePrice = 100;
-  const exampleQty = 2;
-  const exampleSubtotal = examplePrice * exampleQty;
-  const exampleMargin = exampleSubtotal * (markupPercent / 100);
-  const exampleItemsTotal = exampleSubtotal + exampleMargin;
-  const exampleShipping = shippingBaseFeeUsd + (exampleSubtotal * (shippingPercent / 100));
-  const exampleGrandTotal = exampleItemsTotal + exampleShipping;
+
+
 
   if (loading) {
     return (

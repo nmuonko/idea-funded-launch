@@ -21,82 +21,103 @@ export default function PaymentSuccess() {
   
   const [verifying, setVerifying] = useState(true);
   const [verified, setVerified] = useState(false);
-  const hasSession = !!session;
+  const [resolvedSession, setResolvedSession] = useState(!!session);
   
   useEffect(() => {
     if (!orderId) {
       setVerifying(false);
-      setVerified(true); // No order_id — just show generic success
+      setVerified(true);
       return;
     }
     
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+
     const verifyPayment = async () => {
       try {
-        // Only attempt the RLS-protected query if we have a session
-        if (!hasSession) {
-          // No web auth session (mobile WebView) — assume success since
-          // /payment-callback already verified the payment before redirecting here
+        // Resilience: if context session is null, try getSession() fallback
+        let activeSession = session;
+        if (!activeSession) {
+          const { data } = await supabase.auth.getSession();
+          activeSession = data?.session ?? null;
+          if (activeSession) {
+            console.log('[PAYMENT] Recovered session via getSession() fallback');
+            setResolvedSession(true);
+          }
+        }
+
+        if (!activeSession) {
+          // No session at all (mobile WebView) — still show success
+          // /payment-callback already verified before redirecting here
           console.log('[PAYMENT] No web session — showing success without DB verification');
           setVerified(true);
           setVerifying(false);
+          // Still clear cart optimistically
+          if (!cartClearedRef.current) {
+            cartClearedRef.current = true;
+            await clearCartOnPaymentSuccess();
+          }
           return;
         }
 
-        // Poll for order status update
         const checkStatus = async () => {
           const { data: order, error } = await supabase
             .from('orders')
-            .select('status')
+            .select('status, total_usd')
             .eq('id', orderId)
             .single();
           
           if (error) {
             console.warn('[PAYMENT] Order lookup failed (RLS or missing):', error.message);
-            return false;
+            return null;
           }
-          return order?.status === 'PAID';
+          return order;
         };
         
-        // Try immediately
-        if (await checkStatus()) {
+        const handlePaid = async (order: { total_usd: number | null }) => {
           setVerified(true);
           setVerifying(false);
-          // TikTok Pixel: Purchase (fire once via cartClearedRef guard)
           if (!cartClearedRef.current) {
             cartClearedRef.current = true;
-            const { data: orderData } = await supabase.from('orders').select('total_usd').eq('id', orderId).single();
-            trackPurchase(orderData?.total_usd || 0, {
-              email: session?.user?.email ?? undefined,
-              userId: session?.user?.id ?? undefined,
+            trackPurchase(order?.total_usd || 0, {
+              email: activeSession?.user?.email ?? undefined,
+              userId: activeSession?.user?.id ?? undefined,
             });
             await clearCartOnPaymentSuccess();
             console.log('[PAYMENT] success orderId=', orderId, '-> cart cleared');
           }
+        };
+
+        // Try immediately
+        const order = await checkStatus();
+        if (order?.status === 'PAID') {
+          await handlePaid(order);
           return;
         }
         
-        // Poll for a few seconds
+        // Poll for a few seconds (webhook may be slightly delayed)
         let attempts = 0;
-        const interval = setInterval(async () => {
+        pollInterval = setInterval(async () => {
           attempts++;
-          const isPaid = await checkStatus();
-          if (isPaid || attempts >= 6) {
-            clearInterval(interval);
-            setVerified(true);
-            setVerifying(false);
-            if (isPaid && !cartClearedRef.current) {
-              cartClearedRef.current = true;
-              await clearCartOnPaymentSuccess();
-              console.log('[PAYMENT] success orderId=', orderId, '-> cart cleared');
+          const polledOrder = await checkStatus();
+          if (polledOrder?.status === 'PAID' || attempts >= 6) {
+            if (pollInterval) clearInterval(pollInterval);
+            if (polledOrder?.status === 'PAID') {
+              await handlePaid(polledOrder);
+            } else {
+              // After 12s still not PAID — show success anyway (provider confirmed)
+              setVerified(true);
+              setVerifying(false);
+              if (!cartClearedRef.current) {
+                cartClearedRef.current = true;
+                await clearCartOnPaymentSuccess();
+              }
             }
           }
         }, 2000);
-        
-        return () => clearInterval(interval);
       } catch (error) {
         console.error('Error verifying payment:', error);
         setVerifying(false);
-        setVerified(true); // Assume success since payment provider confirmed it
+        setVerified(true);
         if (!cartClearedRef.current) {
           cartClearedRef.current = true;
           await clearCartOnPaymentSuccess();
@@ -105,7 +126,11 @@ export default function PaymentSuccess() {
     };
     
     verifyPayment();
-  }, [orderId, hasSession, clearCartOnPaymentSuccess]);
+
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [orderId, session, clearCartOnPaymentSuccess]);
   
   if (verifying) {
     return (
@@ -182,7 +207,7 @@ export default function PaymentSuccess() {
               transition={{ delay: 0.5 }}
               className="space-y-3"
             >
-              {hasSession && orderId ? (
+              {(resolvedSession || !!session) && orderId ? (
                 <Button
                   onClick={() => navigate(`/orders/${orderId}`)}
                   className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full py-6"

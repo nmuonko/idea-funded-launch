@@ -20,6 +20,7 @@ import { translations } from '@/lib/i18n/translations';
 import { getRecentlyViewed } from '@/lib/recentlyViewed';
 import { isRenderableImageUrl } from '@/lib/imageValidation';
 import { supabase } from '@/integrations/supabase/client';
+import { allInclusivePrice, type FeeConfig } from '@/lib/allInclusivePrice';
 
 // Import static data and helpers from extracted module
 import {

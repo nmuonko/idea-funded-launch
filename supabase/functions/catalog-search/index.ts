@@ -780,8 +780,9 @@ Deno.serve(async (req: Request) => {
         hitHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Cache-TTL-Remaining, X-Results-Count, X-Next-Cursor, X-Cache-Match, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
         // Structured log
         console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "HIT", matchedQuery: null, provider: providerParam || "all", ttlRemaining: cacheTtlRemaining, resultsCount: cachedItems.length, totalMs: Date.now() - startTime, upstreamMs: 0, requestId }));
+        const pricedCachedItems = await ensurePricing(cachedItems);
         return new Response(JSON.stringify({
-          ...cachedResponse, items: cachedItems, total: cachedItems.length,
+          ...cachedResponse, items: pricedCachedItems, total: pricedCachedItems.length,
           query: qOriginal, env: envName, durationMs: Date.now() - startTime,
           _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
           meta: { source: "cache", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },

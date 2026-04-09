@@ -820,8 +820,9 @@ Deno.serve(async (req: Request) => {
           nearHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Cache-TTL-Remaining, X-Results-Count, X-Next-Cursor, X-Cache-Match, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
           // Structured log
           console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "NEAR_HIT", matchedQuery: nearMatch.matchedQuery, provider: providerParam || "all", ttlRemaining: nearMatch.ttlRemainingSec, resultsCount: nearItems.length, totalMs: Date.now() - startTime, upstreamMs: 0, similarity: nearMatch.similarity, requestId }));
+          const pricedNearItems = await ensurePricing(nearItems);
           return new Response(JSON.stringify({
-            ...nearMatch.data, items: nearItems, total: nearItems.length,
+            ...nearMatch.data, items: pricedNearItems, total: pricedNearItems.length,
             query: qOriginal, env: envName, durationMs: Date.now() - startTime,
             _cacheHit: true, _cacheAgeSec: nearMatch.cacheAgeSec, _nearMatch: true,
             _matchedQuery: nearMatch.matchedQuery, _similarity: nearMatch.similarity,
@@ -873,8 +874,9 @@ Deno.serve(async (req: Request) => {
       if (translateProvider) staleHeaders["X-Translate-Provider"] = translateProvider;
       staleHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Cache-TTL-Remaining, X-Results-Count, X-Next-Cursor, X-Cache-Match, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
       console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "STALE", matchedQuery: null, provider: providerParam || "all", ttlRemaining: 0, resultsCount: staleItems.length, totalMs: staleDuration, upstreamMs: 0, requestId }));
+      const pricedStaleItems = await ensurePricing(staleItems);
       return new Response(JSON.stringify({
-        ...cacheResult.data, items: staleItems, total: staleItems.length,
+        ...cacheResult.data, items: pricedStaleItems, total: pricedStaleItems.length,
         query: qOriginal, env: envName, durationMs: staleDuration,
         _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
         meta: { source: "stale", isStale: true, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },

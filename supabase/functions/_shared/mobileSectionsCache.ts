@@ -152,41 +152,96 @@ async function backfillForProfile(
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceRoleKey) return [];
 
+  const headers = {
+    apikey: serviceRoleKey,
+    Authorization: `Bearer ${serviceRoleKey}`,
+  };
+
+  const minPriceFilter = profile.minPrice
+    ? `price_usd=gte.${profile.minPrice}`
+    : `price_usd=gt.0`;
+
+  // ── DIVERSITY MODE: per-brand queries interleaved ──
+  if (profile.diversityQueries && profile.diversityQueries.length > 0) {
+    try {
+      const perBrand = Math.max(8, Math.ceil(needed / profile.diversityQueries.length) + 4);
+      const brandFetches = profile.diversityQueries.map(async (q) => {
+        const words = q.split(/\s+/).filter(w => w.length > 2);
+        const orClauses = words.map(w => `title.ilike.*${w}*`).join(",");
+        const url = `${supabaseUrl}/rest/v1/catalog_items?` +
+          `${minPriceFilter}&image_url=not.is.null&is_disallowed=eq.false` +
+          `&and=(${orClauses})&order=price_usd.asc.nullslast&limit=${perBrand * 3}`;
+        const res = await fetch(url, { headers });
+        if (!res.ok) return [];
+        const rows = await res.json();
+        return Array.isArray(rows) ? rows : [];
+      });
+
+      const brandResults = await Promise.allSettled(brandFetches);
+      const brandBuckets: Array<Record<string, unknown>[]> = brandResults.map(r =>
+        r.status === "fulfilled" ? r.value : []
+      );
+
+      // Round-robin interleave for diversity
+      const interleaved: Array<Record<string, unknown>> = [];
+      const seenIds = new Set<string>();
+      const maxLen = Math.max(...brandBuckets.map(b => b.length));
+      for (let i = 0; i < maxLen && interleaved.length < needed * 3; i++) {
+        for (const bucket of brandBuckets) {
+          if (i < bucket.length) {
+            const row = bucket[i];
+            const rid = `${row.provider}_${row.provider_product_id}`;
+            if (!seenIds.has(rid)) {
+              seenIds.add(rid);
+              interleaved.push(row);
+            }
+          }
+        }
+      }
+
+      if (interleaved.length > 0) {
+        const result = mapRows(interleaved, profile, usedIds, needed);
+        if (result.length >= Math.min(needed, 5)) {
+          console.log(`[MOBILE_SECTIONS_CACHE] diversity backfill for ${profile.key}: ${result.length} items from ${profile.diversityQueries.length} queries`);
+          return result;
+        }
+      }
+      // Fall through to generic backfill
+    } catch (e) {
+      console.warn(`[MOBILE_SECTIONS_CACHE] diversity backfill error for ${profile.key}: ${e}`);
+    }
+  }
+
+  // ── GENERIC BACKFILL ──
   try {
-    const queryKeywords = profile.includeAny.slice(0, 8);
+    const queryKeywords = profile.includeAny
+      .filter(kw => kw.length > 3)
+      .slice(0, 8);
+    if (queryKeywords.length === 0) return [];
+
     const orClauses = queryKeywords
-      .map(kw => `title.ilike.*${kw.replace(/ /g, "+")}*`)
+      .map(kw => `title.ilike.*${kw.replace(/ /g, "*")}*`)
       .join(",");
 
-    // Use preferProviders if set, otherwise all providers
     const providerFilter = profile.preferProviders && profile.preferProviders.length > 0
       ? `provider=in.(${profile.preferProviders.join(",")})`
       : `provider=in.(amazon,ebay,cargurus,carvana,shein,rainforest)`;
 
     const url = `${supabaseUrl}/rest/v1/catalog_items?` +
-      `${providerFilter}&price_usd=gt.0&image_url=not.is.null&is_disallowed=eq.false` +
+      `${providerFilter}&${minPriceFilter}&image_url=not.is.null&is_disallowed=eq.false` +
       `&or=(${orClauses})&order=price_usd.asc.nullslast&limit=${needed * 4}`;
 
-    const res = await fetch(url, {
-      headers: {
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-      },
-    });
-
+    const res = await fetch(url, { headers });
     if (!res.ok) return [];
 
     const rows = await res.json() as Array<Record<string, unknown>>;
     if (!Array.isArray(rows) || rows.length === 0) {
-      // Fallback to all providers if preferred returned nothing
       if (profile.preferProviders && profile.preferProviders.length > 0) {
         console.log(`[MOBILE_SECTIONS_CACHE] preferred providers empty for ${profile.key}, trying all`);
         const fallbackUrl = `${supabaseUrl}/rest/v1/catalog_items?` +
-          `provider=in.(amazon,ebay,cargurus,carvana,shein,rainforest)&price_usd=gt.0&image_url=not.is.null&is_disallowed=eq.false` +
+          `provider=in.(amazon,ebay,cargurus,carvana,shein,rainforest)&${minPriceFilter}&image_url=not.is.null&is_disallowed=eq.false` +
           `&or=(${orClauses})&order=price_usd.asc.nullslast&limit=${needed * 4}`;
-        const fallbackRes = await fetch(fallbackUrl, {
-          headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
-        });
+        const fallbackRes = await fetch(fallbackUrl, { headers });
         if (fallbackRes.ok) {
           const fallbackRows = await fallbackRes.json() as Array<Record<string, unknown>>;
           if (Array.isArray(fallbackRows) && fallbackRows.length > 0) {

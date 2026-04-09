@@ -157,7 +157,10 @@ export default function CategoryResultsPage() {
     }
 
     const items = (data || [])
-      .map((item: any) => mapItem(item))
+      .map((item: any) => {
+        const mapped = mapItem(item);
+        return { ...mapped, priceUsd: applyFees(mapped.priceUsd, mapped.title) };
+      })
       .filter(p => p.id && p.imageUrl && p.priceUsd > 0 && !seenIdsRef.current.has(p.id));
 
     items.forEach(p => seenIdsRef.current.add(p.id));

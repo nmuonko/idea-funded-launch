@@ -26,7 +26,7 @@ import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { resizeImageUrl, imageQualityScore, IMAGE_SIZE_HERO, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
-import { buildAmazonProductDetailUrl } from '@/lib/amazonProductLinks';
+import { buildAmazonProductDetailUrl, normalizeAmazonProductUrl } from '@/lib/amazonProductLinks';
 
 /**
  * Determine if a product is a vehicle listing.
@@ -1070,7 +1070,7 @@ export default function ProductDetailsPage() {
               {(displayProvider === 'amazon' || product.productUrl) && (
                 <a
                   href={displayProvider === 'amazon'
-                    ? buildAmazonProductDetailUrl({ productId: product.id, productUrl: product.productUrl }) || '#'
+                    ? (normalizeAmazonProductUrl(product.id) || normalizeAmazonProductUrl(product.productUrl) || '#')
                     : product.productUrl || '#'}
                   target="_blank"
                   rel="noopener noreferrer"

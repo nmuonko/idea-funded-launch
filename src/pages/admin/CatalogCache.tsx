@@ -58,7 +58,7 @@ const getAdminProductLinks = (item: { provider?: string | null; provider_product
   const isAmazon = provider === 'amazon' || provider === 'rainforest';
 
   const directUrl = isAmazon && productId
-    ? `https://www.amazon.com/dp/${productId}`
+    ? `https://www.amazon.com/dp/${productId.replace(/^(amazon|rainforest)_/i, '')}`
     : item.product_url || '#';
 
   const searchUrl = isAmazon && item.title

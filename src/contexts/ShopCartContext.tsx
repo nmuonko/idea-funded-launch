@@ -541,7 +541,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       const ebayItemId = cleanId.startsWith('v1|') ? cleanId.split('|')[1] : cleanId;
       return `https://www.ebay.com/itm/${ebayItemId}`;
     }
-    return `https://www.amazon.com/dp/${cleanId}`;
+    const asinMatch = cleanId.match(/^[A-Z0-9]{10}$/i);
+    const asin = asinMatch ? cleanId.toUpperCase() : cleanId;
+    return `https://www.amazon.com/dp/${asin}`;
   }, []);
 
   const addItem = async (item: Omit<CartItem, 'id'>) => {

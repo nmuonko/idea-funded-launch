@@ -1,7 +1,7 @@
 import { ExternalLink } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
-import { buildAmazonProductDetailUrl } from '@/lib/amazonProductLinks';
+import { buildAmazonProductDetailUrl, normalizeAmazonProductUrl } from '@/lib/amazonProductLinks';
 
 interface ViewSourceLinkProps {
   productUrl: string;
@@ -19,7 +19,7 @@ export function ViewSourceLink({ productUrl, provider, title, className }: ViewS
     (productUrl && productUrl.includes('amazon.com'));
 
   const resolvedUrl = isAmazon
-    ? buildAmazonProductDetailUrl({ productUrl }) || productUrl
+    ? (normalizeAmazonProductUrl(productUrl) || productUrl)
     : productUrl;
 
   const getStoreName = () => {

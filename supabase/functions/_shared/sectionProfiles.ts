@@ -231,7 +231,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
     ]),
     preferProviders: ["cargurus", "carvana", "ebay"],
     minItems: 12,
-    minPrice: 500,
+    minPrice: 5000,
     diversityQueries: [
       "tesla model 3",
       "tesla model y",

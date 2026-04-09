@@ -159,7 +159,8 @@ function mapDbItem(item: Record<string, unknown>, categoryKey: string | null): R
 }
 
 export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResult> {
-  const { supabase, qNorm, aiExpandedTerms, limit, offset = 0, categoryKey, requestId } = params;
+  const { supabase, qNorm, aiExpandedTerms, limit, offset = 0, categoryKey, requestId, vehicleIntent = false } = params;
+  const vehicleMinPrice = vehicleIntent ? 500 : undefined;
   const dbStartMs = Date.now();
 
   // Resolve TTL policy (global or per-category)

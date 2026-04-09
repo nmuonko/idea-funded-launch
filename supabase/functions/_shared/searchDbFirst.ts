@@ -299,6 +299,7 @@ async function tierASearch(
   limit: number,
   requestId: string,
   offset: number = 0,
+  minPrice?: number,
 ): Promise<Record<string, unknown>[]> {
   let dbQuery = supabase
     .from("catalog_items")
@@ -306,7 +307,7 @@ async function tierASearch(
     .eq("is_disallowed", false)
     .eq("is_active", true)
     .not("image_url", "is", null)
-    .gt("price_usd", 0);
+    .gt("price_usd", minPrice || 0);
 
   if (categoryKey) {
     dbQuery = dbQuery.or(`unified_category.eq.${categoryKey},unified_category.like.${categoryKey}_%`);

@@ -738,6 +738,20 @@ Deno.serve(async (req: Request) => {
     let cacheMatchedQuery: string | null = null;
     let cacheTtlRemaining = 0;
 
+    // ─── ALL-INCLUSIVE PRICING HELPER ─────────────────────────────────────────
+    // Lazily loaded pricing settings, applied to ALL response paths
+    let _pricingSettings: Awaited<ReturnType<typeof loadPricingSettings>> | null = null;
+    async function ensurePricing<T extends Record<string, unknown>>(items: T[]): Promise<T[]> {
+      if (!items.length) return items;
+      try {
+        if (!_pricingSettings) _pricingSettings = await loadPricingSettings();
+        return applyAllInclusivePricingToItems(items, _pricingSettings) as T[];
+      } catch (e) {
+        console.warn(`[CATALOG_SEARCH] requestId=${requestId} pricing error: ${(e as Error).message}`);
+        return items;
+      }
+    }
+
     // ─── FRESH CACHE HIT ──────────────────────────────────────────────────────
     // Quality gate: if cache has very few items for a device-intent query, treat as MISS
     // so broadening logic runs and fills the results

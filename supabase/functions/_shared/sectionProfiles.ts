@@ -611,12 +611,18 @@ export async function buildStrictMobileSections(
   const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: SectionItem[] }> = [];
 
   for (const profile of SECTION_PROFILES) {
+    // Sort by price ascending (cheapest first)
+    const sortedItems = sectionBuckets[profile.key].sort((a, b) => {
+      const pa = a.price_usd ?? a.priceUsd ?? Infinity;
+      const pb = b.price_usd ?? b.priceUsd ?? Infinity;
+      return pa - pb;
+    });
     sections.push({
       key: profile.key,
       title: lang === "fr" ? profile.title.fr : profile.title.en,
       title_fr: profile.title.fr,
       title_en: profile.title.en,
-      items: sectionBuckets[profile.key],
+      items: sortedItems,
     });
   }
 

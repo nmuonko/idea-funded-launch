@@ -342,7 +342,12 @@ async function buildStrictSectionsFromPool(
   const itemCounts: Record<string, number> = {};
 
   for (const profile of SECTION_PROFILES) {
-    const items = sectionBuckets[profile.key];
+    // Sort items by price ascending (cheapest first) to attract price-conscious customers
+    const items = sectionBuckets[profile.key].sort((a, b) => {
+      const pa = a.price_usd ?? a.priceUsd ?? Infinity;
+      const pb = b.price_usd ?? b.priceUsd ?? Infinity;
+      return pa - pb;
+    });
     itemCounts[profile.key] = items.length;
     sections.push({
       key: profile.key,

@@ -738,6 +738,20 @@ Deno.serve(async (req: Request) => {
     let cacheMatchedQuery: string | null = null;
     let cacheTtlRemaining = 0;
 
+    // ─── ALL-INCLUSIVE PRICING HELPER ─────────────────────────────────────────
+    // Lazily loaded pricing settings, applied to ALL response paths
+    let _pricingSettings: Awaited<ReturnType<typeof loadPricingSettings>> | null = null;
+    async function ensurePricing<T extends Record<string, unknown>>(items: T[]): Promise<T[]> {
+      if (!items.length) return items;
+      try {
+        if (!_pricingSettings) _pricingSettings = await loadPricingSettings();
+        return applyAllInclusivePricingToItems(items, _pricingSettings) as T[];
+      } catch (e) {
+        console.warn(`[CATALOG_SEARCH] requestId=${requestId} pricing error: ${(e as Error).message}`);
+        return items;
+      }
+    }
+
     // ─── FRESH CACHE HIT ──────────────────────────────────────────────────────
     // Quality gate: if cache has very few items for a device-intent query, treat as MISS
     // so broadening logic runs and fills the results
@@ -766,8 +780,9 @@ Deno.serve(async (req: Request) => {
         hitHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Cache-TTL-Remaining, X-Results-Count, X-Next-Cursor, X-Cache-Match, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
         // Structured log
         console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "HIT", matchedQuery: null, provider: providerParam || "all", ttlRemaining: cacheTtlRemaining, resultsCount: cachedItems.length, totalMs: Date.now() - startTime, upstreamMs: 0, requestId }));
+        const pricedCachedItems = await ensurePricing(cachedItems);
         return new Response(JSON.stringify({
-          ...cachedResponse, items: cachedItems, total: cachedItems.length,
+          ...cachedResponse, items: pricedCachedItems, total: pricedCachedItems.length,
           query: qOriginal, env: envName, durationMs: Date.now() - startTime,
           _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
           meta: { source: "cache", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
@@ -805,8 +820,9 @@ Deno.serve(async (req: Request) => {
           nearHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Cache-TTL-Remaining, X-Results-Count, X-Next-Cursor, X-Cache-Match, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
           // Structured log
           console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "NEAR_HIT", matchedQuery: nearMatch.matchedQuery, provider: providerParam || "all", ttlRemaining: nearMatch.ttlRemainingSec, resultsCount: nearItems.length, totalMs: Date.now() - startTime, upstreamMs: 0, similarity: nearMatch.similarity, requestId }));
+          const pricedNearItems = await ensurePricing(nearItems);
           return new Response(JSON.stringify({
-            ...nearMatch.data, items: nearItems, total: nearItems.length,
+            ...nearMatch.data, items: pricedNearItems, total: pricedNearItems.length,
             query: qOriginal, env: envName, durationMs: Date.now() - startTime,
             _cacheHit: true, _cacheAgeSec: nearMatch.cacheAgeSec, _nearMatch: true,
             _matchedQuery: nearMatch.matchedQuery, _similarity: nearMatch.similarity,
@@ -858,8 +874,9 @@ Deno.serve(async (req: Request) => {
       if (translateProvider) staleHeaders["X-Translate-Provider"] = translateProvider;
       staleHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Cache-TTL-Remaining, X-Results-Count, X-Next-Cursor, X-Cache-Match, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
       console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "STALE", matchedQuery: null, provider: providerParam || "all", ttlRemaining: 0, resultsCount: staleItems.length, totalMs: staleDuration, upstreamMs: 0, requestId }));
+      const pricedStaleItems = await ensurePricing(staleItems);
       return new Response(JSON.stringify({
-        ...cacheResult.data, items: staleItems, total: staleItems.length,
+        ...cacheResult.data, items: pricedStaleItems, total: pricedStaleItems.length,
         query: qOriginal, env: envName, durationMs: staleDuration,
         _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
         meta: { source: "stale", isStale: true, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
@@ -1052,7 +1069,8 @@ Deno.serve(async (req: Request) => {
       if (qualitySufficient && scoreResult.items.length >= MIN_TARGET_RESULTS) {
         console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH: ${scoreResult.items.length} items, topScore=${topScore} >= ${DB_QUALITY_MIN_TOP_SCORE} — using fast path`);
 
-        const dbFinal = postSortItems(postFilterItems(scoreResult.items, catalogFilters), sort);
+        const dbFinalRaw = postSortItems(postFilterItems(scoreResult.items, catalogFilters), sort);
+        const dbFinal = await ensurePricing(dbFinalRaw);
 
         const dbFastResponse = {
           status: "success",
@@ -2038,15 +2056,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Apply all-inclusive pricing (markup + shipping) for ALL clients
-    if (finalItems.length > 0) {
-      try {
-        const searchPricingSettings = await loadPricingSettings();
-        finalItems = applyAllInclusivePricingToItems(finalItems, searchPricingSettings) as typeof finalItems;
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} all-inclusive pricing applied to ${finalItems.length} items`);
-      } catch (pricingErr) {
-        console.warn(`[CATALOG_SEARCH] requestId=${requestId} pricing transform error: ${pricingErr}`);
-      }
-    }
+    finalItems = await ensurePricing(finalItems) as typeof finalItems;
 
     // Compute explicit page from cursor for response
     const pageForResponse = pageParam + 1;

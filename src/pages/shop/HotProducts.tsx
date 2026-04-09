@@ -252,6 +252,11 @@ export default function HotProducts() {
                       className="aspect-square bg-white overflow-hidden cursor-pointer"
                       onClick={() => {
                         trackClick(product, 'click');
+                        if (!product.provider_product_id) {
+                          // No valid product ID — go to buy directly
+                          handleBuyNow(product);
+                          return;
+                        }
                         navigate(`/product/${product.provider}/${product.provider_product_id}`, {
                           state: {
                             isFixedPrice: true,
@@ -274,6 +279,10 @@ export default function HotProducts() {
                         className="text-white text-xs sm:text-sm font-medium line-clamp-2 min-h-[2.5rem] cursor-pointer hover:text-orange-300 transition-colors"
                         onClick={() => {
                           trackClick(product, 'click');
+                          if (!product.provider_product_id) {
+                            handleBuyNow(product);
+                            return;
+                          }
                           navigate(`/product/${product.provider}/${product.provider_product_id}`, {
                             state: {
                               isFixedPrice: true,

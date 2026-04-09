@@ -185,12 +185,12 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
 
   // ─── TIER A: Token ilike match (fast, indexed) ─────────────────────────────
   // First try with top 2 tokens (more precise)
-  let tierAItems = await tierASearch(supabase, topTokens, categoryKey, 1000, requestId, offset);
+  let tierAItems = await tierASearch(supabase, topTokens, categoryKey, 1000, requestId, offset, vehicleMinPrice);
   
   // If 2-token search returned few results, retry with just the single longest token for broader coverage
   if (tierAItems.length < 50 && topTokens.length >= 2) {
     const singleToken = [topTokens[0]]; // longest token only
-    const broaderItems = await tierASearch(supabase, singleToken, categoryKey, 1000, requestId, offset);
+    const broaderItems = await tierASearch(supabase, singleToken, categoryKey, 1000, requestId, offset, vehicleMinPrice);
     if (broaderItems.length > tierAItems.length) {
       // Merge: precise results first, then broader results
       const seenIds = new Set(tierAItems.map((i: any) => i.id));

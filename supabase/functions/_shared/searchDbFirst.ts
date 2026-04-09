@@ -94,6 +94,8 @@ export interface DbFirstParams {
   offset?: number;
   categoryKey: string | null;
   requestId: string;
+  /** If true, apply $500 min price to filter out accessories for vehicle searches */
+  vehicleIntent?: boolean;
 }
 
 export interface DbFirstResult {
@@ -157,7 +159,8 @@ function mapDbItem(item: Record<string, unknown>, categoryKey: string | null): R
 }
 
 export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResult> {
-  const { supabase, qNorm, aiExpandedTerms, limit, offset = 0, categoryKey, requestId } = params;
+  const { supabase, qNorm, aiExpandedTerms, limit, offset = 0, categoryKey, requestId, vehicleIntent = false } = params;
+  const vehicleMinPrice = vehicleIntent ? 500 : undefined;
   const dbStartMs = Date.now();
 
   // Resolve TTL policy (global or per-category)
@@ -182,12 +185,12 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
 
   // ─── TIER A: Token ilike match (fast, indexed) ─────────────────────────────
   // First try with top 2 tokens (more precise)
-  let tierAItems = await tierASearch(supabase, topTokens, categoryKey, 1000, requestId, offset);
+  let tierAItems = await tierASearch(supabase, topTokens, categoryKey, 1000, requestId, offset, vehicleMinPrice);
   
   // If 2-token search returned few results, retry with just the single longest token for broader coverage
   if (tierAItems.length < 50 && topTokens.length >= 2) {
     const singleToken = [topTokens[0]]; // longest token only
-    const broaderItems = await tierASearch(supabase, singleToken, categoryKey, 1000, requestId, offset);
+    const broaderItems = await tierASearch(supabase, singleToken, categoryKey, 1000, requestId, offset, vehicleMinPrice);
     if (broaderItems.length > tierAItems.length) {
       // Merge: precise results first, then broader results
       const seenIds = new Set(tierAItems.map((i: any) => i.id));
@@ -244,7 +247,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
         const eqTop = [...eqTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);
         if (eqTop.length === 0) continue;
 
-        const exItems = await tierASearch(supabase, eqTop, categoryKey, 200, requestId);
+        const exItems = await tierASearch(supabase, eqTop, categoryKey, 200, requestId, 0, vehicleMinPrice);
         const newItems = exItems.filter((i: any) => !poolIds.has(i.id));
         newItems.forEach((i: any) => poolIds.add(i.id));
         pool = [...pool, ...newItems];
@@ -296,6 +299,7 @@ async function tierASearch(
   limit: number,
   requestId: string,
   offset: number = 0,
+  minPrice?: number,
 ): Promise<Record<string, unknown>[]> {
   let dbQuery = supabase
     .from("catalog_items")
@@ -303,7 +307,7 @@ async function tierASearch(
     .eq("is_disallowed", false)
     .eq("is_active", true)
     .not("image_url", "is", null)
-    .gt("price_usd", 0);
+    .gt("price_usd", minPrice || 0);
 
   if (categoryKey) {
     dbQuery = dbQuery.or(`unified_category.eq.${categoryKey},unified_category.like.${categoryKey}_%`);

@@ -4,7 +4,6 @@ import { ShoppingCart, Check, Loader2, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useShopCart } from '@/contexts/ShopCartContext';
-import { allInclusivePrice } from '@/lib/allInclusivePrice';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
@@ -246,7 +245,7 @@ export function ProductCard({ product, className, compact = false, coverImage = 
         <div className="flex items-center justify-between gap-2">
           <div>
             {(() => {
-              const displayPrice = allInclusivePrice(product.priceUsd, feeSettings, 1, null, product.title);
+              const displayPrice = product.priceUsd;
               return (
                 <>
                   <span className={cn("font-bold text-white", compact ? "text-sm" : "text-base sm:text-lg")}>

@@ -81,7 +81,7 @@ export function MiniCartPreview() {
                     <div className="flex items-center justify-between mt-1">
                       <span className="text-xs text-white/50">Qty: {item.quantity}</span>
                       <span className="text-sm text-white font-medium">
-                        ${allInclusivePrice(item.priceUsd, feeSettings, item.quantity, null, item.title).toFixed(2)}
+                        ${(item.priceUsd * item.quantity).toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -100,7 +100,7 @@ export function MiniCartPreview() {
                 <span className="text-white/60">{shop.subtotal || 'Subtotal'}:</span>
                 <div className="text-right">
                   {(() => {
-                    const cartTotal = items.reduce((sum, i) => sum + allInclusivePrice(i.priceUsd, feeSettings, i.quantity, null, i.title), 0);
+                    const cartTotal = items.reduce((sum, i) => sum + i.priceUsd * i.quantity, 0);
                     return (
                       <>
                         <span className="text-white font-bold">${cartTotal.toFixed(2)}</span>

@@ -95,7 +95,7 @@ export function CartDrawer({ className }: CartDrawerProps) {
                         {item.title}
                       </h4>
                       <p className="text-sm font-bold text-white mb-2">
-                        ${allInclusivePrice(item.priceUsd, feeSettings, 1, null, item.title).toFixed(2)}
+                        ${item.priceUsd.toFixed(2)}
                       </p>
                       
                       {/* Quantity Controls */}
@@ -140,7 +140,7 @@ export function CartDrawer({ className }: CartDrawerProps) {
               <div className="flex items-center justify-between">
                 <span className="text-white/60">{shop.subtotal}</span>
                 <span className="text-lg font-bold text-white">
-                  ${items.reduce((sum, i) => sum + allInclusivePrice(i.priceUsd, feeSettings, i.quantity, null, i.title), 0).toFixed(2)}
+                  ${items.reduce((sum, i) => sum + i.priceUsd * i.quantity, 0).toFixed(2)}
                 </span>
               </div>
               <p className="text-xs text-white/40">

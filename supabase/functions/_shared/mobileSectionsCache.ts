@@ -165,7 +165,7 @@ async function backfillForProfile(
 
     const url = `${supabaseUrl}/rest/v1/catalog_items?` +
       `${providerFilter}&price_usd=gt.0&image_url=not.is.null&is_disallowed=eq.false` +
-      `&or=(${orClauses})&order=updated_at.desc.nullslast&limit=${needed * 4}`;
+      `&or=(${orClauses})&order=price_usd.asc.nullslast&limit=${needed * 4}`;
 
     const res = await fetch(url, {
       headers: {
@@ -183,7 +183,7 @@ async function backfillForProfile(
         console.log(`[MOBILE_SECTIONS_CACHE] preferred providers empty for ${profile.key}, trying all`);
         const fallbackUrl = `${supabaseUrl}/rest/v1/catalog_items?` +
           `provider=in.(amazon,ebay,cargurus,carvana,shein,rainforest)&price_usd=gt.0&image_url=not.is.null&is_disallowed=eq.false` +
-          `&or=(${orClauses})&order=updated_at.desc.nullslast&limit=${needed * 4}`;
+          `&or=(${orClauses})&order=price_usd.asc.nullslast&limit=${needed * 4}`;
         const fallbackRes = await fetch(fallbackUrl, {
           headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
         });

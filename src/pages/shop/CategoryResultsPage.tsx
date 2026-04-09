@@ -11,6 +11,7 @@ import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { isRenderableImageUrl } from '@/lib/imageValidation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { supabase } from '@/integrations/supabase/client';
+import { allInclusivePrice, type FeeConfig } from '@/lib/allInclusivePrice';
 
 const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   all: { fr: 'Toutes les catégories', en: 'All Categories' },
@@ -76,6 +77,34 @@ export default function CategoryResultsPage() {
   const seenIdsRef = useRef(new Set<string>());
   const cursorRef = useRef<string | null>(null);
   const exhaustedRef = useRef(false);
+  const feeConfigRef = useRef<FeeConfig | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('settings' as any)
+          .select('markup_percent, shipping_base_fee_usd, shipping_percent, shipping_rate_per_kg')
+          .limit(1)
+          .single();
+        if (data) {
+          const d = data as any;
+          feeConfigRef.current = {
+            markupPercent: d.markup_percent ?? 30,
+            shippingBaseFeeUsd: d.shipping_base_fee_usd ?? 20,
+            shippingPercent: d.shipping_percent ?? 10,
+            shippingRatePerKg: d.shipping_rate_per_kg ?? 20,
+          };
+        }
+      } catch { /* fallback defaults used below */ }
+    })();
+  }, []);
+
+  const applyFees = useCallback((basePriceUsd: number, title?: string): number => {
+    if (!basePriceUsd || basePriceUsd <= 0) return basePriceUsd;
+    const fees = feeConfigRef.current || { markupPercent: 30, shippingBaseFeeUsd: 20, shippingPercent: 10 };
+    return allInclusivePrice(basePriceUsd, fees, 1, null, title);
+  }, []);
 
   const mapItem = (item: CategoryItem): Product => {
     const rawImage = item.mainImageUrl || item.image_url || item.imageUrl || '';
@@ -128,7 +157,10 @@ export default function CategoryResultsPage() {
     }
 
     const items = (data || [])
-      .map((item: any) => mapItem(item))
+      .map((item: any) => {
+        const mapped = mapItem(item);
+        return { ...mapped, priceUsd: applyFees(mapped.priceUsd, mapped.title) };
+      })
       .filter(p => p.id && p.imageUrl && p.priceUsd > 0 && !seenIdsRef.current.has(p.id));
 
     items.forEach(p => seenIdsRef.current.add(p.id));
@@ -197,7 +229,10 @@ export default function CategoryResultsPage() {
       exhaustedRef.current = true;
     }
     const items = (data || [])
-      .map((item: any) => mapItem(item))
+      .map((item: any) => {
+        const mapped = mapItem(item);
+        return { ...mapped, priceUsd: applyFees(mapped.priceUsd, mapped.title) };
+      })
       .filter(p => p.id && p.imageUrl && p.priceUsd > 0 && !seenIdsRef.current.has(p.id))
       .filter(isRelevantPartsItem);
     items.forEach(p => seenIdsRef.current.add(p.id));

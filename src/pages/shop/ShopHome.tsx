@@ -20,6 +20,7 @@ import { translations } from '@/lib/i18n/translations';
 import { getRecentlyViewed } from '@/lib/recentlyViewed';
 import { isRenderableImageUrl } from '@/lib/imageValidation';
 import { supabase } from '@/integrations/supabase/client';
+import { allInclusivePrice, type FeeConfig } from '@/lib/allInclusivePrice';
 
 // Import static data and helpers from extracted module
 import {
@@ -220,8 +221,37 @@ export default function ShopHome() {
   const categoryProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
 
   const storeProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
+  const feeConfigRef = useRef<FeeConfig | null>(null);
 
-  // Fetch distinct providers via RPC for dynamic store dropdown
+  // Load fee settings once for client-side all-inclusive pricing on direct DB queries
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('settings' as any)
+          .select('markup_percent, shipping_base_fee_usd, shipping_percent, shipping_rate_per_kg')
+          .limit(1)
+          .single();
+        if (data) {
+          const d = data as any;
+          feeConfigRef.current = {
+            markupPercent: d.markup_percent ?? 30,
+            shippingBaseFeeUsd: d.shipping_base_fee_usd ?? 20,
+            shippingPercent: d.shipping_percent ?? 10,
+            shippingRatePerKg: d.shipping_rate_per_kg ?? 20,
+          };
+        }
+      } catch { /* use defaults in applyFees */ }
+    })();
+  }, []);
+
+  /** Apply all-inclusive pricing to a raw base price from direct DB queries */
+  const applyFees = useCallback((basePriceUsd: number, title?: string): number => {
+    if (!basePriceUsd || basePriceUsd <= 0) return basePriceUsd;
+    const fees = feeConfigRef.current || { markupPercent: 30, shippingBaseFeeUsd: 20, shippingPercent: 10 };
+    return allInclusivePrice(basePriceUsd, fees, 1, null, title);
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
@@ -287,7 +317,7 @@ export default function ShopHome() {
             provider: item.provider || provider,
             title: item.title || 'Product',
             imageUrl: preferred,
-            priceUsd: item.price_usd || 0,
+            priceUsd: applyFees(item.price_usd || 0, item.title),
             rating: item.rating,
             inStock: item.in_stock !== false,
             productUrl: item.product_url,
@@ -1070,7 +1100,7 @@ export default function ShopHome() {
             provider: (item as any).provider || 'ebay',
             title: (item as any).title || 'Product',
             imageUrl: (item as any).image_url || '',
-            priceUsd: Number((item as any).price_usd) || 0,
+            priceUsd: applyFees(Number((item as any).price_usd) || 0, (item as any).title),
             inStock: true,
           });
         }

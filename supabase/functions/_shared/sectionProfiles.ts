@@ -181,13 +181,14 @@ export const SECTION_PROFILES: SectionProfile[] = [
     minItems: 30,
     minPrice: 80,
     diversityQueries: [
-      "samsung galaxy unlocked smartphone",
-      "google pixel unlocked smartphone",
-      "iphone unlocked",
+      "iphone 16 pro unlocked",
+      "iphone 15 pro unlocked",
+      "samsung galaxy s25 unlocked",
+      "samsung galaxy s24 unlocked",
+      "google pixel 9 unlocked",
       "xiaomi unlocked smartphone",
       "oneplus unlocked phone",
-      "motorola unlocked smartphone",
-      "android phone unlocked",
+      "motorola razr unlocked",
     ],
   },
   {
@@ -230,15 +231,17 @@ export const SECTION_PROFILES: SectionProfile[] = [
     ]),
     preferProviders: ["cargurus", "carvana", "ebay"],
     minItems: 12,
-    minPrice: 500,
+    minPrice: 5000,
     diversityQueries: [
-      "tesla model 3 model y",
-      "ford explorer f-150 suv",
-      "toyota camry rav4 highlander",
-      "bmw x3 x5 sedan",
-      "chevrolet silverado equinox tahoe",
-      "honda civic accord cr-v",
-      "jeep wrangler grand cherokee",
+      "tesla model 3",
+      "tesla model y",
+      "toyota camry corolla",
+      "honda civic accord",
+      "ford explorer mustang",
+      "bmw 3 series x3",
+      "jeep wrangler cherokee",
+      "hyundai tucson sonata",
+      "chevrolet equinox malibu",
     ],
   },
   {
@@ -404,7 +407,7 @@ async function backfillForProfile(
         const orClauses = words.map(w => `title.ilike.*${w}*`).join(",");
         const url = `${supabaseUrl}/rest/v1/catalog_items?` +
           `${minPriceFilter}&image_url=not.is.null&is_disallowed=eq.false` +
-          `&and=(${orClauses})&order=updated_at.desc.nullslast&limit=${perBrand * 3}`;
+          `&and=(${orClauses})&order=price_usd.asc.nullslast&limit=${perBrand * 3}`;
         const res = await fetch(url, { headers });
         if (!res.ok) return [];
         const rows = await res.json();
@@ -465,7 +468,7 @@ async function backfillForProfile(
 
     const url = `${supabaseUrl}/rest/v1/catalog_items?` +
       `${providerFilter}&${minPriceFilter}&image_url=not.is.null&is_disallowed=eq.false` +
-      `&or=(${orClauses})&order=updated_at.desc.nullslast&limit=${needed * 3}`;
+      `&or=(${orClauses})&order=price_usd.asc.nullslast&limit=${needed * 3}`;
 
     const res = await fetch(url, { headers });
 
@@ -481,7 +484,7 @@ async function backfillForProfile(
         console.log(`[SECTION_PROFILES] preferred providers empty for ${profile.key}, trying all`);
         const fallbackUrl = `${supabaseUrl}/rest/v1/catalog_items?` +
           `provider=in.(amazon,ebay,cargurus,carvana,shein,rainforest)&${minPriceFilter}&image_url=not.is.null&is_disallowed=eq.false` +
-          `&or=(${orClauses})&order=updated_at.desc.nullslast&limit=${needed * 3}`;
+          `&or=(${orClauses})&order=price_usd.asc.nullslast&limit=${needed * 3}`;
         const fallbackRes = await fetch(fallbackUrl, { headers });
         if (fallbackRes.ok) {
           const fallbackRows = await fallbackRes.json() as Array<Record<string, unknown>>;
@@ -608,12 +611,18 @@ export async function buildStrictMobileSections(
   const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: SectionItem[] }> = [];
 
   for (const profile of SECTION_PROFILES) {
+    // Sort by price ascending (cheapest first)
+    const sortedItems = sectionBuckets[profile.key].sort((a, b) => {
+      const pa = a.price_usd ?? a.priceUsd ?? Infinity;
+      const pb = b.price_usd ?? b.priceUsd ?? Infinity;
+      return pa - pb;
+    });
     sections.push({
       key: profile.key,
       title: lang === "fr" ? profile.title.fr : profile.title.en,
       title_fr: profile.title.fr,
       title_en: profile.title.en,
-      items: sectionBuckets[profile.key],
+      items: sortedItems,
     });
   }
 

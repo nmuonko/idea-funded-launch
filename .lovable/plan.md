@@ -1,82 +1,74 @@
 
+Goal
 
-## Make Shipping Weight-Based and Admin-Controllable
+Make every Amazon outbound click from your site — especially the “View on Amazon” button on the product detail page — resolve to the real Amazon product detail page, not a category or best-sellers page.
 
-### What exists today
-- **Admin Settings** (`/admin/settings`): Markup = 20% (admin-editable, stays unchanged), Shipping = $40 flat + 10% of item total
-- **Shipping Item Types** (`/admin/shipping-types`): 5 categories with estimated weights — but these weights are **decorative only**, never used in pricing
-- The shipping types page is hidden behind a permission and not easy to find
+Root cause I found
 
-### What changes
+- `src/lib/amazonProductLinks.ts` is still too permissive: if it cannot cleanly extract an ASIN, it falls back to the raw stored Amazon URL, even when that URL is bad, stale, or not a PDP.
+- `src/pages/shop/ProductDetails.tsx` can keep Amazon IDs in prefixed form like `amazon_B0...` because it prefers `item.id` over `providerProductId` / `provider_product_id`, so the CTA does not always have a clean ASIN source.
+- Amazon link building is fragmented in several places (`ProductDetails`, cart persistence, admin catalog links, order links, hot products), so bad Amazon URLs can keep getting stored and reused.
 
-**Markup stays exactly as-is** — 20% (or whatever admin sets). No change.
+Plan
 
-**Shipping becomes weight-based per category**, fully admin-editable:
+1. Harden the shared Amazon URL helper
+- Replace/extend the logic in `src/lib/amazonProductLinks.ts` with a strict `normalizeAmazonProductUrl(...)`.
+- It will accept:
+  - a raw Amazon URL
+  - a plain ASIN
+  - prefixed IDs like `amazon_B0...` or `rainforest_B0...`
+- It will extract the ASIN and always return:
+  - `https://www.amazon.com/dp/{ASIN}`
+- It will never return:
+  - `/-/dp/`
+  - category/search pages
+  - raw bad Amazon URLs
 
-#### 1. Database: Add columns to `shipping_item_types`
-- `flat_shipping_usd` (decimal, nullable) — for categories your agency charges a flat rate (phones, tablets = $50)
-- `shipping_buffer_percent` (decimal, default 25) — per-category buffer you control
+2. Fix the product detail page data flow
+- In `src/pages/shop/ProductDetails.tsx`, prefer `providerProductId` / `provider_product_id` over `item.id` when setting the product id.
+- Use the shared normalizer for the “View on Amazon” CTA after:
+  - initial nav state
+  - main product fetch
+  - retry fetch
+  - variant switching
+- If an Amazon ASIN cannot be resolved, do not send the user to a wrong Amazon page.
 
-#### 2. Database: Add `shipping_rate_per_kg` to `settings`
-- Default $20 — your agency's per-kg rate, editable in main settings
+3. Enforce the same normalizer everywhere Amazon URLs are created or persisted
+- `src/contexts/ShopCartContext.tsx`: normalize Amazon URLs before storing/syncing them.
+- `src/pages/shop/HotProducts.tsx`: stop passing internal fallback URLs as if they were Amazon product URLs.
+- `src/pages/admin/CatalogCache.tsx`: replace inline Amazon `/dp/` formatting with the shared helper.
+- `src/lib/orderProductLinks.ts`: remove duplicated Amazon parsing and delegate to the shared helper.
+- `src/pages/OrderDetail.tsx` and any remaining Amazon anchors: normalize before opening.
+- Update `src/components/shop/ViewSourceLink.tsx` too so future usage stays consistent.
 
-#### 3. Update the Shipping Types admin page (`/admin/shipping-types`)
-Add two new columns to the table and edit form:
-- **Flat Shipping ($)** — if set, overrides weight calculation (e.g., $50 for phones)
-- **Buffer (%)** — per-category buffer (default 25%)
+Technical details
 
-So in admin you'd see:
+- No UI styling changes.
+- Canonical outbound format will be `https://www.amazon.com/dp/{ASIN}`.
+- Before: some Amazon clicks could use raw/stale URLs or prefixed IDs and land on category/best-seller pages.
+- After: Amazon clicks will either open the canonical PDP URL or not render/open at all if no valid ASIN exists.
+- There is no test runner configured in this repo, so verification should be done with deterministic helper examples plus end-to-end preview clicks.
 
-```text
-Category              Weight   Flat Ship   Buffer   Manual Quote
-─────────────────────────────────────────────────────────────────
-Clothes / Shoes       0.5 kg   —           25%      No
-Small electronics     0.7 kg   $50.00      25%      No
-Laptop / Tablet       2.5 kg   $50.00      25%      No
-Console / Medium      6.0 kg   —           30%      No
-TV / Large appliance  12 kg    —           —        Yes (manual)
-```
+Verification
 
-#### 4. New shipping formula (replaces $40 flat + 10%)
+- Helper examples to verify:
+  - `https://www.amazon.com/-/dp/B0BYLM8RRW` -> `https://www.amazon.com/dp/B0BYLM8RRW`
+  - `B0BYLM8RRW` -> `https://www.amazon.com/dp/B0BYLM8RRW`
+  - `amazon_B0BYLM8RRW` -> `https://www.amazon.com/dp/B0BYLM8RRW`
+  - an already valid PDP URL -> canonical PDP URL
+- End-to-end checks:
+  - open Amazon items from home/search/similar products
+  - land on the internal product detail page
+  - click “View on Amazon”
+  - confirm the new tab opens the exact Amazon product page
 
-```text
-Per item:
-  If flat_shipping_usd is set:
-    shipping = flat_shipping_usd × quantity
-  Else:
-    shipping = est_weight_kg × shipping_rate_per_kg × quantity
+Likely files to change
 
-  Apply buffer:
-    shipping = shipping × (1 + buffer_percent / 100)
-```
-
-#### 5. Price comparison ($15 t-shirt example)
-
-| | Old (flat $40 + 10%) | New (0.5kg × $20/kg + 25% buffer) |
-|---|---|---|
-| Base price | $15 | $15 |
-| Markup (20%) | $3 | $3 |
-| Shipping | $40 + $1.50 = **$41.50** | $10 × 1.25 = **$12.50** |
-| **Total** | **$59.50** | **$30.50** |
-
-### Files to change
-
-1. **Migration SQL** — Add `flat_shipping_usd`, `shipping_buffer_percent` to `shipping_item_types`; add `shipping_rate_per_kg` to `settings`; set flat rates for phones/tablets
-2. **`src/pages/admin/ShippingTypes.tsx`** — Add flat shipping and buffer fields to table + edit dialog
-3. **Admin Settings page** — Add "Shipping Rate per KG" field next to existing shipping settings; remove or relabel the old flat fee fields
-4. **`supabase/functions/_shared/allInclusivePricing.ts`** — Use category weight/flat rate instead of flat fee
-5. **`supabase/functions/_shared/cart/pricing.ts`** — Same logic change for cart calculations
-6. **`src/lib/shippingCalculation.ts`** — Client-side equivalent
-7. **`src/lib/allInclusivePrice.ts`** — Client-side equivalent
-8. **`supabase/functions/public-shipping-config/index.ts`** — Expose new fields to frontend
-9. **Edge functions** (`mobile-cart`, catalog endpoints) — Pass category info through pricing pipeline
-
-### What you control as admin
-- **Markup %** — unchanged, in main settings
-- **Shipping rate per kg** — new field in main settings (default $20)
-- **Per-category flat shipping** — in Shipping Types page (e.g., $50 for phones)
-- **Per-category buffer %** — in Shipping Types page (e.g., 25% default, adjustable per category)
-- **Weight per category** — already exists in Shipping Types page
-
-Everything is admin-editable. Nothing is hardcoded.
-
+- `src/lib/amazonProductLinks.ts`
+- `src/pages/shop/ProductDetails.tsx`
+- `src/contexts/ShopCartContext.tsx`
+- `src/pages/shop/HotProducts.tsx`
+- `src/pages/admin/CatalogCache.tsx`
+- `src/lib/orderProductLinks.ts`
+- `src/pages/OrderDetail.tsx`
+- `src/components/shop/ViewSourceLink.tsx`

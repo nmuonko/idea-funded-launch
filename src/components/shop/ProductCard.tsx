@@ -4,7 +4,6 @@ import { ShoppingCart, Check, Loader2, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useShopCart } from '@/contexts/ShopCartContext';
-import { allInclusivePrice } from '@/lib/allInclusivePrice';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';

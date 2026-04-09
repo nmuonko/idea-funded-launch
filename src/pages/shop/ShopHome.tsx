@@ -317,7 +317,7 @@ export default function ShopHome() {
             provider: item.provider || provider,
             title: item.title || 'Product',
             imageUrl: preferred,
-            priceUsd: item.price_usd || 0,
+            priceUsd: applyFees(item.price_usd || 0, item.title),
             rating: item.rating,
             inStock: item.in_stock !== false,
             productUrl: item.product_url,
@@ -1100,7 +1100,7 @@ export default function ShopHome() {
             provider: (item as any).provider || 'ebay',
             title: (item as any).title || 'Product',
             imageUrl: (item as any).image_url || '',
-            priceUsd: Number((item as any).price_usd) || 0,
+            priceUsd: applyFees(Number((item as any).price_usd) || 0, (item as any).title),
             inStock: true,
           });
         }

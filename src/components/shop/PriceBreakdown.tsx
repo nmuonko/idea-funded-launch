@@ -101,76 +101,10 @@ export function PriceBreakdown({
     );
   }
 
-  const subtotal = itemPriceUsd * quantity;
+  // All prices from the backend are already all-inclusive (fees_included: true).
+  // Display them directly — no local re-calculation of markup/shipping.
+  const total = itemPriceUsd * quantity;
 
-  // Vehicles now use tiered auto-pricing — show simplified all-inclusive view
-  const showSimplifiedAllInclusive = !isVehicle || (isVehicle && ctx === 'product-detail');
-  
-  // Use vehicle markup for vehicle products, general markup otherwise
-  const effectiveMarkupPercent = isVehicle
-    ? feeSettings.vehicleMarkupPercent
-    : feeSettings.markupPercent;
-  
-  // Use weight-based shipping when categories are available
-  let calculatedShippingFee: number;
-  if (isVehicle) {
-    calculatedShippingFee = 0;
-  } else if (feeSettings.shippingCategories?.length && feeSettings.shippingRatePerKg && productTitle) {
-    const detected = detectShippingCategory(productTitle, productCategoryKey, feeSettings.shippingCategories);
-    calculatedShippingFee = calculateWeightBasedShipping(detected, feeSettings.shippingRatePerKg, quantity);
-  } else {
-    calculatedShippingFee = calculateShippingUsd(subtotal, feeSettings.shippingBaseFeeUsd, feeSettings.shippingPercent);
-  }
-  
-  // Service fee: subtotal * markup percent (normalize if > 1)
-  const markupRate = effectiveMarkupPercent > 1 
-    ? effectiveMarkupPercent / 100 
-    : effectiveMarkupPercent;
-  const calculatedServiceFee = isVehicle ? 0 : Math.round(subtotal * markupRate * 100) / 100;
-  
-  // Use server values for quoted vehicles, calculated values otherwise
-  const hasServerBreakdown = isVehicle && (serverMarginUsd != null || serverShippingUsd != null);
-  const serviceFee = hasServerBreakdown ? (serverMarginUsd ?? calculatedServiceFee) : calculatedServiceFee;
-  const shippingFee = hasServerBreakdown ? (serverShippingUsd ?? calculatedShippingFee) : calculatedShippingFee;
-  const total = hasServerBreakdown 
-    ? (serverLineTotalUsd ?? (subtotal + serviceFee + shippingFee))
-    : (subtotal + calculatedShippingFee + calculatedServiceFee);
-
-  // For vehicles, import and calculate using tiered pricing
-  // For non-vehicle items: show simplified all-inclusive view
-
-  // Simplified all-inclusive view for regular products
-  if (showSimplifiedAllInclusive) {
-    return (
-      <div className={cn("space-y-3", className)}>
-        {showDetails && (
-          <>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-white/60 min-w-0">
-                {shop.orderSummaryItem || 'Item'}{quantity > 1 ? ` (×${quantity})` : ''}
-              </span>
-              <span className="text-white/90 flex-shrink-0">${total.toFixed(2)}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-white/60">{shop.markupFee || 'Service Fee'}</span>
-              <span className="text-green-400 text-xs">{language === 'fr' ? 'Inclus' : 'Included'}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-white/60">{shop.shippingFee || 'Shipping'}</span>
-              <span className="text-green-400 text-xs">{language === 'fr' ? 'Inclus' : 'Included'}</span>
-            </div>
-            <div className="border-t border-white/10 pt-3" />
-          </>
-        )}
-        <div className="flex items-center justify-between">
-          <span className="text-white font-medium">{shop.total || 'Total'}</span>
-          <span className="text-xl font-bold text-white">${total.toFixed(2)}</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Fallback: full breakdown (shouldn't normally reach here with current logic)
   return (
     <div className={cn("space-y-3", className)}>
       {showDetails && (
@@ -179,7 +113,7 @@ export function PriceBreakdown({
             <span className="text-white/60 min-w-0">
               {shop.orderSummaryItem || 'Item'}{quantity > 1 ? ` (×${quantity})` : ''}
             </span>
-            <span className="text-white/90 flex-shrink-0">${subtotal.toFixed(2)}</span>
+            <span className="text-white/90 flex-shrink-0">${total.toFixed(2)}</span>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-white/60">{shop.markupFee || 'Service Fee'}</span>

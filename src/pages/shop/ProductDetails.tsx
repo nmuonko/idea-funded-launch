@@ -1070,7 +1070,7 @@ export default function ProductDetailsPage() {
               {(displayProvider === 'amazon' || product.productUrl) && (
                 <a
                   href={displayProvider === 'amazon'
-                    ? (normalizeAmazonProductUrl(product.providerProductId) || normalizeAmazonProductUrl(product.id) || normalizeAmazonProductUrl(product.productUrl) || '#')
+                    ? (normalizeAmazonProductUrl(product.id) || normalizeAmazonProductUrl(product.productUrl) || '#')
                     : product.productUrl || '#'}
                   target="_blank"
                   rel="noopener noreferrer"

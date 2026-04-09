@@ -407,7 +407,7 @@ async function backfillForProfile(
         const orClauses = words.map(w => `title.ilike.*${w}*`).join(",");
         const url = `${supabaseUrl}/rest/v1/catalog_items?` +
           `${minPriceFilter}&image_url=not.is.null&is_disallowed=eq.false` +
-          `&and=(${orClauses})&order=updated_at.desc.nullslast&limit=${perBrand * 3}`;
+          `&and=(${orClauses})&order=price_usd.asc.nullslast&limit=${perBrand * 3}`;
         const res = await fetch(url, { headers });
         if (!res.ok) return [];
         const rows = await res.json();
@@ -468,7 +468,7 @@ async function backfillForProfile(
 
     const url = `${supabaseUrl}/rest/v1/catalog_items?` +
       `${providerFilter}&${minPriceFilter}&image_url=not.is.null&is_disallowed=eq.false` +
-      `&or=(${orClauses})&order=updated_at.desc.nullslast&limit=${needed * 3}`;
+      `&or=(${orClauses})&order=price_usd.asc.nullslast&limit=${needed * 3}`;
 
     const res = await fetch(url, { headers });
 
@@ -484,7 +484,7 @@ async function backfillForProfile(
         console.log(`[SECTION_PROFILES] preferred providers empty for ${profile.key}, trying all`);
         const fallbackUrl = `${supabaseUrl}/rest/v1/catalog_items?` +
           `provider=in.(amazon,ebay,cargurus,carvana,shein,rainforest)&${minPriceFilter}&image_url=not.is.null&is_disallowed=eq.false` +
-          `&or=(${orClauses})&order=updated_at.desc.nullslast&limit=${needed * 3}`;
+          `&or=(${orClauses})&order=price_usd.asc.nullslast&limit=${needed * 3}`;
         const fallbackRes = await fetch(fallbackUrl, { headers });
         if (fallbackRes.ok) {
           const fallbackRows = await fallbackRes.json() as Array<Record<string, unknown>>;

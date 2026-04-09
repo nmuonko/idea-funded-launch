@@ -65,7 +65,7 @@ export default function SearchResults() {
   const navigate = useNavigate();
   const query = searchParams.get('q') || '';
   const category = searchParams.get('category') || '';
-  const initialSort = searchParams.get('sort') || 'relevance';
+  const initialSort = searchParams.get('sort') || 'price_asc';
   const initialProvider = searchParams.get('provider') || 'all';
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
@@ -108,8 +108,8 @@ export default function SearchResults() {
   }, [allProducts, providerFilter]);
 
   const SORT_OPTIONS = [
-    { value: 'relevance', label: shop.relevance || 'Relevance' },
     { value: 'price_asc', label: shop.priceLowToHigh || 'Price: Low to High' },
+    { value: 'relevance', label: shop.relevance || 'Relevance' },
     { value: 'price_desc', label: shop.priceHighToLow || 'Price: High to Low' },
     { value: 'rating', label: shop.topRated || 'Top Rated' },
   ];

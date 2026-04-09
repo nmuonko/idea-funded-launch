@@ -2138,7 +2138,7 @@ Deno.serve(async (req: Request) => {
           .from("catalog_items")
           .select("*")
           .or(orFilter)
-          .in("provider", ["rainforest", "amazon", "ebay"])
+          .in("provider", ["rainforest", "amazon", "ebay", "carvana", "cargurus"])
           .gt("price_usd", 0)
           .not("image_url", "is", null)
           .eq("is_disallowed", false)
@@ -2183,7 +2183,7 @@ Deno.serve(async (req: Request) => {
             const { data: ebayDbLoose } = await supabase
               .from("catalog_items")
               .select("id, title, price_usd, image_url, images, product_url, provider, provider_product_id, rating, unified_category, in_stock")
-              .in("provider", ["ebay", "amazon", "rainforest"])
+              .in("provider", ["ebay", "amazon", "rainforest", "carvana", "cargurus"])
               .eq("is_active", true)
               .eq("is_disallowed", false)
               .not("image_url", "is", null)

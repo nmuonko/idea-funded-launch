@@ -2056,15 +2056,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Apply all-inclusive pricing (markup + shipping) for ALL clients
-    if (finalItems.length > 0) {
-      try {
-        const searchPricingSettings = await loadPricingSettings();
-        finalItems = applyAllInclusivePricingToItems(finalItems, searchPricingSettings) as typeof finalItems;
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} all-inclusive pricing applied to ${finalItems.length} items`);
-      } catch (pricingErr) {
-        console.warn(`[CATALOG_SEARCH] requestId=${requestId} pricing transform error: ${pricingErr}`);
-      }
-    }
+    finalItems = await ensurePricing(finalItems) as typeof finalItems;
 
     // Compute explicit page from cursor for response
     const pageForResponse = pageParam + 1;

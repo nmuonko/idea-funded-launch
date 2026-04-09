@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useShopCart } from '@/contexts/ShopCartContext';
-import { allInclusivePrice } from '@/lib/allInclusivePrice';
+
 import { sanitizeCartImage } from '@/lib/imageValidation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';

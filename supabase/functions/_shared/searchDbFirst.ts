@@ -94,6 +94,8 @@ export interface DbFirstParams {
   offset?: number;
   categoryKey: string | null;
   requestId: string;
+  /** If true, apply $500 min price to filter out accessories for vehicle searches */
+  vehicleIntent?: boolean;
 }
 
 export interface DbFirstResult {

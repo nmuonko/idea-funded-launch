@@ -941,6 +941,7 @@ Deno.serve(async (req: Request) => {
         const dbOffset = page * limit;
         pendingDbWork = searchDbFirst({
           supabase, qNorm: dbQuery, aiExpandedTerms, limit, offset: dbOffset, categoryKey, requestId,
+          vehicleIntent: hasBuyingIntent,
         });
         const dbResult = await Promise.race([pendingDbWork, dbTimeout]);
         

@@ -68,5 +68,5 @@ export function buildAmazonProductDetailUrl({
   }
 
   const host = normalizeAmazonHost(productUrl);
-  return `https://${host}/gp/product/${asin}`;
+  return `https://${host}/-/dp/${asin}`;
 }

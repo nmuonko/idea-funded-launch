@@ -1,0 +1,1 @@
+DELETE FROM catalog_cache WHERE cache_type = 'search';

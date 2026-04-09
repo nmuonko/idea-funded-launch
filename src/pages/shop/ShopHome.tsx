@@ -221,8 +221,37 @@ export default function ShopHome() {
   const categoryProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
 
   const storeProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
+  const feeConfigRef = useRef<FeeConfig | null>(null);
 
-  // Fetch distinct providers via RPC for dynamic store dropdown
+  // Load fee settings once for client-side all-inclusive pricing on direct DB queries
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('settings' as any)
+          .select('markup_percent, shipping_base_fee_usd, shipping_percent, shipping_rate_per_kg')
+          .limit(1)
+          .single();
+        if (data) {
+          const d = data as any;
+          feeConfigRef.current = {
+            markupPercent: d.markup_percent ?? 30,
+            shippingBaseFeeUsd: d.shipping_base_fee_usd ?? 20,
+            shippingPercent: d.shipping_percent ?? 10,
+            shippingRatePerKg: d.shipping_rate_per_kg ?? 20,
+          };
+        }
+      } catch { /* use defaults in applyFees */ }
+    })();
+  }, []);
+
+  /** Apply all-inclusive pricing to a raw base price from direct DB queries */
+  const applyFees = useCallback((basePriceUsd: number, title?: string): number => {
+    if (!basePriceUsd || basePriceUsd <= 0) return basePriceUsd;
+    const fees = feeConfigRef.current || { markupPercent: 30, shippingBaseFeeUsd: 20, shippingPercent: 10 };
+    return allInclusivePrice(basePriceUsd, fees, 1, null, title);
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {

@@ -2037,19 +2037,12 @@ Deno.serve(async (req: Request) => {
       };
     }
 
-    // Apply all-inclusive pricing for mobile clients
-    const isMobileClient = (clientPlatform || "").toLowerCase().includes("android") ||
-      (clientPlatform || "").toLowerCase().includes("ios") ||
-      (req.headers.get("user-agent") || "").toLowerCase().includes("okhttp") ||
-      (req.headers.get("user-agent") || "").toLowerCase().includes("expo") ||
-      (req.headers.get("user-agent") || "").toLowerCase().includes("dart") ||
-      !!(req.headers.get("x-device-id"));
-    
-    if (isMobileClient && finalItems.length > 0) {
+    // Apply all-inclusive pricing (markup + shipping) for ALL clients
+    if (finalItems.length > 0) {
       try {
         const searchPricingSettings = await loadPricingSettings();
         finalItems = applyAllInclusivePricingToItems(finalItems, searchPricingSettings) as typeof finalItems;
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} all-inclusive pricing applied to ${finalItems.length} items for mobile`);
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} all-inclusive pricing applied to ${finalItems.length} items`);
       } catch (pricingErr) {
         console.warn(`[CATALOG_SEARCH] requestId=${requestId} pricing transform error: ${pricingErr}`);
       }

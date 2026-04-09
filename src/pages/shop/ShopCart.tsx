@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { allInclusivePrice } from '@/lib/allInclusivePrice';
 import { sanitizeCartImage } from '@/lib/imageValidation';
-import { vehicleAllInclusivePrice } from '@/lib/vehiclePricing';
 import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus, Car, Loader2, CheckSquare, Square, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -256,7 +254,7 @@ export default function ShopCart() {
                           </Badge>
                         )}
                         <p className="text-lg font-bold text-white">
-                          ${item.isVehicle ? vehicleAllInclusivePrice(item.priceUsd).toFixed(2) : allInclusivePrice(item.priceUsd, feeSettings, item.quantity, null, item.title).toFixed(2)}
+                          ${(item.priceUsd * item.quantity).toFixed(2)}
                         </p>
                       </div>
 

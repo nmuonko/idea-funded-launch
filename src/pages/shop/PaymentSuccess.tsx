@@ -207,7 +207,7 @@ export default function PaymentSuccess() {
               transition={{ delay: 0.5 }}
               className="space-y-3"
             >
-              {hasSession && orderId ? (
+              {(resolvedSession || !!session) && orderId ? (
                 <Button
                   onClick={() => navigate(`/orders/${orderId}`)}
                   className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full py-6"

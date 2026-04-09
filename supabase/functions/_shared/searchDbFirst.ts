@@ -247,7 +247,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
         const eqTop = [...eqTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);
         if (eqTop.length === 0) continue;
 
-        const exItems = await tierASearch(supabase, eqTop, categoryKey, 200, requestId);
+        const exItems = await tierASearch(supabase, eqTop, categoryKey, 200, requestId, 0, vehicleMinPrice);
         const newItems = exItems.filter((i: any) => !poolIds.has(i.id));
         newItems.forEach((i: any) => poolIds.add(i.id));
         pool = [...pool, ...newItems];

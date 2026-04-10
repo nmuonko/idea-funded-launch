@@ -24,6 +24,8 @@ export interface SectionProfile {
   includeAny: string[];
   excludeAny: string[];
   preferProviders?: string[];
+  /** If true, NEVER fall back to other providers — section stays empty if preferred providers have no items */
+  strictProviders?: boolean;
   minItems: number;
   minPrice?: number;
   /** Per-brand diversity queries for backfill (each queried separately, results interleaved) */
@@ -306,6 +308,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
     includeAny: CLOTHING_WORDS,
     excludeAny: VEHICLE_EXCLUDE.concat(PARTS_EXCLUDE, PHONE_EXCLUDE, GAMING_EXCLUDE),
     preferProviders: ["shein"],
+    strictProviders: true,
     minItems: 30,
     diversityQueries: [
       "men t-shirt casual streetwear",
@@ -577,7 +580,7 @@ async function backfillForProfile(
     const rows = await res.json() as Array<Record<string, unknown>>;
     if (!Array.isArray(rows) || rows.length === 0) {
       // If preferred providers returned nothing, try all providers as fallback
-      if (profile.preferProviders && profile.preferProviders.length > 0) {
+      if (profile.preferProviders && profile.preferProviders.length > 0 && !profile.strictProviders) {
         console.log(`[SECTION_PROFILES] preferred providers empty for ${profile.key}, trying all`);
         const fallbackUrl = `${supabaseUrl}/rest/v1/catalog_items?` +
           `provider=in.(amazon,ebay,cargurus,carvana,shein,rainforest)&${minPriceFilter}&image_url=not.is.null&is_disallowed=eq.false` +
@@ -657,7 +660,7 @@ export async function buildStrictMobileSections(
         const preferredPool = pool.filter(item =>
           profile.preferProviders!.includes(item.provider)
         );
-        if (preferredPool.length >= 5) {
+        if (preferredPool.length >= 5 || profile.strictProviders) {
           sourcePool = preferredPool;
         }
       }

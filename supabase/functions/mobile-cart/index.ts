@@ -602,32 +602,76 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     }
   }
 
-  // Store detected category data for shipping calculation
+  // REVERSE-CALCULATE BASE PRICE from all-inclusive sent price
+  // The app sends the all-inclusive price (base + markup + shipping).
+  // We reverse-engineer the base so the breakdown matches the price simulator.
   let detectedCategoryData: { estWeightKg: number; flatShippingUsd: number | null; shippingBufferPercent: number; requiresManualQuote: boolean } | null = null;
-  if (finalShippingTypeId && detection.category && detection.category !== "vehicle") {
-    const catRefetch = await getShippingTypeForCategory(db, detection.category, correlationId);
-    if (catRefetch.data) {
-      detectedCategoryData = catRefetch.data;
+  let shippingFeeUsd: number;
+
+  if (isFixedPrice || isAllInclusive) {
+    // Fixed/explicit all-inclusive: no recalculation needed
+    shippingFeeUsd = 0;
+  } else if (isVehicleDetected) {
+    shippingFeeUsd = 0;
+  } else if (requiresManualQuote) {
+    shippingFeeUsd = 0;
+  } else {
+    // Calculate shipping for the category
+    if (finalShippingTypeId && detection.category && detection.category !== "vehicle") {
+      // Re-use the already-fetched category data
+      let refinedCat2 = detection.category;
+      if (detection.category === 'laptop_tablet') {
+        const titleLower2 = (productTitle || "").toLowerCase();
+        const isTablet2 = /\b(ipad|tablet|tablette|galaxy tab|fire tablet|surface go)\b/i.test(titleLower2);
+        refinedCat2 = isTablet2 ? 'tablet' : 'laptop_tablet';
+      }
+      const catRefetch = await getShippingTypeForCategory(db, refinedCat2, correlationId);
+      if (catRefetch.data) {
+        detectedCategoryData = catRefetch.data;
+      }
+    }
+
+    if (detectedCategoryData) {
+      const catInfo: ShippingCategoryInfo = {
+        est_weight_kg: detectedCategoryData.estWeightKg,
+        flat_shipping_usd: detectedCategoryData.flatShippingUsd,
+        shipping_buffer_percent: detectedCategoryData.shippingBufferPercent,
+        requires_manual_quote: detectedCategoryData.requiresManualQuote,
+      };
+      // Calculate shipping per unit first (needed to reverse base price)
+      const shippingPerUnit = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, 1);
+      
+      // Reverse-calculate: sentPrice = base * (1 + markupRate) + shippingPerUnit
+      // So: base = (sentPrice - shippingPerUnit) / (1 + markupRate)
+      const markupRate = settings.markupPercent / 100;
+      const derivedBase = cartRound2((productPrice - shippingPerUnit) / (1 + markupRate));
+      
+      if (derivedBase > 0) {
+        basePriceUsd = derivedBase;
+        resolvedFromCatalog = true; // Mark as resolved so price_source is set correctly
+        console.log(`[CART_ADD][${correlationId}] reverseCalcBase=true sentPrice=${productPrice} shippingPerUnit=${shippingPerUnit} markupRate=${markupRate} derivedBase=${derivedBase}`);
+      }
+      
+      shippingFeeUsd = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, quantity);
+    } else {
+      // Fallback: legacy formula
+      const normalizedPercent = settings.shippingPercent > 1 ? settings.shippingPercent / 100 : settings.shippingPercent;
+      // Reverse-calculate base from legacy formula: sentPrice = base * (1 + markup) + baseFee + base * shippingPct
+      // base = (sentPrice - baseFee) / (1 + markup + shippingPct)
+      const markupRate = settings.markupPercent / 100;
+      const derivedBase = cartRound2((productPrice - settings.shippingBaseFeeUsd) / (1 + markupRate + normalizedPercent));
+      if (derivedBase > 0) {
+        basePriceUsd = derivedBase;
+        resolvedFromCatalog = true;
+        console.log(`[CART_ADD][${correlationId}] reverseCalcBaseLegacy=true sentPrice=${productPrice} derivedBase=${derivedBase}`);
+      }
+      shippingFeeUsd = calculateShippingFee(cartRound2(basePriceUsd * quantity), settings.shippingBaseFeeUsd, normalizedPercent, false);
     }
   }
 
-  let shippingFeeUsd: number;
-  if (isFixedPrice || isAllInclusive || isVehicleDetected || requiresManualQuote) {
-    shippingFeeUsd = 0;
-  } else if (detectedCategoryData) {
-    // Weight-based shipping using category info
-    const catInfo: ShippingCategoryInfo = {
-      est_weight_kg: detectedCategoryData.estWeightKg,
-      flat_shipping_usd: detectedCategoryData.flatShippingUsd,
-      shipping_buffer_percent: detectedCategoryData.shippingBufferPercent,
-      requires_manual_quote: detectedCategoryData.requiresManualQuote,
-    };
-    shippingFeeUsd = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, quantity);
-  } else {
-    // Fallback: legacy formula for uncategorized items
-    const normalizedPercent = settings.shippingPercent > 1 ? settings.shippingPercent / 100 : settings.shippingPercent;
-    shippingFeeUsd = calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, normalizedPercent, requiresManualQuote);
-  }
+  // Recalculate pricing with the (potentially reverse-calculated) base price
+  effectiveMarkup = isFixedPrice ? 0 : (isVehicleDetected ? 0 : settings.markupPercent);
+  let pricing = cartPricingCalc(basePriceUsd, quantity, effectiveMarkup, settings.exchangeRate);
 
   if (isGuest) {
     const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup);

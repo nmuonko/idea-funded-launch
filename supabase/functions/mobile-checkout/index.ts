@@ -376,6 +376,7 @@ async function recomputeTotalsServerSide(
   const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
   
   let regularItemsBase = 0;
+  let regularItemsBaseNonInclusive = 0; // Only non-all-inclusive items (for shipping calc)
   let regularItemsMargin = 0;
   let vehicleTotal = 0;
   let vehicleShipping = 0;

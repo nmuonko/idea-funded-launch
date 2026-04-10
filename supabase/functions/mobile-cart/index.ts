@@ -532,13 +532,40 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   }
   const settings = settingsResult.data;
 
-  // ALL-INCLUSIVE PRICING: catalog-home and catalog-search now send all-inclusive prices.
-  // The RN app sends this all-inclusive price as productPrice.
-  // Treat it as the final total — DO NOT add markup or shipping on top.
+  // CATALOG BASE PRICE LOOKUP: The RN app sends the all-inclusive display price as productPrice.
+  // We look up the real base price from catalog_items to recalculate properly with current settings.
+  // This ensures cart totals always match the price simulator.
+  let basePriceUsd = productPrice;
+  let resolvedFromCatalog = false;
+  if (!isFixedPrice && !userEdited) {
+    // Try to find the real base price from catalog_items
+    let providerProdId: string | null = null;
+    const asinMatchLookup = productUrl.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/)([A-Z0-9]{10})/i);
+    if (asinMatchLookup) providerProdId = asinMatchLookup[1].toUpperCase();
+    const ebayMatchLookup = productUrl.match(/\/itm\/(\d+)/);
+    if (!providerProdId && ebayMatchLookup) providerProdId = ebayMatchLookup[1];
+
+    if (providerProdId) {
+      const catalogLookup = await db.from("catalog_items")
+        .select("price_usd")
+        .eq("provider_product_id", providerProdId)
+        .limit(1);
+      if (!catalogLookup.error && catalogLookup.data && catalogLookup.data.length > 0) {
+        const catalogBasePrice = Number(catalogLookup.data[0].price_usd);
+        if (catalogBasePrice > 0) {
+          basePriceUsd = catalogBasePrice;
+          resolvedFromCatalog = true;
+          console.log(`[CART_ADD][${correlationId}] catalogBasePriceLookup=true providerProductId=${providerProdId} catalogBase=${catalogBasePrice} sentPrice=${productPrice}`);
+        }
+      }
+    }
+  }
+
   const feesIncluded = addBody.feesIncluded === true || addBody.fees_included === true;
-  const isAllInclusive = !isFixedPrice && !feesIncluded; // Default: treat as all-inclusive from catalog
+  // If we resolved from catalog, recalculate with markup; otherwise treat sent price as all-inclusive
+  const isAllInclusive = !isFixedPrice && !feesIncluded && !resolvedFromCatalog;
   let effectiveMarkup = isFixedPrice ? 0 : (isAllInclusive ? 0 : settings.markupPercent);
-  let pricing = cartPricingCalc(productPrice, quantity, effectiveMarkup, settings.exchangeRate);
+  let pricing = cartPricingCalc(basePriceUsd, quantity, effectiveMarkup, settings.exchangeRate);
   const store = addCartDetectStore(productUrl);
 
   let productTitle = inputTitle ?? null;
@@ -569,9 +596,9 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     finalShippingTypeId = null;
     // Auto-calculate using tiered vehicle pricing
     const tiers = parseTiers(settings.vehiclePricingTiers);
-    vehiclePricingResult = calculateVehicleFinalPrice(productPrice, 'running', 'roro', tiers);
+    vehiclePricingResult = calculateVehicleFinalPrice(basePriceUsd, 'running', 'roro', tiers);
     effectiveMarkup = vehiclePricingResult.totalPercent;
-    pricing = cartPricingCalc(productPrice, quantity, 0, settings.exchangeRate); // markup baked into vehicle pricing
+    pricing = cartPricingCalc(basePriceUsd, quantity, 0, settings.exchangeRate); // markup baked into vehicle pricing
   } else if (detection.category && detection.category !== "vehicle") {
     const catTypeResult = await getShippingTypeForCategory(db, detection.category, correlationId);
     if (catTypeResult.data) {
@@ -629,7 +656,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     const newQuantity = existingItem.quantity + quantity;
     console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=false dbUpdateAttempted=true orderId=${draft.id} existingItemId=${existingItem.id}`);
     const updateFields: Record<string, unknown> = {
-      quantity: newQuantity, base_price_usd: productPrice, product_image_url: productImageUrl,
+      quantity: newQuantity, base_price_usd: basePriceUsd, product_image_url: productImageUrl,
       is_vehicle: isVehicleDetected || existingItem.is_vehicle,
       requires_manual_quote: false, // Vehicles no longer need manual quotes
       updated_at: new Date().toISOString(),
@@ -679,8 +706,8 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     const totalPriceCdf = cartRound2(totalPriceUsd * settings.exchangeRate);
     const newItem: Record<string, unknown> = {
       order_id: draft.id, product_url: productUrl, title: productTitle, product_image_url: productImageUrl,
-      store, quantity, base_price_usd: productPrice,
-      unit_price_usd: cartRound2(productPrice),
+      store, quantity, base_price_usd: basePriceUsd,
+      unit_price_usd: cartRound2(basePriceUsd),
       subtotal_usd: pricing.itemBaseTotalUsd,
       markup_fee_usd: isFixedPrice ? 0 : (isVehicleInsert ? vehiclePricingResult.totalFeeUsd : pricing.itemMarginUsd),
       shipping_fee_usd: isFixedPrice ? 0 : (isVehicleInsert ? 0 : shippingFeeUsd),
@@ -691,7 +718,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       requires_manual_quote: false, // Never requires manual quote now
       vehicle_quote_applied: isVehicleInsert ? true : false,
       is_saved_for_later: false,
-      price_source: isFixedPrice ? "hot_product" : (isVehicleInsert ? "auto_vehicle_tiered" : (isAllInclusive ? "all_inclusive_display" : (userEdited ? "manual_user" : "auto"))),
+      price_source: isFixedPrice ? "hot_product" : (isVehicleInsert ? "auto_vehicle_tiered" : (resolvedFromCatalog ? "catalog_base" : (isAllInclusive ? "all_inclusive_display" : (userEdited ? "manual_user" : "auto")))),
       price_confirmation_status: userEdited ? "pending" : null,
       captured_price: userEdited ? (addBody.capturedPrice ?? addBody.captured_price ?? null) : null,
       provider_product_id: providerProductId,

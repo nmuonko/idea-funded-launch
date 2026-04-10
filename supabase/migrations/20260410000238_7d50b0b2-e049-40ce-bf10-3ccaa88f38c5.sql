@@ -1,0 +1,1 @@
+DELETE FROM catalog_home_mobile_sections_cache WHERE true;

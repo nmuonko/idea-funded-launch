@@ -214,13 +214,27 @@ function formatItem(
   
   const itemRequiresQuote = item.requires_manual_quote === true;
   const itemBaseTotalUsd = round2(basePriceUsd * quantity);
-  const itemMarginUsd = round2(itemBaseTotalUsd * (markupPercent / 100));
-  const itemSubtotalUsd = round2(itemBaseTotalUsd + itemMarginUsd);
+
+  // ALL-INCLUSIVE FIX: If item was stored with all-inclusive pricing (price_source='all_inclusive_display'
+  // or 'hot_product'), the base_price_usd already contains markup+shipping. DO NOT re-apply markup.
+  const storedPriceSource = (item.price_source ?? "").toLowerCase();
+  const isStoredAllInclusive = storedPriceSource === 'all_inclusive_display' || storedPriceSource === 'hot_product';
+  const storedTotalPriceUsd = Number(item.total_price_usd || 0);
+  const storedMarkupFeeUsd = Number(item.markup_fee_usd || 0);
+  const storedShippingFeeUsd = Number(item.shipping_fee_usd || 0);
+
+  // For all-inclusive items: use stored values (markup/shipping already baked into base_price_usd)
+  // For legacy/manual items: recalculate markup from settings
+  const itemMarginUsd = isStoredAllInclusive ? storedMarkupFeeUsd : round2(itemBaseTotalUsd * (markupPercent / 100));
+  const itemShippingUsd = isStoredAllInclusive ? storedShippingFeeUsd : 0;
+  const itemSubtotalUsd = isStoredAllInclusive
+    ? (storedTotalPriceUsd > 0 ? storedTotalPriceUsd : itemBaseTotalUsd)
+    : round2(itemBaseTotalUsd + itemMarginUsd);
   const itemSubtotalCdf = round2(itemSubtotalUsd * exchangeRate);
   return {
     ...baseFields, basePriceUsd, unitPriceUsd: basePriceUsd, itemBaseTotalUsd,
     itemMarginUsd, markupFeeUsd: itemMarginUsd, markup_fee_usd: itemMarginUsd,
-    itemShippingUsd: 0, shippingFeeUsd: 0, shipping_fee_usd: 0, shippingCost: 0,
+    itemShippingUsd, shippingFeeUsd: itemShippingUsd, shipping_fee_usd: itemShippingUsd, shippingCost: itemShippingUsd,
     itemSubtotalUsd, subtotalUsd: itemSubtotalUsd, subtotal_usd: itemSubtotalUsd,
     itemTotalUsd: itemSubtotalUsd, totalPriceUsd: itemSubtotalUsd, total_price_usd: itemSubtotalUsd, lineTotalUsd: itemSubtotalUsd,
     lineTotalCdf: itemSubtotalCdf, priceUsd: itemSubtotalUsd, price: itemSubtotalUsd, itemSubtotalCdf,
@@ -229,7 +243,10 @@ function formatItem(
       key: normalizeCategorySlug(item.shipping_item_types.key) || item.shipping_item_types.key,
       label: getCategoryLabel(normalizeCategorySlug(item.shipping_item_types.key)) || item.shipping_item_types.label,
     } : null,
-    effectiveMarkupPercent: markupPercent, markupPercent,
+    effectiveMarkupPercent: isStoredAllInclusive ? 0 : markupPercent,
+    markupPercent: isStoredAllInclusive ? 0 : markupPercent,
+    fees_included: isStoredAllInclusive, is_all_inclusive_display: isStoredAllInclusive,
+    pricing_mode: isStoredAllInclusive ? 'all_inclusive' : 'standard',
   };
 }
 

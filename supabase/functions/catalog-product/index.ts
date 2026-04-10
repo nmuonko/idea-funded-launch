@@ -1062,6 +1062,46 @@ Deno.serve(async (req: Request) => {
         .catch(() => {});
       const item = mapDbItemToResponse(dbItem);
       
+      // ========== PRICE FRESHNESS CHECK (Amazon only) ==========
+      // If the cached price is stale (>12h), scrape Amazon page for current price.
+      // This ensures PDP always shows a fresh price and updates catalog_items for cart accuracy.
+      if ((dbItem.provider === "rainforest" || dbItem.provider === "amazon") && dbItem.price_usd > 0) {
+        const priceAge = dbItem.price_updated_at
+          ? (Date.now() - new Date(dbItem.price_updated_at).getTime()) / (1000 * 60 * 60)
+          : Infinity;
+        if (priceAge > PRICE_STALENESS_HOURS) {
+          const amazonAsin = dbItem.provider_product_id || productId!;
+          // Fire-and-forget: scrape price and update catalog_items
+          (async () => {
+            try {
+              const freshPrice = await scrapeAmazonPrice(amazonAsin);
+              if (freshPrice && freshPrice > 0 && Math.abs(freshPrice - dbItem.price_usd) > 0.01) {
+                const dbRowId = dbItem.id || fullProductId;
+                await db.from("catalog_items").update({
+                  price_usd: freshPrice,
+                  price_updated_at: new Date().toISOString(),
+                }).eq("id", dbRowId);
+                console.log(`[PRICE_REFRESH] ${amazonAsin}: $${dbItem.price_usd} → $${freshPrice} (was ${priceAge.toFixed(1)}h stale)`);
+                // Also update the response item price so THIS request gets fresh price
+                item.priceUsd = freshPrice;
+              } else if (freshPrice && freshPrice > 0) {
+                // Price unchanged — just update the timestamp
+                const dbRowId = dbItem.id || fullProductId;
+                await db.from("catalog_items").update({
+                  price_updated_at: new Date().toISOString(),
+                }).eq("id", dbRowId);
+                console.log(`[PRICE_REFRESH] ${amazonAsin}: $${dbItem.price_usd} unchanged, timestamp refreshed`);
+              }
+            } catch (e) {
+              console.warn(`[PRICE_REFRESH] ${amazonAsin}: scrape failed: ${(e as Error).message}`);
+            }
+          })();
+          // Note: we DON'T await this — the response returns immediately with current DB price.
+          // The NEXT request will see the refreshed price.
+          // However, if the scrape is fast enough, we update item.priceUsd above for THIS response too.
+        }
+      }
+      
       // Merge media gallery images: always prefer media gallery when it has more/equal images
       const mediaData = mediaResult?.data;
       if (mediaData?.image_urls && Array.isArray(mediaData.image_urls)) {

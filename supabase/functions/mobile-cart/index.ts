@@ -292,31 +292,49 @@ function formatItem(
   const itemRequiresQuote = item.requires_manual_quote === true;
   const itemBaseTotalUsd = round2(basePriceUsd * quantity);
 
-  // ALL-INCLUSIVE FIX: If item was stored with all-inclusive pricing (price_source='all_inclusive_display'
-  // or 'hot_product'), the base_price_usd already contains markup+shipping. DO NOT re-apply markup.
+  // ALWAYS recalculate from stored base_price_usd using current settings.
+  // This ensures prices are never stale — base is the raw provider price,
+  // and we apply current markup + shipping on top every time.
   const storedPriceSource = (item.price_source ?? "").toLowerCase();
   const isStoredAllInclusive = storedPriceSource === 'all_inclusive_display' || storedPriceSource === 'hot_product';
-  const isStoredCatalogBase = storedPriceSource === 'catalog_base' || storedPriceSource === 'reverse_calculated';
-  const storedTotalPriceUsd = Number(item.total_price_usd || 0);
-  const storedMarkupFeeUsd = Number(item.markup_fee_usd || 0);
-  const storedShippingFeeUsd = Number(item.shipping_fee_usd || 0);
 
-  // For all-inclusive items: use stored values (markup/shipping already baked into base_price_usd)
-  // For catalog_base items: recalculate markup from settings, use stored shipping
-  // For legacy/manual items: recalculate markup from settings
-  const itemMarginUsd = isStoredAllInclusive ? storedMarkupFeeUsd : round2(itemBaseTotalUsd * (markupPercent / 100));
-  const itemShippingUsd = isStoredAllInclusive ? storedShippingFeeUsd : (isStoredCatalogBase ? storedShippingFeeUsd : 0);
+  // For all-inclusive (legacy frozen app items): trust stored values (markup/shipping baked in)
+  // For everything else: recalculate from base using current settings
+  let itemMarginUsd: number;
+  let itemShippingUsd: number;
+
+  if (isStoredAllInclusive) {
+    // Legacy: trust stored values
+    itemMarginUsd = Number(item.markup_fee_usd || 0);
+    itemShippingUsd = Number(item.shipping_fee_usd || 0);
+  } else {
+    // RECALCULATE from raw base price + current settings
+    itemMarginUsd = round2(itemBaseTotalUsd * (markupPercent / 100));
+    // Shipping: use category data if available, else stored value, else 0
+    const sit = item.shipping_item_types;
+    if (sit && sit.est_weight_kg != null) {
+      const catInfo: ShippingCategoryInfo = {
+        est_weight_kg: Number(sit.est_weight_kg),
+        flat_shipping_usd: sit.flat_shipping_usd != null ? Number(sit.flat_shipping_usd) : null,
+        shipping_buffer_percent: Number(sit.shipping_buffer_percent ?? 25),
+        requires_manual_quote: false,
+      };
+      itemShippingUsd = calculateWeightBasedShippingFee(catInfo, shippingRatePerKg, quantity);
+    } else {
+      // Use stored shipping if no category data
+      itemShippingUsd = Number(item.shipping_fee_usd || 0);
+    }
+  }
+
   const itemSubtotalUsd = isStoredAllInclusive
-    ? (storedTotalPriceUsd > 0 ? storedTotalPriceUsd : itemBaseTotalUsd)
+    ? (Number(item.total_price_usd || 0) > 0 ? Number(item.total_price_usd) : itemBaseTotalUsd)
     : round2(itemBaseTotalUsd + itemMarginUsd);
-  const itemTotalUsd = round2(itemSubtotalUsd + itemShippingUsd);
+  const itemTotalUsd = round2(itemSubtotalUsd + (isStoredAllInclusive ? 0 : itemShippingUsd));
   const itemSubtotalCdf = round2(itemSubtotalUsd * exchangeRate);
 
   // FROZEN APP FIX: Always show all-inclusive price as "basePriceUsd" so the frozen app
   // (which may read basePriceUsd for display) shows the correct all-inclusive total.
-  const displayBasePriceUsd = (isStoredCatalogBase || isStoredAllInclusive)
-    ? round2(itemTotalUsd / quantity)
-    : basePriceUsd;
+  const displayBasePriceUsd = isStoredAllInclusive ? basePriceUsd : round2(itemTotalUsd / quantity);
 
   return {
     ...baseFields, basePriceUsd: displayBasePriceUsd, unitPriceUsd: displayBasePriceUsd, itemBaseTotalUsd: itemTotalUsd,

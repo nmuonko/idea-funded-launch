@@ -665,7 +665,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     }
   }
 
-  // STEP 2: If live lookup failed, try catalog_items (may be stale but it's the raw base)
+  // STEP 2: If live lookup failed, try catalog_items with staleness guard
   if (!resolvedFromCatalog && !isFixedPrice && !isAllInclusive && !userEdited) {
     let providerProductId: string | null = null;
     if (store === 'AMAZON') {
@@ -685,10 +685,43 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
           .select('price_usd, price_updated_at, title, image_url')
           .eq('id', catalogId).maybeSingle();
         if (catalogItem?.price_usd && catalogItem.price_usd > 0) {
-          basePriceUsd = catalogItem.price_usd;
-          resolvedFromCatalog = true;
-          priceSource = 'catalog_base';
-          console.log(`[CART_ADD][${correlationId}] catalog_items base price: $${basePriceUsd} (updated_at=${catalogItem.price_updated_at})`);
+          // STALENESS GUARD: If price is >24h old, try scraping for fresh price
+          const priceAgeHours = catalogItem.price_updated_at
+            ? (Date.now() - new Date(catalogItem.price_updated_at).getTime()) / (1000 * 60 * 60)
+            : Infinity;
+          
+          if (priceAgeHours > 24 && store === 'AMAZON' && providerProductId) {
+            console.log(`[CART_ADD][${correlationId}] catalog price stale (${priceAgeHours.toFixed(1)}h), scraping fresh price for ${providerProductId}`);
+            try {
+              const scrapedPrice = await scrapeAmazonPriceForCart(providerProductId);
+              if (scrapedPrice && scrapedPrice > 0) {
+                basePriceUsd = scrapedPrice;
+                resolvedFromCatalog = true;
+                priceSource = 'scraped_fresh';
+                console.log(`[CART_ADD][${correlationId}] scraped fresh price: $${scrapedPrice} (was $${catalogItem.price_usd})`);
+                // Update catalog_items with fresh price (fire-and-forget)
+                adminDb.from('catalog_items').update({
+                  price_usd: scrapedPrice,
+                  price_updated_at: new Date().toISOString(),
+                }).eq('id', catalogId).then(() => {}).catch(() => {});
+              } else {
+                // Scrape failed — use cached price anyway
+                basePriceUsd = catalogItem.price_usd;
+                resolvedFromCatalog = true;
+                priceSource = 'catalog_base';
+                console.log(`[CART_ADD][${correlationId}] scrape failed, using stale catalog price: $${basePriceUsd}`);
+              }
+            } catch {
+              basePriceUsd = catalogItem.price_usd;
+              resolvedFromCatalog = true;
+              priceSource = 'catalog_base';
+            }
+          } else {
+            basePriceUsd = catalogItem.price_usd;
+            resolvedFromCatalog = true;
+            priceSource = 'catalog_base';
+            console.log(`[CART_ADD][${correlationId}] catalog_items base price: $${basePriceUsd} (${priceAgeHours.toFixed(1)}h old)`);
+          }
           if (!productTitle && catalogItem.title) productTitle = catalogItem.title;
           if (!productImageUrl && catalogItem.image_url) productImageUrl = catalogItem.image_url;
         }

@@ -550,10 +550,9 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   let resolvedFromCatalog = false;
 
   const feesIncluded = addBody.feesIncluded === true || addBody.fees_included === true;
-  // If we resolved from catalog, recalculate with markup; otherwise treat sent price as all-inclusive
-  const isAllInclusive = !isFixedPrice && !feesIncluded && !resolvedFromCatalog;
-  let effectiveMarkup = isFixedPrice ? 0 : (isAllInclusive ? 0 : settings.markupPercent);
-  let pricing = cartPricingCalc(basePriceUsd, quantity, effectiveMarkup, settings.exchangeRate);
+  const isAllInclusive = isFixedPrice || feesIncluded;
+  // basePriceUsd will be reverse-calculated after category detection (below)
+  let effectiveMarkup = isFixedPrice ? 0 : settings.markupPercent;
   const store = addCartDetectStore(productUrl);
 
   let productTitle = inputTitle ?? null;

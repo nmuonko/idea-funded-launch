@@ -596,9 +596,9 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     finalShippingTypeId = null;
     // Auto-calculate using tiered vehicle pricing
     const tiers = parseTiers(settings.vehiclePricingTiers);
-    vehiclePricingResult = calculateVehicleFinalPrice(productPrice, 'running', 'roro', tiers);
+    vehiclePricingResult = calculateVehicleFinalPrice(basePriceUsd, 'running', 'roro', tiers);
     effectiveMarkup = vehiclePricingResult.totalPercent;
-    pricing = cartPricingCalc(productPrice, quantity, 0, settings.exchangeRate); // markup baked into vehicle pricing
+    pricing = cartPricingCalc(basePriceUsd, quantity, 0, settings.exchangeRate); // markup baked into vehicle pricing
   } else if (detection.category && detection.category !== "vehicle") {
     const catTypeResult = await getShippingTypeForCategory(db, detection.category, correlationId);
     if (catTypeResult.data) {

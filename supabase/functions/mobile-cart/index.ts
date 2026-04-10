@@ -274,10 +274,22 @@ async function handleGetCart(req: Request): Promise<Response> {
   const settings = await getCachedSettings(supabase);
   const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
 
-  const { data: drafts, error: orderError } = await supabase
-    .from('orders')
-    .select('id, item_total_usd, service_fee_usd, shipping_fee_usd, total_usd, total_cdf, exchange_rate_used, requires_manual_quote, created_at, cart_version')
-    .eq('user_id', user.id).eq('status', 'DRAFT').order('created_at', { ascending: false });
+  // Fetch draft orders with retry to handle read-replica lag after add_item writes
+  let drafts: any[] | null = null;
+  let orderError: any = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const result = await supabase
+      .from('orders')
+      .select('id, item_total_usd, service_fee_usd, shipping_fee_usd, total_usd, total_cdf, exchange_rate_used, requires_manual_quote, created_at, cart_version')
+      .eq('user_id', user.id).eq('status', 'DRAFT').order('created_at', { ascending: false });
+    drafts = result.data;
+    orderError = result.error;
+    if (drafts && drafts.length > 0) break;
+    if (attempt < 2) {
+      console.log(`[CART_GET] user_id=${user.id} draftRows=0 attempt=${attempt + 1} retrying after 400ms`);
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
 
   console.log(`[CART_GET] user_id=${user.id} deviceId=${deviceId || "none"} authPresent=${!!token} draftRows=${drafts?.length ?? 0} orderError=${orderError?.message ?? "none"}`);
 
@@ -309,28 +321,36 @@ async function handleGetCart(req: Request): Promise<Response> {
   const selectWithRelations = 'id,product_url,title,product_image_url,store,base_price_usd,unit_price_usd,quantity,subtotal_usd,markup_fee_usd,shipping_fee_usd,total_price_usd,total_price_cdf,est_weight_kg,requires_manual_quote,is_saved_for_later,saved_at,updated_at,is_vehicle,vehicle_quote_applied,device_id,price_confirmation_status,admin_adjusted_price,price_confirmation_id,price_source,captured_price,shipping_item_types(key,label),quote_requests(status,quoted_shipping_usd,quoted_total_usd)';
   const selectBase = 'id,product_url,title,product_image_url,store,base_price_usd,unit_price_usd,quantity,subtotal_usd,markup_fee_usd,shipping_fee_usd,total_price_usd,total_price_cdf,est_weight_kg,requires_manual_quote,is_saved_for_later,saved_at,updated_at,is_vehicle,vehicle_quote_applied,device_id,price_confirmation_status,admin_adjusted_price,price_confirmation_id,price_source,captured_price';
 
-  const result1 = await supabase
-    .from('order_items')
-    .select(selectWithRelations)
-    .eq('order_id', order.id);
-
-  items = result1.data;
-  itemsError = result1.error;
-
-  if (itemsError || !items || items.length === 0) {
-    console.log(`[CART_GET] user_id=${user.id} order_id=${order.id} retryWithoutRelations=true previousError=${itemsError?.message ?? "none"} previousRows=${items?.length ?? 0}`);
-    const result2 = await supabase
+  // Fetch items with retry to handle read-replica lag after add_item writes
+  for (let itemAttempt = 0; itemAttempt < 3; itemAttempt++) {
+    const result1 = await supabase
       .from('order_items')
-      .select(selectBase)
+      .select(selectWithRelations)
       .eq('order_id', order.id);
 
-    if (result2.error) {
-      itemsError = result2.error;
-      items = result2.data ?? null;
-    } else {
-      items = result2.data;
-      itemsError = null;
-      console.log(`[CART_GET] user_id=${user.id} order_id=${order.id} fallbackItemRows=${items?.length ?? 0}`);
+    items = result1.data;
+    itemsError = result1.error;
+
+    if (itemsError || !items || items.length === 0) {
+      // Fallback: try without relations
+      const result2 = await supabase
+        .from('order_items')
+        .select(selectBase)
+        .eq('order_id', order.id);
+
+      if (!result2.error) {
+        items = result2.data;
+        itemsError = null;
+      } else {
+        itemsError = result2.error;
+        items = result2.data ?? null;
+      }
+    }
+
+    if (items && items.length > 0) break;
+    if (itemAttempt < 2) {
+      console.log(`[CART_GET] user_id=${user.id} order_id=${order.id} itemRows=0 itemAttempt=${itemAttempt + 1} retrying after 400ms`);
+      await new Promise(r => setTimeout(r, 400));
     }
   }
 

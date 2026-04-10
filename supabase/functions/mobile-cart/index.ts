@@ -216,6 +216,7 @@ function isUserEditedPrice(body: any): boolean {
 // Format item for get_cart response
 function formatItem(
   item: any, markupPercent: number, vehicleMarkupPercent: number, exchangeRate: number,
+  shippingRatePerKg: number,
   mediaInfo?: { image_count: number; image_count_status: "cached" | "pending" },
   vehiclePricingTiers?: any
 ) {

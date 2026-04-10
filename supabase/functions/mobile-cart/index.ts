@@ -93,6 +93,81 @@ function calculateItemShipping(
   return round2(basePart + extraPart);
 }
 
+/**
+ * Fetch LIVE base price from provider API (Rainforest for Amazon, eBay API for eBay).
+ * This bypasses stale catalog_items cache and gets the real current price.
+ * Returns null if the lookup fails (caller should fall back to other methods).
+ */
+async function fetchLiveBasePrice(
+  productUrl: string,
+  store: string,
+  correlationId: string
+): Promise<{ basePriceUsd: number; title: string | null; imageUrl: string | null } | null> {
+  try {
+    if (store === 'AMAZON') {
+      const asinMatch = productUrl.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/)([A-Z0-9]{10})/i);
+      if (!asinMatch) return null;
+      const asin = asinMatch[1].toUpperCase();
+      const apiKey = Deno.env.get("RAINFOREST_API_KEY");
+      if (!apiKey) {
+        console.warn(`[CART_ADD][${correlationId}] fetchLiveBasePrice: no RAINFOREST_API_KEY`);
+        return null;
+      }
+      const url = `https://api.rainforestapi.com/request?api_key=${apiKey}&type=product&amazon_domain=amazon.com&asin=${asin}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      try {
+        const resp = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!resp.ok) {
+          console.warn(`[CART_ADD][${correlationId}] fetchLiveBasePrice: Rainforest HTTP ${resp.status}`);
+          return null;
+        }
+        const data = await resp.json();
+        if (!data.product) return null;
+        const p = data.product;
+        // Extract price from multiple fields
+        const priceObj = p.buybox_winner?.price ?? p.price ?? p.current_price ?? p.prices?.[0] ?? p.rrp;
+        const priceValue = typeof priceObj?.value === 'number' && priceObj.value > 0 ? priceObj.value : null;
+        if (!priceValue) {
+          console.warn(`[CART_ADD][${correlationId}] fetchLiveBasePrice: no price in Rainforest response for ${asin}`);
+          return null;
+        }
+        const title = p.title || null;
+        const imageUrl = p.main_image?.link || null;
+        console.log(`[CART_ADD][${correlationId}] fetchLiveBasePrice: LIVE price for ${asin} = $${priceValue}`);
+        
+        // Update catalog_items with fresh price (fire-and-forget)
+        const supabaseUrl = Deno.env.get("SUPABASE_URL");
+        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        if (supabaseUrl && serviceKey) {
+          const catalogId = `amazon_${asin}`;
+          const adminDb = createClient(supabaseUrl, serviceKey);
+          adminDb.from('catalog_items').update({
+            price_usd: priceValue,
+            price_updated_at: new Date().toISOString(),
+            data_updated_at: new Date().toISOString(),
+          }).eq('id', catalogId).then(({ error }) => {
+            if (error) console.warn(`[CART_ADD][${correlationId}] catalog_items update failed: ${error.message}`);
+            else console.log(`[CART_ADD][${correlationId}] catalog_items updated ${catalogId} price to $${priceValue}`);
+          });
+        }
+        
+        return { basePriceUsd: priceValue, title, imageUrl };
+      } catch (e) {
+        clearTimeout(timeout);
+        console.warn(`[CART_ADD][${correlationId}] fetchLiveBasePrice: exception ${(e as Error).message}`);
+        return null;
+      }
+    }
+    // For eBay or other stores, fall back to null (use existing methods)
+    return null;
+  } catch (e) {
+    console.warn(`[CART_ADD][${correlationId}] fetchLiveBasePrice: outer exception ${(e as Error).message}`);
+    return null;
+  }
+}
+
 function normalizeImageUrl(raw: unknown, productUrl?: string): string | null {
   if (!raw || typeof raw !== "string") return null;
   let s = raw.trim();

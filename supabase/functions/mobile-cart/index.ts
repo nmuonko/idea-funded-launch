@@ -820,8 +820,13 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     const updateFields: Record<string, unknown> = {
       quantity: newQuantity, base_price_usd: basePriceUsd, product_image_url: productImageUrl,
       is_vehicle: isVehicleDetected || existingItem.is_vehicle,
-      requires_manual_quote: false, // Vehicles no longer need manual quotes
+      requires_manual_quote: false,
       updated_at: new Date().toISOString(),
+      price_source: isFixedPrice ? "hot_product" : (isVehicleDetected ? "auto_vehicle_tiered" : priceSource),
+      shipping_fee_usd: shippingFeeUsd,
+      markup_fee_usd: pricing.itemMarginUsd,
+      total_price_usd: cartRound2(pricing.itemSubtotalUsd + shippingFeeUsd),
+      total_price_cdf: cartRound2(cartRound2(pricing.itemSubtotalUsd + shippingFeeUsd) * settings.exchangeRate),
     };
     // If vehicle, update pricing fields
     if (isVehicleDetected && vehiclePricingResult) {
@@ -880,7 +885,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       requires_manual_quote: false, // Never requires manual quote now
       vehicle_quote_applied: isVehicleInsert ? true : false,
       is_saved_for_later: false,
-      price_source: isFixedPrice ? "hot_product" : (isVehicleInsert ? "auto_vehicle_tiered" : (resolvedFromCatalog ? "reverse_calculated" : (isAllInclusive ? "all_inclusive_display" : (userEdited ? "manual_user" : "auto")))),
+      price_source: isFixedPrice ? "hot_product" : (isVehicleInsert ? "auto_vehicle_tiered" : priceSource),
       price_confirmation_status: userEdited ? "pending" : null,
       captured_price: userEdited ? (addBody.capturedPrice ?? addBody.captured_price ?? null) : null,
       provider_product_id: providerProductId,

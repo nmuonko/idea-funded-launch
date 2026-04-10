@@ -274,10 +274,22 @@ async function handleGetCart(req: Request): Promise<Response> {
   const settings = await getCachedSettings(supabase);
   const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
 
-  const { data: drafts, error: orderError } = await supabase
-    .from('orders')
-    .select('id, item_total_usd, service_fee_usd, shipping_fee_usd, total_usd, total_cdf, exchange_rate_used, requires_manual_quote, created_at, cart_version')
-    .eq('user_id', user.id).eq('status', 'DRAFT').order('created_at', { ascending: false });
+  // Fetch draft orders with retry to handle read-replica lag after add_item writes
+  let drafts: any[] | null = null;
+  let orderError: any = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const result = await supabase
+      .from('orders')
+      .select('id, item_total_usd, service_fee_usd, shipping_fee_usd, total_usd, total_cdf, exchange_rate_used, requires_manual_quote, created_at, cart_version')
+      .eq('user_id', user.id).eq('status', 'DRAFT').order('created_at', { ascending: false });
+    drafts = result.data;
+    orderError = result.error;
+    if (drafts && drafts.length > 0) break;
+    if (attempt < 2) {
+      console.log(`[CART_GET] user_id=${user.id} draftRows=0 attempt=${attempt + 1} retrying after 400ms`);
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
 
   console.log(`[CART_GET] user_id=${user.id} deviceId=${deviceId || "none"} authPresent=${!!token} draftRows=${drafts?.length ?? 0} orderError=${orderError?.message ?? "none"}`);
 

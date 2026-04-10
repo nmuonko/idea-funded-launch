@@ -610,7 +610,14 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     effectiveMarkup = vehiclePricingResult.totalPercent;
     pricing = cartPricingCalc(basePriceUsd, quantity, 0, settings.exchangeRate); // markup baked into vehicle pricing
   } else if (detection.category && detection.category !== "vehicle") {
-    const catTypeResult = await getShippingTypeForCategory(db, detection.category, correlationId);
+    // Refine laptop_tablet: check title for tablet keywords to use correct DB key
+    let refinedCategory = detection.category;
+    if (detection.category === 'laptop_tablet') {
+      const titleLower = (productTitle || "").toLowerCase();
+      const isTablet = /\b(ipad|tablet|tablette|galaxy tab|fire tablet|surface go)\b/i.test(titleLower);
+      refinedCategory = isTablet ? 'tablet' : 'laptop_tablet';
+    }
+    const catTypeResult = await getShippingTypeForCategory(db, refinedCategory, correlationId);
     if (catTypeResult.data) {
       finalShippingTypeId = catTypeResult.data.id;
       estWeightKg = catTypeResult.data.estWeightKg;

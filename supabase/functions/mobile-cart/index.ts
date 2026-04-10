@@ -656,7 +656,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     const newQuantity = existingItem.quantity + quantity;
     console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=false dbUpdateAttempted=true orderId=${draft.id} existingItemId=${existingItem.id}`);
     const updateFields: Record<string, unknown> = {
-      quantity: newQuantity, base_price_usd: productPrice, product_image_url: productImageUrl,
+      quantity: newQuantity, base_price_usd: basePriceUsd, product_image_url: productImageUrl,
       is_vehicle: isVehicleDetected || existingItem.is_vehicle,
       requires_manual_quote: false, // Vehicles no longer need manual quotes
       updated_at: new Date().toISOString(),
@@ -706,8 +706,8 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     const totalPriceCdf = cartRound2(totalPriceUsd * settings.exchangeRate);
     const newItem: Record<string, unknown> = {
       order_id: draft.id, product_url: productUrl, title: productTitle, product_image_url: productImageUrl,
-      store, quantity, base_price_usd: productPrice,
-      unit_price_usd: cartRound2(productPrice),
+      store, quantity, base_price_usd: basePriceUsd,
+      unit_price_usd: cartRound2(basePriceUsd),
       subtotal_usd: pricing.itemBaseTotalUsd,
       markup_fee_usd: isFixedPrice ? 0 : (isVehicleInsert ? vehiclePricingResult.totalFeeUsd : pricing.itemMarginUsd),
       shipping_fee_usd: isFixedPrice ? 0 : (isVehicleInsert ? 0 : shippingFeeUsd),

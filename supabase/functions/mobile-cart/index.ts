@@ -542,34 +542,12 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   }
   const settings = settingsResult.data;
 
-  // CATALOG BASE PRICE LOOKUP: The RN app sends the all-inclusive display price as productPrice.
-  // We look up the real base price from catalog_items to recalculate properly with current settings.
-  // This ensures cart totals always match the price simulator.
+  // REVERSE-ENGINEER BASE PRICE: The RN app sends the all-inclusive display price
+  // (base + markup + shipping). We reverse-calculate the real base price using current
+  // fee settings and detected category, so the breakdown is always accurate.
+  // This avoids relying on potentially stale catalog_items data.
   let basePriceUsd = productPrice;
   let resolvedFromCatalog = false;
-  if (!isFixedPrice && !userEdited) {
-    // Try to find the real base price from catalog_items
-    let providerProdId: string | null = null;
-    const asinMatchLookup = productUrl.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/)([A-Z0-9]{10})/i);
-    if (asinMatchLookup) providerProdId = asinMatchLookup[1].toUpperCase();
-    const ebayMatchLookup = productUrl.match(/\/itm\/(\d+)/);
-    if (!providerProdId && ebayMatchLookup) providerProdId = ebayMatchLookup[1];
-
-    if (providerProdId) {
-      const catalogLookup = await db.from("catalog_items")
-        .select("price_usd")
-        .eq("provider_product_id", providerProdId)
-        .limit(1);
-      if (!catalogLookup.error && catalogLookup.data && catalogLookup.data.length > 0) {
-        const catalogBasePrice = Number(catalogLookup.data[0].price_usd);
-        if (catalogBasePrice > 0) {
-          basePriceUsd = catalogBasePrice;
-          resolvedFromCatalog = true;
-          console.log(`[CART_ADD][${correlationId}] catalogBasePriceLookup=true providerProductId=${providerProdId} catalogBase=${catalogBasePrice} sentPrice=${productPrice}`);
-        }
-      }
-    }
-  }
 
   const feesIncluded = addBody.feesIncluded === true || addBody.fees_included === true;
   // If we resolved from catalog, recalculate with markup; otherwise treat sent price as all-inclusive

@@ -18,6 +18,8 @@ export interface ShippingType {
   id: string;
   estWeightKg: number;
   requiresManualQuote: boolean;
+  flatShippingUsd: number | null;
+  shippingBufferPercent: number;
 }
 
 export interface OrderItem {
@@ -180,8 +182,8 @@ export async function getShippingType(
   shippingTypeId: string,
   correlationId: string
 ): Promise<PostgrestResult<ShippingType | null>> {
-  const result = await db.from<{ id: string; est_weight_kg: number; requires_manual_quote: boolean }[]>("shipping_item_types")
-    .select("id, est_weight_kg, requires_manual_quote")
+  const result = await db.from<{ id: string; est_weight_kg: number; requires_manual_quote: boolean; flat_shipping_usd: number | null; shipping_buffer_percent: number }[]>("shipping_item_types")
+    .select("id, est_weight_kg, requires_manual_quote, flat_shipping_usd, shipping_buffer_percent")
     .eq("id", shippingTypeId)
     .eq("active", true)
     .limit(1);
@@ -198,6 +200,8 @@ export async function getShippingType(
         id: row.id,
         estWeightKg: row.est_weight_kg,
         requiresManualQuote: row.requires_manual_quote,
+        flatShippingUsd: row.flat_shipping_usd ?? null,
+        shippingBufferPercent: row.shipping_buffer_percent ?? 25,
       },
       error: null,
       status: 200,
@@ -215,8 +219,8 @@ export async function getShippingTypeForCategory(
   category: string,
   correlationId: string
 ): Promise<PostgrestResult<ShippingType | null>> {
-  const result = await db.from<{ id: string; est_weight_kg: number; requires_manual_quote: boolean }[]>("shipping_item_types")
-    .select("id, est_weight_kg, requires_manual_quote")
+  const result = await db.from<{ id: string; est_weight_kg: number; requires_manual_quote: boolean; flat_shipping_usd: number | null; shipping_buffer_percent: number }[]>("shipping_item_types")
+    .select("id, est_weight_kg, requires_manual_quote, flat_shipping_usd, shipping_buffer_percent")
     .eq("category_key", category)
     .eq("active", true)
     .limit(1);
@@ -232,6 +236,8 @@ export async function getShippingTypeForCategory(
         id: row.id,
         estWeightKg: row.est_weight_kg,
         requiresManualQuote: row.requires_manual_quote,
+        flatShippingUsd: row.flat_shipping_usd ?? null,
+        shippingBufferPercent: row.shipping_buffer_percent ?? 25,
       },
       error: null,
       status: 200,

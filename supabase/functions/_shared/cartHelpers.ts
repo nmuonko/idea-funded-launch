@@ -2,6 +2,7 @@
 // Used by: mobile-add-cart-item, mobile-update-cart-item, mobile-delete-cart-item, cart-sync-from-client
 
 import { getCachedSettings, round2 } from "./settings-cache.ts";
+import { calculateWeightBasedShippingFee, ShippingCategoryInfo } from "./cart/pricing.ts";
 
 // NOTE: HEAVY_THRESHOLD_KG removed - heavy items no longer require manual quote
 // Only vehicle items (is_vehicle=true) require shipping quotes
@@ -341,10 +342,10 @@ export async function updateOrderTotals(
   shippingPercent: number,
   exchangeRate: number
 ): Promise<OrderTotals | null> {
-  // Query all items including vehicle flags and stored shipping
+  // Query all items including vehicle flags, stored shipping, and shipping category info
   const { data: items, error: itemsError } = await supabase
     .from('order_items')
-    .select('base_price_usd, subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later, is_vehicle, vehicle_quote_applied, price_source')
+    .select('base_price_usd, subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later, is_vehicle, vehicle_quote_applied, price_source, shipping_item_types(key, est_weight_kg, flat_shipping_usd, shipping_buffer_percent)')
     .eq('order_id', orderId);
 
   if (itemsError) {
@@ -426,10 +427,33 @@ export async function updateOrderTotals(
     }
   });
 
-  // Calculate shipping for REGULAR items only (vehicles have stored shipping)
+  // Calculate shipping for REGULAR items only using weight-based method
   let regularShippingFeeUsd = 0;
   if (!regularRequiresQuote && regularItemCount > 0) {
-    regularShippingFeeUsd = calculateShipping(regularItemBaseTotal, shippingBaseFeeUsd, shippingPercent);
+    // Get shipping rate per kg from settings
+    const settings = await getCachedSettings(supabase);
+    const shippingRatePerKg = settings.shippingRatePerKg ?? 20;
+    
+    // Sum per-item weight-based shipping
+    (items || []).forEach((item: any) => {
+      if (item.is_saved_for_later || item.is_vehicle || item.price_source === 'hot_product') return;
+      const sit = item.shipping_item_types;
+      if (sit && sit.est_weight_kg != null) {
+        const catInfo: ShippingCategoryInfo = {
+          est_weight_kg: Number(sit.est_weight_kg),
+          flat_shipping_usd: sit.flat_shipping_usd != null ? Number(sit.flat_shipping_usd) : null,
+          shipping_buffer_percent: Number(sit.shipping_buffer_percent ?? 25),
+          requires_manual_quote: false,
+        };
+        regularShippingFeeUsd += calculateWeightBasedShippingFee(catInfo, shippingRatePerKg, Number(item.quantity || 1));
+      } else {
+        // Fallback: legacy formula for items without category
+        const normalizedPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
+        const itemBase = Number(item.base_price_usd || 0);
+        regularShippingFeeUsd += round2(shippingBaseFeeUsd / regularItemCount + (itemBase * normalizedPercent));
+      }
+    });
+    regularShippingFeeUsd = round2(regularShippingFeeUsd);
   }
 
   // Combined totals - INCLUDE regular, vehicle, AND fixed-price values

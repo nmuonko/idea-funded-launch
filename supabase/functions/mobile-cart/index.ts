@@ -56,8 +56,10 @@ import {
 import {
   calculateItemPricing as cartPricingCalc,
   calculateShippingFee,
+  calculateWeightBasedShippingFee,
   buildItemResponse,
   round2 as cartRound2,
+  ShippingCategoryInfo,
 } from "../_shared/cart/pricing.ts";
 import {
   scrapeProductInfo,
@@ -272,7 +274,7 @@ async function handleGetCart(req: Request): Promise<Response> {
   } catch { /* ignore */ }
 
   const settings = await getCachedSettings(supabase);
-  const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
+  const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent, shippingRatePerKg } = settings;
 
   // Fetch draft orders with retry to handle read-replica lag after add_item writes
   let drafts: any[] | null = null;
@@ -318,7 +320,7 @@ async function handleGetCart(req: Request): Promise<Response> {
   let items: any[] | null = null;
   let itemsError: any = null;
 
-  const selectWithRelations = 'id,product_url,title,product_image_url,store,base_price_usd,unit_price_usd,quantity,subtotal_usd,markup_fee_usd,shipping_fee_usd,total_price_usd,total_price_cdf,est_weight_kg,requires_manual_quote,is_saved_for_later,saved_at,updated_at,is_vehicle,vehicle_quote_applied,device_id,price_confirmation_status,admin_adjusted_price,price_confirmation_id,price_source,captured_price,shipping_item_types(key,label),quote_requests(status,quoted_shipping_usd,quoted_total_usd)';
+  const selectWithRelations = 'id,product_url,title,product_image_url,store,base_price_usd,unit_price_usd,quantity,subtotal_usd,markup_fee_usd,shipping_fee_usd,total_price_usd,total_price_cdf,est_weight_kg,requires_manual_quote,is_saved_for_later,saved_at,updated_at,is_vehicle,vehicle_quote_applied,device_id,price_confirmation_status,admin_adjusted_price,price_confirmation_id,price_source,captured_price,shipping_item_types(key,label,est_weight_kg,flat_shipping_usd,shipping_buffer_percent),quote_requests(status,quoted_shipping_usd,quoted_total_usd)';
   const selectBase = 'id,product_url,title,product_image_url,store,base_price_usd,unit_price_usd,quantity,subtotal_usd,markup_fee_usd,shipping_fee_usd,total_price_usd,total_price_cdf,est_weight_kg,requires_manual_quote,is_saved_for_later,saved_at,updated_at,is_vehicle,vehicle_quote_applied,device_id,price_confirmation_status,admin_adjusted_price,price_confirmation_id,price_source,captured_price';
 
   // Fetch items with retry to handle read-replica lag after add_item writes
@@ -396,15 +398,45 @@ async function handleGetCart(req: Request): Promise<Response> {
     }
   });
 
+  // Weight-based shipping: calculate per-item using category info, then sum
   const normalizedShippingPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
   let regularShippingTotal = 0;
   const activeRegularCount = activeItems.filter((i: any) => !i.isVehicle).length;
   if (!regularRequiresQuote && regularItemsBaseTotal > 0) {
-    regularShippingTotal = round2(shippingBaseFeeUsd + (regularItemsBaseTotal * normalizedShippingPercent));
-    const perItemBaseFee = activeRegularCount > 0 ? round2(shippingBaseFeeUsd / activeRegularCount) : 0;
+    // Calculate shipping per item using weight-based method when category is available
     activeItems.forEach((item: any) => {
-      if (!item.isVehicle) { item.itemShippingUsd = round2(perItemBaseFee + (item.itemBaseTotalUsd * normalizedShippingPercent)); item.shippingCost = item.itemShippingUsd; }
+      if (item.isVehicle) return;
+      // Find the original DB item to get shipping_item_types join data
+      const origItem = (items || []).find((i: any) => i.id === item.id);
+      const sit = origItem?.shipping_item_types;
+      if (sit && sit.est_weight_kg != null) {
+        // Weight-based shipping using category info
+        const catInfo: ShippingCategoryInfo = {
+          est_weight_kg: Number(sit.est_weight_kg),
+          flat_shipping_usd: sit.flat_shipping_usd != null ? Number(sit.flat_shipping_usd) : null,
+          shipping_buffer_percent: Number(sit.shipping_buffer_percent ?? 25),
+          requires_manual_quote: false,
+        };
+        item.itemShippingUsd = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, item.quantity);
+      } else {
+        // Fallback: legacy formula for items without category
+        const perItemBaseFee = activeRegularCount > 0 ? round2(shippingBaseFeeUsd / activeRegularCount) : 0;
+        item.itemShippingUsd = round2(perItemBaseFee + (item.itemBaseTotalUsd * normalizedShippingPercent));
+      }
+      item.shippingCost = item.itemShippingUsd;
+      item.shippingFeeUsd = item.itemShippingUsd;
+      item.shipping_fee_usd = item.itemShippingUsd;
+      // Update line totals to include shipping
+      item.itemTotalUsd = round2(item.itemSubtotalUsd + item.itemShippingUsd);
+      item.lineTotalUsd = item.itemTotalUsd;
+      item.totalPriceUsd = item.itemTotalUsd;
+      item.total_price_usd = item.itemTotalUsd;
+      item.priceUsd = item.itemTotalUsd;
+      item.price = item.itemTotalUsd;
+      item.lineTotalCdf = round2(item.itemTotalUsd * exchangeRate);
+      regularShippingTotal += item.itemShippingUsd;
     });
+    regularShippingTotal = round2(regularShippingTotal);
   }
 
   const totalItemCount = regularItemCount + vehicleCount;
@@ -542,10 +574,39 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     pricing = cartPricingCalc(productPrice, quantity, 0, settings.exchangeRate); // markup baked into vehicle pricing
   } else if (detection.category && detection.category !== "vehicle") {
     const catTypeResult = await getShippingTypeForCategory(db, detection.category, correlationId);
-    if (catTypeResult.data) { finalShippingTypeId = catTypeResult.data.id; estWeightKg = catTypeResult.data.estWeightKg; }
+    if (catTypeResult.data) {
+      finalShippingTypeId = catTypeResult.data.id;
+      estWeightKg = catTypeResult.data.estWeightKg;
+      requiresManualQuote = catTypeResult.data.requiresManualQuote;
+    }
   }
 
-  const shippingFeeUsd = (isFixedPrice || isAllInclusive) ? 0 : (isVehicleDetected ? 0 : calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, settings.shippingPercent, requiresManualQuote));
+  // Store detected category data for shipping calculation
+  let detectedCategoryData: { estWeightKg: number; flatShippingUsd: number | null; shippingBufferPercent: number; requiresManualQuote: boolean } | null = null;
+  if (finalShippingTypeId && detection.category && detection.category !== "vehicle") {
+    const catRefetch = await getShippingTypeForCategory(db, detection.category, correlationId);
+    if (catRefetch.data) {
+      detectedCategoryData = catRefetch.data;
+    }
+  }
+
+  let shippingFeeUsd: number;
+  if (isFixedPrice || isAllInclusive || isVehicleDetected || requiresManualQuote) {
+    shippingFeeUsd = 0;
+  } else if (detectedCategoryData) {
+    // Weight-based shipping using category info
+    const catInfo: ShippingCategoryInfo = {
+      est_weight_kg: detectedCategoryData.estWeightKg,
+      flat_shipping_usd: detectedCategoryData.flatShippingUsd,
+      shipping_buffer_percent: detectedCategoryData.shippingBufferPercent,
+      requires_manual_quote: detectedCategoryData.requiresManualQuote,
+    };
+    shippingFeeUsd = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, quantity);
+  } else {
+    // Fallback: legacy formula for uncategorized items
+    const normalizedPercent = settings.shippingPercent > 1 ? settings.shippingPercent / 100 : settings.shippingPercent;
+    shippingFeeUsd = calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, normalizedPercent, requiresManualQuote);
+  }
 
   if (isGuest) {
     const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup);

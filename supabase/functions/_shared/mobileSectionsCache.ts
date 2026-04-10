@@ -322,8 +322,8 @@ async function buildStrictSectionsFromPool(
         const preferredPool = pool.filter(item =>
           profile.preferProviders!.includes(item.provider)
         );
-        // Use preferred pool if it has enough items, otherwise mix in others
-        if (preferredPool.length >= 5) {
+        // Use preferred pool if it has enough items, OR if strictProviders is set (never mix)
+        if (preferredPool.length >= 5 || profile.strictProviders) {
           sourcePool = preferredPool;
         }
       }

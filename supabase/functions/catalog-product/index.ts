@@ -317,6 +317,78 @@ function validateAsin(asin: string): string | null {
   return null;
 }
 
+/**
+ * Scrape the CURRENT price from an Amazon product page.
+ * Extracts from multiple HTML patterns (buybox, corePrice, twister, JSON-LD).
+ * Returns null if price cannot be determined — caller should keep cached price.
+ */
+async function scrapeAmazonPrice(asin: string): Promise<number | null> {
+  try {
+    const url = `https://www.amazon.com/dp/${asin}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      redirect: "follow",
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    // Strategy 1: corePrice_feature_div or corePriceDisplay (most common)
+    const corePriceMatch = html.match(/corePrice[^{]*\{[^}]*"value"\s*:\s*([\d.]+)/);
+    if (corePriceMatch) {
+      const v = parseFloat(corePriceMatch[1]);
+      if (v > 0) { console.log(`[PRICE_SCRAPE] ${asin} corePrice=$${v}`); return v; }
+    }
+
+    // Strategy 2: buybox / #price / priceblock
+    const pricePatterns = [
+      /id="priceblock_ourprice"[^>]*>\s*\$\s*([\d,]+\.?\d*)/i,
+      /id="priceblock_dealprice"[^>]*>\s*\$\s*([\d,]+\.?\d*)/i,
+      /"price"\s*:\s*"?\$?([\d,]+\.?\d*)"?/,
+      /class="a-price-whole"[^>]*>([\d,]+)<.*?class="a-price-fraction"[^>]*>(\d+)</s,
+      /\$\s*([\d,]+\.\d{2})\s*<\/span>/,
+    ];
+    for (const pat of pricePatterns) {
+      const m = html.match(pat);
+      if (m) {
+        const raw = m[2] ? `${m[1]}.${m[2]}` : m[1];
+        const v = parseFloat(raw.replace(/,/g, ''));
+        if (v > 0 && v < 100000) { console.log(`[PRICE_SCRAPE] ${asin} pattern=$${v}`); return v; }
+      }
+    }
+
+    // Strategy 3: JSON-LD
+    const jsonLdMatches = html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
+    for (const m of jsonLdMatches) {
+      try {
+        const json = JSON.parse(m[1]);
+        const offers = json?.offers || json?.Offers;
+        const price = offers?.price || offers?.lowPrice;
+        if (price) {
+          const v = parseFloat(String(price));
+          if (v > 0) { console.log(`[PRICE_SCRAPE] ${asin} jsonLd=$${v}`); return v; }
+        }
+      } catch { /* skip */ }
+    }
+
+    console.log(`[PRICE_SCRAPE] ${asin} no price found in HTML`);
+    return null;
+  } catch (e) {
+    console.warn(`[PRICE_SCRAPE] ${asin} error: ${(e as Error).message}`);
+    return null;
+  }
+}
+
+/** How old (in hours) a price can be before we try to refresh it on PDP view */
+const PRICE_STALENESS_HOURS = 12;
+
 function sanitizeScrapedImage(url: string, provider: string): string {
   let out = url.trim();
   if (provider === "shein" && out.includes("_thumbnail_126x")) {

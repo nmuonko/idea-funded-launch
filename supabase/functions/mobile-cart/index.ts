@@ -168,6 +168,53 @@ async function fetchLiveBasePrice(
   }
 }
 
+/**
+ * Scrape current price from Amazon product page (lightweight, no API key needed).
+ * Used as staleness guard when catalog_items price is >24h old.
+ */
+async function scrapeAmazonPriceForCart(asin: string): Promise<number | null> {
+  try {
+    const url = `https://www.amazon.com/dp/${asin}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+        "Accept": "text/html", "Accept-Language": "en-US,en;q=0.9",
+      },
+      redirect: "follow",
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const html = await res.text();
+    const patterns = [
+      /corePrice[^{]*\{[^}]*"value"\s*:\s*([\d.]+)/,
+      /id="priceblock_ourprice"[^>]*>\s*\$\s*([\d,]+\.?\d*)/i,
+      /"price"\s*:\s*"?\$?([\d,]+\.?\d*)"?/,
+      /class="a-price-whole"[^>]*>([\d,]+)<.*?class="a-price-fraction"[^>]*>(\d+)/s,
+      /\$\s*([\d,]+\.\d{2})\s*<\/span>/,
+    ];
+    for (const pat of patterns) {
+      const m = html.match(pat);
+      if (m) {
+        const raw = m[2] ? `${m[1]}.${m[2]}` : m[1];
+        const v = parseFloat(raw.replace(/,/g, ''));
+        if (v > 0 && v < 100000) return v;
+      }
+    }
+    const jsonLd = html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
+    for (const m of jsonLd) {
+      try {
+        const j = JSON.parse(m[1]);
+        const p = j?.offers?.price || j?.offers?.lowPrice;
+        if (p) { const v = parseFloat(String(p)); if (v > 0) return v; }
+      } catch { /* skip */ }
+    }
+    return null;
+  } catch { return null; }
+}
+
 function normalizeImageUrl(raw: unknown, productUrl?: string): string | null {
   if (!raw || typeof raw !== "string") return null;
   let s = raw.trim();

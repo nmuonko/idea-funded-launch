@@ -670,6 +670,7 @@ function scoreOne(
     }
     case "general":
     default: {
+      if (intent.phoneDeviceIntent && hasAny(title, NON_DEVICE_HARD_DROP)) return null;
       if (intent.phoneDeviceIntent && hasAny(title, PHONE_ACCESSORY_KW)) score -= 30;
       if (intent.phoneDeviceIntent && hasAny(title, WRONG_CATEGORY_KW)) return null;
       

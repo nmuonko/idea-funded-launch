@@ -9,12 +9,15 @@ import { scoreAndRankItems } from "./searchIntentScorer.ts";
 import type { SearchIntent } from "./vehicleDetection.ts";
 
 // Wrong-category keywords to drop from cached results (shoes in tech searches etc.)
+// Wrong-category keywords to drop from cached results (shoes in tech searches etc.)
 const UNIVERSAL_WRONG_CAT_KW = [
   "shoes","sneakers","basketball shoes","running shoes","boots","sandals","slippers",
   "dress","pants","shorts","jeans","hoodie","jacket","shirt","t-shirt","polo",
   "jewelry","necklace","bracelet","earring","pendant",
   "poster","wall art","canvas","framed","artwork",
   "blanket","towel","pillow","curtain","rug",
+  "box only","empty box","replacement box","no phone","no device",
+  "dummy","display model","fake phone","toy phone",
 ];
 
 export interface CacheGuardParams {

@@ -205,6 +205,20 @@ const HARD_ACCESSORY_KW = [
   "earbuds","headphones","airpods","lens","skin","decal",
 ];
 
+// Non-device items that match device queries but are packaging/parts/junk
+const NON_DEVICE_HARD_DROP = [
+  "box only","empty box","replacement box","no phone","no device","no tablet",
+  "packaging only","oem box","retail box","original box only",
+  "dummy","display model","fake phone","toy phone","play phone",
+  "sticker","decal","poster","keychain","ornament","figurine",
+  "manual only","instruction","guide only",
+  "sim tray","sim card tray","sim ejector",
+  "back glass","back cover","rear glass","replacement screen","lcd screen",
+  "digitizer","touch screen replacement","flex cable","ribbon cable",
+  "motherboard","logic board","charging port","speaker replacement",
+  "battery replacement","replacement battery","oem battery",
+];
+
 // Wrong-category keywords
 const WRONG_CATEGORY_KW = [
   "shoes","sneakers","basketball shoes","running shoes","boots","sandals","slippers",
@@ -481,6 +495,9 @@ function scoreOne(
       break;
     }
     case "phone_device": {
+      // Hard-drop non-device items (boxes, parts, packaging, repair parts)
+      if (hasAny(title, NON_DEVICE_HARD_DROP)) return null;
+
       const isAccessory = hasAny(title, HARD_ACCESSORY_KW);
       const hasDeviceSignal = hasAny(title, PHONE_DEVICE_SIGNALS);
 
@@ -500,8 +517,20 @@ function scoreOne(
       ];
       if (hasAny(title, STRONG_ACCESSORY) && !hasDeviceSignal) return null;
 
+      // Broken / for-parts items — hard drop
+      const BROKEN_PHONE_DROP = [
+        "for parts","parts only","not working","broken","as-is","as is",
+        "cracked screen","cracked","faulty","dead","no power","locked",
+        "icloud locked","frp locked","blacklisted","bad esn","bad imei",
+      ];
+      if (hasAny(title, BROKEN_PHONE_DROP)) return null;
+
       if (hasDeviceSignal) score += 15;
       if (isAccessory && hasDeviceSignal) score -= 20;
+
+      // Boost actual phones with storage/unlocked signals
+      if (/\b(64|128|256|512)\s*gb\b/i.test(title)) score += 10;
+      if (/\bunlocked\b/i.test(title)) score += 8;
 
       const fullQueryJoined = qTokens.join(" ");
       if (title.includes(fullQueryJoined)) score += 25;
@@ -641,6 +670,7 @@ function scoreOne(
     }
     case "general":
     default: {
+      if (intent.phoneDeviceIntent && hasAny(title, NON_DEVICE_HARD_DROP)) return null;
       if (intent.phoneDeviceIntent && hasAny(title, PHONE_ACCESSORY_KW)) score -= 30;
       if (intent.phoneDeviceIntent && hasAny(title, WRONG_CATEGORY_KW)) return null;
       

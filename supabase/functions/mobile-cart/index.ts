@@ -398,15 +398,45 @@ async function handleGetCart(req: Request): Promise<Response> {
     }
   });
 
+  // Weight-based shipping: calculate per-item using category info, then sum
   const normalizedShippingPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
   let regularShippingTotal = 0;
   const activeRegularCount = activeItems.filter((i: any) => !i.isVehicle).length;
   if (!regularRequiresQuote && regularItemsBaseTotal > 0) {
-    regularShippingTotal = round2(shippingBaseFeeUsd + (regularItemsBaseTotal * normalizedShippingPercent));
-    const perItemBaseFee = activeRegularCount > 0 ? round2(shippingBaseFeeUsd / activeRegularCount) : 0;
+    // Calculate shipping per item using weight-based method when category is available
     activeItems.forEach((item: any) => {
-      if (!item.isVehicle) { item.itemShippingUsd = round2(perItemBaseFee + (item.itemBaseTotalUsd * normalizedShippingPercent)); item.shippingCost = item.itemShippingUsd; }
+      if (item.isVehicle) return;
+      // Find the original DB item to get shipping_item_types join data
+      const origItem = (items || []).find((i: any) => i.id === item.id);
+      const sit = origItem?.shipping_item_types;
+      if (sit && sit.est_weight_kg != null) {
+        // Weight-based shipping using category info
+        const catInfo: ShippingCategoryInfo = {
+          est_weight_kg: Number(sit.est_weight_kg),
+          flat_shipping_usd: sit.flat_shipping_usd != null ? Number(sit.flat_shipping_usd) : null,
+          shipping_buffer_percent: Number(sit.shipping_buffer_percent ?? 25),
+          requires_manual_quote: false,
+        };
+        item.itemShippingUsd = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, item.quantity);
+      } else {
+        // Fallback: legacy formula for items without category
+        const perItemBaseFee = activeRegularCount > 0 ? round2(shippingBaseFeeUsd / activeRegularCount) : 0;
+        item.itemShippingUsd = round2(perItemBaseFee + (item.itemBaseTotalUsd * normalizedShippingPercent));
+      }
+      item.shippingCost = item.itemShippingUsd;
+      item.shippingFeeUsd = item.itemShippingUsd;
+      item.shipping_fee_usd = item.itemShippingUsd;
+      // Update line totals to include shipping
+      item.itemTotalUsd = round2(item.itemSubtotalUsd + item.itemShippingUsd);
+      item.lineTotalUsd = item.itemTotalUsd;
+      item.totalPriceUsd = item.itemTotalUsd;
+      item.total_price_usd = item.itemTotalUsd;
+      item.priceUsd = item.itemTotalUsd;
+      item.price = item.itemTotalUsd;
+      item.lineTotalCdf = round2(item.itemTotalUsd * exchangeRate);
+      regularShippingTotal += item.itemShippingUsd;
     });
+    regularShippingTotal = round2(regularShippingTotal);
   }
 
   const totalItemCount = regularItemCount + vehicleCount;

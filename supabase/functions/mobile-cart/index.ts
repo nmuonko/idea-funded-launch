@@ -480,7 +480,7 @@ async function handleGetCart(req: Request): Promise<Response> {
 
   (items || []).forEach((item: any) => {
     const mediaInfo = mediaLookup.get(item.product_url);
-    const formattedItem = formatItem(item, markupPercent, vehicleMarkupPercent, exchangeRate, mediaInfo, settings.vehiclePricingTiers);
+    const formattedItem = formatItem(item, markupPercent, vehicleMarkupPercent, exchangeRate, settings.shippingRatePerKg, mediaInfo, settings.vehiclePricingTiers);
     if (item.is_saved_for_later) { savedItems.push(formattedItem); return; }
     activeItems.push(formattedItem);
     if (formattedItem.hasPendingPriceConfirmation) { hasPendingPriceConfirmation = true; pendingPriceConfirmations.push(item.id); }

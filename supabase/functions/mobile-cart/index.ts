@@ -221,7 +221,7 @@ function formatItem(
   // or 'hot_product'), the base_price_usd already contains markup+shipping. DO NOT re-apply markup.
   const storedPriceSource = (item.price_source ?? "").toLowerCase();
   const isStoredAllInclusive = storedPriceSource === 'all_inclusive_display' || storedPriceSource === 'hot_product';
-  const isStoredCatalogBase = storedPriceSource === 'catalog_base';
+  const isStoredCatalogBase = storedPriceSource === 'catalog_base' || storedPriceSource === 'reverse_calculated';
   const storedTotalPriceUsd = Number(item.total_price_usd || 0);
   const storedMarkupFeeUsd = Number(item.markup_fee_usd || 0);
   const storedShippingFeeUsd = Number(item.shipping_fee_usd || 0);

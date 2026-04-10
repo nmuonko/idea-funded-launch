@@ -205,6 +205,20 @@ const HARD_ACCESSORY_KW = [
   "earbuds","headphones","airpods","lens","skin","decal",
 ];
 
+// Non-device items that match device queries but are packaging/parts/junk
+const NON_DEVICE_HARD_DROP = [
+  "box only","empty box","replacement box","no phone","no device","no tablet",
+  "packaging only","oem box","retail box","original box only",
+  "dummy","display model","fake phone","toy phone","play phone",
+  "sticker","decal","poster","keychain","ornament","figurine",
+  "manual only","instruction","guide only",
+  "sim tray","sim card tray","sim ejector",
+  "back glass","back cover","rear glass","replacement screen","lcd screen",
+  "digitizer","touch screen replacement","flex cable","ribbon cable",
+  "motherboard","logic board","charging port","speaker replacement",
+  "battery replacement","replacement battery","oem battery",
+];
+
 // Wrong-category keywords
 const WRONG_CATEGORY_KW = [
   "shoes","sneakers","basketball shoes","running shoes","boots","sandals","slippers",

@@ -13,10 +13,11 @@ import { isValidProductImageUrl, upgradeToHighRes, bestProductImage } from "./im
 import { normalizeSectionTitles, calculateTotalItems } from "./titleNormalizer.ts";
 import { isDisallowedItem } from "./contentBlocker.ts";
 import { loadPricingSettings, applyAllInclusivePricingToItems } from "./allInclusivePricing.ts";
+import { postProcessSection } from "./sectionPostProcess.ts";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const MOBILE_SECTIONS_SCHEMA_VERSION = 21; // v21: cheapest-first sorting, updated diversity queries
+export const MOBILE_SECTIONS_SCHEMA_VERSION = 22; // v22: dedup, smart ranking, old-product removal, diversity control
 const DEFAULT_TTL_SECONDS = 1800; // 30 min default — overridden by admin settings
 const ITEMS_PER_SECTION_RESPONSE = 40; // returned to client
 const ITEMS_PER_SECTION_CACHE = 60; // stored in cache for stability
@@ -397,12 +398,8 @@ async function buildStrictSectionsFromPool(
   const itemCounts: Record<string, number> = {};
 
   for (const profile of SECTION_PROFILES) {
-    // Sort items by price ascending (cheapest first) to attract price-conscious customers
-    const items = sectionBuckets[profile.key].sort((a, b) => {
-      const pa = a.price_usd ?? a.priceUsd ?? Infinity;
-      const pb = b.price_usd ?? b.priceUsd ?? Infinity;
-      return pa - pb;
-    });
+    // Post-process: dedup, remove old products, smart rank, enforce diversity
+    const items = postProcessSection(sectionBuckets[profile.key], profile.key);
     itemCounts[profile.key] = items.length;
     sections.push({
       key: profile.key,

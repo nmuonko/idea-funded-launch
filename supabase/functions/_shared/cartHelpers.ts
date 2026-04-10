@@ -341,10 +341,10 @@ export async function updateOrderTotals(
   shippingPercent: number,
   exchangeRate: number
 ): Promise<OrderTotals | null> {
-  // Query all items including vehicle flags and stored shipping
+  // Query all items including vehicle flags, stored shipping, and shipping category info
   const { data: items, error: itemsError } = await supabase
     .from('order_items')
-    .select('base_price_usd, subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later, is_vehicle, vehicle_quote_applied, price_source')
+    .select('base_price_usd, subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later, is_vehicle, vehicle_quote_applied, price_source, shipping_item_types(key, est_weight_kg, flat_shipping_usd, shipping_buffer_percent)')
     .eq('order_id', orderId);
 
   if (itemsError) {

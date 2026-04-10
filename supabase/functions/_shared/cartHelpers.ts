@@ -427,10 +427,33 @@ export async function updateOrderTotals(
     }
   });
 
-  // Calculate shipping for REGULAR items only (vehicles have stored shipping)
+  // Calculate shipping for REGULAR items only using weight-based method
   let regularShippingFeeUsd = 0;
   if (!regularRequiresQuote && regularItemCount > 0) {
-    regularShippingFeeUsd = calculateShipping(regularItemBaseTotal, shippingBaseFeeUsd, shippingPercent);
+    // Get shipping rate per kg from settings
+    const settings = await getCachedSettings(supabase);
+    const shippingRatePerKg = settings.shippingRatePerKg ?? 20;
+    
+    // Sum per-item weight-based shipping
+    (items || []).forEach((item: any) => {
+      if (item.is_saved_for_later || item.is_vehicle || item.price_source === 'hot_product') return;
+      const sit = item.shipping_item_types;
+      if (sit && sit.est_weight_kg != null) {
+        const catInfo: ShippingCategoryInfo = {
+          est_weight_kg: Number(sit.est_weight_kg),
+          flat_shipping_usd: sit.flat_shipping_usd != null ? Number(sit.flat_shipping_usd) : null,
+          shipping_buffer_percent: Number(sit.shipping_buffer_percent ?? 25),
+          requires_manual_quote: false,
+        };
+        regularShippingFeeUsd += calculateWeightBasedShippingFee(catInfo, shippingRatePerKg, Number(item.quantity || 1));
+      } else {
+        // Fallback: legacy formula for items without category
+        const normalizedPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
+        const itemBase = Number(item.base_price_usd || 0);
+        regularShippingFeeUsd += round2(shippingBaseFeeUsd / regularItemCount + (itemBase * normalizedPercent));
+      }
+    });
+    regularShippingFeeUsd = round2(regularShippingFeeUsd);
   }
 
   // Combined totals - INCLUDE regular, vehicle, AND fixed-price values

@@ -24,6 +24,8 @@ export interface SectionProfile {
   includeAny: string[];
   excludeAny: string[];
   preferProviders?: string[];
+  /** If true, NEVER fall back to other providers — section stays empty if preferred providers have no items */
+  strictProviders?: boolean;
   minItems: number;
   minPrice?: number;
   /** Per-brand diversity queries for backfill (each queried separately, results interleaved) */

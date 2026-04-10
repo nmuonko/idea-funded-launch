@@ -213,24 +213,35 @@ export async function getShippingType(
 
 /**
  * Get shipping type ID for a category
+ * Maps detector category keys to DB keys when they differ
  */
+const DETECTOR_TO_DB_KEY: Record<string, string> = {
+  'small_electronics': 'phone_camera',
+  'laptop_tablet': 'laptop',  // default; caller can override to 'tablet' based on title
+};
+
 export async function getShippingTypeForCategory(
   db: PostgrestClient,
   category: string,
   correlationId: string
 ): Promise<PostgrestResult<ShippingType | null>> {
+  // Map detector key to DB key, or use as-is
+  const dbKey = DETECTOR_TO_DB_KEY[category] ?? category;
+  
   const result = await db.from<{ id: string; est_weight_kg: number; requires_manual_quote: boolean; flat_shipping_usd: number | null; shipping_buffer_percent: number }[]>("shipping_item_types")
     .select("id, est_weight_kg, requires_manual_quote, flat_shipping_usd, shipping_buffer_percent")
-    .eq("category_key", category)
+    .eq("key", dbKey)
     .eq("active", true)
     .limit(1);
   
   if (result.error) {
+    console.warn(`[CART_DB][${correlationId}] getShippingTypeForCategory detectorKey=${category} dbKey=${dbKey} error=${result.error.message}`);
     return { data: null, error: result.error, status: result.status };
   }
   
   if (result.data && result.data.length > 0) {
     const row = result.data[0];
+    console.log(`[CART_DB][${correlationId}] getShippingTypeForCategory detectorKey=${category} dbKey=${dbKey} found=true est_weight_kg=${row.est_weight_kg} flat_shipping_usd=${row.flat_shipping_usd}`);
     return {
       data: {
         id: row.id,
@@ -244,6 +255,7 @@ export async function getShippingTypeForCategory(
     };
   }
   
+  console.warn(`[CART_DB][${correlationId}] getShippingTypeForCategory detectorKey=${category} dbKey=${dbKey} found=false`);
   return { data: null, error: null, status: 200 };
 }
 

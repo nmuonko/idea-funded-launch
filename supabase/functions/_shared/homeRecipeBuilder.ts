@@ -113,9 +113,14 @@ async function fetchJson<T>(url: string, headers: Record<string, string>): Promi
 async function fetchJsonPost<T>(url: string, headers: Record<string, string>, body: unknown): Promise<T | null> {
   try {
     const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.error(`[fetchJsonPost] HTTP ${res.status} for ${url.split("?")[0]}: ${errText.slice(0, 200)}`);
+      return null;
+    }
     return await res.json() as T;
-  } catch {
+  } catch (err) {
+    console.error(`[fetchJsonPost] exception for ${url.split("?")[0]}: ${(err as Error).message}`);
     return null;
   }
 }
@@ -288,9 +293,12 @@ async function fetchItemsFromDB(
     const maxForSeed = seed.max_items || 3;
 
     if (result.status !== "fulfilled" || !result.value) {
+      const reason = result.status === "rejected" ? (result as PromiseRejectedResult).reason : "null response";
+      console.log(`[fetchItemsFromDB] seed "${seed.query}" RPC FAILED: ${reason}`);
       perSeedItems.push(seedItems);
       continue;
     }
+    console.log(`[fetchItemsFromDB] seed "${seed.query}" RPC returned ${result.value.length} candidates`);
 
     for (const row of result.value) {
       if (seedItems.length >= maxForSeed) break;

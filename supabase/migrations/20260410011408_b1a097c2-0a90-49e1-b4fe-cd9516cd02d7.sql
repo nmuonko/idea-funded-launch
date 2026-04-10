@@ -1,0 +1,1 @@
+DELETE FROM home_cache_mobile_sections WHERE env = 'production';

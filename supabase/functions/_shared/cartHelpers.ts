@@ -2,6 +2,7 @@
 // Used by: mobile-add-cart-item, mobile-update-cart-item, mobile-delete-cart-item, cart-sync-from-client
 
 import { getCachedSettings, round2 } from "./settings-cache.ts";
+import { calculateWeightBasedShippingFee, ShippingCategoryInfo } from "./cart/pricing.ts";
 
 // NOTE: HEAVY_THRESHOLD_KG removed - heavy items no longer require manual quote
 // Only vehicle items (is_vehicle=true) require shipping quotes

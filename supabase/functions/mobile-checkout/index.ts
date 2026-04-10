@@ -423,6 +423,7 @@ async function recomputeTotalsServerSide(
         const effectiveMarkup = isVehicle ? vehicleMarkupPercent : markupPercent;
         const marginAmount = round2(basePrice * (effectiveMarkup / 100));
         regularItemsBase += basePrice;
+        regularItemsBaseNonInclusive += basePrice;
         regularItemsMargin += marginAmount;
         markupRulesUsed.push({
           item_id: item.id,
@@ -448,9 +449,10 @@ async function recomputeTotalsServerSide(
     vehicleTotal = dbQuoteTotal;
   }
 
-  // Calculate shipping for regular items only (vehicles have stored shipping)
-  const regularShippingFee = regularItemsBase > 0 
-    ? calculateShipping(regularItemsBase, shippingBaseFeeUsd, shippingPercent) 
+  // Calculate shipping for regular NON-all-inclusive items only
+  // All-inclusive items already have shipping baked into base_price_usd
+  const regularShippingFee = regularItemsBaseNonInclusive > 0 
+    ? calculateShipping(regularItemsBaseNonInclusive, shippingBaseFeeUsd, shippingPercent) 
     : 0;
 
   const subtotalItems = round2(regularItemsBase + (vehicleTotal - vehicleShipping));

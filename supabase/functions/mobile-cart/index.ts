@@ -532,13 +532,40 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   }
   const settings = settingsResult.data;
 
-  // ALL-INCLUSIVE PRICING: catalog-home and catalog-search now send all-inclusive prices.
-  // The RN app sends this all-inclusive price as productPrice.
-  // Treat it as the final total — DO NOT add markup or shipping on top.
+  // CATALOG BASE PRICE LOOKUP: The RN app sends the all-inclusive display price as productPrice.
+  // We look up the real base price from catalog_items to recalculate properly with current settings.
+  // This ensures cart totals always match the price simulator.
+  let basePriceUsd = productPrice;
+  let resolvedFromCatalog = false;
+  if (!isFixedPrice && !userEdited) {
+    // Try to find the real base price from catalog_items
+    let providerProdId: string | null = null;
+    const asinMatchLookup = productUrl.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/)([A-Z0-9]{10})/i);
+    if (asinMatchLookup) providerProdId = asinMatchLookup[1].toUpperCase();
+    const ebayMatchLookup = productUrl.match(/\/itm\/(\d+)/);
+    if (!providerProdId && ebayMatchLookup) providerProdId = ebayMatchLookup[1];
+
+    if (providerProdId) {
+      const catalogLookup = await db.from("catalog_items")
+        .select("price_usd")
+        .eq("provider_product_id", providerProdId)
+        .limit(1);
+      if (!catalogLookup.error && catalogLookup.data && catalogLookup.data.length > 0) {
+        const catalogBasePrice = Number(catalogLookup.data[0].price_usd);
+        if (catalogBasePrice > 0) {
+          basePriceUsd = catalogBasePrice;
+          resolvedFromCatalog = true;
+          console.log(`[CART_ADD][${correlationId}] catalogBasePriceLookup=true providerProductId=${providerProdId} catalogBase=${catalogBasePrice} sentPrice=${productPrice}`);
+        }
+      }
+    }
+  }
+
   const feesIncluded = addBody.feesIncluded === true || addBody.fees_included === true;
-  const isAllInclusive = !isFixedPrice && !feesIncluded; // Default: treat as all-inclusive from catalog
+  // If we resolved from catalog, recalculate with markup; otherwise treat sent price as all-inclusive
+  const isAllInclusive = !isFixedPrice && !feesIncluded && !resolvedFromCatalog;
   let effectiveMarkup = isFixedPrice ? 0 : (isAllInclusive ? 0 : settings.markupPercent);
-  let pricing = cartPricingCalc(productPrice, quantity, effectiveMarkup, settings.exchangeRate);
+  let pricing = cartPricingCalc(basePriceUsd, quantity, effectiveMarkup, settings.exchangeRate);
   const store = addCartDetectStore(productUrl);
 
   let productTitle = inputTitle ?? null;

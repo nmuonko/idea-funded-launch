@@ -288,9 +288,12 @@ async function fetchItemsFromDB(
     const maxForSeed = seed.max_items || 3;
 
     if (result.status !== "fulfilled" || !result.value) {
+      const reason = result.status === "rejected" ? (result as PromiseRejectedResult).reason : "null response";
+      console.log(`[fetchItemsFromDB] seed "${seed.query}" RPC FAILED: ${reason}`);
       perSeedItems.push(seedItems);
       continue;
     }
+    console.log(`[fetchItemsFromDB] seed "${seed.query}" RPC returned ${result.value.length} candidates`);
 
     for (const row of result.value) {
       if (seedItems.length >= maxForSeed) break;

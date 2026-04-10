@@ -128,6 +128,10 @@ export function buildItemResponse(
     exchangeRate
   );
 
+  // For the frozen app: always show the all-inclusive total as the "base" price
+  // so no matter which field the app reads, it displays the correct all-inclusive price.
+  const allInclusiveUnitPrice = round2(totalUsd / (pricing.quantity || 1));
+
   return {
     id: itemId,
     productUrl,
@@ -135,9 +139,9 @@ export function buildItemResponse(
     productImageUrl,
     image_url: productImageUrl,
     store,
-    basePriceUsd: pricing.basePriceUsd,
+    basePriceUsd: allInclusiveUnitPrice,
     quantity: pricing.quantity,
-    itemBaseTotalUsd: pricing.itemBaseTotalUsd,
+    itemBaseTotalUsd: totalUsd,
     itemMarginUsd: pricing.itemMarginUsd,
     markupFeeUsd: pricing.itemMarginUsd,
     markup_fee_usd: pricing.itemMarginUsd,

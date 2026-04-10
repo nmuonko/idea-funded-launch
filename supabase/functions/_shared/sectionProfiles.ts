@@ -14,6 +14,7 @@
 
 import { bestProductImage } from "./imageValidator.ts";
 import { isDisallowedItem } from "./contentBlocker.ts";
+import { postProcessSection } from "./sectionPostProcess.ts";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -611,18 +612,14 @@ export async function buildStrictMobileSections(
   const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: SectionItem[] }> = [];
 
   for (const profile of SECTION_PROFILES) {
-    // Sort by price ascending (cheapest first)
-    const sortedItems = sectionBuckets[profile.key].sort((a, b) => {
-      const pa = a.price_usd ?? a.priceUsd ?? Infinity;
-      const pb = b.price_usd ?? b.priceUsd ?? Infinity;
-      return pa - pb;
-    });
+    // Post-process: dedup, remove old products, smart rank, enforce diversity
+    const processedItems = postProcessSection(sectionBuckets[profile.key], profile.key);
     sections.push({
       key: profile.key,
       title: lang === "fr" ? profile.title.fr : profile.title.en,
       title_fr: profile.title.fr,
       title_en: profile.title.en,
-      items: sortedItems,
+      items: processedItems,
     });
   }
 

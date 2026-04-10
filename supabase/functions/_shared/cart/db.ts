@@ -217,7 +217,7 @@ export async function getShippingType(
  */
 const DETECTOR_TO_DB_KEY: Record<string, string> = {
   'small_electronics': 'phone_camera',
-  'laptop_tablet': 'laptop',  // detector groups laptops+tablets; split lookup with fallback
+  'laptop_tablet': 'laptop',  // default; caller can override to 'tablet' based on title
 };
 
 export async function getShippingTypeForCategory(

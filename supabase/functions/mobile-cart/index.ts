@@ -274,7 +274,7 @@ async function handleGetCart(req: Request): Promise<Response> {
   } catch { /* ignore */ }
 
   const settings = await getCachedSettings(supabase);
-  const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
+  const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent, shippingRatePerKg } = settings;
 
   // Fetch draft orders with retry to handle read-replica lag after add_item writes
   let drafts: any[] | null = null;

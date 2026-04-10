@@ -544,10 +544,28 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     pricing = cartPricingCalc(productPrice, quantity, 0, settings.exchangeRate); // markup baked into vehicle pricing
   } else if (detection.category && detection.category !== "vehicle") {
     const catTypeResult = await getShippingTypeForCategory(db, detection.category, correlationId);
-    if (catTypeResult.data) { finalShippingTypeId = catTypeResult.data.id; estWeightKg = catTypeResult.data.estWeightKg; }
+    if (catTypeResult.data) {
+      finalShippingTypeId = catTypeResult.data.id;
+      estWeightKg = catTypeResult.data.estWeightKg;
+      requiresManualQuote = catTypeResult.data.requiresManualQuote;
+    }
   }
 
-  const shippingFeeUsd = (isFixedPrice || isAllInclusive) ? 0 : (isVehicleDetected ? 0 : calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, settings.shippingPercent, requiresManualQuote));
+  let shippingFeeUsd: number;
+  if (isFixedPrice || isAllInclusive || isVehicleDetected || requiresManualQuote) {
+    shippingFeeUsd = 0;
+  } else if (detection.category && detection.category !== "vehicle") {
+    // Weight-based shipping using category info
+    const catTypeResult2 = await getShippingTypeForCategory(db, detection.category, correlationId);
+    const catInfo: ShippingCategoryInfo = catTypeResult2.data
+      ? { est_weight_kg: catTypeResult2.data.estWeightKg, flat_shipping_usd: catTypeResult2.data.flatShippingUsd, shipping_buffer_percent: catTypeResult2.data.shippingBufferPercent, requires_manual_quote: catTypeResult2.data.requiresManualQuote }
+      : { est_weight_kg: 1, flat_shipping_usd: null, shipping_buffer_percent: 25, requires_manual_quote: false };
+    shippingFeeUsd = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, quantity);
+  } else {
+    // Fallback: legacy formula for uncategorized items
+    const normalizedPercent = settings.shippingPercent > 1 ? settings.shippingPercent / 100 : settings.shippingPercent;
+    shippingFeeUsd = calculateShippingFee(pricing.itemBaseTotalUsd, settings.shippingBaseFeeUsd, normalizedPercent, requiresManualQuote);
+  }
 
   if (isGuest) {
     const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup);

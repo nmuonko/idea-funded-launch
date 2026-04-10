@@ -585,7 +585,6 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     const tiers = parseTiers(settings.vehiclePricingTiers);
     vehiclePricingResult = calculateVehicleFinalPrice(basePriceUsd, 'running', 'roro', tiers);
     effectiveMarkup = vehiclePricingResult.totalPercent;
-    pricing = cartPricingCalc(basePriceUsd, quantity, 0, settings.exchangeRate); // markup baked into vehicle pricing
   } else if (detection.category && detection.category !== "vehicle") {
     // Refine laptop_tablet: check title for tablet keywords to use correct DB key
     let refinedCategory = detection.category;

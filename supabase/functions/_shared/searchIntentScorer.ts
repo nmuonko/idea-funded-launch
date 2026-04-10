@@ -495,6 +495,9 @@ function scoreOne(
       break;
     }
     case "phone_device": {
+      // Hard-drop non-device items (boxes, parts, packaging, repair parts)
+      if (hasAny(title, NON_DEVICE_HARD_DROP)) return null;
+
       const isAccessory = hasAny(title, HARD_ACCESSORY_KW);
       const hasDeviceSignal = hasAny(title, PHONE_DEVICE_SIGNALS);
 
@@ -514,8 +517,20 @@ function scoreOne(
       ];
       if (hasAny(title, STRONG_ACCESSORY) && !hasDeviceSignal) return null;
 
+      // Broken / for-parts items — hard drop
+      const BROKEN_PHONE_DROP = [
+        "for parts","parts only","not working","broken","as-is","as is",
+        "cracked screen","cracked","faulty","dead","no power","locked",
+        "icloud locked","frp locked","blacklisted","bad esn","bad imei",
+      ];
+      if (hasAny(title, BROKEN_PHONE_DROP)) return null;
+
       if (hasDeviceSignal) score += 15;
       if (isAccessory && hasDeviceSignal) score -= 20;
+
+      // Boost actual phones with storage/unlocked signals
+      if (/\b(64|128|256|512)\s*gb\b/i.test(title)) score += 10;
+      if (/\bunlocked\b/i.test(title)) score += 8;
 
       const fullQueryJoined = qTokens.join(" ");
       if (title.includes(fullQueryJoined)) score += 25;

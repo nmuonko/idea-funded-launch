@@ -166,11 +166,15 @@ async function backfillForProfile(
   if (profile.diversityQueries && profile.diversityQueries.length > 0) {
     try {
       const perBrand = Math.max(8, Math.ceil(needed / profile.diversityQueries.length) + 4);
+      // Apply provider filter for diversity queries too
+      const diversityProviderFilter = profile.preferProviders && profile.preferProviders.length > 0
+        ? `provider=in.(${profile.preferProviders.join(",")})`
+        : `provider=in.(amazon,ebay,cargurus,carvana,shein,rainforest)`;
       const brandFetches = profile.diversityQueries.map(async (q) => {
         const words = q.split(/\s+/).filter(w => w.length > 2);
         const orClauses = words.map(w => `title.ilike.*${w}*`).join(",");
         const url = `${supabaseUrl}/rest/v1/catalog_items?` +
-          `${minPriceFilter}&image_url=not.is.null&is_disallowed=eq.false` +
+          `${diversityProviderFilter}&${minPriceFilter}&image_url=not.is.null&is_disallowed=eq.false` +
           `&and=(${orClauses})&order=price_usd.asc.nullslast&limit=${perBrand * 3}`;
         const res = await fetch(url, { headers });
         if (!res.ok) return [];
@@ -237,7 +241,8 @@ async function backfillForProfile(
 
     const rows = await res.json() as Array<Record<string, unknown>>;
     if (!Array.isArray(rows) || rows.length === 0) {
-      if (profile.preferProviders && profile.preferProviders.length > 0) {
+      // Only fall back to all providers if NOT strictProviders
+      if (profile.preferProviders && profile.preferProviders.length > 0 && !profile.strictProviders) {
         console.log(`[MOBILE_SECTIONS_CACHE] preferred providers empty for ${profile.key}, trying all`);
         const fallbackUrl = `${supabaseUrl}/rest/v1/catalog_items?` +
           `provider=in.(amazon,ebay,cargurus,carvana,shein,rainforest)&${minPriceFilter}&image_url=not.is.null&is_disallowed=eq.false` +
@@ -322,8 +327,8 @@ async function buildStrictSectionsFromPool(
         const preferredPool = pool.filter(item =>
           profile.preferProviders!.includes(item.provider)
         );
-        // Use preferred pool if it has enough items, otherwise mix in others
-        if (preferredPool.length >= 5) {
+        // Use preferred pool if it has enough items, OR if strictProviders is set (never mix)
+        if (preferredPool.length >= 5 || profile.strictProviders) {
           sourcePool = preferredPool;
         }
       }

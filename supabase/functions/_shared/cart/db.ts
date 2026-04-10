@@ -18,6 +18,8 @@ export interface ShippingType {
   id: string;
   estWeightKg: number;
   requiresManualQuote: boolean;
+  flatShippingUsd: number | null;
+  shippingBufferPercent: number;
 }
 
 export interface OrderItem {

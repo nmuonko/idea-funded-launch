@@ -93,6 +93,81 @@ function calculateItemShipping(
   return round2(basePart + extraPart);
 }
 
+/**
+ * Fetch LIVE base price from provider API (Rainforest for Amazon, eBay API for eBay).
+ * This bypasses stale catalog_items cache and gets the real current price.
+ * Returns null if the lookup fails (caller should fall back to other methods).
+ */
+async function fetchLiveBasePrice(
+  productUrl: string,
+  store: string,
+  correlationId: string
+): Promise<{ basePriceUsd: number; title: string | null; imageUrl: string | null } | null> {
+  try {
+    if (store === 'AMAZON') {
+      const asinMatch = productUrl.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/)([A-Z0-9]{10})/i);
+      if (!asinMatch) return null;
+      const asin = asinMatch[1].toUpperCase();
+      const apiKey = Deno.env.get("RAINFOREST_API_KEY");
+      if (!apiKey) {
+        console.warn(`[CART_ADD][${correlationId}] fetchLiveBasePrice: no RAINFOREST_API_KEY`);
+        return null;
+      }
+      const url = `https://api.rainforestapi.com/request?api_key=${apiKey}&type=product&amazon_domain=amazon.com&asin=${asin}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      try {
+        const resp = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!resp.ok) {
+          console.warn(`[CART_ADD][${correlationId}] fetchLiveBasePrice: Rainforest HTTP ${resp.status}`);
+          return null;
+        }
+        const data = await resp.json();
+        if (!data.product) return null;
+        const p = data.product;
+        // Extract price from multiple fields
+        const priceObj = p.buybox_winner?.price ?? p.price ?? p.current_price ?? p.prices?.[0] ?? p.rrp;
+        const priceValue = typeof priceObj?.value === 'number' && priceObj.value > 0 ? priceObj.value : null;
+        if (!priceValue) {
+          console.warn(`[CART_ADD][${correlationId}] fetchLiveBasePrice: no price in Rainforest response for ${asin}`);
+          return null;
+        }
+        const title = p.title || null;
+        const imageUrl = p.main_image?.link || null;
+        console.log(`[CART_ADD][${correlationId}] fetchLiveBasePrice: LIVE price for ${asin} = $${priceValue}`);
+        
+        // Update catalog_items with fresh price (fire-and-forget)
+        const supabaseUrl = Deno.env.get("SUPABASE_URL");
+        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        if (supabaseUrl && serviceKey) {
+          const catalogId = `amazon_${asin}`;
+          const adminDb = createClient(supabaseUrl, serviceKey);
+          adminDb.from('catalog_items').update({
+            price_usd: priceValue,
+            price_updated_at: new Date().toISOString(),
+            data_updated_at: new Date().toISOString(),
+          }).eq('id', catalogId).then(({ error }) => {
+            if (error) console.warn(`[CART_ADD][${correlationId}] catalog_items update failed: ${error.message}`);
+            else console.log(`[CART_ADD][${correlationId}] catalog_items updated ${catalogId} price to $${priceValue}`);
+          });
+        }
+        
+        return { basePriceUsd: priceValue, title, imageUrl };
+      } catch (e) {
+        clearTimeout(timeout);
+        console.warn(`[CART_ADD][${correlationId}] fetchLiveBasePrice: exception ${(e as Error).message}`);
+        return null;
+      }
+    }
+    // For eBay or other stores, fall back to null (use existing methods)
+    return null;
+  } catch (e) {
+    console.warn(`[CART_ADD][${correlationId}] fetchLiveBasePrice: outer exception ${(e as Error).message}`);
+    return null;
+  }
+}
+
 function normalizeImageUrl(raw: unknown, productUrl?: string): string | null {
   if (!raw || typeof raw !== "string") return null;
   let s = raw.trim();
@@ -141,6 +216,7 @@ function isUserEditedPrice(body: any): boolean {
 // Format item for get_cart response
 function formatItem(
   item: any, markupPercent: number, vehicleMarkupPercent: number, exchangeRate: number,
+  shippingRatePerKg: number,
   mediaInfo?: { image_count: number; image_count_status: "cached" | "pending" },
   vehiclePricingTiers?: any
 ) {
@@ -217,31 +293,49 @@ function formatItem(
   const itemRequiresQuote = item.requires_manual_quote === true;
   const itemBaseTotalUsd = round2(basePriceUsd * quantity);
 
-  // ALL-INCLUSIVE FIX: If item was stored with all-inclusive pricing (price_source='all_inclusive_display'
-  // or 'hot_product'), the base_price_usd already contains markup+shipping. DO NOT re-apply markup.
+  // ALWAYS recalculate from stored base_price_usd using current settings.
+  // This ensures prices are never stale — base is the raw provider price,
+  // and we apply current markup + shipping on top every time.
   const storedPriceSource = (item.price_source ?? "").toLowerCase();
   const isStoredAllInclusive = storedPriceSource === 'all_inclusive_display' || storedPriceSource === 'hot_product';
-  const isStoredCatalogBase = storedPriceSource === 'catalog_base' || storedPriceSource === 'reverse_calculated';
-  const storedTotalPriceUsd = Number(item.total_price_usd || 0);
-  const storedMarkupFeeUsd = Number(item.markup_fee_usd || 0);
-  const storedShippingFeeUsd = Number(item.shipping_fee_usd || 0);
 
-  // For all-inclusive items: use stored values (markup/shipping already baked into base_price_usd)
-  // For catalog_base items: recalculate markup from settings, use stored shipping
-  // For legacy/manual items: recalculate markup from settings
-  const itemMarginUsd = isStoredAllInclusive ? storedMarkupFeeUsd : round2(itemBaseTotalUsd * (markupPercent / 100));
-  const itemShippingUsd = isStoredAllInclusive ? storedShippingFeeUsd : (isStoredCatalogBase ? storedShippingFeeUsd : 0);
+  // For all-inclusive (legacy frozen app items): trust stored values (markup/shipping baked in)
+  // For everything else: recalculate from base using current settings
+  let itemMarginUsd: number;
+  let itemShippingUsd: number;
+
+  if (isStoredAllInclusive) {
+    // Legacy: trust stored values
+    itemMarginUsd = Number(item.markup_fee_usd || 0);
+    itemShippingUsd = Number(item.shipping_fee_usd || 0);
+  } else {
+    // RECALCULATE from raw base price + current settings
+    itemMarginUsd = round2(itemBaseTotalUsd * (markupPercent / 100));
+    // Shipping: use category data if available, else stored value, else 0
+    const sit = item.shipping_item_types;
+    if (sit && sit.est_weight_kg != null) {
+      const catInfo: ShippingCategoryInfo = {
+        est_weight_kg: Number(sit.est_weight_kg),
+        flat_shipping_usd: sit.flat_shipping_usd != null ? Number(sit.flat_shipping_usd) : null,
+        shipping_buffer_percent: Number(sit.shipping_buffer_percent ?? 25),
+        requires_manual_quote: false,
+      };
+      itemShippingUsd = calculateWeightBasedShippingFee(catInfo, shippingRatePerKg, quantity);
+    } else {
+      // Use stored shipping if no category data
+      itemShippingUsd = Number(item.shipping_fee_usd || 0);
+    }
+  }
+
   const itemSubtotalUsd = isStoredAllInclusive
-    ? (storedTotalPriceUsd > 0 ? storedTotalPriceUsd : itemBaseTotalUsd)
+    ? (Number(item.total_price_usd || 0) > 0 ? Number(item.total_price_usd) : itemBaseTotalUsd)
     : round2(itemBaseTotalUsd + itemMarginUsd);
-  const itemTotalUsd = round2(itemSubtotalUsd + itemShippingUsd);
+  const itemTotalUsd = round2(itemSubtotalUsd + (isStoredAllInclusive ? 0 : itemShippingUsd));
   const itemSubtotalCdf = round2(itemSubtotalUsd * exchangeRate);
 
   // FROZEN APP FIX: Always show all-inclusive price as "basePriceUsd" so the frozen app
   // (which may read basePriceUsd for display) shows the correct all-inclusive total.
-  const displayBasePriceUsd = (isStoredCatalogBase || isStoredAllInclusive)
-    ? round2(itemTotalUsd / quantity)
-    : basePriceUsd;
+  const displayBasePriceUsd = isStoredAllInclusive ? basePriceUsd : round2(itemTotalUsd / quantity);
 
   return {
     ...baseFields, basePriceUsd: displayBasePriceUsd, unitPriceUsd: displayBasePriceUsd, itemBaseTotalUsd: itemTotalUsd,
@@ -386,7 +480,7 @@ async function handleGetCart(req: Request): Promise<Response> {
 
   (items || []).forEach((item: any) => {
     const mediaInfo = mediaLookup.get(item.product_url);
-    const formattedItem = formatItem(item, markupPercent, vehicleMarkupPercent, exchangeRate, mediaInfo, settings.vehiclePricingTiers);
+    const formattedItem = formatItem(item, markupPercent, vehicleMarkupPercent, exchangeRate, settings.shippingRatePerKg, mediaInfo, settings.vehiclePricingTiers);
     if (item.is_saved_for_later) { savedItems.push(formattedItem); return; }
     activeItems.push(formattedItem);
     if (formattedItem.hasPendingPriceConfirmation) { hasPendingPriceConfirmation = true; pendingPriceConfirmations.push(item.id); }
@@ -542,21 +636,67 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   }
   const settings = settingsResult.data;
 
-  // REVERSE-ENGINEER BASE PRICE: The RN app sends the all-inclusive display price
-  // (base + markup + shipping). We reverse-calculate the real base price using current
-  // fee settings and detected category, so the breakdown is always accurate.
-  // This avoids relying on potentially stale catalog_items data.
+  // BASE-FIRST PRICING: Extract the REAL raw base price from the provider,
+  // store it, then apply all-inclusive fees (markup + shipping) on top.
+  // This ensures prices are always fresh and accurate.
   let basePriceUsd = productPrice;
   let resolvedFromCatalog = false;
+  let priceSource = 'auto'; // tracks how we resolved the base price
 
   const feesIncluded = addBody.feesIncluded === true || addBody.fees_included === true;
   const isAllInclusive = isFixedPrice || feesIncluded;
-  // basePriceUsd will be reverse-calculated after category detection (below)
   let effectiveMarkup = isFixedPrice ? 0 : settings.markupPercent;
   const store = addCartDetectStore(productUrl);
 
   let productTitle = inputTitle ?? null;
   let productImageUrl = inputImageUrl ?? null;
+
+  // STEP 1: Try to get LIVE base price from provider API (most accurate)
+  if (!isFixedPrice && !isAllInclusive && !userEdited) {
+    const liveResult = await fetchLiveBasePrice(productUrl, store, correlationId);
+    if (liveResult && liveResult.basePriceUsd > 0) {
+      basePriceUsd = liveResult.basePriceUsd;
+      resolvedFromCatalog = true;
+      priceSource = 'live_provider';
+      console.log(`[CART_ADD][${correlationId}] LIVE base price resolved: $${basePriceUsd} (was sent $${productPrice})`);
+      // Also use live title/image if we don't have them
+      if (!productTitle && liveResult.title) productTitle = liveResult.title;
+      if (!productImageUrl && liveResult.imageUrl) productImageUrl = liveResult.imageUrl;
+    }
+  }
+
+  // STEP 2: If live lookup failed, try catalog_items (may be stale but it's the raw base)
+  if (!resolvedFromCatalog && !isFixedPrice && !isAllInclusive && !userEdited) {
+    let providerProductId: string | null = null;
+    if (store === 'AMAZON') {
+      const asinMatch = productUrl.match(/(?:\/dp\/|\/gp\/(?:product|aw\/d)\/)([A-Z0-9]{10})/i);
+      providerProductId = asinMatch ? asinMatch[1].toUpperCase() : null;
+    } else if (store === 'EBAY') {
+      const ebayMatch = productUrl.match(/\/itm\/(\d+)/);
+      providerProductId = ebayMatch ? ebayMatch[1] : null;
+    }
+    if (providerProductId) {
+      const catalogId = store === 'AMAZON' ? `amazon_${providerProductId}` : providerProductId;
+      const supabaseUrl = Deno.env.get("SUPABASE_URL");
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (supabaseUrl && serviceKey) {
+        const adminDb = createClient(supabaseUrl, serviceKey);
+        const { data: catalogItem } = await adminDb.from('catalog_items')
+          .select('price_usd, price_updated_at, title, image_url')
+          .eq('id', catalogId).maybeSingle();
+        if (catalogItem?.price_usd && catalogItem.price_usd > 0) {
+          basePriceUsd = catalogItem.price_usd;
+          resolvedFromCatalog = true;
+          priceSource = 'catalog_base';
+          console.log(`[CART_ADD][${correlationId}] catalog_items base price: $${basePriceUsd} (updated_at=${catalogItem.price_updated_at})`);
+          if (!productTitle && catalogItem.title) productTitle = catalogItem.title;
+          if (!productImageUrl && catalogItem.image_url) productImageUrl = catalogItem.image_url;
+        }
+      }
+    }
+  }
+
+  // Scrape for missing title/image
   if (!productImageUrl || !productTitle) {
     const scraped = await scrapeProductInfo(productUrl, correlationId);
     if (!productImageUrl && scraped.imageUrl) productImageUrl = scraped.imageUrl;
@@ -579,14 +719,12 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   let vehiclePricingResult: any = null;
   if (detection.category === "vehicle" && detection.requiresQuote) {
     isVehicleDetected = true;
-    requiresManualQuote = false; // No longer requires manual quote — auto-calculated
+    requiresManualQuote = false;
     finalShippingTypeId = null;
-    // Auto-calculate using tiered vehicle pricing
     const tiers = parseTiers(settings.vehiclePricingTiers);
     vehiclePricingResult = calculateVehicleFinalPrice(basePriceUsd, 'running', 'roro', tiers);
     effectiveMarkup = vehiclePricingResult.totalPercent;
   } else if (detection.category && detection.category !== "vehicle") {
-    // Refine laptop_tablet: check title for tablet keywords to use correct DB key
     let refinedCategory = detection.category;
     if (detection.category === 'laptop_tablet') {
       const titleLower = (productTitle || "").toLowerCase();
@@ -601,23 +739,20 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     }
   }
 
-  // REVERSE-CALCULATE BASE PRICE from all-inclusive sent price
-  // The app sends the all-inclusive price (base + markup + shipping).
-  // We reverse-engineer the base so the breakdown matches the price simulator.
+  // STEP 3: If we still don't have a resolved base (live + catalog both failed),
+  // reverse-calculate from the all-inclusive sent price as last resort
   let detectedCategoryData: { estWeightKg: number; flatShippingUsd: number | null; shippingBufferPercent: number; requiresManualQuote: boolean } | null = null;
   let shippingFeeUsd: number;
 
   if (isFixedPrice || isAllInclusive) {
-    // Fixed/explicit all-inclusive: no recalculation needed
     shippingFeeUsd = 0;
   } else if (isVehicleDetected) {
     shippingFeeUsd = 0;
   } else if (requiresManualQuote) {
     shippingFeeUsd = 0;
   } else {
-    // Calculate shipping for the category
+    // Get category data for shipping calculation
     if (finalShippingTypeId && detection.category && detection.category !== "vehicle") {
-      // Re-use the already-fetched category data
       let refinedCat2 = detection.category;
       if (detection.category === 'laptop_tablet') {
         const titleLower2 = (productTitle || "").toLowerCase();
@@ -630,6 +765,37 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       }
     }
 
+    if (!resolvedFromCatalog && detectedCategoryData) {
+      // Last resort: reverse-calculate base from all-inclusive sent price
+      const catInfo: ShippingCategoryInfo = {
+        est_weight_kg: detectedCategoryData.estWeightKg,
+        flat_shipping_usd: detectedCategoryData.flatShippingUsd,
+        shipping_buffer_percent: detectedCategoryData.shippingBufferPercent,
+        requires_manual_quote: detectedCategoryData.requiresManualQuote,
+      };
+      const shippingPerUnit = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, 1);
+      const markupRate = settings.markupPercent / 100;
+      const derivedBase = cartRound2((productPrice - shippingPerUnit) / (1 + markupRate));
+      if (derivedBase > 0) {
+        basePriceUsd = derivedBase;
+        resolvedFromCatalog = true;
+        priceSource = 'reverse_calculated';
+        console.log(`[CART_ADD][${correlationId}] reverseCalcBase=true sentPrice=${productPrice} shippingPerUnit=${shippingPerUnit} derivedBase=${derivedBase}`);
+      }
+    } else if (!resolvedFromCatalog) {
+      // Legacy fallback reverse-calculation
+      const normalizedPercent = settings.shippingPercent > 1 ? settings.shippingPercent / 100 : settings.shippingPercent;
+      const markupRate = settings.markupPercent / 100;
+      const derivedBase = cartRound2((productPrice - settings.shippingBaseFeeUsd) / (1 + markupRate + normalizedPercent));
+      if (derivedBase > 0) {
+        basePriceUsd = derivedBase;
+        resolvedFromCatalog = true;
+        priceSource = 'reverse_calculated';
+        console.log(`[CART_ADD][${correlationId}] reverseCalcBaseLegacy=true sentPrice=${productPrice} derivedBase=${derivedBase}`);
+      }
+    }
+
+    // Now calculate shipping from the resolved base price
     if (detectedCategoryData) {
       const catInfo: ShippingCategoryInfo = {
         est_weight_kg: detectedCategoryData.estWeightKg,
@@ -637,36 +803,14 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
         shipping_buffer_percent: detectedCategoryData.shippingBufferPercent,
         requires_manual_quote: detectedCategoryData.requiresManualQuote,
       };
-      // Calculate shipping per unit first (needed to reverse base price)
-      const shippingPerUnit = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, 1);
-      
-      // Reverse-calculate: sentPrice = base * (1 + markupRate) + shippingPerUnit
-      // So: base = (sentPrice - shippingPerUnit) / (1 + markupRate)
-      const markupRate = settings.markupPercent / 100;
-      const derivedBase = cartRound2((productPrice - shippingPerUnit) / (1 + markupRate));
-      
-      if (derivedBase > 0) {
-        basePriceUsd = derivedBase;
-        resolvedFromCatalog = true; // Mark as resolved so price_source is set correctly
-        console.log(`[CART_ADD][${correlationId}] reverseCalcBase=true sentPrice=${productPrice} shippingPerUnit=${shippingPerUnit} markupRate=${markupRate} derivedBase=${derivedBase}`);
-      }
-      
       shippingFeeUsd = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, quantity);
     } else {
-      // Fallback: legacy formula
       const normalizedPercent = settings.shippingPercent > 1 ? settings.shippingPercent / 100 : settings.shippingPercent;
-      // Reverse-calculate base from legacy formula: sentPrice = base * (1 + markup) + baseFee + base * shippingPct
-      // base = (sentPrice - baseFee) / (1 + markup + shippingPct)
-      const markupRate = settings.markupPercent / 100;
-      const derivedBase = cartRound2((productPrice - settings.shippingBaseFeeUsd) / (1 + markupRate + normalizedPercent));
-      if (derivedBase > 0) {
-        basePriceUsd = derivedBase;
-        resolvedFromCatalog = true;
-        console.log(`[CART_ADD][${correlationId}] reverseCalcBaseLegacy=true sentPrice=${productPrice} derivedBase=${derivedBase}`);
-      }
       shippingFeeUsd = calculateShippingFee(cartRound2(basePriceUsd * quantity), settings.shippingBaseFeeUsd, normalizedPercent, false);
     }
   }
+
+  console.log(`[CART_ADD][${correlationId}] FINAL basePrice=$${basePriceUsd} priceSource=${priceSource} shippingFee=$${shippingFeeUsd} sentPrice=$${productPrice}`);
 
   // Recalculate pricing with the (potentially reverse-calculated) base price
   effectiveMarkup = isFixedPrice ? 0 : (isVehicleDetected ? 0 : settings.markupPercent);
@@ -695,8 +839,13 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     const updateFields: Record<string, unknown> = {
       quantity: newQuantity, base_price_usd: basePriceUsd, product_image_url: productImageUrl,
       is_vehicle: isVehicleDetected || existingItem.is_vehicle,
-      requires_manual_quote: false, // Vehicles no longer need manual quotes
+      requires_manual_quote: false,
       updated_at: new Date().toISOString(),
+      price_source: isFixedPrice ? "hot_product" : (isVehicleDetected ? "auto_vehicle_tiered" : priceSource),
+      shipping_fee_usd: shippingFeeUsd,
+      markup_fee_usd: pricing.itemMarginUsd,
+      total_price_usd: cartRound2(pricing.itemSubtotalUsd + shippingFeeUsd),
+      total_price_cdf: cartRound2(cartRound2(pricing.itemSubtotalUsd + shippingFeeUsd) * settings.exchangeRate),
     };
     // If vehicle, update pricing fields
     if (isVehicleDetected && vehiclePricingResult) {
@@ -755,7 +904,7 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       requires_manual_quote: false, // Never requires manual quote now
       vehicle_quote_applied: isVehicleInsert ? true : false,
       is_saved_for_later: false,
-      price_source: isFixedPrice ? "hot_product" : (isVehicleInsert ? "auto_vehicle_tiered" : (resolvedFromCatalog ? "reverse_calculated" : (isAllInclusive ? "all_inclusive_display" : (userEdited ? "manual_user" : "auto")))),
+      price_source: isFixedPrice ? "hot_product" : (isVehicleInsert ? "auto_vehicle_tiered" : priceSource),
       price_confirmation_status: userEdited ? "pending" : null,
       captured_price: userEdited ? (addBody.capturedPrice ?? addBody.captured_price ?? null) : null,
       provider_product_id: providerProductId,

@@ -56,8 +56,10 @@ import {
 import {
   calculateItemPricing as cartPricingCalc,
   calculateShippingFee,
+  calculateWeightBasedShippingFee,
   buildItemResponse,
   round2 as cartRound2,
+  ShippingCategoryInfo,
 } from "../_shared/cart/pricing.ts";
 import {
   scrapeProductInfo,

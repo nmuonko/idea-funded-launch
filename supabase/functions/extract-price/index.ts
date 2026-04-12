@@ -276,8 +276,11 @@ function extractImagesFromHtml(html: string, isAmazon: boolean): string[] {
   const push = (u: string) => {
     if (!u || seen.has(u)) return;
     if (/sprite|pixel|beacon|tracking|spacer|1x1|transparent|badge|icon|logo/i.test(u)) return;
-    // Skip tiny Amazon images (under ~100px)
+    // Skip tiny Amazon images (under ~100px) and play-button overlays
     if (isAmazon && /\._[A-Z]{2}\d{2,3}_\./.test(u)) return;
+    if (/play.button/i.test(u)) return;
+    // Skip small brand logos (usually 2-character prefix like "21" before letters)
+    if (isAmazon && /\/images\/I\/[12]\d[a-zA-Z]/.test(u)) return;
     seen.add(u);
     images.push(u);
   };

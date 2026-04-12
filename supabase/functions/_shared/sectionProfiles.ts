@@ -291,21 +291,23 @@ export const SECTION_PROFILES: SectionProfile[] = [
   {
     key: "gaming",
     title: { en: "Gaming", fr: "Jeux Vidéo" },
-    includeAny: GAMING_WORDS.concat([
-      "gaming headset","gaming keyboard","gaming mouse","rgb keyboard",
+    includeAny: GAMING_WORDS,
+    excludeAny: PHONE_EXCLUDE.concat(VEHICLE_EXCLUDE, PARTS_EXCLUDE, VEHICLE_ACCESSORY_EXCLUDE, [
+      "office chair","desk chair","ergonomic chair","task chair",
     ]),
-    excludeAny: PHONE_EXCLUDE.concat(VEHICLE_EXCLUDE, PARTS_EXCLUDE, VEHICLE_ACCESSORY_EXCLUDE),
     preferProviders: ["amazon", "ebay"],
-    minItems: 12,
+    minItems: 20,
     diversityQueries: [
+      "ps5 console playstation 5",
+      "xbox series x console",
+      "nintendo switch oled console",
       "ps5 controller dualsense",
-      "xbox series s console",
-      "gaming headset hyperx logitech",
-      "rgb mechanical keyboard",
-      "gaming mouse wireless",
-      "nintendo switch accessories",
       "xbox wireless controller",
-      "gaming chair ergonomic",
+      "gaming headset wireless",
+      "gaming laptop rtx",
+      "gaming monitor 144hz",
+      "steam deck handheld",
+      "nintendo switch game",
     ],
   },
   {

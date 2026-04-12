@@ -275,6 +275,123 @@ function extractImagesFromHtml(html: string, isAmazon: boolean): string[] {
 
   const push = (u: string) => {
     if (!u || seen.has(u)) return;
+    // Universal filters
+    if (/sprite|pixel|beacon|tracking|spacer|1x1|transparent/i.test(u)) return;
+    if (/play.button|overlay|badge|icon/i.test(u)) return;
+    // Skip Amazon ad/banner/widget images
+    if (isAmazon) {
+      // Skip tiny images (SS115, SX38, etc.)
+      if (/\._(?:SS|SX|SY)\d{2,3}_\./.test(u)) return;
+      // Skip brand registry logos (very short IDs, usually 2-digit prefix)
+      if (/\/images\/I\/[12]\d[a-zA-Z]/.test(u)) return;
+      // Skip known ad/widget patterns
+      if (/\/images\/G\/|\/images\/S\/|\/images\/P\//i.test(u)) return;
+      if (/prime|subs-|asso[c-]/i.test(u)) return;
+    }
+    seen.add(u);
+    images.push(u);
+  };
+
+  if (isAmazon) {
+    // Priority 1: "hiRes" images from Amazon JS data (best quality, product gallery)
+    const hiResMatches = html.matchAll(/"hiRes"\s*:\s*"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/gi);
+    for (const match of hiResMatches) {
+      push(match[1]);
+    }
+
+    // Priority 2: "large" images from JS data
+    const largeMatches = html.matchAll(/"large"\s*:\s*"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/gi);
+    for (const match of largeMatches) {
+      push(match[1]);
+    }
+
+    // Priority 3: colorImages / imageGalleryData blocks
+    const colorImagesMatch = html.match(/colorImages['"]?\s*:\s*['"]initial['"]\s*:\s*(\[[^\]]*\])/s);
+    if (colorImagesMatch) {
+      try {
+        const arr = JSON.parse(colorImagesMatch[1]);
+        for (const item of arr) {
+          if (item?.hiRes) push(item.hiRes);
+          else if (item?.large) push(item.large);
+        }
+      } catch { /* skip */ }
+    }
+
+    // Priority 4: landingImage
+    const landingMatch = html.match(/id="landingImage"[^>]+src="([^"]+)"/i);
+    if (landingMatch) {
+      const img = landingMatch[1].replace(/\._[A-Z]{2}\d+_/, ".");
+      push(img);
+    }
+
+    // Priority 5: Only _AC_SL (product) images as fallback — NOT all amazon images
+    if (images.length === 0) {
+      const productImgMatches = html.matchAll(
+        /https:\/\/m\.media-amazon\.com\/images\/I\/[A-Za-z0-9._%-]+\._AC_SL\d+_\.(?:jpg|png|webp)/gi
+      );
+      for (const match of productImgMatches) {
+        push(match[0]);
+      }
+    }
+
+    // Priority 6: If still nothing, try _AC_SX or _AC_UL images (product thumbnails, upgrade them)
+    if (images.length === 0) {
+      const thumbMatches = html.matchAll(
+        /(https:\/\/m\.media-amazon\.com\/images\/I\/[A-Za-z0-9]+)\._[A-Z]{2}[_\d]+_\.(?:jpg|png|webp)/gi
+      );
+      for (const match of thumbMatches) {
+        const baseId = match[1];
+        // Upgrade to large
+        const upgraded = `${baseId}._AC_SL1500_.jpg`;
+        push(upgraded);
+      }
+    }
+  }
+
+  // OG images (useful for non-Amazon)
+  for (const m of html.matchAll(
+    /<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)["']/gi
+  )) {
+    push(m[1]);
+  }
+
+  // JSON-LD images
+  for (const m of html.matchAll(
+    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+  )) {
+    try {
+      const parsed = JSON.parse(m[1]);
+      const imgs = parsed?.image;
+      if (Array.isArray(imgs)) {
+        for (const i of imgs) {
+          push(typeof i === "string" ? i : i?.url || i?.contentUrl || "");
+        }
+      } else if (typeof imgs === "string") {
+        push(imgs);
+      }
+    } catch { /* skip */ }
+  }
+
+  // Deduplicate by base image ID (same image at different sizes)
+  if (isAmazon) {
+    const uniqueByBase = new Map<string, string>();
+    for (const img of images) {
+      const baseMatch = img.match(/\/images\/I\/([A-Za-z0-9]+)/);
+      const baseId = baseMatch ? baseMatch[1] : img;
+      if (!uniqueByBase.has(baseId)) {
+        uniqueByBase.set(baseId, img);
+      }
+    }
+    return Array.from(uniqueByBase.values()).slice(0, 10);
+  }
+
+  return images.slice(0, 10);
+}
+  const seen = new Set<string>();
+  const images: string[] = [];
+
+  const push = (u: string) => {
+    if (!u || seen.has(u)) return;
     if (/sprite|pixel|beacon|tracking|spacer|1x1|transparent|badge|icon|logo/i.test(u)) return;
     // Skip tiny Amazon images (under ~100px) and play-button overlays
     if (isAmazon && /\._[A-Z]{2}\d{2,3}_\./.test(u)) return;

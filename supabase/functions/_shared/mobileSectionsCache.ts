@@ -382,7 +382,7 @@ async function buildStrictSectionsFromPool(
     gaming: "gaming",
     clothing: "clothing",
     home_garden: "home_garden",
-    toys: "toys",
+    kitchen: "kitchen",
     sporting_goods: "sporting_goods",
     refurbished: "refurbished",
   };

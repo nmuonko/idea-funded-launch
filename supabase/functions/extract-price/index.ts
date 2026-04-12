@@ -76,6 +76,11 @@ Deno.serve(async (req) => {
             title = titleMatch[1]
               .replace(/\s*:\s*Amazon\.com\s*:.*$/i, "")
               .replace(/\s*\|.*$/, "")
+              .replace(/&amp;/g, "&")
+              .replace(/&lt;/g, "<")
+              .replace(/&gt;/g, ">")
+              .replace(/&#39;/g, "'")
+              .replace(/&quot;/g, '"')
               .trim();
           }
           images = extractImagesFromHtml(html, true);

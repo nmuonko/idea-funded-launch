@@ -270,6 +270,25 @@ function extractPriceFromMarkdown(md: string): number | null {
   return null;
 }
 
+/** Filter out ad banners, logos, tiny thumbnails, and junk images */
+function isAdOrJunkUrl(u: string): boolean {
+  if (/sprite|pixel|beacon|tracking|spacer|1x1|transparent/i.test(u)) return true;
+  if (/play.button|overlay/i.test(u)) return true;
+  // Amazon ad/infrastructure paths
+  if (/\/images\/[GSP]\//i.test(u)) return true;
+  // Prime, subscribe, associate badges
+  if (/prime|subs-|asso[c-]|badge|icon|logo|gift.?card/i.test(u)) return true;
+  // Tiny thumbnails (SS50, SX38, SY69, etc.)
+  if (/\._(?:SS|SX|SY)\d{2,3}[_.]/.test(u)) return true;
+  // Very small brand logos (2-3 digit + letter IDs like 21w, 31e, 319G)
+  if (/\/images\/I\/\d{2,3}[a-zA-Z]/.test(u)) return true;
+  // PKmb (play button overlay images)
+  if (/PKmb/i.test(u)) return true;
+  // Very small images (under ~100px dimension hints in filename)
+  if (/\._[A-Z]{2}\d{2,3}_\./.test(u)) return true;
+  return false;
+}
+
 /**
  * Extract product images from HTML.
  * For Amazon: uses structured JS data (hiRes/large/colorImages) to get ONLY product gallery images.
@@ -279,26 +298,8 @@ function extractImagesFromHtml(html: string, isAmazon: boolean): string[] {
   const seen = new Set<string>();
   const images: string[] = [];
 
-  const isAdOrJunk = (u: string): boolean => {
-    if (/sprite|pixel|beacon|tracking|spacer|1x1|transparent/i.test(u)) return true;
-    if (/play.button|overlay/i.test(u)) return true;
-    if (isAmazon) {
-      // Amazon ad/infrastructure paths
-      if (/\/images\/[GSP]\//i.test(u)) return true;
-      // Prime, subscribe, associate badges
-      if (/prime|subs-|asso[c-]|badge|icon|logo|gift.?card/i.test(u)) return true;
-      // Tiny thumbnails (SS50, SX38, SY69, etc.)
-      if (/\._(?:SS|SX|SY)\d{2,3}[_.]/.test(u)) return true;
-      // Very small brand logos (2-digit + letter IDs like 21w, 31e)
-      if (/\/images\/I\/\d{2}[a-zA-Z]/.test(u)) return true;
-      // PKmb (play button overlay images)
-      if (/PKmb/i.test(u)) return true;
-    }
-    return false;
-  };
-
   const push = (u: string) => {
-    if (!u || seen.has(u) || isAdOrJunk(u)) return;
+    if (!u || seen.has(u) || isAdOrJunkUrl(u)) return;
     seen.add(u);
     images.push(u);
   };

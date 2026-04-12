@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
 
           if (fcRes.ok) {
             const fcData = await fcRes.json();
-            const html = fcData?.data?.html || fcData?.html || "";
+            const html = fcData?.data?.rawHtml || fcData?.data?.html || fcData?.rawHtml || fcData?.html || "";
             const md = fcData?.data?.markdown || fcData?.markdown || "";
             const meta = fcData?.data?.metadata || fcData?.metadata || {};
 

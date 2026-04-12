@@ -153,7 +153,7 @@ Deno.serve(async (req) => {
     }
 
     // ─── Strategy 3: DB fallback ───
-    if (isAmazon && asin && (!price || images.length === 0)) {
+    if (isAmazon && asin && (!price || images.length < 3)) {
       try {
         const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
         const supabase = createClient(

@@ -108,9 +108,8 @@ Deno.serve(async (req) => {
             },
             body: JSON.stringify({
               url: scraperUrl,
-              formats: ["markdown", "html"],
-              waitFor: isAmazon ? 3000 : 3000,
-              onlyMainContent: false, // Need full page for image gallery JS data
+              formats: ["rawHtml"],
+              waitFor: 3000,
             }),
           });
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { useParams, Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { trackRecentlyViewed } from '@/lib/recentlyViewed';
 import { trackViewContent, trackAddToCart } from '@/lib/tiktokPixel';
@@ -762,6 +763,10 @@ export default function ProductDetailsPage() {
   if (error || !product) {
     return (
       <div className="min-h-screen bg-black overflow-x-hidden">
+        <Helmet>
+          <meta name="robots" content="noindex, nofollow" />
+          <title>Product Not Found | AfriShop</title>
+        </Helmet>
         <ShopHeader />
         <div className="pt-24 px-4 text-center">
           <p className="text-red-400 mb-4">{error || 'Product not found'}</p>

@@ -270,7 +270,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
       "phone case","fast charger","usb-c charger","power bank","wireless earbuds",
       "car phone mount","laptop sleeve","screen protector","magsafe",
     ]),
-    excludeAny: PHONE_EXCLUDE.concat(GAMING_EXCLUDE, TOYS_WORDS, HOME_WORDS, CLOTHING_WORDS, [
+    excludeAny: PHONE_EXCLUDE.concat(GAMING_EXCLUDE, ["lego","doll","action figure","rc car","kids toy","puzzle","board game","barbie"], HOME_WORDS, CLOTHING_WORDS, [
       "vanity","makeup","cosmetic","beauty","skincare","candle",
       "pillow","blanket","towel","vase","planter","artwork","painting",
       "perfume","fragrance","lotion","shampoo","conditioner",

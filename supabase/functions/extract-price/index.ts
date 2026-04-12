@@ -280,12 +280,12 @@ function isAdOrJunkUrl(u: string): boolean {
   if (/prime|subs-|asso[c-]|badge|icon|logo|gift.?card/i.test(u)) return true;
   // Tiny thumbnails (SS50, SX38, SY69, etc.)
   if (/\._(?:SS|SX|SY)\d{2,3}[_.]/.test(u)) return true;
-  // Very small brand logos (2-3 digit + letter IDs like 21w, 31e, 319G)
-  if (/\/images\/I\/\d{2,3}[a-zA-Z]/.test(u)) return true;
+  // Very short image IDs (3-5 chars total) = brand logos/icons, e.g. "21w", "31eL"
+  // But NOT longer product IDs like "71V6d8CR4PL" (11 chars)
+  const shortIdMatch = u.match(/\/images\/I\/([A-Za-z0-9]+)/);
+  if (shortIdMatch && shortIdMatch[1].length <= 5) return true;
   // PKmb (play button overlay images)
   if (/PKmb/i.test(u)) return true;
-  // Very small images (under ~100px dimension hints in filename)
-  if (/\._[A-Z]{2}\d{2,3}_\./.test(u)) return true;
   return false;
 }
 

@@ -592,11 +592,10 @@ async function handleGetCart(req: Request): Promise<Response> {
   if (hasPendingPriceConfirmation) { summary.message = "Le prix d'un ou plusieurs articles est en attente de confirmation."; }
   
   summary.shipping_debug = {
-    raw_shippingPercent: shippingPercent, normalized_shippingPercent: normalizedShippingPercent,
-    shippingBaseFeeUsd, regularItemsBaseTotal, regularShippingTotal, vehicleShippingTotal,
-    mode: shippingPercent > 1 ? 'normalized_from_percent' : 'used_as_decimal',
-    formula_explanation: `$${shippingBaseFeeUsd.toFixed(2)} + ($${regularItemsBaseTotal.toFixed(2)} × ${(normalizedShippingPercent * 100).toFixed(0)}%) = $${regularShippingTotal.toFixed(2)}`,
-    important_note: 'RECOMMENDED: Use summary.shippingFeeUsd directly.',
+    raw_shippingPercent: shippingPercent,
+    shippingBaseFeeUsd, shippingRatePerKg, regularItemsBaseTotal, regularShippingTotal, vehicleShippingTotal,
+    mode: 'weight_based_per_item',
+    important_note: 'Shipping is calculated per-item in formatItem using weight-based categories. Use summary.shippingFeeUsd directly.',
   };
 
   return jsonResponse({ ok: true, activeItems, items: activeItems, savedItems, summary });

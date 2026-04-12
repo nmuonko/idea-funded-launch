@@ -171,13 +171,20 @@ Deno.serve(async (req) => {
         if (dbItem) {
           if (!price && dbItem.price_usd > 0) price = dbItem.price_usd;
           if (!title && dbItem.title) title = dbItem.title;
-          if (images.length === 0) {
+          if (images.length < 3) {
+            const dbImages: string[] = [];
             if (Array.isArray(dbItem.images)) {
-              images = dbItem.images.filter((u: any) => typeof u === "string");
+              dbImages.push(...dbItem.images.filter((u: any) => typeof u === "string"));
             }
-            if (images.length === 0 && dbItem.image_url) {
-              images = [dbItem.image_url];
+            if (dbItem.image_url && !dbImages.includes(dbItem.image_url)) {
+              dbImages.unshift(dbItem.image_url);
             }
+            // Merge: keep existing scraped images first, then add DB images
+            const merged = [...images];
+            for (const img of dbImages) {
+              if (!merged.includes(img)) merged.push(img);
+            }
+            images = merged;
           }
           if (!imageUrl && images.length > 0) imageUrl = images[0];
           console.log(`[EXTRACT_PRICE] DB fallback: price=${price} images=${images.length}`);

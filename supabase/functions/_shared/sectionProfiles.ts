@@ -111,9 +111,12 @@ const HOME_WORDS = [
   "furniture","decor",
 ];
 
-const TOYS_WORDS = [
-  "lego","doll","action figure","rc car","remote control","kids toy",
-  "puzzle","board game","playset","barbie","figure",
+const KITCHEN_WORDS = [
+  "air fryer","blender","coffee maker","coffee machine","rice cooker",
+  "pressure cooker","kettle","toaster","microwave","instant pot",
+  "slow cooker","food processor","juicer","mixer","espresso",
+  "bread maker","waffle maker","electric grill","induction cooktop",
+  "kitchen appliance","smart kitchen",
 ];
 
 const SPORTS_WORDS = [

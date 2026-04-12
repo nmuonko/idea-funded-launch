@@ -61,9 +61,10 @@ Deno.serve(async (req) => {
           signal: controller.signal,
           headers: {
             "User-Agent":
-              "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            Accept: "text/html,application/xhtml+xml",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "identity",
           },
           redirect: "follow",
         });
@@ -174,12 +175,11 @@ Deno.serve(async (req) => {
           if (images.length < 3) {
             const dbImages: string[] = [];
             if (Array.isArray(dbItem.images)) {
-              dbImages.push(...dbItem.images.filter((u: any) => typeof u === "string"));
+              dbImages.push(...dbItem.images.filter((u: any) => typeof u === "string" && !isAdOrJunkUrl(u)));
             }
-            if (dbItem.image_url && !dbImages.includes(dbItem.image_url)) {
+            if (dbItem.image_url && !dbImages.includes(dbItem.image_url) && !isAdOrJunkUrl(dbItem.image_url)) {
               dbImages.unshift(dbItem.image_url);
             }
-            // Merge: keep existing scraped images first, then add DB images
             const merged = [...images];
             for (const img of dbImages) {
               if (!merged.includes(img)) merged.push(img);

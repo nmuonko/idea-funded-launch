@@ -543,52 +543,23 @@ async function handleGetCart(req: Request): Promise<Response> {
         vehicleBasePriceTotal += formattedItem.itemBaseTotalUsd; vehicleMarginTotal += formattedItem.itemMarginUsd;
       }
     } else {
-      regularItemCount += formattedItem.quantity; regularItemsBaseTotal += formattedItem.itemBaseTotalUsd;
+      regularItemCount += formattedItem.quantity;
+      // Use RAW base price from DB, not the display-overridden basePriceUsd/itemBaseTotalUsd from formatItem
+      regularItemsBaseTotal += round2(Number(item.base_price_usd || 0) * (formattedItem.quantity || 1));
       regularItemsMarginTotal += formattedItem.itemMarginUsd; regularItemsSubtotal += formattedItem.itemSubtotalUsd;
       if (formattedItem.requiresManualQuote) regularRequiresQuote = true;
     }
   });
 
-  // Weight-based shipping: calculate per-item using category info, then sum
-  const normalizedShippingPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
+  // Shipping was already correctly calculated per-item in formatItem.
+  // Just accumulate from the formatted items — do NOT recalculate or mutate items here,
+  // as formatItem's itemSubtotalUsd/itemTotalUsd already include the correct shipping.
   let regularShippingTotal = 0;
-  const activeRegularCount = activeItems.filter((i: any) => !i.isVehicle).length;
-  if (!regularRequiresQuote && regularItemsBaseTotal > 0) {
-    // Calculate shipping per item using weight-based method when category is available
-    activeItems.forEach((item: any) => {
-      if (item.isVehicle) return;
-      // Find the original DB item to get shipping_item_types join data
-      const origItem = (items || []).find((i: any) => i.id === item.id);
-      const sit = origItem?.shipping_item_types;
-      if (sit && sit.est_weight_kg != null) {
-        // Weight-based shipping using category info
-        const catInfo: ShippingCategoryInfo = {
-          est_weight_kg: Number(sit.est_weight_kg),
-          flat_shipping_usd: sit.flat_shipping_usd != null ? Number(sit.flat_shipping_usd) : null,
-          shipping_buffer_percent: Number(sit.shipping_buffer_percent ?? 25),
-          requires_manual_quote: false,
-        };
-        item.itemShippingUsd = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, item.quantity);
-      } else {
-        // Fallback: legacy formula for items without category
-        const perItemBaseFee = activeRegularCount > 0 ? round2(shippingBaseFeeUsd / activeRegularCount) : 0;
-        item.itemShippingUsd = round2(perItemBaseFee + (item.itemBaseTotalUsd * normalizedShippingPercent));
-      }
-      item.shippingCost = item.itemShippingUsd;
-      item.shippingFeeUsd = item.itemShippingUsd;
-      item.shipping_fee_usd = item.itemShippingUsd;
-      // Update line totals to include shipping
-      item.itemTotalUsd = round2(item.itemSubtotalUsd + item.itemShippingUsd);
-      item.lineTotalUsd = item.itemTotalUsd;
-      item.totalPriceUsd = item.itemTotalUsd;
-      item.total_price_usd = item.itemTotalUsd;
-      item.priceUsd = item.itemTotalUsd;
-      item.price = item.itemTotalUsd;
-      item.lineTotalCdf = round2(item.itemTotalUsd * exchangeRate);
-      regularShippingTotal += item.itemShippingUsd;
-    });
-    regularShippingTotal = round2(regularShippingTotal);
-  }
+  activeItems.forEach((item: any) => {
+    if (item.isVehicle) return;
+    regularShippingTotal += item.itemShippingUsd || 0;
+  });
+  regularShippingTotal = round2(regularShippingTotal);
 
   const totalItemCount = regularItemCount + vehicleCount;
   const itemsBaseTotalUsd = round2(regularItemsBaseTotal + vehicleBasePriceTotal);
@@ -621,11 +592,10 @@ async function handleGetCart(req: Request): Promise<Response> {
   if (hasPendingPriceConfirmation) { summary.message = "Le prix d'un ou plusieurs articles est en attente de confirmation."; }
   
   summary.shipping_debug = {
-    raw_shippingPercent: shippingPercent, normalized_shippingPercent: normalizedShippingPercent,
-    shippingBaseFeeUsd, regularItemsBaseTotal, regularShippingTotal, vehicleShippingTotal,
-    mode: shippingPercent > 1 ? 'normalized_from_percent' : 'used_as_decimal',
-    formula_explanation: `$${shippingBaseFeeUsd.toFixed(2)} + ($${regularItemsBaseTotal.toFixed(2)} × ${(normalizedShippingPercent * 100).toFixed(0)}%) = $${regularShippingTotal.toFixed(2)}`,
-    important_note: 'RECOMMENDED: Use summary.shippingFeeUsd directly.',
+    raw_shippingPercent: shippingPercent,
+    shippingBaseFeeUsd, shippingRatePerKg, regularItemsBaseTotal, regularShippingTotal, vehicleShippingTotal,
+    mode: 'weight_based_per_item',
+    important_note: 'Shipping is calculated per-item in formatItem using weight-based categories. Use summary.shippingFeeUsd directly.',
   };
 
   return jsonResponse({ ok: true, activeItems, items: activeItems, savedItems, summary });

@@ -443,7 +443,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
             productId: item.productUrl || item.product_url,
             provider: item.store || 'unknown',
             title: item.title || item.productTitle || 'Product',
-            imageUrl: item.image_url || item.mainImageUrl || '',
+            imageUrl: item.productImageUrl || item.image_url || item.mainImageUrl || item.product_image_url || '',
             // For quoted vehicles, use the full line total so cart totals are accurate
             // For fixed-price items, use basePriceUsd (which IS the final price)
             priceUsd: (isQuotedVehicle && serverTotal > 0) ? serverTotal : basePriceUsd,

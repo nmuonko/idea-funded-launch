@@ -62,6 +62,7 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
     { key: 'clothing', title: shop.clothingFashion || shop.fashion || 'Mode', icon: <Shirt className="h-4 w-4" /> },
     { key: 'home_garden', title: shop.homeGarden || shop.home || 'Maison', icon: <Home className="h-4 w-4" /> },
     { key: 'toys', title: shop.toys || shop.toysGames || 'Jouets', icon: <Gamepad2 className="h-4 w-4" /> },
+    { key: 'kitchen', title: 'Électroménager', icon: <Home className="h-4 w-4" /> },
     { key: 'sporting_goods', title: shop.sportingGoods || shop.sportsOutdoors || 'Sport', icon: <Dumbbell className="h-4 w-4" /> },
     { key: 'jewelry_watches', title: shop.jewelryWatches || shop.watches || 'Montres', icon: <Watch className="h-4 w-4" /> },
     { key: 'parts_accessories', title: shop.partsAccessories || 'Pièces Auto', icon: <Package className="h-4 w-4" /> },

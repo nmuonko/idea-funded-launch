@@ -92,6 +92,9 @@ const GAMING_WORDS = [
   "playstation","ps5","ps4","xbox","series x","series s","nintendo","switch",
   "controller","joy-con","console","steam deck",
   "game disc","video game",
+  "gaming laptop","gaming headset","gaming keyboard","gaming mouse",
+  "gaming monitor","gaming chair","rgb keyboard","gaming pc",
+  "dualsense","dualshock",
 ];
 
 const CLOTHING_WORDS = [
@@ -108,9 +111,12 @@ const HOME_WORDS = [
   "furniture","decor",
 ];
 
-const TOYS_WORDS = [
-  "lego","doll","action figure","rc car","remote control","kids toy",
-  "puzzle","board game","playset","barbie","figure",
+const KITCHEN_WORDS = [
+  "air fryer","blender","coffee maker","coffee machine","rice cooker",
+  "pressure cooker","kettle","toaster","microwave","instant pot",
+  "slow cooker","food processor","juicer","mixer","espresso",
+  "bread maker","waffle maker","electric grill","induction cooktop",
+  "kitchen appliance","smart kitchen",
 ];
 
 const SPORTS_WORDS = [
@@ -264,7 +270,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
       "phone case","fast charger","usb-c charger","power bank","wireless earbuds",
       "car phone mount","laptop sleeve","screen protector","magsafe",
     ]),
-    excludeAny: PHONE_EXCLUDE.concat(GAMING_EXCLUDE, TOYS_WORDS, HOME_WORDS, CLOTHING_WORDS, [
+    excludeAny: PHONE_EXCLUDE.concat(GAMING_EXCLUDE, ["lego","doll","action figure","rc car","kids toy","puzzle","board game","barbie"], HOME_WORDS, CLOTHING_WORDS, [
       "vanity","makeup","cosmetic","beauty","skincare","candle",
       "pillow","blanket","towel","vase","planter","artwork","painting",
       "perfume","fragrance","lotion","shampoo","conditioner",
@@ -285,21 +291,23 @@ export const SECTION_PROFILES: SectionProfile[] = [
   {
     key: "gaming",
     title: { en: "Gaming", fr: "Jeux Vidéo" },
-    includeAny: GAMING_WORDS.concat([
-      "gaming headset","gaming keyboard","gaming mouse","rgb keyboard",
+    includeAny: GAMING_WORDS,
+    excludeAny: PHONE_EXCLUDE.concat(VEHICLE_EXCLUDE, PARTS_EXCLUDE, VEHICLE_ACCESSORY_EXCLUDE, [
+      "office chair","desk chair","ergonomic chair","task chair",
     ]),
-    excludeAny: PHONE_EXCLUDE.concat(VEHICLE_EXCLUDE, PARTS_EXCLUDE, VEHICLE_ACCESSORY_EXCLUDE),
     preferProviders: ["amazon", "ebay"],
-    minItems: 12,
+    minItems: 20,
     diversityQueries: [
+      "ps5 console playstation 5",
+      "xbox series x console",
+      "nintendo switch oled console",
       "ps5 controller dualsense",
-      "xbox series s console",
-      "gaming headset hyperx logitech",
-      "rgb mechanical keyboard",
-      "gaming mouse wireless",
-      "nintendo switch accessories",
       "xbox wireless controller",
-      "gaming chair ergonomic",
+      "gaming headset wireless",
+      "gaming laptop rtx",
+      "gaming monitor 144hz",
+      "steam deck handheld",
+      "nintendo switch game",
     ],
   },
   {
@@ -345,23 +353,25 @@ export const SECTION_PROFILES: SectionProfile[] = [
     ],
   },
   {
-    key: "toys",
-    title: { en: "Toys", fr: "Jouets" },
-    includeAny: TOYS_WORDS.concat([
-      "drone camera","kids tablet","educational toy",
+    key: "kitchen",
+    title: { en: "Kitchen Appliances", fr: "Électroménager Cuisine" },
+    includeAny: KITCHEN_WORDS,
+    excludeAny: VEHICLE_EXCLUDE.concat(PARTS_EXCLUDE, PHONE_EXCLUDE, GAMING_EXCLUDE, [
+      "phone case","laptop","tablet","console","controller",
     ]),
-    excludeAny: VEHICLE_EXCLUDE.concat(PARTS_EXCLUDE, PHONE_EXCLUDE, GAMING_EXCLUDE),
     preferProviders: ["amazon", "ebay"],
-    minItems: 10,
+    minItems: 15,
     diversityQueries: [
-      "rc car remote control",
-      "drone camera budget",
-      "lego building set",
-      "educational toy kids",
-      "kids tablet learning",
-      "action figure collectible",
-      "board game family",
-      "barbie doll playset",
+      "air fryer kitchen",
+      "coffee maker espresso machine",
+      "blender smoothie portable",
+      "rice cooker electric",
+      "pressure cooker instant pot",
+      "electric kettle stainless",
+      "toaster oven countertop",
+      "food processor kitchen",
+      "juicer machine electric",
+      "waffle maker breakfast",
     ],
   },
   {

@@ -62,6 +62,29 @@ import {
 } from "../_shared/sortFilterNormalizer.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
+
+// ─── CATEGORY → unified_category DB values ──────────────────────────────────
+// The DB has items spread across many sub-category values (phones, computers, etc.)
+// When browsing a parent tab like "electronics", we must include ALL child values.
+const CATEGORY_UNIFIED_VALUES: Record<string, string[]> = {
+  electronics: ["electronics", "phones", "computers", "chargers", "audio", "tablets", "monitors", "electronics_phones", "electronics_computers", "electronics_audio"],
+  electronics_phones: ["phones", "electronics_phones"],
+  electronics_computers: ["computers", "electronics_computers", "tablets", "monitors"],
+  electronics_gaming: ["gaming", "electronics_gaming"],
+  electronics_cameras: ["cameras_photo"],
+  electronics_audio: ["audio", "electronics_audio", "audio_music"],
+  home_garden: ["home_garden", "home"],
+  clothing_shoes_accessories: ["clothing_shoes_accessories", "clothing"],
+  toys: ["toys"],
+  sporting_goods: ["sporting_goods"],
+  jewelry_watches: ["jewelry_watches"],
+  refurbished: ["refurbished"],
+  parts_accessories: ["parts_accessories", "parts", "chargers"],
+  business_industrial: ["business_industrial"],
+  vehicles: ["vehicles"],
+  // Kitchen appliances (new category replacing toys on mobile)
+  kitchen: ["home_garden", "home"],
+};
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 200;
 
@@ -89,14 +112,14 @@ const VEHICLE_FALLBACK_QUERIES: Record<string, string[]> = {
 };
 
 const CATEGORY_FALLBACK_QUERIES: Record<string, string[]> = {
-  electronics: ["iphone", "samsung phone", "laptop", "headphones"],
-  electronics_phones: ["iphone 15", "samsung galaxy", "google pixel"],
-  electronics_computers: ["laptop", "macbook", "gaming laptop", "desktop computer"],
-  electronics_gaming: ["ps5 console", "xbox series x", "nintendo switch"],
+  electronics: ["iphone", "samsung phone", "laptop", "headphones", "tablet", "smart tv", "camera", "speaker"],
+  electronics_phones: ["iphone 15", "samsung galaxy", "google pixel", "smartphone unlocked"],
+  electronics_computers: ["laptop", "macbook", "gaming laptop", "desktop computer", "chromebook", "tablet"],
+  electronics_gaming: ["ps5 console", "xbox series x", "nintendo switch", "gaming laptop", "gaming headset", "gaming controller"],
   electronics_cameras: ["dslr camera", "gopro", "mirrorless camera"],
   electronics_audio: ["airpods", "bose headphones", "jbl speaker"],
-  home_garden: ["living room sofa set", "dining table set chairs", "kitchen cabinet storage", "TV stand entertainment center"],
-  clothing_shoes_accessories: ["sneakers", "hoodie", "jacket", "handbag", "shoes"],
+  home_garden: ["sofa", "dining table", "bed frame", "dresser", "lamp", "rug", "vacuum cleaner", "storage cabinet"],
+  clothing_shoes_accessories: ["sneakers", "hoodie", "jacket", "handbag", "shoes", "dress", "jeans"],
   clothing_men: ["men hoodie", "men jacket", "men jeans", "men shirt"],
   clothing_women: ["women dress", "women jacket", "women blouse"],
   clothing_girls: ["girls dress", "girls clothing", "girls outfit"],
@@ -106,12 +129,13 @@ const CATEGORY_FALLBACK_QUERIES: Record<string, string[]> = {
   clothing_bags: ["handbag", "backpack", "crossbody bag"],
   clothing_luggage: ["luggage", "suitcase", "travel bag"],
   toys: ["lego set", "kids toy", "rc car", "board game"],
-  sporting_goods: ["dumbbells", "soccer ball", "basketball", "yoga mat"],
+  sporting_goods: ["dumbbells", "soccer ball", "basketball", "yoga mat", "treadmill", "bicycle", "camping tent"],
   business_industrial: ["generator", "air compressor", "commercial equipment"],
   jewelry_watches: ["mens watch", "gold necklace", "diamond ring", "bracelet"],
   refurbished: ["refurbished iphone", "renewed laptop", "certified refurbished"],
-  parts_accessories: ["auto parts", "car parts", "brake pads", "oil filter"],
+  parts_accessories: ["phone charger", "usb c cable", "phone case", "car phone mount", "power bank", "auto parts"],
   vehicles_parts_accessories: ["car parts", "auto parts", "brake pads", "oil filter"],
+  kitchen: ["air fryer", "coffee maker", "blender", "rice cooker", "kettle", "toaster oven", "instant pot", "food processor"],
   // New homepage categories
   audio_music: ["bose speaker", "jbl speaker", "headphones", "guitar", "marshall amplifier"],
   beauty_health: ["perfume", "skincare", "makeup", "hair dryer", "electric shaver"],
@@ -124,11 +148,12 @@ const CATEGORY_FALLBACK_QUERIES: Record<string, string[]> = {
 // Used when browsing a category with no explicit search query
 const AMAZON_DEFAULT_QUERIES: Record<string, string> = {
   // Top-level tabs
-  electronics: "iphone",
-  electronics_phones: "iphone",
-  electronics_computers: "laptop",
-  electronics_gaming: "ps5",
-  electronics_cameras: "camera",
+  electronics: "smartphone laptop headphones tablet TV camera",
+  electronics_phones: "iphone samsung galaxy pixel smartphone",
+  electronics_computers: "laptop macbook chromebook desktop computer tablet",
+  electronics_gaming: "ps5 xbox nintendo switch console gaming",
+  electronics_cameras: "camera gopro dslr mirrorless",
+  electronics_audio: "headphones speaker airpods earbuds bluetooth",
   electronics_audio: "headphones",
   vehicles: "cars",
   vehicles_all: "cars",
@@ -139,26 +164,25 @@ const AMAZON_DEFAULT_QUERIES: Record<string, string> = {
   vehicles_rvs_campers: "rv",
   vehicles_trailers_other: "trailer",
   vehicles_classic_cars: "classic car",
-  home_garden: "living room sofa set dining table set kitchen cabinet",
-  clothing_shoes_accessories: "shoes",
-  clothing_men: "men clothing",
-  clothing_women: "women clothing",
-  clothing_girls: "girls clothing",
-  clothing_boys: "boys clothing",
-  clothing_baby: "baby clothes",
-  clothing_shoes: "sneakers",
-  clothing_bags: "handbag",
-  clothing_luggage: "luggage suitcase",
-  toys: "lego",
-  sporting_goods: "fitness",
-  business_industrial: "generator",
-  jewelry_watches: "watch",
-  refurbished: "refurbished",
-  parts_accessories: "parts",
-  vehicles_parts_accessories: "car parts",
+  home_garden: "sofa couch bed table chair dresser cabinet lamp rug furniture decor kitchen",
+  clothing_shoes_accessories: "shoes hoodie jacket dress sneakers jeans",
+  clothing_men: "men hoodie jacket jeans shirt",
+  clothing_women: "women dress jacket blouse",
+  clothing_girls: "girls dress clothing outfit",
+  clothing_boys: "boys clothing outfit shirt",
+  clothing_baby: "baby clothes outfit infant",
+  clothing_shoes: "nike shoes adidas sneakers boots",
+  clothing_bags: "handbag backpack crossbody bag",
+  clothing_luggage: "luggage suitcase travel bag",
+  toys: "lego toy kids",
+  sporting_goods: "fitness dumbbells yoga mat basketball soccer",
+  business_industrial: "generator commercial equipment",
+  jewelry_watches: "watch necklace ring bracelet",
+  refurbished: "refurbished renewed certified",
+  parts_accessories: "charger cable case phone accessories car parts",
+  vehicles_parts_accessories: "car parts auto parts brake pads",
+  kitchen: "air fryer blender coffee maker rice cooker kettle toaster",
 };
-
-// ─── RESPONSE TYPES ───────────────────────────────────────────────────────────
 
 interface CatalogProduct extends ProviderItem {
   id: string;
@@ -549,15 +573,16 @@ Deno.serve(async (req) => {
           let query = supabase.from("catalog_items").select("*", { count: "exact" });
           query = query.or("provider.eq.rainforest,provider.eq.amazon");
           
-          // Include items that match either the category OR have uncategorized but match default query
-          // This allows old uncategorized items to still appear while also including properly categorized ones
+          // Use expanded unified_category values for broader matching
+          const expandedCategories = CATEGORY_UNIFIED_VALUES[canonicalKey] || CATEGORY_UNIFIED_VALUES[parentTab] || [parentTab];
+          const categoryOrClauses = expandedCategories.map(c => `unified_category.eq.${c}`).join(",");
+          
           if (defaultAmazonQuery) {
             const searchKeywords = defaultAmazonQuery.toLowerCase().split(/\s+/);
             const searchPattern = `%${searchKeywords.join("%")}%`;
-            // Match by category OR by search text for uncategorized items
-            query = query.or(`unified_category.eq.${parentTab},and(unified_category.is.null,search_text.ilike.${searchPattern}),and(unified_category.eq.uncategorized,search_text.ilike.${searchPattern})`);
+            query = query.or(`${categoryOrClauses},and(unified_category.is.null,search_text.ilike.${searchPattern}),and(unified_category.eq.uncategorized,search_text.ilike.${searchPattern})`);
           } else {
-            query = query.eq("unified_category", parentTab);
+            query = query.or(categoryOrClauses);
           }
 
           if (subtabKey) {
@@ -684,8 +709,10 @@ Deno.serve(async (req) => {
         
         // Fetch more from DB than needed to account for dedup
         const fetchLimit = Math.min(needed * 2, 1000);
+        const backfillCategories = CATEGORY_UNIFIED_VALUES[canonicalKey] || CATEGORY_UNIFIED_VALUES[parentTab] || [parentTab];
+        const backfillCatOr = backfillCategories.map(c => `unified_category.eq.${c}`).join(",");
         let dbBackfillQ = supabase.from("catalog_items").select("*")
-          .eq("unified_category", parentTab)
+          .or(backfillCatOr)
           .or("is_disallowed.is.null,is_disallowed.eq.false")
           .neq("image_url", null)
           .gt("price_usd", 0);
@@ -795,8 +822,10 @@ Deno.serve(async (req) => {
         const postMixIds = new Set(filteredFinalItems.map((i: any) => i.id));
         const resolvedSub2 = subtabKey ? subtabKey.replace(`${parentTab}_`, "") : null;
         
+        const postMixCategories = CATEGORY_UNIFIED_VALUES[canonicalKey] || CATEGORY_UNIFIED_VALUES[parentTab] || [parentTab];
+        const postMixCatOr = postMixCategories.map(c => `unified_category.eq.${c}`).join(",");
         let postMixQ = supabase.from("catalog_items").select("*")
-          .eq("unified_category", parentTab)
+          .or(postMixCatOr)
           .or("is_disallowed.is.null,is_disallowed.eq.false")
           .not("image_url", "is", null)
           .gt("price_usd", 0);
@@ -903,10 +932,12 @@ Deno.serve(async (req) => {
     // Get real DB count for this category for accurate total
     let dbCount = 0;
     try {
+      const countCategories = CATEGORY_UNIFIED_VALUES[canonicalKey] || CATEGORY_UNIFIED_VALUES[parentTab] || [parentTab];
+      const countCatOr = countCategories.map(c => `unified_category.eq.${c}`).join(",");
       const { count } = await supabase
         .from("catalog_items")
         .select("id", { count: "exact", head: true })
-        .eq("unified_category", parentTab)
+        .or(countCatOr)
         .or("is_disallowed.is.null,is_disallowed.eq.false")
         .gt("price_usd", 0);
       dbCount = count || 0;

@@ -182,6 +182,9 @@ const FALLBACK_ALIAS_MAP: Record<string, string> = {
   collectibles: "toys",
   shoes_sneakers: "clothing_shoes",
   cameras_photo: "electronics_cameras",
+  kitchen: "home_garden",
+  kitchen_appliances: "home_garden",
+  smart_kitchen: "home_garden",
   
   // Tab aliases (including camelCase frontend keys)
   sportinggoods: "sporting_goods",

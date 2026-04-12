@@ -92,6 +92,9 @@ const GAMING_WORDS = [
   "playstation","ps5","ps4","xbox","series x","series s","nintendo","switch",
   "controller","joy-con","console","steam deck",
   "game disc","video game",
+  "gaming laptop","gaming headset","gaming keyboard","gaming mouse",
+  "gaming monitor","gaming chair","rgb keyboard","gaming pc",
+  "dualsense","dualshock",
 ];
 
 const CLOTHING_WORDS = [

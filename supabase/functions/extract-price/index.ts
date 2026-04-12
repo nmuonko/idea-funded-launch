@@ -61,9 +61,10 @@ Deno.serve(async (req) => {
           signal: controller.signal,
           headers: {
             "User-Agent":
-              "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            Accept: "text/html,application/xhtml+xml",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "identity",
           },
           redirect: "follow",
         });
@@ -174,12 +175,11 @@ Deno.serve(async (req) => {
           if (images.length < 3) {
             const dbImages: string[] = [];
             if (Array.isArray(dbItem.images)) {
-              dbImages.push(...dbItem.images.filter((u: any) => typeof u === "string"));
+              dbImages.push(...dbItem.images.filter((u: any) => typeof u === "string" && !isAdOrJunkUrl(u)));
             }
-            if (dbItem.image_url && !dbImages.includes(dbItem.image_url)) {
+            if (dbItem.image_url && !dbImages.includes(dbItem.image_url) && !isAdOrJunkUrl(dbItem.image_url)) {
               dbImages.unshift(dbItem.image_url);
             }
-            // Merge: keep existing scraped images first, then add DB images
             const merged = [...images];
             for (const img of dbImages) {
               if (!merged.includes(img)) merged.push(img);
@@ -270,6 +270,25 @@ function extractPriceFromMarkdown(md: string): number | null {
   return null;
 }
 
+/** Filter out ad banners, logos, tiny thumbnails, and junk images */
+function isAdOrJunkUrl(u: string): boolean {
+  if (/sprite|pixel|beacon|tracking|spacer|1x1|transparent/i.test(u)) return true;
+  if (/play.button|overlay/i.test(u)) return true;
+  // Amazon ad/infrastructure paths
+  if (/\/images\/[GSP]\//i.test(u)) return true;
+  // Prime, subscribe, associate badges
+  if (/prime|subs-|asso[c-]|badge|icon|logo|gift.?card/i.test(u)) return true;
+  // Tiny thumbnails (SS50, SX38, SY69, etc.)
+  if (/\._(?:SS|SX|SY)\d{2,3}[_.]/.test(u)) return true;
+  // Very short image IDs (3-5 chars total) = brand logos/icons, e.g. "21w", "31eL"
+  // But NOT longer product IDs like "71V6d8CR4PL" (11 chars)
+  const shortIdMatch = u.match(/\/images\/I\/([A-Za-z0-9]+)/);
+  if (shortIdMatch && shortIdMatch[1].length <= 5) return true;
+  // PKmb (play button overlay images)
+  if (/PKmb/i.test(u)) return true;
+  return false;
+}
+
 /**
  * Extract product images from HTML.
  * For Amazon: uses structured JS data (hiRes/large/colorImages) to get ONLY product gallery images.
@@ -279,26 +298,8 @@ function extractImagesFromHtml(html: string, isAmazon: boolean): string[] {
   const seen = new Set<string>();
   const images: string[] = [];
 
-  const isAdOrJunk = (u: string): boolean => {
-    if (/sprite|pixel|beacon|tracking|spacer|1x1|transparent/i.test(u)) return true;
-    if (/play.button|overlay/i.test(u)) return true;
-    if (isAmazon) {
-      // Amazon ad/infrastructure paths
-      if (/\/images\/[GSP]\//i.test(u)) return true;
-      // Prime, subscribe, associate badges
-      if (/prime|subs-|asso[c-]|badge|icon|logo|gift.?card/i.test(u)) return true;
-      // Tiny thumbnails (SS50, SX38, SY69, etc.)
-      if (/\._(?:SS|SX|SY)\d{2,3}[_.]/.test(u)) return true;
-      // Very small brand logos (2-digit + letter IDs like 21w, 31e)
-      if (/\/images\/I\/\d{2}[a-zA-Z]/.test(u)) return true;
-      // PKmb (play button overlay images)
-      if (/PKmb/i.test(u)) return true;
-    }
-    return false;
-  };
-
   const push = (u: string) => {
-    if (!u || seen.has(u) || isAdOrJunk(u)) return;
+    if (!u || seen.has(u) || isAdOrJunkUrl(u)) return;
     seen.add(u);
     images.push(u);
   };

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { useParams, Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { trackRecentlyViewed } from '@/lib/recentlyViewed';
 import { trackViewContent, trackAddToCart } from '@/lib/tiktokPixel';

@@ -572,15 +572,16 @@ Deno.serve(async (req) => {
           let query = supabase.from("catalog_items").select("*", { count: "exact" });
           query = query.or("provider.eq.rainforest,provider.eq.amazon");
           
-          // Include items that match either the category OR have uncategorized but match default query
-          // This allows old uncategorized items to still appear while also including properly categorized ones
+          // Use expanded unified_category values for broader matching
+          const expandedCategories = CATEGORY_UNIFIED_VALUES[canonicalKey] || CATEGORY_UNIFIED_VALUES[parentTab] || [parentTab];
+          const categoryOrClauses = expandedCategories.map(c => `unified_category.eq.${c}`).join(",");
+          
           if (defaultAmazonQuery) {
             const searchKeywords = defaultAmazonQuery.toLowerCase().split(/\s+/);
             const searchPattern = `%${searchKeywords.join("%")}%`;
-            // Match by category OR by search text for uncategorized items
-            query = query.or(`unified_category.eq.${parentTab},and(unified_category.is.null,search_text.ilike.${searchPattern}),and(unified_category.eq.uncategorized,search_text.ilike.${searchPattern})`);
+            query = query.or(`${categoryOrClauses},and(unified_category.is.null,search_text.ilike.${searchPattern}),and(unified_category.eq.uncategorized,search_text.ilike.${searchPattern})`);
           } else {
-            query = query.eq("unified_category", parentTab);
+            query = query.or(categoryOrClauses);
           }
 
           if (subtabKey) {

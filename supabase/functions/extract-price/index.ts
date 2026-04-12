@@ -50,7 +50,94 @@ Deno.serve(async (req) => {
       provider = "ebay";
     }
 
-    // ─── Strategy 1: Firecrawl (most reliable for JS sites) ───
+    // ─── Strategy 1: Direct fetch for Amazon (most accurate price) ───
+    if (isAmazon && asin) {
+      console.log(`[EXTRACT_PRICE] Direct fetch for Amazon ${asin}`);
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 6000);
+        const res = await fetch(`https://www.amazon.com/dp/${asin}`, {
+          signal: controller.signal,
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            Accept: "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
+          },
+          redirect: "follow",
+        });
+        clearTimeout(timeout);
+        if (res.ok) {
+          const html = await res.text();
+          price = extractPriceFromHtml(html);
+          const titleMatch = html.match(/<title[^>]*>([^<]+)</i);
+          if (titleMatch) {
+            title = titleMatch[1].replace(/\s*:\s*Amazon\.com\s*:.*$/i, "").replace(/\s*\|.*$/, "").trim();
+          }
+          images = extractImagesFromHtml(html, true);
+          if (images.length > 0) imageUrl = images[0];
+          console.log(`[EXTRACT_PRICE] Direct: price=${price} images=${images.length}`);
+        }
+      } catch (e) {
+        console.warn(`[EXTRACT_PRICE] direct fetch error: ${(e as Error).message}`);
+      }
+    }
+
+    // ─── Strategy 2: Firecrawl (fallback for Amazon, primary for others) ───
+    if (!price || (!isAmazon && !title)) {
+    const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY");
+    if (firecrawlKey) {
+      const scraperUrl = isAmazon && asin ? `https://www.amazon.com/dp/${asin}` : cleanUrl;
+      console.log(`[EXTRACT_PRICE] Firecrawl scraping ${scraperUrl}`);
+
+      try {
+        const fcRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${firecrawlKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            url: scraperUrl,
+            formats: ["markdown", "html"],
+            waitFor: isAmazon ? 2000 : 3000,
+            onlyMainContent: true,
+          }),
+        });
+
+        if (fcRes.ok) {
+          const fcData = await fcRes.json();
+          const html = fcData?.data?.html || fcData?.html || "";
+          const md = fcData?.data?.markdown || fcData?.markdown || "";
+          const meta = fcData?.data?.metadata || fcData?.metadata || {};
+
+          if (!title) {
+            title = meta?.title || meta?.ogTitle || null;
+            if (title) {
+              title = title.replace(/\s*:\s*Amazon\.com\s*:.*$/i, "").replace(/\s*\|.*$/, "").trim();
+            }
+          }
+          if (!price) {
+            price = extractPriceFromHtml(html);
+            if (!price) price = extractPriceFromMarkdown(md);
+          }
+          if (images.length === 0) {
+            images = extractImagesFromHtml(html, isAmazon);
+            const ogImage = meta?.ogImage;
+            if (ogImage && typeof ogImage === "string" && !images.includes(ogImage)) {
+              images.unshift(ogImage);
+            }
+            if (images.length > 0) imageUrl = images[0];
+          }
+          console.log(`[EXTRACT_PRICE] Firecrawl: price=${price} images=${images.length}`);
+        } else {
+          console.warn(`[EXTRACT_PRICE] Firecrawl HTTP ${fcRes.status}`);
+        }
+      } catch (e) {
+        console.warn(`[EXTRACT_PRICE] Firecrawl error: ${(e as Error).message}`);
+      }
+    }
+    }
     const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY");
     if (firecrawlKey) {
       const scraperUrl = isAmazon && asin ? `https://www.amazon.com/dp/${asin}` : cleanUrl;

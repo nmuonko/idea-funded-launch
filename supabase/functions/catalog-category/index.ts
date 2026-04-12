@@ -821,8 +821,10 @@ Deno.serve(async (req) => {
         const postMixIds = new Set(filteredFinalItems.map((i: any) => i.id));
         const resolvedSub2 = subtabKey ? subtabKey.replace(`${parentTab}_`, "") : null;
         
+        const postMixCategories = CATEGORY_UNIFIED_VALUES[canonicalKey] || CATEGORY_UNIFIED_VALUES[parentTab] || [parentTab];
+        const postMixCatOr = postMixCategories.map(c => `unified_category.eq.${c}`).join(",");
         let postMixQ = supabase.from("catalog_items").select("*")
-          .eq("unified_category", parentTab)
+          .or(postMixCatOr)
           .or("is_disallowed.is.null,is_disallowed.eq.false")
           .not("image_url", "is", null)
           .gt("price_usd", 0);
@@ -929,10 +931,12 @@ Deno.serve(async (req) => {
     // Get real DB count for this category for accurate total
     let dbCount = 0;
     try {
+      const countCategories = CATEGORY_UNIFIED_VALUES[canonicalKey] || CATEGORY_UNIFIED_VALUES[parentTab] || [parentTab];
+      const countCatOr = countCategories.map(c => `unified_category.eq.${c}`).join(",");
       const { count } = await supabase
         .from("catalog_items")
         .select("id", { count: "exact", head: true })
-        .eq("unified_category", parentTab)
+        .or(countCatOr)
         .or("is_disallowed.is.null,is_disallowed.eq.false")
         .gt("price_usd", 0);
       dbCount = count || 0;

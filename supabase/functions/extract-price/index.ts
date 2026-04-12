@@ -70,22 +70,22 @@ Deno.serve(async (req) => {
         clearTimeout(timeout);
         if (res.ok) {
           const html = await res.text();
-          price = extractPriceFromHtml(html);
-          const titleMatch = html.match(/<title[^>]*>([^<]+)</i);
-          if (titleMatch) {
-            title = titleMatch[1]
-              .replace(/\s*:\s*Amazon\.com\s*:.*$/i, "")
-              .replace(/\s*\|.*$/, "")
-              .replace(/&amp;/g, "&")
-              .replace(/&lt;/g, "<")
-              .replace(/&gt;/g, ">")
-              .replace(/&#39;/g, "'")
-              .replace(/&quot;/g, '"')
-              .trim();
+          // Check if we got a real product page (not CAPTCHA)
+          const isCaptcha = html.includes("captcha") || (html.length < 5000 && !html.includes("corePrice"));
+          if (!isCaptcha) {
+            price = extractPriceFromHtml(html);
+            const titleMatch = html.match(/<title[^>]*>([^<]+)</i);
+            if (titleMatch && !titleMatch[1].includes("Robot Check")) {
+              title = decodeHtmlEntities(
+                titleMatch[1].replace(/\s*:\s*Amazon\.com\s*:.*$/i, "").replace(/\s*\|.*$/, "").trim()
+              );
+            }
+            images = extractImagesFromHtml(html, true);
+            if (images.length > 0) imageUrl = images[0];
+            console.log(`[EXTRACT_PRICE] Direct: price=${price} title="${title?.substring(0, 40)}" images=${images.length}`);
+          } else {
+            console.log(`[EXTRACT_PRICE] Direct: CAPTCHA detected, skipping`);
           }
-          images = extractImagesFromHtml(html, true);
-          if (images.length > 0) imageUrl = images[0];
-          console.log(`[EXTRACT_PRICE] Direct: price=${price} title="${title?.substring(0, 40)}" images=${images.length}`);
         }
       } catch (e) {
         console.warn(`[EXTRACT_PRICE] direct fetch error: ${(e as Error).message}`);
@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
     }
 
     // ─── Strategy 2: Firecrawl (fallback for Amazon, primary for others) ───
-    if (!price || (!isAmazon && !title)) {
+    if (!price || images.length === 0 || (!isAmazon && !title)) {
       const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY");
       if (firecrawlKey) {
         const scraperUrl = isAmazon && asin ? `https://www.amazon.com/dp/${asin}` : cleanUrl;
@@ -108,22 +108,23 @@ Deno.serve(async (req) => {
             },
             body: JSON.stringify({
               url: scraperUrl,
-              formats: ["markdown", "html"],
-              waitFor: isAmazon ? 2000 : 3000,
-              onlyMainContent: true,
+              formats: ["rawHtml"],
+              waitFor: 3000,
             }),
           });
 
           if (fcRes.ok) {
             const fcData = await fcRes.json();
-            const html = fcData?.data?.html || fcData?.html || "";
+            const html = fcData?.data?.rawHtml || fcData?.data?.html || fcData?.rawHtml || fcData?.html || "";
             const md = fcData?.data?.markdown || fcData?.markdown || "";
             const meta = fcData?.data?.metadata || fcData?.metadata || {};
 
             if (!title) {
               title = meta?.title || meta?.ogTitle || null;
               if (title) {
-                title = title.replace(/\s*:\s*Amazon\.com\s*:.*$/i, "").replace(/\s*\|.*$/, "").trim();
+                title = decodeHtmlEntities(
+                  title.replace(/\s*:\s*Amazon\.com\s*:.*$/i, "").replace(/\s*\|.*$/, "").trim()
+                );
               }
             }
             if (!price) {
@@ -132,9 +133,12 @@ Deno.serve(async (req) => {
             }
             if (images.length === 0) {
               images = extractImagesFromHtml(html, isAmazon);
-              const ogImage = meta?.ogImage;
-              if (ogImage && typeof ogImage === "string" && !images.includes(ogImage)) {
-                images.unshift(ogImage);
+              // OG image — only add for non-Amazon (Amazon OG is usually a tiny thumbnail)
+              if (!isAmazon) {
+                const ogImage = meta?.ogImage;
+                if (ogImage && typeof ogImage === "string" && !images.includes(ogImage)) {
+                  images.unshift(ogImage);
+                }
               }
               if (images.length > 0) imageUrl = images[0];
             }
@@ -149,7 +153,7 @@ Deno.serve(async (req) => {
     }
 
     // ─── Strategy 3: DB fallback ───
-    if (isAmazon && asin && (!price || !imageUrl)) {
+    if (isAmazon && asin && (!price || images.length < 3)) {
       try {
         const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
         const supabase = createClient(
@@ -167,29 +171,37 @@ Deno.serve(async (req) => {
         if (dbItem) {
           if (!price && dbItem.price_usd > 0) price = dbItem.price_usd;
           if (!title && dbItem.title) title = dbItem.title;
-          if (!imageUrl && dbItem.image_url) imageUrl = dbItem.image_url;
-          if (images.length === 0 && Array.isArray(dbItem.images)) {
-            images = dbItem.images.filter((u: any) => typeof u === "string");
+          if (images.length < 3) {
+            const dbImages: string[] = [];
+            if (Array.isArray(dbItem.images)) {
+              dbImages.push(...dbItem.images.filter((u: any) => typeof u === "string"));
+            }
+            if (dbItem.image_url && !dbImages.includes(dbItem.image_url)) {
+              dbImages.unshift(dbItem.image_url);
+            }
+            // Merge: keep existing scraped images first, then add DB images
+            const merged = [...images];
+            for (const img of dbImages) {
+              if (!merged.includes(img)) merged.push(img);
+            }
+            images = merged;
           }
+          if (!imageUrl && images.length > 0) imageUrl = images[0];
+          console.log(`[EXTRACT_PRICE] DB fallback: price=${price} images=${images.length}`);
         }
       } catch (e) {
         console.warn(`[EXTRACT_PRICE] DB fallback error: ${(e as Error).message}`);
       }
     }
 
+    if (images.length > 0 && !imageUrl) imageUrl = images[0];
+
     const result = {
       title: title || null,
-      price: price,
-      price_usd: price,
-      basePrice: price,
-      priceUsd: price,
-      image: imageUrl,
-      image_url: imageUrl,
-      imageUrl: imageUrl,
+      price, price_usd: price, basePrice: price, priceUsd: price,
+      image: imageUrl, image_url: imageUrl, imageUrl: imageUrl,
       images: images.slice(0, 10),
-      provider,
-      providerId: providerId || null,
-      provider_product_id: providerId || null,
+      provider, providerId: providerId || null, provider_product_id: providerId || null,
     };
 
     console.log(`[EXTRACT_PRICE] Final: provider=${provider} id=${providerId} price=${price} images=${images.length}`);
@@ -206,17 +218,21 @@ Deno.serve(async (req) => {
   }
 });
 
-// ─── Price extraction helpers ───
+// ─── Helpers ───
+
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&#x27;/g, "'");
+}
 
 function extractPriceFromHtml(html: string): number | null {
-  // 1. corePrice
   const corePriceMatch = html.match(/corePrice[^{]*\{[^}]*"value"\s*:\s*([\d.]+)/);
   if (corePriceMatch) {
     const v = parseFloat(corePriceMatch[1]);
     if (v > 0 && v < 100000) return v;
   }
 
-  // 2. Common price patterns
   const patterns = [
     /id="priceblock_ourprice"[^>]*>\s*\$\s*([\d,]+\.?\d*)/i,
     /id="priceblock_dealprice"[^>]*>\s*\$\s*([\d,]+\.?\d*)/i,
@@ -234,19 +250,12 @@ function extractPriceFromHtml(html: string): number | null {
     }
   }
 
-  // 3. JSON-LD
-  const jsonLdMatches = html.matchAll(
-    /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi
-  );
-  for (const m of jsonLdMatches) {
+  for (const m of html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)) {
     try {
       const json = JSON.parse(m[1]);
       const offers = json?.offers || json?.Offers;
       const p = offers?.price || offers?.lowPrice;
-      if (p) {
-        const v = parseFloat(String(p));
-        if (v > 0) return v;
-      }
+      if (p) { const v = parseFloat(String(p)); if (v > 0) return v; }
     } catch { /* skip */ }
   }
 
@@ -254,93 +263,157 @@ function extractPriceFromHtml(html: string): number | null {
 }
 
 function extractPriceFromMarkdown(md: string): number | null {
-  const patterns = [
-    /\$\s*([\d,]+\.\d{2})/,
-    /Price:\s*\$\s*([\d,]+\.?\d*)/i,
-    /Now:\s*\$\s*([\d,]+\.?\d*)/i,
-  ];
-  for (const pat of patterns) {
+  for (const pat of [/\$\s*([\d,]+\.\d{2})/, /Price:\s*\$\s*([\d,]+\.?\d*)/i, /Now:\s*\$\s*([\d,]+\.?\d*)/i]) {
     const m = md.match(pat);
-    if (m) {
-      const v = parseFloat(m[1].replace(/,/g, ""));
-      if (v > 0 && v < 100000) return v;
-    }
+    if (m) { const v = parseFloat(m[1].replace(/,/g, "")); if (v > 0 && v < 100000) return v; }
   }
   return null;
 }
 
+/**
+ * Extract product images from HTML.
+ * For Amazon: uses structured JS data (hiRes/large/colorImages) to get ONLY product gallery images.
+ * Aggressively filters banners, ads, widgets, logos, and tiny thumbnails.
+ */
 function extractImagesFromHtml(html: string, isAmazon: boolean): string[] {
   const seen = new Set<string>();
   const images: string[] = [];
 
+  const isAdOrJunk = (u: string): boolean => {
+    if (/sprite|pixel|beacon|tracking|spacer|1x1|transparent/i.test(u)) return true;
+    if (/play.button|overlay/i.test(u)) return true;
+    if (isAmazon) {
+      // Amazon ad/infrastructure paths
+      if (/\/images\/[GSP]\//i.test(u)) return true;
+      // Prime, subscribe, associate badges
+      if (/prime|subs-|asso[c-]|badge|icon|logo|gift.?card/i.test(u)) return true;
+      // Tiny thumbnails (SS50, SX38, SY69, etc.)
+      if (/\._(?:SS|SX|SY)\d{2,3}[_.]/.test(u)) return true;
+      // Very small brand logos (2-digit + letter IDs like 21w, 31e)
+      if (/\/images\/I\/\d{2}[a-zA-Z]/.test(u)) return true;
+      // PKmb (play button overlay images)
+      if (/PKmb/i.test(u)) return true;
+    }
+    return false;
+  };
+
   const push = (u: string) => {
-    if (!u || seen.has(u)) return;
-    if (/sprite|pixel|beacon|tracking|spacer|1x1|transparent|badge|icon|logo/i.test(u)) return;
-    // Skip tiny Amazon images (under ~100px) and play-button overlays
-    if (isAmazon && /\._[A-Z]{2}\d{2,3}_\./.test(u)) return;
-    if (/play.button/i.test(u)) return;
-    // Skip small brand logos (usually 2-character prefix like "21" before letters)
-    if (isAmazon && /\/images\/I\/[12]\d[a-zA-Z]/.test(u)) return;
+    if (!u || seen.has(u) || isAdOrJunk(u)) return;
     seen.add(u);
     images.push(u);
   };
 
   if (isAmazon) {
-    // Amazon "hiRes" images from JS data (best quality)
-    const hiResMatches = html.matchAll(/"hiRes"\s*:\s*"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/gi);
-    for (const match of hiResMatches) {
-      push(match[1]);
-    }
-
-    // Amazon "large" images from JS data
-    const largeMatches = html.matchAll(/"large"\s*:\s*"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/gi);
-    for (const match of largeMatches) {
-      push(match[1]);
-    }
-
-    // Amazon main image from landingImage
-    const landingMatch = html.match(/id="landingImage"[^>]+src="([^"]+)"/i);
-    if (landingMatch) {
-      const img = landingMatch[1].replace(/\._[A-Z]{2}\d+_/, ".");
-      push(img);
-    }
-
-    // Fallback: generic Amazon image URLs (only large ones)
-    if (images.length === 0) {
-      const amazonImgMatches = html.matchAll(
-        /https:\/\/m\.media-amazon\.com\/images\/I\/[A-Za-z0-9._%-]+\.(?:jpg|png|webp)/gi
-      );
-      for (const match of amazonImgMatches) {
-        let img = match[0];
-        img = img.replace(/\._[A-Z]{2}\d+_/, ".");
-        push(img);
-      }
-    }
-  }
-
-  // OG images
-  for (const m of html.matchAll(
-    /<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)["']/gi
-  )) {
-    push(m[1]);
-  }
-
-  // JSON-LD images
-  for (const m of html.matchAll(
-    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
-  )) {
-    try {
-      const parsed = JSON.parse(m[1]);
-      const imgs = parsed?.image;
-      if (Array.isArray(imgs)) {
-        for (const i of imgs) {
-          push(typeof i === "string" ? i : i?.url || i?.contentUrl || "");
+    // ── Priority 1: colorImages JS block (THE authoritative product gallery) ──
+    // Pattern: 'colorImages': {'initial': [{"hiRes":"...", "large":"...", ...}]}
+    const colorImagesMatch = html.match(/'colorImages'\s*:\s*\{\s*'initial'\s*:\s*(\[[\s\S]*?\])\s*\}/);
+    if (colorImagesMatch) {
+      try {
+        const arr = JSON.parse(colorImagesMatch[1]);
+        for (const item of arr) {
+          if (item?.hiRes) push(item.hiRes);
+          else if (item?.large) push(item.large);
+          else if (item?.main && typeof item.main === "object") {
+            // Sometimes it's {main: {"url": ...}}
+            const mainUrl = Object.keys(item.main).find(k => k.startsWith("http"));
+            if (mainUrl) push(mainUrl);
+          }
         }
-      } else if (typeof imgs === "string") {
-        push(imgs);
+        console.log(`[EXTRACT_IMAGES] colorImages found ${images.length} product images`);
+      } catch { /* skip */ }
+    }
+
+    // ── Priority 2: "hiRes" standalone matches ──
+    if (images.length === 0) {
+      for (const match of html.matchAll(/"hiRes"\s*:\s*"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/gi)) {
+        push(match[1]);
       }
-    } catch { /* skip */ }
+    }
+
+    // ── Priority 3: "large" standalone matches ──
+    if (images.length === 0) {
+      for (const match of html.matchAll(/"large"\s*:\s*"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/gi)) {
+        push(match[1]);
+      }
+    }
+
+    // ── Priority 4: landingImage (main product image on page) ──
+    if (images.length === 0) {
+      const landingMatch = html.match(/id="landingImage"[^>]+src="([^"]+)"/i);
+      if (landingMatch) {
+        push(upgradeAmazonImage(landingMatch[1]));
+      }
+    }
+
+    // ── Priority 5: _AC_SL (confirmed product images) only ──
+    if (images.length === 0) {
+      for (const match of html.matchAll(
+        /https:\/\/m\.media-amazon\.com\/images\/I\/[A-Za-z0-9]+\._AC_SL\d+_\.(?:jpg|png|webp)/gi
+      )) {
+        push(match[0]);
+      }
+    }
+
+    // ── Priority 6: Upgrade any _AC_ thumbnails to SL1500 ──
+    if (images.length === 0) {
+      const baseIds = new Set<string>();
+      for (const match of html.matchAll(
+        /(https:\/\/m\.media-amazon\.com\/images\/I\/([A-Za-z0-9]+))\._AC_[^.]+\.(?:jpg|png|webp)/gi
+      )) {
+        const baseId = match[2];
+        if (!baseIds.has(baseId) && baseId.length >= 8) {
+          baseIds.add(baseId);
+          push(`https://m.media-amazon.com/images/I/${baseId}._AC_SL1500_.jpg`);
+        }
+      }
+    }
+
+    // ── Priority 7: JSON-LD images (last resort for Amazon) ──
+    if (images.length === 0) {
+      for (const m of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+        try {
+          const parsed = JSON.parse(m[1]);
+          const imgs = parsed?.image;
+          if (Array.isArray(imgs)) {
+            for (const i of imgs) push(typeof i === "string" ? i : i?.url || "");
+          } else if (typeof imgs === "string") push(imgs);
+        } catch { /* skip */ }
+      }
+    }
+  } else {
+    // Non-Amazon: OG images first
+    for (const m of html.matchAll(
+      /<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)["']/gi
+    )) {
+      push(m[1]);
+    }
+
+    // JSON-LD images
+    for (const m of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+      try {
+        const parsed = JSON.parse(m[1]);
+        const imgs = parsed?.image;
+        if (Array.isArray(imgs)) {
+          for (const i of imgs) push(typeof i === "string" ? i : i?.url || i?.contentUrl || "");
+        } else if (typeof imgs === "string") push(imgs);
+      } catch { /* skip */ }
+    }
+  }
+
+  // Final dedup: same base image ID at different sizes → keep first (usually largest)
+  if (isAmazon) {
+    const uniqueByBase = new Map<string, string>();
+    for (const img of images) {
+      const baseMatch = img.match(/\/images\/I\/([A-Za-z0-9]+)/);
+      const baseId = baseMatch ? baseMatch[1] : img;
+      if (!uniqueByBase.has(baseId)) uniqueByBase.set(baseId, img);
+    }
+    return Array.from(uniqueByBase.values()).slice(0, 10);
   }
 
   return images.slice(0, 10);
+}
+
+function upgradeAmazonImage(url: string): string {
+  return url.replace(/\._[A-Z]{2}\d+_/, ".");
 }

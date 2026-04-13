@@ -857,15 +857,15 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
         console.log(`[CART_ADD][${correlationId}] reverseCalcBase=true sentPrice=${productPrice} shippingPerUnit=${shippingPerUnit} derivedBase=${derivedBase}`);
       }
     } else if (!resolvedFromCatalog) {
-      // Legacy fallback reverse-calculation
-      const normalizedPercent = settings.shippingPercent > 1 ? settings.shippingPercent / 100 : settings.shippingPercent;
+      // Fallback reverse-calculation using default category (0.5kg, 25% buffer)
+      const fallbackShipping = calculateWeightBasedShippingFee(DEFAULT_FALLBACK_CATEGORY, settings.shippingRatePerKg, 1);
       const markupRate = settings.markupPercent / 100;
-      const derivedBase = cartRound2((productPrice - settings.shippingBaseFeeUsd) / (1 + markupRate + normalizedPercent));
+      const derivedBase = cartRound2((productPrice - fallbackShipping) / (1 + markupRate));
       if (derivedBase > 0) {
         basePriceUsd = derivedBase;
         resolvedFromCatalog = true;
         priceSource = 'reverse_calculated';
-        console.log(`[CART_ADD][${correlationId}] reverseCalcBaseLegacy=true sentPrice=${productPrice} derivedBase=${derivedBase}`);
+        console.log(`[CART_ADD][${correlationId}] reverseCalcFallback=true sentPrice=${productPrice} fallbackShipping=${fallbackShipping} derivedBase=${derivedBase}`);
       }
     }
 
@@ -879,8 +879,8 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       };
       shippingFeeUsd = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, quantity);
     } else {
-      const normalizedPercent = settings.shippingPercent > 1 ? settings.shippingPercent / 100 : settings.shippingPercent;
-      shippingFeeUsd = calculateShippingFee(cartRound2(basePriceUsd * quantity), settings.shippingBaseFeeUsd, normalizedPercent, false);
+      // Fallback: use default category (0.5kg, 25% buffer)
+      shippingFeeUsd = calculateWeightBasedShippingFee(DEFAULT_FALLBACK_CATEGORY, settings.shippingRatePerKg, quantity);
     }
   }
 

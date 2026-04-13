@@ -380,8 +380,41 @@ function formatItem(
   const itemSubtotalUsd = isStoredAllInclusive
     ? (Number(item.total_price_usd || 0) > 0 ? Number(item.total_price_usd) : itemBaseTotalUsd)
     : round2(itemBaseTotalUsd + itemMarginUsd);
-  const itemTotalUsd = round2(itemSubtotalUsd + (isStoredAllInclusive ? 0 : itemShippingUsd));
+  let itemTotalUsd = round2(itemSubtotalUsd + (isStoredAllInclusive ? 0 : itemShippingUsd));
   const itemSubtotalCdf = round2(itemSubtotalUsd * exchangeRate);
+
+  // Apply pricing protection for non-all-inclusive items
+  let protectionMeta: Record<string, unknown> = {};
+  if (protectionSettings && !isStoredAllInclusive && !itemRequiresQuote) {
+    const { applyPricingProtection } = await import("../_shared/cart/pricingProtection.ts");
+    // Determine price age from last update
+    const priceAgeHours = item.price_updated_at
+      ? (Date.now() - new Date(item.price_updated_at).getTime()) / (1000 * 60 * 60)
+      : (item.updated_at
+        ? (Date.now() - new Date(item.updated_at).getTime()) / (1000 * 60 * 60)
+        : 0);
+    const catKey = item.shipping_item_types?.key
+      ? normalizeCategorySlug(item.shipping_item_types.key)
+      : null;
+    const protection = applyPricingProtection(
+      itemBaseTotalUsd, itemMarginUsd, itemShippingUsd, exchangeRate,
+      protectionSettings,
+      { categoryKey: catKey, priceAgeHours, isVehicle: false, requiresManualQuote: itemRequiresQuote, quantity },
+    );
+    itemTotalUsd = protection.safeFinalPriceUsd;
+    protectionMeta = {
+      pricing_protection: {
+        status: protection.pricingStatus,
+        confidence: protection.pricingConfidence,
+        requires_review: protection.requiresManualReview,
+        profit_usd: protection.profitUsd,
+        margin_percent: protection.marginPercent,
+        total_protection_usd: protection.totalProtectionUsd,
+        reason_codes: protection.reasonCodes,
+        min_profit_floor_applied: protection.minProfitFloorApplied,
+      },
+    };
+  }
 
   // FROZEN APP FIX: Always show all-inclusive price as "basePriceUsd" so the frozen app
   // (which may read basePriceUsd for display) shows the correct all-inclusive total.
@@ -403,6 +436,7 @@ function formatItem(
     markupPercent: isStoredAllInclusive ? 0 : markupPercent,
     fees_included: true, is_all_inclusive_display: true,
     pricing_mode: 'all_inclusive',
+    ...protectionMeta,
   };
 }
 

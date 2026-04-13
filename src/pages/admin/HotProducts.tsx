@@ -50,8 +50,7 @@ interface ShowcaseProduct {
 interface FeeSettings {
   markupPercent: number;
   vehicleMarkupPercent: number;
-  shippingBaseFeeUsd: number;
-  shippingPercent: number;
+  shippingRatePerKg: number;
 }
 
 interface Campaign {

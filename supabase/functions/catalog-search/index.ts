@@ -72,6 +72,18 @@ function sanitizeItemImageUrl(rawUrl: string | null | undefined): string | null 
   return sanitizeImageUrl(rawUrl);
 }
 
+/**
+ * Sanitize a gallery array for related/fallback items.
+ * Filters out banner/ad images and returns only valid product images.
+ */
+function sanitizeRelatedGallery(images: string[] | null | undefined, fallbackImg: string): string[] {
+  if (!images || !Array.isArray(images) || images.length === 0) return [fallbackImg];
+  const cleaned = images
+    .filter((u: string) => typeof u === 'string' && sanitizeImageUrl(u))
+    .map((u: string) => sanitizeImageUrl(u)!);
+  return cleaned.length > 0 ? cleaned : [fallbackImg];
+}
+
 const DEFAULT_LIMIT = 500;   // Default page size
 const MAX_LIMIT = 500;       // Max page size
 const MIN_TARGET_RESULTS = 500; // Minimum results target — unified for web + mobile parity

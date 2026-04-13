@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { calculateShippingUsd } from '@/lib/shippingCalculation';
+import { calculateWeightBasedShipping } from '@/lib/shippingCalculation';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -92,7 +92,11 @@ function toHighResImage(url: string): string {
 
 function calcProductTotals(basePrice: number, fees: FeeSettings): { markup: number; shipping: number; total: number } {
   const markup = basePrice * (fees.markupPercent / 100);
-  const shipping = calculateShippingUsd(basePrice, fees.shippingBaseFeeUsd, fees.shippingPercent);
+  const shipping = calculateWeightBasedShipping(
+    { est_weight_kg: 0.5, flat_shipping_usd: null, shipping_buffer_percent: 25, requires_manual_quote: false },
+    fees.shippingRatePerKg ?? 20,
+    1,
+  );
   return { markup, shipping, total: Math.round((basePrice + markup + shipping) * 100) / 100 };
 }
 

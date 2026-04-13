@@ -14,6 +14,21 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSupportContact } from '@/hooks/useSupportContact';
 import { toast } from 'sonner';
 
+const buildHotProductUrl = (product: HotProduct) => {
+  if (product.product_url) return product.product_url;
+  const provider = (product.provider || '').toLowerCase();
+  const rawId = product.provider_product_id?.trim();
+  if (!rawId) return null;
+  if (provider === 'ebay') {
+    const ebayItemId = rawId.startsWith('v1|') ? rawId.split('|')[1] || rawId : rawId;
+    return `https://www.ebay.com/itm/${ebayItemId}`;
+  }
+  let cleanId = rawId;
+  if (cleanId.toLowerCase().startsWith('amazon_')) cleanId = cleanId.slice(7);
+  if (cleanId.toLowerCase().startsWith('rainforest_')) cleanId = cleanId.slice(11);
+  return `https://www.amazon.com/dp/${cleanId.toUpperCase()}`;
+};
+
 const REF_STORAGE_KEY = 'afrishop_ref_code';
 const REF_CLICK_SESSION_KEY = 'afrishop_ref_click_sent';
 
@@ -133,7 +148,7 @@ export default function HotProducts() {
         imageUrl: product.image_url,
         priceUsd: product.total_price_usd,
         quantity: 1,
-        productUrl: product.product_url || `https://afrishop-usa.com/product/${product.provider}/${product.provider_product_id}`,
+        productUrl: buildHotProductUrl(product) || `https://www.amazon.com/dp/${product.provider_product_id}`,
         isFixedPrice: true, // Hot products use admin-set final price, no extra markup/shipping
       });
 

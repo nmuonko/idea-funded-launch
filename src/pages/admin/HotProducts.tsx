@@ -331,7 +331,60 @@ export default function HotProducts() {
     setCatalogExtracting(false);
   }
 
-  function removeProduct(id: string) {
+  async function generateCheckoutLink() {
+    if (!linkGenUrl.trim()) return;
+    setLinkGenExtracting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('extract-price', {
+        body: { url: linkGenUrl.trim(), forceRefresh: true },
+      });
+      if (error || !data) { toast.error('Failed to extract product'); setLinkGenExtracting(false); return; }
+      const basePrice = data.basePrice || data.price || data.priceUsd || 0;
+      const imageUrl = toHighResImage(data.imageUrl || data.image || '');
+      const title = data.title || data.name || 'Product';
+      const prov = data.provider || inferProvider(linkGenUrl.trim()) || 'external';
+      const pid = data.providerId || inferProductId(linkGenUrl.trim()) || '';
+      const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings);
+
+      // Save directly to hot_products_showcase as a standalone entry
+      await supabase.auth.refreshSession();
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (!currentUser) { toast.error('Session expired'); setLinkGenExtracting(false); return; }
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from('hot_products_showcase')
+        .insert({
+          title,
+          image_url: imageUrl,
+          price_usd: basePrice,
+          markup_usd: Math.round(markup * 100) / 100,
+          shipping_usd: Math.round(shipping * 100) / 100,
+          total_price_usd: total,
+          product_url: (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : linkGenUrl.trim(),
+          provider: prov,
+          provider_product_id: pid,
+          sort_order: 99,
+          is_active: true,
+          created_by: currentUser.id,
+        })
+        .select('id')
+        .single();
+
+      if (insertErr || !inserted) { toast.error('Failed to save: ' + (insertErr?.message || '')); setLinkGenExtracting(false); return; }
+
+      const checkoutUrl = `${window.location.origin}/checkout?hp=${inserted.id}`;
+      setGeneratedLinks(prev => [{ id: inserted.id, title, image_url: imageUrl, total_price_usd: total, checkoutUrl }, ...prev]);
+      setLinkGenUrl('');
+      navigator.clipboard.writeText(checkoutUrl);
+      setCopiedLinkId(inserted.id);
+      setTimeout(() => setCopiedLinkId(null), 3000);
+      toast.success(t('Link generated & copied!', 'Lien généré et copié !'));
+    } catch {
+      toast.error('Failed to generate link');
+    }
+    setLinkGenExtracting(false);
+  }
+
     setShowcaseProducts(prev => prev.filter(p => p.id !== id));
   }
 

@@ -1471,7 +1471,7 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
   }
 
   // Recalculate totals
-  const { data: allItems } = await supabase.from('order_items').select('subtotal_usd, markup_fee_usd, total_price_usd, total_price_cdf, requires_manual_quote')
+  const { data: allItems } = await supabase.from('order_items').select('subtotal_usd, markup_fee_usd, total_price_usd, total_price_cdf, requires_manual_quote, shipping_fee_usd, quantity')
     .eq('order_id', draftOrder!.id).eq('is_saved_for_later', false);
   let itemTotalUsd = 0, totalMarginUsd = 0, totalUsd = 0, totalCdf = 0, requiresManualQuote = false;
   (allItems || []).forEach((item: any) => {

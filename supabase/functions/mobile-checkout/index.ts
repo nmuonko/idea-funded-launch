@@ -322,7 +322,8 @@ function normalizeItemPricing(
 
   let shippingFeeUsd = 0;
   if (!isFixedPrice && !isStoredAllInclusive && !requiresManualQuote) {
-    shippingFeeUsd = round2(settings.shippingBaseFeeUsd + (itemBaseTotalUsd * settings.shippingPercent));
+    // Weight-based: default fallback category (0.5kg, $20/kg, 25% buffer)
+    shippingFeeUsd = round2(0.5 * 20 * 1.25);
   }
 
   const totalPriceUsd = round2(subtotalUsd + shippingFeeUsd);

@@ -86,9 +86,9 @@ const normalizeShippingStatus = (s: string | null): string => {
   return l === 'shipped' ? 'shipped' : l === 'delivered' ? 'delivered' : 'pending';
 };
 
-function calculateShipping(itemsSubtotal: number, shippingBaseFee: number, shippingPercent: number): number {
-  const normalizedPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
-  return round2(shippingBaseFee + (itemsSubtotal * normalizedPercent));
+function calculateShipping(_itemsSubtotal: number, _shippingBaseFee: number, _shippingPercent: number): number {
+  // Weight-based: default fallback category (0.5kg, $20/kg, 25% buffer)
+  return round2(0.5 * 20 * 1.25);
 }
 
 function calculateCartSummary(

@@ -717,6 +717,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       deletedItemIdsRef.current = new Map();
       setItems([]);
       setSelectedItemIds(new Set());
+      localStorage.removeItem(CART_STORAGE_KEY);
     } catch (error) {
       console.error('[CART] clearCart failed:', error);
     } finally {

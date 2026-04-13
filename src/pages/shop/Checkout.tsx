@@ -454,18 +454,6 @@ export default function Checkout() {
     processCheckout();
   };
 
-  // Wait only for auth hydration before evaluating checkout access.
-  if (!isAuthReady) {
-    return (
-      <div className="min-h-screen bg-black">
-        <ShopHeader />
-        <div className="flex items-center justify-center pt-24">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-        </div>
-      </div>
-    );
-  }
-
   // Build fallback items from router state (hot product link) when cart hasn't hydrated yet
   const hotProductFallbackItems = useMemo(() => {
     const state = location.state as any;
@@ -485,6 +473,18 @@ export default function Checkout() {
       itemTotalUsd: hp.total_price_usd,
     }];
   }, [location.state]);
+
+  // Wait only for auth hydration before evaluating checkout access.
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen bg-black">
+        <ShopHeader />
+        <div className="flex items-center justify-center pt-24">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+        </div>
+      </div>
+    );
+  }
 
   if (!session) {
     // items may still be empty if cart context hasn't hydrated yet — fall back to localStorage, then router state

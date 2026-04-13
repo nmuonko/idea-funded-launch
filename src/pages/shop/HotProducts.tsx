@@ -116,10 +116,9 @@ export default function HotProducts() {
     const key = `${product.provider}-${product.provider_product_id}`;
     if (processingIds.has(key)) return;
 
-    // If not logged in, redirect to auth with return URL
+    // If not logged in, redirect to auth with the product-specific checkout route
     if (!session) {
-      // Encode product info in the redirect so we can auto-buy after login
-      const returnUrl = encodeURIComponent(`/hot-products?buy=${product.id}`);
+      const returnUrl = encodeURIComponent(`/hot-products/${product.id}`);
       navigate(`/shop-auth?redirect=${returnUrl}`);
       return;
     }
@@ -151,20 +150,14 @@ export default function HotProducts() {
     }
   };
 
-  // After login redirect: auto-trigger buy if ?buy= param exists
+  // Support legacy ?buy= links by forwarding to the single-product checkout route
   useEffect(() => {
-    if (!session || products.length === 0) return;
     const params = new URLSearchParams(window.location.search);
     const buyId = params.get('buy');
     if (!buyId) return;
 
-    const product = products.find(p => p.id === buyId);
-    if (product) {
-      // Clean the URL param first
-      window.history.replaceState({}, '', '/hot-products');
-      handleBuyNow(product);
-    }
-  }, [session, products]);
+    navigate(`/hot-products/${buyId}`, { replace: true });
+  }, [navigate]);
 
   const locale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
 

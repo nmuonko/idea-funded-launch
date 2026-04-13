@@ -1,17 +1,12 @@
-import { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Loader2, Flame, Zap, ShieldCheck } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Flame, Loader2 } from 'lucide-react';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
-import { CheckoutInlineLogin } from '@/components/shop/CheckoutInlineLogin';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
-import { formatCurrency } from '@/lib/formatCurrency';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/hooks/useShopCart';
-import { useAuth } from '@/contexts/AuthContext';
-import { translations } from '@/lib/i18n/translations';
 import { toast } from 'sonner';
 
 interface HotProduct {
@@ -20,34 +15,46 @@ interface HotProduct {
   image_url: string;
   total_price_usd: number;
   provider: string;
-  provider_product_id: string;
-  price_usd?: number;
-  markup_usd?: number;
-  shipping_usd?: number;
+  provider_product_id?: string;
   product_url?: string;
-  description?: string;
 }
+
+const buildHotProductUrl = (product: HotProduct) => {
+  if (product.product_url) return product.product_url;
+
+  const provider = (product.provider || '').toLowerCase();
+  const rawId = product.provider_product_id?.trim();
+  if (!rawId) return null;
+
+  if (provider === 'ebay') {
+    const ebayItemId = rawId.startsWith('v1|') ? rawId.split('|')[1] || rawId : rawId;
+    return `https://www.ebay.com/itm/${ebayItemId}`;
+  }
+
+  let cleanId = rawId;
+  if (cleanId.toLowerCase().startsWith('amazon_')) cleanId = cleanId.slice(7);
+  if (cleanId.toLowerCase().startsWith('rainforest_')) cleanId = cleanId.slice(11);
+
+  return `https://www.amazon.com/dp/${cleanId.toUpperCase()}`;
+};
 
 export default function HotProductBuy() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { language } = useLanguage();
-  const { addItem } = useShopCart();
-  const { session, isAuthReady } = useAuth();
-  const t = translations[language] || translations.en;
-  const shop = (t.shop || {}) as any;
+  const { addItem, items, initialized } = useShopCart();
 
   const [product, setProduct] = useState<HotProduct | null>(null);
   const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
-  const didAutoAddRef = useRef(false);
+  const [preparingCheckout, setPreparingCheckout] = useState(false);
+  const attemptedRef = useRef(false);
 
-  const locale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
+  const locale = language === 'fr' || language === 'ln' ? 'fr' : 'en';
 
-  // Fetch the single hot product
   useEffect(() => {
     if (!id) return;
-    (async () => {
+
+    const loadProduct = async () => {
       try {
         const { data, error } = await supabase
           .from('hot_products_showcase')
@@ -59,57 +66,80 @@ export default function HotProductBuy() {
         if (error || !data) {
           console.error('Hot product not found:', error);
           setProduct(null);
-        } else {
-          setProduct(data as any);
+          return;
         }
-      } catch (err) {
-        console.error('Failed to fetch hot product:', err);
+
+        setProduct(data as HotProduct);
+      } catch (error) {
+        console.error('Failed to fetch hot product:', error);
+        setProduct(null);
       } finally {
         setLoading(false);
       }
-    })();
+    };
+
+    void loadProduct();
   }, [id]);
 
-  // Once user is authenticated (after guest signup), auto-add to cart and go to checkout
-  useEffect(() => {
-    if (!session || !product || didAutoAddRef.current || !isAuthReady) return;
-    didAutoAddRef.current = true;
-    handleBuyNow();
-  }, [session, product, isAuthReady]);
+  const productUrl = useMemo(() => (product ? buildHotProductUrl(product) : null), [product]);
 
-  const handleBuyNow = async () => {
-    if (!product || processing) return;
+  const alreadyInCart = useMemo(() => {
+    if (!product) return false;
 
-    if (!session) {
-      // Will show guest checkout form — no redirect needed
-      return;
-    }
+    const providerProductId = product.provider_product_id?.trim();
+    const normalizedProductUrl = productUrl?.trim().toLowerCase();
 
-    setProcessing(true);
+    return items.some((item) => {
+      const itemUrl = item.productUrl?.trim().toLowerCase();
+      return (normalizedProductUrl && itemUrl === normalizedProductUrl) || (!!providerProductId && item.productId?.trim() === providerProductId);
+    });
+  }, [items, product, productUrl]);
+
+  const prepareCheckout = useCallback(async () => {
+    if (!product || !productUrl || preparingCheckout) return;
+
+    setPreparingCheckout(true);
+
     try {
-      await addItem({
-        productId: product.provider_product_id,
-        provider: product.provider,
-        title: product.title,
-        imageUrl: product.image_url,
-        priceUsd: product.total_price_usd,
-        quantity: 1,
-        productUrl: product.product_url || `https://afrishop-usa.com/product/${product.provider}/${product.provider_product_id}`,
-        isFixedPrice: true,
-      });
+      if (!alreadyInCart) {
+        await addItem({
+          productId: product.provider_product_id || productUrl,
+          provider: product.provider,
+          title: product.title,
+          imageUrl: product.image_url,
+          priceUsd: product.total_price_usd,
+          quantity: 1,
+          productUrl,
+          isFixedPrice: true,
+        });
+      }
 
-      navigate('/checkout');
-    } catch {
-      toast.error(locale === 'fr' ? 'Erreur, réessayez' : 'Error, please retry');
-    } finally {
-      setProcessing(false);
+      navigate('/checkout', { replace: true });
+    } catch (error) {
+      console.error('Failed to prepare hot product checkout:', error);
+      setPreparingCheckout(false);
+      attemptedRef.current = false;
+      toast.error(locale === 'fr' ? 'Impossible d’ouvrir le paiement' : 'Unable to open checkout');
     }
-  };
+  }, [addItem, alreadyInCart, locale, navigate, preparingCheckout, product, productUrl]);
 
-  if (loading) {
+  useEffect(() => {
+    if (!product || !productUrl || !initialized || attemptedRef.current) return;
+    attemptedRef.current = true;
+    void prepareCheckout();
+  }, [initialized, prepareCheckout, product, productUrl]);
+
+  if (loading || !initialized || preparingCheckout) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-white/50 animate-spin" />
+      <div className="min-h-screen bg-black">
+        <ShopHeader />
+        <div className="flex min-h-[70vh] flex-col items-center justify-center px-4 text-center">
+          <Loader2 className="mb-4 h-8 w-8 animate-spin text-white/60" />
+          <p className="text-sm text-white/60">
+            {locale === 'fr' ? 'Préparation de votre page de paiement…' : 'Preparing your checkout page...'}
+          </p>
+        </div>
+        <BottomNavigation />
       </div>
     );
   }
@@ -119,11 +149,11 @@ export default function HotProductBuy() {
       <div className="min-h-screen bg-black">
         <ShopHeader />
         <div className="pt-24 text-center">
-          <Flame className="w-12 h-12 text-white/20 mx-auto mb-4" />
+          <Flame className="mx-auto mb-4 h-12 w-12 text-white/20" />
           <p className="text-white/50">
             {locale === 'fr' ? 'Produit introuvable.' : 'Product not found.'}
           </p>
-          <Button variant="ghost" className="text-white/70 mt-4" onClick={() => navigate('/hot-products')}>
+          <Button variant="ghost" className="mt-4 text-white/70" onClick={() => navigate('/hot-products')}>
             {locale === 'fr' ? 'Voir tous les produits' : 'View all products'}
           </Button>
         </div>
@@ -132,101 +162,36 @@ export default function HotProductBuy() {
     );
   }
 
-  // If not logged in, show the product + guest checkout form
-  if (!session) {
+  if (!productUrl) {
     return (
-      <div className="min-h-screen bg-black pb-safe-nav">
+      <div className="min-h-screen bg-black">
         <ShopHeader />
-        <main className="pt-20 px-3 sm:px-4 pb-24">
-          <div className="mx-auto max-w-lg space-y-6">
-            {/* Product Card */}
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-[#1a1d23] border border-white/[0.08] rounded-xl overflow-hidden"
-            >
-              <div className="aspect-square bg-white overflow-hidden max-h-72">
-                <img
-                  src={product.image_url}
-                  alt={product.title}
-                  className="w-full h-full object-contain p-4"
-                />
-              </div>
-              <div className="p-4 space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wide">
-                    <Flame className="w-3 h-3" /> Deal
-                  </span>
-                </div>
-                <h1 className="text-white text-lg font-bold leading-tight">{product.title}</h1>
-                <p className="text-orange-400 font-extrabold text-2xl">
-                  {formatCurrency(product.total_price_usd, { locale: locale as any })}
-                </p>
-                <p className="text-emerald-400/80 text-xs font-medium flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  {locale === 'fr' ? 'Prix tout inclus · Livraison en RDC incluse' : 'All-inclusive · Shipping to DRC included'}
-                </p>
-              </div>
-            </motion.div>
-
-            {/* Guest Checkout Form */}
-            <div className="bg-[#1a1d23] border border-white/[0.08] rounded-xl p-4">
-              <h2 className="text-white font-bold text-base mb-1">
-                {locale === 'fr' ? 'Finalisez votre commande' : 'Complete your order'}
-              </h2>
-              <p className="text-white/50 text-sm mb-4">
-                {locale === 'fr' ? 'Entrez vos informations pour commander' : 'Enter your details to place your order'}
-              </p>
-              <CheckoutInlineLogin language={language} shop={shop} />
-            </div>
-          </div>
-        </main>
+        <div className="flex min-h-[70vh] flex-col items-center justify-center px-4 text-center">
+          <p className="mb-4 text-white/60">
+            {locale === 'fr'
+              ? 'Ce produit ne peut pas être envoyé au paiement pour le moment.'
+              : 'This product cannot be sent to checkout right now.'}
+          </p>
+          <Button onClick={() => navigate('/hot-products')}>
+            {locale === 'fr' ? 'Retour aux hot products' : 'Back to hot products'}
+          </Button>
+        </div>
         <BottomNavigation />
       </div>
     );
   }
 
-  // Logged in — show product + buy button (auto-buy already triggered above)
   return (
-    <div className="min-h-screen bg-black pb-safe-nav">
+    <div className="min-h-screen bg-black">
       <ShopHeader />
-      <main className="pt-20 px-3 sm:px-4 pb-24">
-        <div className="mx-auto max-w-lg space-y-6">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-[#1a1d23] border border-white/[0.08] rounded-xl overflow-hidden"
-          >
-            <div className="aspect-square bg-white overflow-hidden max-h-72">
-              <img
-                src={product.image_url}
-                alt={product.title}
-                className="w-full h-full object-contain p-4"
-              />
-            </div>
-            <div className="p-4 space-y-3">
-              <h1 className="text-white text-lg font-bold">{product.title}</h1>
-              <p className="text-orange-400 font-extrabold text-2xl">
-                {formatCurrency(product.total_price_usd, { locale: locale as any })}
-              </p>
-              <p className="text-emerald-400/80 text-xs font-medium">
-                ✓ {locale === 'fr' ? 'Livraison incluse' : 'Shipping included'}
-              </p>
-              <Button
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-                onClick={handleBuyNow}
-                disabled={processing}
-              >
-                {processing ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {locale === 'fr' ? 'Chargement...' : 'Loading...'}</>
-                ) : (
-                  <><Zap className="w-4 h-4 mr-2" /> {locale === 'fr' ? 'Payer maintenant' : 'Pay Now'}</>
-                )}
-              </Button>
-            </div>
-          </motion.div>
-        </div>
-      </main>
+      <div className="flex min-h-[70vh] flex-col items-center justify-center px-4 text-center">
+        <p className="mb-4 text-white/60">
+          {locale === 'fr' ? 'Redirection vers le paiement…' : 'Redirecting to checkout...'}
+        </p>
+        <Button onClick={() => void prepareCheckout()}>
+          {locale === 'fr' ? 'Continuer vers le paiement' : 'Continue to checkout'}
+        </Button>
+      </div>
       <BottomNavigation />
     </div>
   );

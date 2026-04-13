@@ -438,7 +438,7 @@ export default function Checkout() {
   }
 
   if (!session) {
-    return <CheckoutInlineLogin language={language} shop={shop} />;
+    return <CheckoutInlineLogin language={language} shop={shop} cartItems={items} />;
   }
 
   if (checkoutItems.length === 0) {

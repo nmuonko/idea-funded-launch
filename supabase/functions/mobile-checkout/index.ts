@@ -9,6 +9,7 @@ import {
 import { isProfileComplete, getMissingProfileFields, formatProfileForResponse } from "../_shared/profileHelper.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { calculateShipping } from "../_shared/cartHelpers.ts";
+import { applyPricingProtection, buildAuditLogEntry } from "../_shared/cart/pricingProtection.ts";
 import { 
   detectVehicleFromItems, 
   fetchAndValidateVehicleQuotes, 

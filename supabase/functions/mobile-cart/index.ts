@@ -1368,9 +1368,7 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
   const settings = await getCachedGlobalSettings(supabase) as Record<string, any>;
   const markupPercent = Number(settings?.markup_percent) || 15;
   const exchangeRate = Number(settings?.exchange_rate_usd_to_cdf) || 2500;
-  const shippingBaseFee = Number(settings?.shipping_base_fee_usd) || 10;
-  const rawShippingPercent = Number(settings?.shipping_percent) || 0.10;
-  const shippingPercent = rawShippingPercent > 1 ? rawShippingPercent / 100 : rawShippingPercent;
+  const shippingRatePerKg = Number(settings?.shipping_rate_per_kg) || 20;
 
   let { data: draftOrder } = await supabase.from('orders').select('id, cart_version').eq('user_id', user.id).eq('status', 'DRAFT')
     .order('created_at', { ascending: false }).limit(1).single();
@@ -1481,7 +1479,23 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
     totalUsd += Number(item.total_price_usd) || 0; totalCdf += Number(item.total_price_cdf) || 0;
     if (item.requires_manual_quote) requiresManualQuote = true;
   });
-  const shippingFeeUsd = Math.round((shippingBaseFee + (itemTotalUsd * shippingPercent)) * 100) / 100;
+  // Weight-based shipping for merge_guest totals
+  let shippingFeeUsd = 0;
+  (allItems || []).forEach((item: any) => {
+    if (item.requires_manual_quote) return;
+    const qty = Number(item.quantity || 1);
+    // Use stored shipping if available, otherwise fallback default category
+    const storedShipping = Number(item.shipping_fee_usd || 0);
+    if (storedShipping > 0) {
+      shippingFeeUsd += storedShipping;
+    } else {
+      shippingFeeUsd += calculateWeightBasedShippingFee(
+        { est_weight_kg: 0.5, flat_shipping_usd: null, shipping_buffer_percent: 25, requires_manual_quote: false },
+        shippingRatePerKg, qty
+      );
+    }
+  });
+  shippingFeeUsd = Math.round(shippingFeeUsd * 100) / 100;
   const grandTotalUsd = Math.round((totalUsd + shippingFeeUsd) * 100) / 100;
   const grandTotalCdf = Math.round(grandTotalUsd * exchangeRate);
   await supabase.from('orders').update({

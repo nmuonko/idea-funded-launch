@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3 } from 'lucide-react';
+import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { calculateShippingUsd } from '@/lib/shippingCalculation';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -124,6 +124,13 @@ export default function HotProducts() {
   const [deliveryLogs, setDeliveryLogs] = useState<DeliveryLog[]>([]);
   const [viewingCampaignId, setViewingCampaignId] = useState<string | null>(null);
   const [loadingLogs, setLoadingLogs] = useState(false);
+
+  // Add to Catalog state
+  const [catalogUrl, setCatalogUrl] = useState('');
+  const [catalogCategory, setCatalogCategory] = useState('');
+  const [catalogExtracting, setCatalogExtracting] = useState(false);
+  const [catalogResult, setCatalogResult] = useState<any>(null);
+  const [catalogHistory, setCatalogHistory] = useState<Array<{ title: string; provider: string; price: number; imageUrl: string; cached: boolean; url: string }>>([]);
 
   useEffect(() => {
     loadShowcase();
@@ -263,6 +270,50 @@ export default function HotProducts() {
       toast.error('Extraction failed');
     }
     setExtracting(false);
+  }
+
+  async function extractAndCacheToCatalog() {
+    if (!catalogUrl.trim()) return;
+    setCatalogExtracting(true);
+    setCatalogResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('extract-price', {
+        body: {
+          url: catalogUrl.trim(),
+          forceRefresh: true,
+          cacheToCatalog: true,
+          categoryKey: catalogCategory.trim() || null,
+        },
+      });
+      if (error || !data) {
+        toast.error(t('Failed to extract product', 'Échec de l\'extraction'));
+        setCatalogExtracting(false);
+        return;
+      }
+      setCatalogResult(data);
+      if (data.cached) {
+        toast.success(t('Product added to catalog!', 'Produit ajouté au catalogue !'));
+        setCatalogHistory(prev => [{
+          title: data.title || 'Unknown',
+          provider: data.provider || 'external',
+          price: data.price || 0,
+          imageUrl: data.imageUrl || '',
+          cached: true,
+          url: catalogUrl.trim(),
+        }, ...prev].slice(0, 20));
+        setCatalogUrl('');
+        setCatalogCategory('');
+      } else if (!data.price || data.price <= 0) {
+        toast.error(t('Could not extract price — product not cached', 'Prix non trouvé — produit non mis en cache'));
+      } else if (!data.title) {
+        toast.error(t('Could not extract title — product not cached', 'Titre non trouvé — produit non mis en cache'));
+      } else {
+        toast.error(t('Product extracted but caching failed', 'Produit extrait mais mise en cache échouée'));
+      }
+    } catch {
+      toast.error(t('Extraction failed', 'Échec de l\'extraction'));
+    }
+    setCatalogExtracting(false);
   }
 
   function removeProduct(id: string) {
@@ -422,14 +473,18 @@ export default function HotProducts() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="storefront" className="gap-2">
             <ShoppingBag className="h-4 w-4" />
-            {t('Storefront Products', 'Produits Vitrine')}
+            {t('Storefront', 'Vitrine')}
+          </TabsTrigger>
+          <TabsTrigger value="add-catalog" className="gap-2">
+            <PackagePlus className="h-4 w-4" />
+            {t('Add to Catalog', 'Ajouter au Catalogue')}
           </TabsTrigger>
           <TabsTrigger value="campaigns" className="gap-2">
             <Mail className="h-4 w-4" />
-            {t('Email Campaigns', 'Campagnes Email')}
+            {t('Campaigns', 'Campagnes')}
           </TabsTrigger>
           <TabsTrigger value="analytics" className="gap-2">
             <BarChart3 className="h-4 w-4" />
@@ -754,6 +809,105 @@ export default function HotProducts() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ====== TAB 2: ADD TO CATALOG ====== */}
+        <TabsContent value="add-catalog" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <PackagePlus className="h-5 w-5" />
+                {t('Add Product by Link', 'Ajouter un Produit par Lien')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  'Paste a product link from any store (Amazon, Walmart, SHEIN, eBay, etc). We\'ll extract images, price, and add it to the catalog.',
+                  'Collez un lien produit de n\'importe quel magasin (Amazon, Walmart, SHEIN, eBay, etc). Nous extrairons les images, le prix et l\'ajouterons au catalogue.'
+                )}
+              </p>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">{t('Product URL', 'URL du Produit')}</Label>
+                  <Input
+                    placeholder="https://www.amazon.com/dp/B0..."
+                    value={catalogUrl}
+                    onChange={e => setCatalogUrl(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && extractAndCacheToCatalog()}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">{t('Category (optional)', 'Catégorie (optionnel)')}</Label>
+                  <Input
+                    placeholder={t('e.g. electronics, clothing, phones', 'ex. électronique, vêtements, téléphones')}
+                    value={catalogCategory}
+                    onChange={e => setCatalogCategory(e.target.value)}
+                  />
+                </div>
+                <Button onClick={extractAndCacheToCatalog} disabled={catalogExtracting || !catalogUrl.trim()} className="w-full">
+                  {catalogExtracting ? (
+                    <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('Extracting...', 'Extraction...')}</>
+                  ) : (
+                    <><PackagePlus className="h-4 w-4 mr-2" />{t('Extract & Add to Catalog', 'Extraire & Ajouter au Catalogue')}</>
+                  )}
+                </Button>
+              </div>
+
+              {/* Result preview */}
+              {catalogResult && (
+                <div className="border rounded-lg p-3 space-y-2">
+                  <div className="flex items-start gap-3">
+                    {catalogResult.imageUrl && (
+                      <img src={catalogResult.imageUrl} alt="" className="w-16 h-16 rounded object-cover shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{catalogResult.title || 'No title'}</p>
+                      <p className="text-xs text-muted-foreground">{catalogResult.provider} · ${catalogResult.price?.toFixed(2) || '0.00'}</p>
+                      <div className="flex items-center gap-1 mt-1">
+                        {catalogResult.cached ? (
+                          <Badge variant="default" className="text-xs gap-1"><Check className="h-3 w-3" />{t('Cached', 'En cache')}</Badge>
+                        ) : (
+                          <Badge variant="destructive" className="text-xs">{t('Not cached', 'Non mis en cache')}</Badge>
+                        )}
+                        {catalogResult.images?.length > 0 && (
+                          <Badge variant="secondary" className="text-xs">{catalogResult.images.length} {t('images', 'images')}</Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Recent additions */}
+          {catalogHistory.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Check className="h-5 w-5 text-green-500" />
+                  {t('Recently Added', 'Ajoutés Récemment')} ({catalogHistory.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="divide-y max-h-64 overflow-y-auto">
+                  {catalogHistory.map((item, idx) => (
+                    <div key={idx} className="flex items-center gap-3 py-2">
+                      {item.imageUrl && <img src={item.imageUrl} alt="" className="w-10 h-10 rounded object-cover" />}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm truncate">{item.title}</p>
+                        <p className="text-xs text-muted-foreground">{item.provider} · ${item.price.toFixed(2)}</p>
+                      </div>
+                      <a href={item.url} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* ====== TAB 3: ANALYTICS ====== */}

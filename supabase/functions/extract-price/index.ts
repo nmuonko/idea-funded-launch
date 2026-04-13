@@ -19,6 +19,8 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const url: string | undefined = body?.url;
+    const cacheToCatalog: boolean = body?.cacheToCatalog === true;
+    const categoryKey: string | null = body?.categoryKey || null;
     if (!url || typeof url !== "string") {
       return new Response(JSON.stringify({ error: "url is required" }), {
         status: 400,
@@ -202,9 +204,57 @@ Deno.serve(async (req) => {
       image: imageUrl, image_url: imageUrl, imageUrl: imageUrl,
       images: images.slice(0, 10),
       provider, providerId: providerId || null, provider_product_id: providerId || null,
+      cached: false,
     };
 
-    console.log(`[EXTRACT_PRICE] Final: provider=${provider} id=${providerId} price=${price} images=${images.length}`);
+    // ─── Cache to catalog_items if requested ───
+    if (cacheToCatalog && title && price && price > 0 && imageUrl) {
+      try {
+        const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+        const supabaseAdmin = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+        );
+        const finalProviderId = providerId || cleanUrl.replace(/[^a-zA-Z0-9]/g, "").slice(0, 40);
+        const now = new Date().toISOString();
+        const { error: upsertError } = await supabaseAdmin
+          .from("catalog_items")
+          .upsert({
+            provider,
+            provider_product_id: finalProviderId,
+            title,
+            image_url: imageUrl,
+            images: images.slice(0, 10),
+            product_url: cleanUrl,
+            price_usd: price,
+            currency: "USD",
+            unified_category: categoryKey,
+            category_key: categoryKey,
+            in_stock: true,
+            is_active: true,
+            is_disallowed: false,
+            status_reason: "admin_added",
+            fail_count: 0,
+            last_seen_at: now,
+            price_updated_at: now,
+            updated_at: now,
+          }, {
+            onConflict: "provider,provider_product_id",
+            ignoreDuplicates: false,
+          });
+
+        if (upsertError) {
+          console.warn(`[EXTRACT_PRICE] catalog upsert error: ${upsertError.message}`);
+        } else {
+          result.cached = true;
+          console.log(`[EXTRACT_PRICE] Cached to catalog_items: ${provider}/${finalProviderId}`);
+        }
+      } catch (e) {
+        console.warn(`[EXTRACT_PRICE] catalog cache error: ${(e as Error).message}`);
+      }
+    }
+
+    console.log(`[EXTRACT_PRICE] Final: provider=${provider} id=${providerId} price=${price} images=${images.length} cached=${result.cached}`);
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },

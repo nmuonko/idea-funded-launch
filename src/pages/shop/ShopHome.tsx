@@ -1065,18 +1065,23 @@ export default function ShopHome() {
           .order("category_key")
           .order("sort_order");
         if (error) throw error;
+        const allPinned: Product[] = [];
         for (const item of data || []) {
           const catKey = (item as any).category_key;
           if (!grouped[catKey]) grouped[catKey] = [];
-          grouped[catKey].push({
+          const product: Product = {
             id: (item as any).provider_product_id || (item as any).catalog_item_id,
             provider: (item as any).provider || 'ebay',
             title: (item as any).title || 'Product',
             imageUrl: (item as any).image_url || '',
-            priceUsd: Number((item as any).price_usd) || 0, // will be resolved below
+            priceUsd: Number((item as any).price_usd) || 0,
             inStock: true,
-          });
+          };
+          grouped[catKey].push(product);
+          allPinned.push(product);
         }
+        // Resolve all pinned prices server-side in one batch
+        await applyServerPrices(allPinned);
         setPinnedByCategory(grouped);
         const loadingUpdates: Record<string, boolean> = {};
         for (const catKey of ALL_HOMEPAGE_CATEGORIES) {

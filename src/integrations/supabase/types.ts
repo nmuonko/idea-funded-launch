@@ -6516,6 +6516,10 @@ export type Database = {
         Args: { pattern: string }
         Returns: number
       }
+      compute_display_price: {
+        Args: { base_price_usd: number; quantity?: number }
+        Returns: number
+      }
       crosstab: { Args: { "": string }; Returns: Record<string, unknown>[] }
       crosstab2: {
         Args: { "": string }
@@ -6618,6 +6622,24 @@ export type Database = {
           provider: string
           provider_count: number
           unified_category: string
+        }[]
+      }
+      get_catalog_items_with_prices: {
+        Args: { p_category_key?: string; p_limit?: number; p_offset?: number }
+        Returns: {
+          category_key: string
+          display_price_usd: number
+          id: string
+          image_url: string
+          images: Json
+          in_stock: boolean
+          popularity_score: number
+          price_usd: number
+          product_url: string
+          provider: string
+          provider_product_id: string
+          rating: number
+          title: string
         }[]
       }
       get_catalog_price_stats: {

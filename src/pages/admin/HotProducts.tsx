@@ -274,18 +274,24 @@ export default function HotProducts() {
     setExtracting(false);
   }
 
-  async function extractAndCacheToCatalog() {
+  async function extractAndCacheToCatalog(manualOverride = false) {
     if (!catalogUrl.trim()) return;
     setCatalogExtracting(true);
-    setCatalogResult(null);
+    if (!manualOverride) setCatalogResult(null);
     try {
+      const invokeBody: any = {
+        url: catalogUrl.trim(),
+        forceRefresh: true,
+        cacheToCatalog: true,
+        categoryKey: catalogCategory.trim() || null,
+      };
+      // Pass manual overrides if provided
+      if (manualOverride) {
+        if (catalogManualTitle.trim()) invokeBody.manualTitle = catalogManualTitle.trim();
+        if (catalogManualPrice.trim()) invokeBody.manualPrice = catalogManualPrice.trim();
+      }
       const { data, error } = await supabase.functions.invoke('extract-price', {
-        body: {
-          url: catalogUrl.trim(),
-          forceRefresh: true,
-          cacheToCatalog: true,
-          categoryKey: catalogCategory.trim() || null,
-        },
+        body: invokeBody,
       });
       if (error || !data) {
         toast.error(t('Failed to extract product', 'Échec de l\'extraction'));
@@ -305,10 +311,12 @@ export default function HotProducts() {
         }, ...prev].slice(0, 20));
         setCatalogUrl('');
         setCatalogCategory('');
+        setCatalogManualTitle('');
+        setCatalogManualPrice('');
       } else if (!data.price || data.price <= 0) {
-        toast.error(t('Could not extract price — product not cached', 'Prix non trouvé — produit non mis en cache'));
+        toast.error(t('Could not extract price — enter manually below', 'Prix non trouvé — entrez-le manuellement ci-dessous'));
       } else if (!data.title) {
-        toast.error(t('Could not extract title — product not cached', 'Titre non trouvé — produit non mis en cache'));
+        toast.error(t('Could not extract title — enter manually below', 'Titre non trouvé — entrez-le manuellement ci-dessous'));
       } else {
         toast.error(t('Product extracted but caching failed', 'Produit extrait mais mise en cache échouée'));
       }

@@ -21,6 +21,9 @@ Deno.serve(async (req) => {
     const url: string | undefined = body?.url;
     const cacheToCatalog: boolean = body?.cacheToCatalog === true;
     const categoryKey: string | null = body?.categoryKey || null;
+    // Admin can override title/price when auto-extraction fails
+    const manualTitle: string | null = body?.manualTitle || null;
+    const manualPrice: number | null = body?.manualPrice ? parseFloat(body.manualPrice) : null;
     if (!url || typeof url !== "string") {
       return new Response(JSON.stringify({ error: "url is required" }), {
         status: 400,

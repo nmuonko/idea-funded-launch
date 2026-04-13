@@ -3,6 +3,7 @@
 // Optimized for 1000+ concurrent users
 
 import { VehiclePricingTiers, parseTiers } from "./vehiclePricing.ts";
+import { ProtectionSettings, DEFAULT_PROTECTION, CategoryOverride } from "./cart/pricingProtection.ts";
 
 interface CachedSettings {
   exchangeRate: number;
@@ -14,6 +15,7 @@ interface CachedSettings {
   serviceFeePercent: number;
   minServiceFeeUsd: number;
   vehiclePricingTiers: VehiclePricingTiers;
+  protection: ProtectionSettings;
   fetchedAt: number;
 }
 

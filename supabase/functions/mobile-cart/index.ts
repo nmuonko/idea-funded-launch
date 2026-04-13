@@ -36,6 +36,7 @@ import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { calculateVehicleFinalPrice, parseTiers } from "../_shared/vehiclePricing.ts";
 import { normalizeCategorySlug, getCategoryLabel, determineShippingCategory } from "../_shared/shippingCategory.ts";
 import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
+import { sanitizeImageUrl } from "../_shared/imageValidator.ts";
 import { lookupCartItemMediaCounts } from "../_shared/mediaCache.ts";
 import { 
   calculateItemPricing, 

@@ -61,6 +61,8 @@ import {
   buildItemResponse,
   round2 as cartRound2,
   ShippingCategoryInfo,
+  buildAuditLogEntry,
+  applyPricingProtection,
 } from "../_shared/cart/pricing.ts";
 import {
   scrapeProductInfo,
@@ -266,7 +268,8 @@ function formatItem(
   item: any, markupPercent: number, vehicleMarkupPercent: number, exchangeRate: number,
   shippingRatePerKg: number,
   mediaInfo?: { image_count: number; image_count_status: "cached" | "pending" },
-  vehiclePricingTiers?: any
+  vehiclePricingTiers?: any,
+  protectionSettings?: any,
 ) {
   const basePriceUsd = Number(item.base_price_usd || 0);
   const quantity = item.quantity || 1;
@@ -378,8 +381,40 @@ function formatItem(
   const itemSubtotalUsd = isStoredAllInclusive
     ? (Number(item.total_price_usd || 0) > 0 ? Number(item.total_price_usd) : itemBaseTotalUsd)
     : round2(itemBaseTotalUsd + itemMarginUsd);
-  const itemTotalUsd = round2(itemSubtotalUsd + (isStoredAllInclusive ? 0 : itemShippingUsd));
+  let itemTotalUsd = round2(itemSubtotalUsd + (isStoredAllInclusive ? 0 : itemShippingUsd));
   const itemSubtotalCdf = round2(itemSubtotalUsd * exchangeRate);
+
+  // Apply pricing protection for non-all-inclusive items
+  let protectionMeta: Record<string, unknown> = {};
+  if (protectionSettings && !isStoredAllInclusive && !itemRequiresQuote) {
+    // Determine price age from last update
+    const priceAgeHours = item.price_updated_at
+      ? (Date.now() - new Date(item.price_updated_at).getTime()) / (1000 * 60 * 60)
+      : (item.updated_at
+        ? (Date.now() - new Date(item.updated_at).getTime()) / (1000 * 60 * 60)
+        : 0);
+    const catKey = item.shipping_item_types?.key
+      ? normalizeCategorySlug(item.shipping_item_types.key)
+      : null;
+    const protection = applyPricingProtection(
+      itemBaseTotalUsd, itemMarginUsd, itemShippingUsd, exchangeRate,
+      protectionSettings,
+      { categoryKey: catKey, priceAgeHours, isVehicle: false, requiresManualQuote: itemRequiresQuote, quantity },
+    );
+    itemTotalUsd = protection.safeFinalPriceUsd;
+    protectionMeta = {
+      pricing_protection: {
+        status: protection.pricingStatus,
+        confidence: protection.pricingConfidence,
+        requires_review: protection.requiresManualReview,
+        profit_usd: protection.profitUsd,
+        margin_percent: protection.marginPercent,
+        total_protection_usd: protection.totalProtectionUsd,
+        reason_codes: protection.reasonCodes,
+        min_profit_floor_applied: protection.minProfitFloorApplied,
+      },
+    };
+  }
 
   // FROZEN APP FIX: Always show all-inclusive price as "basePriceUsd" so the frozen app
   // (which may read basePriceUsd for display) shows the correct all-inclusive total.
@@ -401,6 +436,7 @@ function formatItem(
     markupPercent: isStoredAllInclusive ? 0 : markupPercent,
     fees_included: true, is_all_inclusive_display: true,
     pricing_mode: 'all_inclusive',
+    ...protectionMeta,
   };
 }
 
@@ -528,7 +564,7 @@ async function handleGetCart(req: Request): Promise<Response> {
 
   (items || []).forEach((item: any) => {
     const mediaInfo = mediaLookup.get(item.product_url);
-    const formattedItem = formatItem(item, markupPercent, vehicleMarkupPercent, exchangeRate, settings.shippingRatePerKg, mediaInfo, settings.vehiclePricingTiers);
+    const formattedItem = formatItem(item, markupPercent, vehicleMarkupPercent, exchangeRate, settings.shippingRatePerKg, mediaInfo, settings.vehiclePricingTiers, settings.protection);
     if (item.is_saved_for_later) { savedItems.push(formattedItem); return; }
     activeItems.push(formattedItem);
     if (formattedItem.hasPendingPriceConfirmation) { hasPendingPriceConfirmation = true; pendingPriceConfirmations.push(item.id); }
@@ -868,7 +904,8 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   let pricing = cartPricingCalc(basePriceUsd, quantity, effectiveMarkup, settings.exchangeRate);
 
   if (isGuest) {
-    const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup);
+    const protectionOpts = { categoryKey: detectedCategoryData?.category ?? null, isVehicle: isVehicleDetected, requiresManualQuote };
+    const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup, settings.protection, protectionOpts);
     console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=false user_id=guest deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=false responseStatus=200 isGuest=true`);
     return jsonResponse({ success: true, isGuest: true, item: response, isVehicle: isVehicleDetected, requiresQuote: requiresManualQuote });
   }
@@ -975,7 +1012,38 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     await sharedUpdateOrderTotals(adminClient, draft.id, settings.shippingBaseFeeUsd, settings.shippingPercent, settings.exchangeRate);
   } catch (e) { console.warn(`[CART_ADD] ${correlationId} Failed to update totals:`, (e as Error).message); }
 
-  const response = buildItemResponse(itemId, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, merged, effectiveMarkup);
+  const protectionOpts = { categoryKey: detectedCategoryData?.category ?? null, isVehicle: isVehicleDetected, requiresManualQuote };
+  const response = buildItemResponse(itemId, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, merged, effectiveMarkup, settings.protection, protectionOpts);
+
+  // Fire-and-forget: Log pricing protection audit
+  try {
+    const protection = (response as any).pricing_protection;
+    if (protection) {
+      const adminClient = createAdminClient();
+      const auditEntry = buildAuditLogEntry(
+        {
+          sourceCostUsd: pricing.itemBaseTotalUsd,
+          shippingUsedUsd: shippingFeeUsd,
+          markupAppliedUsd: pricing.itemMarginUsd,
+          paymentFeeEstimateUsd: 0, operationalBufferUsd: 0, exchangeBufferUsd: 0,
+          riskBufferUsd: 0, emergencyBufferUsd: 0, minProfitFloorApplied: protection.min_profit_floor_applied,
+          targetProfitUsd: 0, rawTotalUsd: 0,
+          totalProtectionUsd: protection.total_protection_usd,
+          safeFinalPriceUsd: Number(response.lineTotalUsd),
+          safeFinalPriceCdf: Number(response.lineTotalCdf),
+          profitUsd: protection.profit_usd, marginPercent: protection.margin_percent,
+          pricingStatus: protection.status, pricingConfidence: protection.confidence,
+          requiresManualReview: protection.requires_review, reasonCodes: protection.reason_codes,
+          categoryKey: detectedCategoryData?.category ?? null,
+        },
+        draft.id, itemId, productUrl,
+      );
+      adminClient.from('pricing_audit_log').insert(auditEntry).then(({ error: auditErr }) => {
+        if (auditErr) console.warn(`[CART_ADD] audit log failed: ${auditErr.message}`);
+      });
+    }
+  } catch (e) { console.warn(`[CART_ADD] audit log error:`, (e as Error).message); }
+
   console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=200 orderId=${draft.id} itemId=${itemId} merged=${merged} elapsedMs=${Date.now() - startTime}`);
   return jsonResponse({ success: true, merged, isGuest: false, item: response, orderId: draft.id, isVehicle: isVehicleDetected, requiresQuote: requiresManualQuote });
 }

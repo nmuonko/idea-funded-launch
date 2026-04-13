@@ -4229,6 +4229,92 @@ export type Database = {
         }
         Relationships: []
       }
+      pricing_audit_log: {
+        Row: {
+          category_key: string | null
+          created_at: string
+          emergency_buffer_usd: number
+          exchange_buffer_usd: number
+          id: string
+          margin_percent: number
+          markup_applied_usd: number
+          min_profit_floor_applied: boolean
+          operational_buffer_usd: number
+          order_id: string | null
+          order_item_id: string | null
+          payment_fee_usd: number
+          pricing_confidence: string | null
+          product_url: string | null
+          profit_usd: number
+          protected_total_usd: number
+          protection_status: string
+          raw_total_usd: number
+          reason_codes: string[] | null
+          risk_buffer_usd: number
+          settings_snapshot: Json | null
+          shipping_used_usd: number
+          source_cost_usd: number
+        }
+        Insert: {
+          category_key?: string | null
+          created_at?: string
+          emergency_buffer_usd?: number
+          exchange_buffer_usd?: number
+          id?: string
+          margin_percent?: number
+          markup_applied_usd?: number
+          min_profit_floor_applied?: boolean
+          operational_buffer_usd?: number
+          order_id?: string | null
+          order_item_id?: string | null
+          payment_fee_usd?: number
+          pricing_confidence?: string | null
+          product_url?: string | null
+          profit_usd?: number
+          protected_total_usd?: number
+          protection_status?: string
+          raw_total_usd?: number
+          reason_codes?: string[] | null
+          risk_buffer_usd?: number
+          settings_snapshot?: Json | null
+          shipping_used_usd?: number
+          source_cost_usd: number
+        }
+        Update: {
+          category_key?: string | null
+          created_at?: string
+          emergency_buffer_usd?: number
+          exchange_buffer_usd?: number
+          id?: string
+          margin_percent?: number
+          markup_applied_usd?: number
+          min_profit_floor_applied?: boolean
+          operational_buffer_usd?: number
+          order_id?: string | null
+          order_item_id?: string | null
+          payment_fee_usd?: number
+          pricing_confidence?: string | null
+          product_url?: string | null
+          profit_usd?: number
+          protected_total_usd?: number
+          protection_status?: string
+          raw_total_usd?: number
+          reason_codes?: string[] | null
+          risk_buffer_usd?: number
+          settings_snapshot?: Json | null
+          shipping_used_usd?: number
+          source_cost_usd?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pricing_audit_log_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_cache: {
         Row: {
           created_at: string | null
@@ -5585,20 +5671,32 @@ export type Database = {
           bank_name: string | null
           bank_swift: string | null
           category_markups: Json | null
+          category_protection_overrides: Json | null
           created_at: string
           discount_codes: Json | null
+          emergency_protection_percent: number | null
+          exchange_rate_buffer_percent: number | null
           exchange_rate_usd_to_cdf: number
           extra_fees: Json | null
           global_markup_percent: number | null
           id: string
+          low_margin_block_threshold_usd: number | null
           maishapay_max_cdf: number | null
           maishapay_max_usd: number | null
           markup_percent: number | null
+          min_profit_percent: number | null
+          min_profit_usd: number | null
           min_service_fee_usd: number | null
+          operational_buffer_percent: number | null
+          payment_fee_fixed_usd: number | null
+          payment_fee_percent: number | null
+          price_rounding_mode: string | null
+          risk_buffer_percent: number | null
           service_fee_percent: number
           shipping_base_fee_usd: number
           shipping_percent: number
           shipping_rate_per_kg: number
+          stale_price_max_hours: number | null
           support_email: string | null
           support_whatsapp: string | null
           updated_at: string
@@ -5614,20 +5712,32 @@ export type Database = {
           bank_name?: string | null
           bank_swift?: string | null
           category_markups?: Json | null
+          category_protection_overrides?: Json | null
           created_at?: string
           discount_codes?: Json | null
+          emergency_protection_percent?: number | null
+          exchange_rate_buffer_percent?: number | null
           exchange_rate_usd_to_cdf?: number
           extra_fees?: Json | null
           global_markup_percent?: number | null
           id?: string
+          low_margin_block_threshold_usd?: number | null
           maishapay_max_cdf?: number | null
           maishapay_max_usd?: number | null
           markup_percent?: number | null
+          min_profit_percent?: number | null
+          min_profit_usd?: number | null
           min_service_fee_usd?: number | null
+          operational_buffer_percent?: number | null
+          payment_fee_fixed_usd?: number | null
+          payment_fee_percent?: number | null
+          price_rounding_mode?: string | null
+          risk_buffer_percent?: number | null
           service_fee_percent?: number
           shipping_base_fee_usd?: number
           shipping_percent?: number
           shipping_rate_per_kg?: number
+          stale_price_max_hours?: number | null
           support_email?: string | null
           support_whatsapp?: string | null
           updated_at?: string
@@ -5643,20 +5753,32 @@ export type Database = {
           bank_name?: string | null
           bank_swift?: string | null
           category_markups?: Json | null
+          category_protection_overrides?: Json | null
           created_at?: string
           discount_codes?: Json | null
+          emergency_protection_percent?: number | null
+          exchange_rate_buffer_percent?: number | null
           exchange_rate_usd_to_cdf?: number
           extra_fees?: Json | null
           global_markup_percent?: number | null
           id?: string
+          low_margin_block_threshold_usd?: number | null
           maishapay_max_cdf?: number | null
           maishapay_max_usd?: number | null
           markup_percent?: number | null
+          min_profit_percent?: number | null
+          min_profit_usd?: number | null
           min_service_fee_usd?: number | null
+          operational_buffer_percent?: number | null
+          payment_fee_fixed_usd?: number | null
+          payment_fee_percent?: number | null
+          price_rounding_mode?: string | null
+          risk_buffer_percent?: number | null
           service_fee_percent?: number
           shipping_base_fee_usd?: number
           shipping_percent?: number
           shipping_rate_per_kg?: number
+          stale_price_max_hours?: number | null
           support_email?: string | null
           support_whatsapp?: string | null
           updated_at?: string

@@ -128,12 +128,12 @@ export default function CategoryResultsPage() {
       exhaustedRef.current = true;
     }
 
-    const items = (data || [])
-      .map((item: any) => {
-        const mapped = mapItem(item);
-        return { ...mapped, priceUsd: applyFees(mapped.priceUsd, mapped.title) };
-      })
+    let items = (data || [])
+      .map((item: any) => mapItem(item))
       .filter(p => p.id && p.imageUrl && p.priceUsd > 0 && !seenIdsRef.current.has(p.id));
+
+    // Resolve prices server-side
+    items = await applyServerPrices(items);
 
     items.forEach(p => seenIdsRef.current.add(p.id));
     console.log('[CategoryPage] DB fetched:', items.length, 'new items');
@@ -200,13 +200,11 @@ export default function CategoryResultsPage() {
     if (!data || data.length < PAGE) {
       exhaustedRef.current = true;
     }
-    const items = (data || [])
-      .map((item: any) => {
-        const mapped = mapItem(item);
-        return { ...mapped, priceUsd: applyFees(mapped.priceUsd, mapped.title) };
-      })
+    let items = (data || [])
+      .map((item: any) => mapItem(item))
       .filter(p => p.id && p.imageUrl && p.priceUsd > 0 && !seenIdsRef.current.has(p.id))
       .filter(isRelevantPartsItem);
+    items = await applyServerPrices(items);
     items.forEach(p => seenIdsRef.current.add(p.id));
     return items;
   }, []);

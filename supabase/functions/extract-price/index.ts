@@ -19,6 +19,8 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const url: string | undefined = body?.url;
+    const cacheToCatalog: boolean = body?.cacheToCatalog === true;
+    const categoryKey: string | null = body?.categoryKey || null;
     if (!url || typeof url !== "string") {
       return new Response(JSON.stringify({ error: "url is required" }), {
         status: 400,

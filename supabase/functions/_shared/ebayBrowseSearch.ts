@@ -4,6 +4,8 @@
  * and vehicle filtering rules
  */
 
+import { isValidProductImageUrl } from "./imageValidator.ts";
+
 // Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
 type SupabaseClient = any;
 

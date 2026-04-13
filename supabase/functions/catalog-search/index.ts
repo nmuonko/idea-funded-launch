@@ -2167,9 +2167,9 @@ Deno.serve(async (req: Request) => {
                 id: item.id, provider: item.provider, providerProductId: item.provider_product_id,
                 title: item.title, priceUsd: item.price_usd, currency: "USD",
                 mainImageUrl: img, imageUrl: img,
-                images: item.images || [img],
-                imageUrls: item.images || [img],
-                imageCount: item.images?.length || 1,
+                images: sanitizeRelatedGallery(item.images, img),
+                imageUrls: sanitizeRelatedGallery(item.images, img),
+                imageCount: sanitizeRelatedGallery(item.images, img).length || 1,
                 productUrl: item.product_url, inStock: item.in_stock ?? true,
                 rating: item.rating, category: item.unified_category || categoryKey || undefined,
               };

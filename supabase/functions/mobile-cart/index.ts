@@ -62,6 +62,7 @@ import {
   round2 as cartRound2,
   ShippingCategoryInfo,
   buildAuditLogEntry,
+  applyPricingProtection,
 } from "../_shared/cart/pricing.ts";
 import {
   scrapeProductInfo,

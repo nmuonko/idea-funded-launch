@@ -387,7 +387,6 @@ function formatItem(
   // Apply pricing protection for non-all-inclusive items
   let protectionMeta: Record<string, unknown> = {};
   if (protectionSettings && !isStoredAllInclusive && !itemRequiresQuote) {
-    const { applyPricingProtection } = await import("../_shared/cart/pricingProtection.ts");
     // Determine price age from last update
     const priceAgeHours = item.price_updated_at
       ? (Date.now() - new Date(item.price_updated_at).getTime()) / (1000 * 60 * 60)

@@ -300,11 +300,17 @@ async function handleCreate(user: any, supabase: any, url: URL): Promise<Respons
     ok: true, success: true, correlationId,
     order_id: updatedOrder.id, order_item_ids: orderItemIds,
     orderId: updatedOrder.id, orderItemIds: orderItemIds,
+    // Canonical total aliases for frozen mobile builds
+    total_usd: summary.grandTotalUsd,
+    totalUsd: summary.grandTotalUsd,
+    grand_total: summary.grandTotalUsd,
+    amount: summary.grandTotalUsd,
     order: {
       id: updatedOrder.id, status: updatedOrder.status,
       itemCount: summary.itemCount, totalItemsUsd: summary.totalItemsUsd,
       totalMarginUsd: summary.totalMarginUsd, shippingFeeUsd: summary.shippingFeeUsd,
       grandTotalUsd: summary.grandTotalUsd, grandTotalCdf: summary.grandTotalCdf,
+      totalUsd: summary.grandTotalUsd,
       exchangeRate,
     }
   }, 200);

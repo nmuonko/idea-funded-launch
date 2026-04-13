@@ -179,7 +179,35 @@ export default function Checkout() {
         } catch { /* non-blocking */ }
       };
 
-      // Step 1: Create/update DRAFT order from cart items
+      // Step 1: Ensure any visible local-only items are persisted to the backend cart first
+      const localOnlyCheckoutItems = checkoutItems.filter(item => item.id.startsWith('local_'));
+      if (localOnlyCheckoutItems.length > 0) {
+        console.log('[WEB_CHECKOUT] Sync fallback: persisting local-only items before order creation...', localOnlyCheckoutItems.length);
+
+        for (const item of localOnlyCheckoutItems) {
+          if (!item.productUrl) {
+            throw new Error('A cart item is missing its product link. Please add it again before checkout.');
+          }
+
+          const { data: syncData, error: syncError } = await supabase.functions.invoke('mobile-cart', {
+            body: {
+              action: 'add_item',
+              productUrl: item.productUrl,
+              productPrice: item.priceUsd,
+              quantity: item.quantity,
+              productTitle: item.title,
+              productImageUrl: item.imageUrl,
+              ...(item.isFixedPrice ? { isFixedPrice: true } : {}),
+            },
+          });
+
+          if (syncError || syncData?.success === false || syncData?.ok === false) {
+            throw new Error(syncError?.message || syncData?.message || syncData?.error || 'Failed to sync your cart before checkout.');
+          }
+        }
+      }
+
+      // Step 2: Create/update DRAFT order from cart items
       const selectedCartItemIds = checkoutItems.map(i => i.id).filter(id => !id.startsWith('local_'));
       console.log('[WEB_CHECKOUT] Step 1: Creating order from cart... selectedIds=', selectedCartItemIds.length);
       

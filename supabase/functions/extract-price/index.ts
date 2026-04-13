@@ -206,6 +206,10 @@ Deno.serve(async (req) => {
 
     if (images.length > 0 && !imageUrl) imageUrl = images[0];
 
+    // ─── Apply manual overrides from admin ───
+    if (manualTitle && !title) title = manualTitle;
+    if (manualPrice && manualPrice > 0 && (!price || price <= 0)) price = manualPrice;
+
     const result = {
       title: title || null,
       price, price_usd: price, basePrice: price, priceUsd: price,
@@ -216,7 +220,8 @@ Deno.serve(async (req) => {
     };
 
     // ─── Cache to catalog_items if requested ───
-    if (cacheToCatalog && title && price && price > 0 && imageUrl) {
+    // Allow caching with manual overrides even if auto-extraction got partial data
+    if (cacheToCatalog && title && price && price > 0) {
       try {
         const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
         const supabaseAdmin = createClient(

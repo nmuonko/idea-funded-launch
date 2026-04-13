@@ -269,13 +269,17 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user]);
 
-  // Persist cart to localStorage for ALL users as safety backup
-  // This prevents items from vanishing on page refresh, auth token changes, or server sync failures
+  // Persist cart to localStorage for ALL users as safety backup.
+  // When the cart becomes empty, clear the backup too so deleted items do not reappear on refresh.
   useEffect(() => {
-    if (initialized && items.length > 0) {
+    if (!initialized) return;
+
+    if (items.length > 0) {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+      return;
     }
-    // Don't clear localStorage when items=0 — could be transient server error
+
+    localStorage.removeItem(CART_STORAGE_KEY);
   }, [items, initialized]);
 
   // Save wishlist to localStorage

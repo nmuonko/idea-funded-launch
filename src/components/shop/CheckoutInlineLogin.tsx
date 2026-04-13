@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+
 
 interface CheckoutInlineLoginProps {
   language: string;

@@ -6520,6 +6520,10 @@ export type Database = {
         Args: { base_price_usd: number; quantity?: number }
         Returns: number
       }
+      compute_display_prices: {
+        Args: { base_prices: number[] }
+        Returns: number[]
+      }
       crosstab: { Args: { "": string }; Returns: Record<string, unknown>[] }
       crosstab2: {
         Args: { "": string }

@@ -72,6 +72,18 @@ function sanitizeItemImageUrl(rawUrl: string | null | undefined): string | null 
   return sanitizeImageUrl(rawUrl);
 }
 
+/**
+ * Sanitize a gallery array for related/fallback items.
+ * Filters out banner/ad images and returns only valid product images.
+ */
+function sanitizeRelatedGallery(images: string[] | null | undefined, fallbackImg: string): string[] {
+  if (!images || !Array.isArray(images) || images.length === 0) return [fallbackImg];
+  const cleaned = images
+    .filter((u: string) => typeof u === 'string' && sanitizeImageUrl(u))
+    .map((u: string) => sanitizeImageUrl(u)!);
+  return cleaned.length > 0 ? cleaned : [fallbackImg];
+}
+
 const DEFAULT_LIMIT = 500;   // Default page size
 const MAX_LIMIT = 500;       // Max page size
 const MIN_TARGET_RESULTS = 500; // Minimum results target — unified for web + mobile parity
@@ -2167,9 +2179,9 @@ Deno.serve(async (req: Request) => {
                 id: item.id, provider: item.provider, providerProductId: item.provider_product_id,
                 title: item.title, priceUsd: item.price_usd, currency: "USD",
                 mainImageUrl: img, imageUrl: img,
-                images: item.images || [img],
-                imageUrls: item.images || [img],
-                imageCount: item.images?.length || 1,
+                images: sanitizeRelatedGallery(item.images, img),
+                imageUrls: sanitizeRelatedGallery(item.images, img),
+                imageCount: sanitizeRelatedGallery(item.images, img).length || 1,
                 productUrl: item.product_url, inStock: item.in_stock ?? true,
                 rating: item.rating, category: item.unified_category || categoryKey || undefined,
               };
@@ -2231,9 +2243,9 @@ Deno.serve(async (req: Request) => {
                       currency: "USD",
                       mainImageUrl: img,
                       imageUrl: img,
-                      images: item.images || [img],
-                      imageUrls: item.images || [img],
-                      imageCount: item.images?.length || 1,
+                      images: sanitizeRelatedGallery(item.images, img),
+                      imageUrls: sanitizeRelatedGallery(item.images, img),
+                      imageCount: sanitizeRelatedGallery(item.images, img).length || 1,
                       productUrl: item.product_url,
                       inStock: item.in_stock ?? true,
                       rating: item.rating,
@@ -2316,9 +2328,9 @@ Deno.serve(async (req: Request) => {
                     currency: item.currency || "USD",
                     mainImageUrl: img,
                     imageUrl: img,
-                    images: item.images || [img],
-                    imageUrls: item.images || [img],
-                    imageCount: item.imageCount || 1,
+                    images: sanitizeRelatedGallery(item.images, img),
+                    imageUrls: sanitizeRelatedGallery(item.images, img),
+                    imageCount: sanitizeRelatedGallery(item.images, img).length || 1,
                     productUrl: item.productUrl || item.product_url,
                     inStock: true, rating: item.rating,
                     category: categoryKey || undefined, store: "ebay",

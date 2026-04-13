@@ -1108,7 +1108,7 @@ Deno.serve(async (req: Request) => {
         const mediaImages = (mediaData.image_urls as string[]).filter((url: string) => typeof url === "string" && url.length > 0);
         // Always merge if media has images — it's the enriched gallery source of truth
         if (mediaImages.length > 0) {
-          const upgradedMedia = upgradeGalleryImages(mediaImages, provider || "amazon");
+          const upgradedMedia = upgradeGalleryImages(mediaImages, provider || "amazon"); // sanitizeGallery filters banners
           console.log(`[CATALOG_PRODUCT] merging ${upgradedMedia.length} media images (was ${item.images.length}) for ${fullProductId}`);
           // Start with media gallery, then append any unique non-thumbnail DB images
           const seen = new Set(upgradedMedia);

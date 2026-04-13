@@ -4,6 +4,8 @@
  * and vehicle filtering rules
  */
 
+import { isValidProductImageUrl } from "./imageValidator.ts";
+
 // Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
 type SupabaseClient = any;
 
@@ -184,26 +186,27 @@ function extractHighResImages(
   // Return full gallery for ALL items (removed 2-image limit)
   const maxImages = 100;
 
+  const addIfValid = (rawUrl: string | undefined | null) => {
+    if (!rawUrl || images.length >= maxImages) return;
+    const upgraded = upgradeEbayImageUrl(rawUrl);
+    if (!upgraded || seen.has(upgraded)) return;
+    // Validate: reject banners, ads, promos, logos
+    if (!isValidProductImageUrl(upgraded)) return;
+    seen.add(upgraded);
+    images.push(upgraded);
+  };
+
   // Primary image (highest priority)
   const image = item.image as Record<string, unknown> | undefined;
   if (image?.imageUrl) {
-    const upgraded = upgradeEbayImageUrl(image.imageUrl as string);
-    if (upgraded && !seen.has(upgraded)) {
-      seen.add(upgraded);
-      images.push(upgraded);
-    }
+    addIfValid(image.imageUrl as string);
   }
 
   // Additional images - get more for vehicles
   const additionalImages = item.additionalImages as Array<Record<string, unknown>> | undefined;
   if (additionalImages) {
     for (const img of additionalImages) {
-      if (images.length >= maxImages) break;
-      const upgraded = upgradeEbayImageUrl(img.imageUrl as string);
-      if (upgraded && !seen.has(upgraded)) {
-        seen.add(upgraded);
-        images.push(upgraded);
-      }
+      addIfValid(img.imageUrl as string);
     }
   }
 
@@ -212,12 +215,7 @@ function extractHighResImages(
     const thumbnailImages = item.thumbnailImages as Array<Record<string, unknown>> | undefined;
     if (thumbnailImages) {
       for (const img of thumbnailImages) {
-        if (images.length >= maxImages) break;
-        const upgraded = upgradeEbayImageUrl(img.imageUrl as string);
-        if (upgraded && !seen.has(upgraded)) {
-          seen.add(upgraded);
-          images.push(upgraded);
-        }
+        addIfValid(img.imageUrl as string);
       }
     }
   }
@@ -227,7 +225,7 @@ function extractHighResImages(
 
   return {
     mainImageUrl: images[0] || null,
-    imageUrls: images, // All collected images (limited by maxImages)
+    imageUrls: images, // All collected valid product images
     imageCount,
   };
 }

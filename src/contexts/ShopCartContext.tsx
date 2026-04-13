@@ -220,12 +220,30 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Load cart from localStorage on init — ONLY for guests
+  // Use a ref to ensure this runs only once per mount, not on every user/token change
+  const didMountInitRef = useRef(false);
   useEffect(() => {
-    if (user && !didInitialServerHydrateRef.current) {
+    if (didMountInitRef.current) return; // Already ran once — skip re-runs from user/token changes
+    didMountInitRef.current = true;
+
+    if (user) {
       // First mount for logged-in user: keep loading=true until syncCart finishes
       didInitialServerHydrateRef.current = true;
       setLoading(true);
       console.log('[CART] init: logged-in user, loading=true for initial hydration');
+      // Load localStorage as temporary display while server syncs (prevents flash of empty cart)
+      const storedCart = localStorage.getItem(CART_STORAGE_KEY);
+      if (storedCart) {
+        try {
+          const parsed = JSON.parse(storedCart);
+          if (parsed.length > 0) {
+            console.log('[CART] init: pre-populating from localStorage while server syncs, items=', parsed.length);
+            setItems(parsed);
+          }
+        } catch (e) {
+          console.error('[CART] Failed to parse stored cart:', e);
+        }
+      }
     } else {
       const storedCart = localStorage.getItem(CART_STORAGE_KEY);
       if (storedCart) {
@@ -251,13 +269,14 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user]);
 
-  // Persist cart to localStorage ONLY for guest users as backup
+  // Persist cart to localStorage for ALL users as safety backup
+  // This prevents items from vanishing on page refresh, auth token changes, or server sync failures
   useEffect(() => {
-    if (initialized && !user) {
+    if (initialized && items.length > 0) {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
-      console.log('[CART] persisted items=', items.length, 'key=', CART_STORAGE_KEY);
     }
-  }, [items, initialized, user]);
+    // Don't clear localStorage when items=0 — could be transient server error
+  }, [items, initialized]);
 
   // Save wishlist to localStorage
   useEffect(() => {
@@ -698,6 +717,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       deletedItemIdsRef.current = new Map();
       setItems([]);
       setSelectedItemIds(new Set());
+      localStorage.removeItem(CART_STORAGE_KEY);
     } catch (error) {
       console.error('[CART] clearCart failed:', error);
     } finally {

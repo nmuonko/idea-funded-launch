@@ -267,7 +267,8 @@ function formatItem(
   item: any, markupPercent: number, vehicleMarkupPercent: number, exchangeRate: number,
   shippingRatePerKg: number,
   mediaInfo?: { image_count: number; image_count_status: "cached" | "pending" },
-  vehiclePricingTiers?: any
+  vehiclePricingTiers?: any,
+  protectionSettings?: any,
 ) {
   const basePriceUsd = Number(item.base_price_usd || 0);
   const quantity = item.quantity || 1;

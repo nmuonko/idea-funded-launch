@@ -1676,7 +1676,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Sort (only if explicit sort requested — scoring already ranks by relevance)
+    // Sort: smart and explicit sorts always apply; pure relevance uses scorer order
     if (sort !== "relevance") {
       finalItems = postSortItems(finalItems, sort) as typeof finalItems;
     }

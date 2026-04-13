@@ -1445,6 +1445,72 @@ serve(async (req) => {
     }
 
     // ============================================
+    // PRICING PROTECTION: Checkout-time margin safety gate
+    // Re-validates that margin is still safe before allowing payment
+    // ============================================
+    if (settings.protection) {
+      let totalProtectedUsd = 0;
+      let protectionBlocked = false;
+      const protectionReasons: string[] = [];
+      
+      for (const item of dbItems) {
+        if (item.is_vehicle === true) continue; // Vehicles use quote-based pricing
+        const isAllInclusive = item.price_source === 'all_inclusive_display' || item.price_source === 'hot_product';
+        if (isAllInclusive) { totalProtectedUsd += Number(item.total_price_usd || 0); continue; }
+
+        const basePriceUsd = Number(item.base_price_usd || 0);
+        const qty = Number(item.quantity || 1);
+        const baseTotal = round2(basePriceUsd * qty);
+        const effectiveMarkup = item.is_vehicle ? settings.vehicleMarkupPercent : settings.markupPercent;
+        const marginUsd = round2(baseTotal * (effectiveMarkup / 100));
+        const shippingUsd = Number(item.shipping_fee_usd || 0);
+
+        const protection = applyPricingProtection(
+          baseTotal, marginUsd, shippingUsd, settings.exchangeRate,
+          settings.protection,
+          { categoryKey: null, isVehicle: false, requiresManualQuote: item.requires_manual_quote === true, quantity: qty },
+        );
+
+        totalProtectedUsd += protection.safeFinalPriceUsd;
+
+        if (protection.pricingStatus === 'low_margin_blocked') {
+          protectionBlocked = true;
+          protectionReasons.push(`Item ${item.id}: profit $${protection.profitUsd} below threshold`);
+        }
+
+        // Fire-and-forget audit log
+        try {
+          const { createClient } = await import("@supabase/supabase-js");
+          const adminClient = createClient(
+            Deno.env.get('SUPABASE_URL')!,
+            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+          );
+          const auditEntry = buildAuditLogEntry(protection, orderId, item.id, item.product_url);
+          adminClient.from('pricing_audit_log').insert(auditEntry).then(({ error }) => {
+            if (error) console.warn('[CHECKOUT] pricing audit log error:', error.message);
+          });
+        } catch (e) { console.warn('[CHECKOUT] audit error:', (e as Error).message); }
+      }
+
+      if (protectionBlocked) {
+        console.warn('[mobile-checkout] PRICING_PROTECTION_BLOCKED', { reasons: protectionReasons });
+        return jsonResponse({
+          ok: false, success: false,
+          code: 'PRICE_PROTECTION_REQUIRED',
+          message: 'Some items need price review before checkout. Please refresh your cart.',
+          message_fr: 'Certains articles nécessitent une vérification de prix. Veuillez actualiser votre panier.',
+          reasons: protectionReasons,
+        }, 200);
+      }
+
+      console.log('[mobile-checkout] PRICING_PROTECTION_PASSED', {
+        original_total: totalsBreakdown.grand_total,
+        protected_total: totalProtectedUsd,
+        delta: round2(totalProtectedUsd - totalsBreakdown.grand_total),
+      });
+    }
+
+    // ============================================
     // PAYMENT SETTINGS ALREADY LOADED IN PARALLEL ABOVE
     // ============================================
     perf.mark('payment_settings_ready');

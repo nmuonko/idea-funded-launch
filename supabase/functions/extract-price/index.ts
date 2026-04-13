@@ -21,6 +21,9 @@ Deno.serve(async (req) => {
     const url: string | undefined = body?.url;
     const cacheToCatalog: boolean = body?.cacheToCatalog === true;
     const categoryKey: string | null = body?.categoryKey || null;
+    // Admin can override title/price when auto-extraction fails
+    const manualTitle: string | null = body?.manualTitle || null;
+    const manualPrice: number | null = body?.manualPrice ? parseFloat(body.manualPrice) : null;
     if (!url || typeof url !== "string") {
       return new Response(JSON.stringify({ error: "url is required" }), {
         status: 400,
@@ -100,57 +103,62 @@ Deno.serve(async (req) => {
       const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY");
       if (firecrawlKey) {
         const scraperUrl = isAmazon && asin ? `https://www.amazon.com/dp/${asin}` : cleanUrl;
-        console.log(`[EXTRACT_PRICE] Firecrawl scraping ${scraperUrl}`);
+        // For hash-fragment URLs, also try the base URL
+        const baseUrl = scraperUrl.includes('#') ? scraperUrl.split('#')[0] : null;
+        const urlsToTry = baseUrl ? [scraperUrl, baseUrl] : [scraperUrl];
 
-        try {
-          const fcRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${firecrawlKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              url: scraperUrl,
-              formats: ["rawHtml"],
-              waitFor: 3000,
-            }),
-          });
+        for (const tryUrl of urlsToTry) {
+          if (price && title && images.length > 0) break;
+          console.log(`[EXTRACT_PRICE] Firecrawl scraping ${tryUrl}`);
+          try {
+            const fcRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${firecrawlKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                url: tryUrl,
+                formats: ["rawHtml", "markdown"],
+                waitFor: 5000,
+              }),
+            });
 
-          if (fcRes.ok) {
-            const fcData = await fcRes.json();
-            const html = fcData?.data?.rawHtml || fcData?.data?.html || fcData?.rawHtml || fcData?.html || "";
-            const md = fcData?.data?.markdown || fcData?.markdown || "";
-            const meta = fcData?.data?.metadata || fcData?.metadata || {};
+            if (fcRes.ok) {
+              const fcData = await fcRes.json();
+              const html = fcData?.data?.rawHtml || fcData?.data?.html || fcData?.rawHtml || fcData?.html || "";
+              const md = fcData?.data?.markdown || fcData?.markdown || "";
+              const meta = fcData?.data?.metadata || fcData?.metadata || {};
 
-            if (!title) {
-              title = meta?.title || meta?.ogTitle || null;
-              if (title) {
-                title = decodeHtmlEntities(
-                  title.replace(/\s*:\s*Amazon\.com\s*:.*$/i, "").replace(/\s*\|.*$/, "").trim()
-                );
-              }
-            }
-            if (!price) {
-              price = extractPriceFromHtml(html);
-              if (!price) price = extractPriceFromMarkdown(md);
-            }
-            if (images.length === 0) {
-              images = extractImagesFromHtml(html, isAmazon);
-              // OG image — only add for non-Amazon (Amazon OG is usually a tiny thumbnail)
-              if (!isAmazon) {
-                const ogImage = meta?.ogImage;
-                if (ogImage && typeof ogImage === "string" && !images.includes(ogImage)) {
-                  images.unshift(ogImage);
+              if (!title) {
+                title = meta?.title || meta?.ogTitle || null;
+                if (title) {
+                  title = decodeHtmlEntities(
+                    title.replace(/\s*:\s*Amazon\.com\s*:.*$/i, "").replace(/\s*\|.*$/, "").trim()
+                  );
                 }
               }
-              if (images.length > 0) imageUrl = images[0];
+              if (!price) {
+                price = extractPriceFromHtml(html);
+                if (!price) price = extractPriceFromMarkdown(md);
+              }
+              if (images.length === 0) {
+                images = extractImagesFromHtml(html, isAmazon);
+                if (!isAmazon) {
+                  const ogImage = meta?.ogImage;
+                  if (ogImage && typeof ogImage === "string" && !images.includes(ogImage)) {
+                    images.unshift(ogImage);
+                  }
+                }
+                if (images.length > 0) imageUrl = images[0];
+              }
+              console.log(`[EXTRACT_PRICE] Firecrawl: price=${price} images=${images.length}`);
+            } else {
+              console.warn(`[EXTRACT_PRICE] Firecrawl HTTP ${fcRes.status}`);
             }
-            console.log(`[EXTRACT_PRICE] Firecrawl: price=${price} images=${images.length}`);
-          } else {
-            console.warn(`[EXTRACT_PRICE] Firecrawl HTTP ${fcRes.status}`);
+          } catch (e) {
+            console.warn(`[EXTRACT_PRICE] Firecrawl error: ${(e as Error).message}`);
           }
-        } catch (e) {
-          console.warn(`[EXTRACT_PRICE] Firecrawl error: ${(e as Error).message}`);
         }
       }
     }
@@ -198,6 +206,10 @@ Deno.serve(async (req) => {
 
     if (images.length > 0 && !imageUrl) imageUrl = images[0];
 
+    // ─── Apply manual overrides from admin ───
+    if (manualTitle && !title) title = manualTitle;
+    if (manualPrice && manualPrice > 0 && (!price || price <= 0)) price = manualPrice;
+
     const result = {
       title: title || null,
       price, price_usd: price, basePrice: price, priceUsd: price,
@@ -208,7 +220,8 @@ Deno.serve(async (req) => {
     };
 
     // ─── Cache to catalog_items if requested ───
-    if (cacheToCatalog && title && price && price > 0 && imageUrl) {
+    // Allow caching with manual overrides even if auto-extraction got partial data
+    if (cacheToCatalog && title && price && price > 0) {
       try {
         const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
         const supabaseAdmin = createClient(

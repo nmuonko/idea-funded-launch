@@ -130,6 +130,8 @@ export default function HotProducts() {
   const [catalogCategory, setCatalogCategory] = useState('');
   const [catalogExtracting, setCatalogExtracting] = useState(false);
   const [catalogResult, setCatalogResult] = useState<any>(null);
+  const [catalogManualTitle, setCatalogManualTitle] = useState('');
+  const [catalogManualPrice, setCatalogManualPrice] = useState('');
   const [catalogHistory, setCatalogHistory] = useState<Array<{ title: string; provider: string; price: number; imageUrl: string; cached: boolean; url: string }>>([]);
 
   useEffect(() => {
@@ -272,18 +274,24 @@ export default function HotProducts() {
     setExtracting(false);
   }
 
-  async function extractAndCacheToCatalog() {
+  async function extractAndCacheToCatalog(manualOverride = false) {
     if (!catalogUrl.trim()) return;
     setCatalogExtracting(true);
-    setCatalogResult(null);
+    if (!manualOverride) setCatalogResult(null);
     try {
+      const invokeBody: any = {
+        url: catalogUrl.trim(),
+        forceRefresh: true,
+        cacheToCatalog: true,
+        categoryKey: catalogCategory.trim() || null,
+      };
+      // Pass manual overrides if provided
+      if (manualOverride) {
+        if (catalogManualTitle.trim()) invokeBody.manualTitle = catalogManualTitle.trim();
+        if (catalogManualPrice.trim()) invokeBody.manualPrice = catalogManualPrice.trim();
+      }
       const { data, error } = await supabase.functions.invoke('extract-price', {
-        body: {
-          url: catalogUrl.trim(),
-          forceRefresh: true,
-          cacheToCatalog: true,
-          categoryKey: catalogCategory.trim() || null,
-        },
+        body: invokeBody,
       });
       if (error || !data) {
         toast.error(t('Failed to extract product', 'Échec de l\'extraction'));
@@ -303,10 +311,12 @@ export default function HotProducts() {
         }, ...prev].slice(0, 20));
         setCatalogUrl('');
         setCatalogCategory('');
+        setCatalogManualTitle('');
+        setCatalogManualPrice('');
       } else if (!data.price || data.price <= 0) {
-        toast.error(t('Could not extract price — product not cached', 'Prix non trouvé — produit non mis en cache'));
+        toast.error(t('Could not extract price — enter manually below', 'Prix non trouvé — entrez-le manuellement ci-dessous'));
       } else if (!data.title) {
-        toast.error(t('Could not extract title — product not cached', 'Titre non trouvé — produit non mis en cache'));
+        toast.error(t('Could not extract title — enter manually below', 'Titre non trouvé — entrez-le manuellement ci-dessous'));
       } else {
         toast.error(t('Product extracted but caching failed', 'Produit extrait mais mise en cache échouée'));
       }
@@ -845,7 +855,7 @@ export default function HotProducts() {
                     onChange={e => setCatalogCategory(e.target.value)}
                   />
                 </div>
-                <Button onClick={extractAndCacheToCatalog} disabled={catalogExtracting || !catalogUrl.trim()} className="w-full">
+                <Button onClick={() => extractAndCacheToCatalog()} disabled={catalogExtracting || !catalogUrl.trim()} className="w-full">
                   {catalogExtracting ? (
                     <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('Extracting...', 'Extraction...')}</>
                   ) : (
@@ -856,7 +866,7 @@ export default function HotProducts() {
 
               {/* Result preview */}
               {catalogResult && (
-                <div className="border rounded-lg p-3 space-y-2">
+                <div className="border rounded-lg p-3 space-y-3">
                   <div className="flex items-start gap-3">
                     {catalogResult.imageUrl && (
                       <img src={catalogResult.imageUrl} alt="" className="w-16 h-16 rounded object-cover shrink-0" />
@@ -876,6 +886,46 @@ export default function HotProducts() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Manual override fields when extraction fails */}
+                  {!catalogResult.cached && (
+                    <div className="border-t pt-3 space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        {t('Auto-extraction failed. Enter details manually:', 'Extraction auto échouée. Entrez les détails manuellement :')}
+                      </p>
+                      {(!catalogResult.title) && (
+                        <div>
+                          <Label className="text-xs">{t('Title', 'Titre')}</Label>
+                          <Input
+                            placeholder={t('Product title...', 'Titre du produit...')}
+                            value={catalogManualTitle}
+                            onChange={e => setCatalogManualTitle(e.target.value)}
+                          />
+                        </div>
+                      )}
+                      {(!catalogResult.price || catalogResult.price <= 0) && (
+                        <div>
+                          <Label className="text-xs">{t('Price (USD)', 'Prix (USD)')}</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            placeholder="29.99"
+                            value={catalogManualPrice}
+                            onChange={e => setCatalogManualPrice(e.target.value)}
+                          />
+                        </div>
+                      )}
+                      <Button
+                        onClick={() => extractAndCacheToCatalog(true)}
+                        disabled={catalogExtracting || (!catalogManualTitle.trim() && !catalogResult.title) || (!catalogManualPrice.trim() && (!catalogResult.price || catalogResult.price <= 0))}
+                        variant="secondary"
+                        className="w-full"
+                      >
+                        <PackagePlus className="h-4 w-4 mr-2" />
+                        {t('Retry with Manual Data', 'Réessayer avec données manuelles')}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>

@@ -734,6 +734,65 @@ export default function HotProducts() {
           )}
         </TabsContent>
 
+        {/* ====== LINK GENERATOR TAB ====== */}
+        <TabsContent value="link-gen" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <LinkIcon className="h-5 w-5" />
+                {t('Generate Checkout Link', 'Générer un lien de paiement')}
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                {t('Paste any product URL from Amazon, Walmart, eBay, etc. to generate a unique checkout link you can share.', 'Collez un lien produit Amazon, Walmart, eBay, etc. pour générer un lien de paiement unique à partager.')}
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="https://www.amazon.com/dp/B0..."
+                  value={linkGenUrl}
+                  onChange={e => setLinkGenUrl(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && generateCheckoutLink()}
+                />
+                <Button onClick={generateCheckoutLink} disabled={linkGenExtracting || !linkGenUrl.trim()}>
+                  {linkGenExtracting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LinkIcon className="h-4 w-4 mr-2" />}
+                  {t('Generate', 'Générer')}
+                </Button>
+              </div>
+
+              {generatedLinks.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-muted-foreground">{t('Generated Links', 'Liens générés')}</h4>
+                  {generatedLinks.map(link => (
+                    <div key={link.id} className="flex items-center gap-3 p-3 border rounded-lg">
+                      {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{link.title}</p>
+                        <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(2)} · {t('All inclusive', 'Tout inclus')}</p>
+                        <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 gap-1.5"
+                        onClick={() => {
+                          navigator.clipboard.writeText(link.checkoutUrl);
+                          setCopiedLinkId(link.id);
+                          setTimeout(() => setCopiedLinkId(null), 3000);
+                          toast.success(t('Copied!', 'Copié !'));
+                        }}
+                      >
+                        {copiedLinkId === link.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                        {copiedLinkId === link.id ? t('Copied', 'Copié') : t('Copy', 'Copier')}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* ====== TAB 2: EMAIL CAMPAIGNS ====== */}
         <TabsContent value="campaigns" className="space-y-4 mt-4">
           {/* New Campaign Builder */}

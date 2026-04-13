@@ -701,6 +701,10 @@ export default function HotProducts() {
                           size="sm"
                           className="text-xs h-7 gap-1"
                           onClick={() => {
+                            if (p.id.startsWith('new-')) {
+                              toast.error(t('Save to Storefront first to generate the link', 'Sauvegardez d\'abord pour générer le lien'));
+                              return;
+                            }
                             const url = `${window.location.origin}/checkout?hp=${p.id}`;
                             navigator.clipboard.writeText(url);
                             toast.success(t('Link copied!', 'Lien copié !'));

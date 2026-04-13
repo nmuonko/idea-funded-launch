@@ -113,7 +113,7 @@ export default function HotProducts() {
   const [searching, setSearching] = useState(false);
   const [pasteUrl, setPasteUrl] = useState('');
   const [extracting, setExtracting] = useState(false);
-  const [feeSettings, setFeeSettings] = useState<FeeSettings>({ markupPercent: 15, vehicleMarkupPercent: 15, shippingBaseFeeUsd: 20, shippingPercent: 10 });
+  const [feeSettings, setFeeSettings] = useState<FeeSettings>({ markupPercent: 15, vehicleMarkupPercent: 15, shippingRatePerKg: 20 });
 
   // Campaign state
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -135,14 +135,13 @@ export default function HotProducts() {
   }, []);
 
   async function loadFeeSettings() {
-    const { data } = await supabase.from('settings' as any).select('markup_percent, shipping_base_fee_usd, shipping_percent, category_markups').limit(1).single();
+    const { data } = await supabase.from('settings' as any).select('markup_percent, shipping_rate_per_kg, category_markups').limit(1).single();
     if (data) {
       const d = data as any;
       setFeeSettings({
         markupPercent: d.markup_percent ?? 15,
         vehicleMarkupPercent: (d.category_markups as any)?.vehicles ?? d.markup_percent ?? 15,
-        shippingBaseFeeUsd: d.shipping_base_fee_usd ?? 20,
-        shippingPercent: d.shipping_percent ?? 10,
+        shippingRatePerKg: d.shipping_rate_per_kg ?? 20,
       });
     }
   }

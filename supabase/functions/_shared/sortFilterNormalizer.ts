@@ -5,12 +5,13 @@
 
 // ─── SORT OPTIONS ─────────────────────────────────────────────────────────────
 
-export const VALID_SORTS = ['relevance', 'price_asc', 'price_desc', 'newest', 'rating'] as const;
+export const VALID_SORTS = ['smart', 'relevance', 'price_asc', 'price_desc', 'newest', 'rating'] as const;
 export type SortOption = typeof VALID_SORTS[number];
 
 // eBay Browse API sort mappings
 // https://developer.ebay.com/api-docs/buy/browse/resources/item_summary/methods/search
 export const EBAY_SORT_MAP: Record<SortOption, string | null> = {
+  'smart': 'price',   // Fetch by price, re-rank client-side with composite score
   'relevance': null,  // Default (Best Match)
   'price_asc': 'price',
   'price_desc': '-price',
@@ -21,6 +22,7 @@ export const EBAY_SORT_MAP: Record<SortOption, string | null> = {
 // Rainforest API sort mappings
 // https://www.rainforestapi.com/docs/product-data-api/parameters/search
 export const RAINFOREST_SORT_MAP: Record<SortOption, string> = {
+  'smart': 'price_low_to_high', // Fetch by price, re-rank with composite score
   'relevance': 'featured',
   'price_asc': 'price_low_to_high',
   'price_desc': 'price_high_to_low',
@@ -30,6 +32,7 @@ export const RAINFOREST_SORT_MAP: Record<SortOption, string> = {
 
 // Supabase DB order mappings for catalog_items
 export const DB_SORT_MAP: Record<SortOption, { column: string; ascending: boolean }> = {
+  'smart': { column: 'price_usd', ascending: true }, // Fetch cheapest, re-rank with composite
   'relevance': { column: 'rating', ascending: false },
   'price_asc': { column: 'price_usd', ascending: true },
   'price_desc': { column: 'price_usd', ascending: false },

@@ -184,9 +184,14 @@ export default function Checkout() {
     }];
   }, [sharedHotProduct]);
 
-  // Effective checkout items: use cart items if available, otherwise hot product fallback
-  const effectiveCheckoutItems = checkoutItems.length > 0 ? checkoutItems : hotProductFallbackItems;
-  const effectiveCheckoutTotal = checkoutItems.length > 0 ? checkoutTotal : (sharedHotProduct?.total_price_usd ?? 0);
+  // When ?hp= is present, ONLY show that single product (Amazon-style isolated checkout)
+  // Otherwise use cart items normally
+  const effectiveCheckoutItems = hotProductId && hotProductFallbackItems.length > 0
+    ? hotProductFallbackItems
+    : (checkoutItems.length > 0 ? checkoutItems : hotProductFallbackItems);
+  const effectiveCheckoutTotal = hotProductId && sharedHotProduct
+    ? sharedHotProduct.total_price_usd
+    : (checkoutItems.length > 0 ? checkoutTotal : (sharedHotProduct?.total_price_usd ?? 0));
 
   // Restore cart from pending checkout only if cart is genuinely empty AFTER initialization + loading, attempt once
   const didAttemptRestoreRef = useRef(false);

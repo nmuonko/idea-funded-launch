@@ -56,8 +56,8 @@ import {
 } from "../_shared/cart/validate.ts";
 import {
   calculateItemPricing as cartPricingCalc,
-  calculateShippingFee,
   calculateWeightBasedShippingFee,
+  DEFAULT_FALLBACK_CATEGORY,
   buildItemResponse,
   round2 as cartRound2,
   ShippingCategoryInfo,

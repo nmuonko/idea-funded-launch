@@ -1,6 +1,7 @@
+import { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { useShopCart, FeeSettings } from '@/contexts/ShopCartContext';
-import { calculateShippingUsd } from '@/lib/shippingCalculation';
+import { useShopCart } from '@/contexts/ShopCartContext';
+import { resolveDisplayPrice } from '@/lib/serverPricing';
 import { vehicleAllInclusivePrice } from '@/lib/vehiclePricing';
 import { VehicleDetectionResult } from '@/lib/vehicleDetection';
 import { ShoppingCart, Zap, Car } from 'lucide-react';
@@ -27,17 +28,23 @@ export function PasteBreakdownCard({
 }: PasteBreakdownCardProps) {
   const { language } = useLanguage();
   const navigate = useNavigate();
-  const { addItem, feeSettings, exchangeRate } = useShopCart();
+  const { addItem, exchangeRate } = useShopCart();
   const isFr = language === 'fr';
 
   const isVehicle = vehicleResult.isVehicle;
 
-  // Calculate fees
-  const markupPercent = isVehicle ? feeSettings.vehicleMarkupPercent : feeSettings.markupPercent;
-  const markupFee = basePriceUsd * (markupPercent / 100);
-  const shippingFee = isVehicle ? 0 : calculateShippingUsd(basePriceUsd, feeSettings.shippingBaseFeeUsd, feeSettings.shippingPercent);
-  const totalUsd = isVehicle ? vehicleAllInclusivePrice(basePriceUsd) : basePriceUsd + markupFee + shippingFee;
-  const totalCdf = totalUsd * exchangeRate;
+  // Server-computed price
+  const [totalUsd, setTotalUsd] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (isVehicle) {
+      setTotalUsd(vehicleAllInclusivePrice(basePriceUsd));
+    } else {
+      resolveDisplayPrice(basePriceUsd).then(setTotalUsd);
+    }
+  }, [basePriceUsd, isVehicle]);
+
+  const totalCdf = (totalUsd ?? 0) * exchangeRate;
 
   const handleAddToCart = async (buyNow = false) => {
     try {
@@ -83,7 +90,7 @@ export function PasteBreakdownCard({
         <>
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">{isFr ? 'Prix total' : 'Total Price'}</span>
-            <span className="text-foreground font-medium">${totalUsd.toFixed(2)}</span>
+            <span className="text-foreground font-medium">{totalUsd != null ? `$${totalUsd.toFixed(2)}` : '…'}</span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">{isFr ? 'Frais de service' : 'Service Fee'}</span>
@@ -103,7 +110,7 @@ export function PasteBreakdownCard({
             <div className="flex justify-between text-base font-semibold">
               <span className="text-foreground">Total</span>
               <div className="text-right">
-                <div className="text-primary">${totalUsd.toFixed(2)}</div>
+                <div className="text-primary">{totalUsd != null ? `$${totalUsd.toFixed(2)}` : '…'}</div>
                 <div className="text-xs text-muted-foreground font-normal">
                   ≈ {Math.round(totalCdf).toLocaleString()} CDF
                 </div>

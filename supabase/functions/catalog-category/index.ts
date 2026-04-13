@@ -800,20 +800,20 @@ Deno.serve(async (req) => {
     }
 
     // ─── SECTION PROFILE POST-FILTER ─────────────────────────────────────────────
-    // When called from "See All" (sectionKey provided), apply the same keyword
-    // include/exclude filtering used on the homepage to remove irrelevant items.
-    if (sectionKeyParam) {
-      const sectionProfile = getSectionProfile(sectionKeyParam);
-      if (sectionProfile) {
-        const beforeCount = filteredFinalItems.length;
-        filteredFinalItems = filterItemsForProfile(
-          filteredFinalItems as unknown as SectionItem[],
-          sectionProfile
-        ) as unknown as CatalogProduct[];
-        const removed = beforeCount - filteredFinalItems.length;
-        if (removed > 0) {
-          console.log(`[CATALOG_SECTION_FILTER] requestId=${requestId} sectionKey=${sectionKeyParam} removed=${removed} remaining=${filteredFinalItems.length}`);
-        }
+    // When called from "See All" (sectionKey provided) OR when browsing a category
+    // that has a matching section profile, apply keyword include/exclude filtering
+    // to remove irrelevant items (e.g., phone cases from Electronics).
+    const effectiveSectionKey = sectionKeyParam || canonicalKey || parentTab;
+    const sectionProfile = effectiveSectionKey ? getSectionProfile(effectiveSectionKey) : null;
+    if (sectionProfile) {
+      const beforeCount = filteredFinalItems.length;
+      filteredFinalItems = filterItemsForProfile(
+        filteredFinalItems as unknown as SectionItem[],
+        sectionProfile
+      ) as unknown as CatalogProduct[];
+      const removed = beforeCount - filteredFinalItems.length;
+      if (removed > 0) {
+        console.log(`[CATALOG_SECTION_FILTER] requestId=${requestId} sectionKey=${effectiveSectionKey} removed=${removed} remaining=${filteredFinalItems.length}`);
       }
     }
 

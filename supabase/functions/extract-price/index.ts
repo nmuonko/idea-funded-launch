@@ -103,57 +103,62 @@ Deno.serve(async (req) => {
       const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY");
       if (firecrawlKey) {
         const scraperUrl = isAmazon && asin ? `https://www.amazon.com/dp/${asin}` : cleanUrl;
-        console.log(`[EXTRACT_PRICE] Firecrawl scraping ${scraperUrl}`);
+        // For hash-fragment URLs, also try the base URL
+        const baseUrl = scraperUrl.includes('#') ? scraperUrl.split('#')[0] : null;
+        const urlsToTry = baseUrl ? [scraperUrl, baseUrl] : [scraperUrl];
 
-        try {
-          const fcRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${firecrawlKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              url: scraperUrl,
-              formats: ["rawHtml"],
-              waitFor: 3000,
-            }),
-          });
+        for (const tryUrl of urlsToTry) {
+          if (price && title && images.length > 0) break;
+          console.log(`[EXTRACT_PRICE] Firecrawl scraping ${tryUrl}`);
+          try {
+            const fcRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${firecrawlKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                url: tryUrl,
+                formats: ["rawHtml", "markdown"],
+                waitFor: 5000,
+              }),
+            });
 
-          if (fcRes.ok) {
-            const fcData = await fcRes.json();
-            const html = fcData?.data?.rawHtml || fcData?.data?.html || fcData?.rawHtml || fcData?.html || "";
-            const md = fcData?.data?.markdown || fcData?.markdown || "";
-            const meta = fcData?.data?.metadata || fcData?.metadata || {};
+            if (fcRes.ok) {
+              const fcData = await fcRes.json();
+              const html = fcData?.data?.rawHtml || fcData?.data?.html || fcData?.rawHtml || fcData?.html || "";
+              const md = fcData?.data?.markdown || fcData?.markdown || "";
+              const meta = fcData?.data?.metadata || fcData?.metadata || {};
 
-            if (!title) {
-              title = meta?.title || meta?.ogTitle || null;
-              if (title) {
-                title = decodeHtmlEntities(
-                  title.replace(/\s*:\s*Amazon\.com\s*:.*$/i, "").replace(/\s*\|.*$/, "").trim()
-                );
-              }
-            }
-            if (!price) {
-              price = extractPriceFromHtml(html);
-              if (!price) price = extractPriceFromMarkdown(md);
-            }
-            if (images.length === 0) {
-              images = extractImagesFromHtml(html, isAmazon);
-              // OG image — only add for non-Amazon (Amazon OG is usually a tiny thumbnail)
-              if (!isAmazon) {
-                const ogImage = meta?.ogImage;
-                if (ogImage && typeof ogImage === "string" && !images.includes(ogImage)) {
-                  images.unshift(ogImage);
+              if (!title) {
+                title = meta?.title || meta?.ogTitle || null;
+                if (title) {
+                  title = decodeHtmlEntities(
+                    title.replace(/\s*:\s*Amazon\.com\s*:.*$/i, "").replace(/\s*\|.*$/, "").trim()
+                  );
                 }
               }
-              if (images.length > 0) imageUrl = images[0];
+              if (!price) {
+                price = extractPriceFromHtml(html);
+                if (!price) price = extractPriceFromMarkdown(md);
+              }
+              if (images.length === 0) {
+                images = extractImagesFromHtml(html, isAmazon);
+                if (!isAmazon) {
+                  const ogImage = meta?.ogImage;
+                  if (ogImage && typeof ogImage === "string" && !images.includes(ogImage)) {
+                    images.unshift(ogImage);
+                  }
+                }
+                if (images.length > 0) imageUrl = images[0];
+              }
+              console.log(`[EXTRACT_PRICE] Firecrawl: price=${price} images=${images.length}`);
+            } else {
+              console.warn(`[EXTRACT_PRICE] Firecrawl HTTP ${fcRes.status}`);
             }
-            console.log(`[EXTRACT_PRICE] Firecrawl: price=${price} images=${images.length}`);
-          } else {
-            console.warn(`[EXTRACT_PRICE] Firecrawl HTTP ${fcRes.status}`);
+          } catch (e) {
+            console.warn(`[EXTRACT_PRICE] Firecrawl error: ${(e as Error).message}`);
           }
-        } catch (e) {
-          console.warn(`[EXTRACT_PRICE] Firecrawl error: ${(e as Error).message}`);
         }
       }
     }

@@ -20,7 +20,7 @@ import { translations } from '@/lib/i18n/translations';
 import { getRecentlyViewed } from '@/lib/recentlyViewed';
 import { isRenderableImageUrl } from '@/lib/imageValidation';
 import { supabase } from '@/integrations/supabase/client';
-import { allInclusivePrice, type FeeConfig } from '@/lib/allInclusivePrice';
+// All pricing is computed server-side via compute_display_price RPC
 
 // Import static data and helpers from extracted module
 import {
@@ -221,35 +221,19 @@ export default function ShopHome() {
   const categoryProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
 
   const storeProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
-  const feeConfigRef = useRef<FeeConfig | null>(null);
 
-  // Load fee settings once for client-side all-inclusive pricing on direct DB queries
-  useEffect(() => {
-    (async () => {
-      try {
-        const { data } = await supabase
-          .from('settings' as any)
-          .select('markup_percent, shipping_base_fee_usd, shipping_percent, shipping_rate_per_kg')
-          .limit(1)
-          .single();
-        if (data) {
-          const d = data as any;
-          feeConfigRef.current = {
-            markupPercent: d.markup_percent ?? 30,
-            shippingBaseFeeUsd: d.shipping_base_fee_usd ?? 20,
-            shippingPercent: d.shipping_percent ?? 10,
-            shippingRatePerKg: d.shipping_rate_per_kg ?? 20,
-          };
-        }
-      } catch { /* use defaults in applyFees */ }
-    })();
-  }, []);
-
-  /** Apply all-inclusive pricing to a raw base price from direct DB queries */
-  const applyFees = useCallback((basePriceUsd: number, title?: string): number => {
+  /** Server-side all-inclusive price via RPC — no frontend calculation */
+  const applyFees = useCallback(async (basePriceUsd: number): Promise<number> => {
     if (!basePriceUsd || basePriceUsd <= 0) return basePriceUsd;
-    const fees = feeConfigRef.current || { markupPercent: 30, shippingBaseFeeUsd: 20, shippingPercent: 10 };
-    return allInclusivePrice(basePriceUsd, fees, 1, null, title);
+    try {
+      const { data, error } = await supabase.rpc('compute_display_price' as any, {
+        base_price_usd: basePriceUsd,
+      });
+      if (error) throw error;
+      return Number(data) || basePriceUsd;
+    } catch {
+      return basePriceUsd; // fallback: show raw price rather than nothing
+    }
   }, []);
 
   useEffect(() => {
@@ -317,7 +301,7 @@ export default function ShopHome() {
             provider: item.provider || provider,
             title: item.title || 'Product',
             imageUrl: preferred,
-            priceUsd: applyFees(item.price_usd || 0, item.title),
+            priceUsd: item.price_usd || 0, // will be resolved below
             rating: item.rating,
             inStock: item.in_stock !== false,
             productUrl: item.product_url,
@@ -1100,7 +1084,7 @@ export default function ShopHome() {
             provider: (item as any).provider || 'ebay',
             title: (item as any).title || 'Product',
             imageUrl: (item as any).image_url || '',
-            priceUsd: applyFees(Number((item as any).price_usd) || 0, (item as any).title),
+            priceUsd: Number((item as any).price_usd) || 0, // will be resolved below
             inStock: true,
           });
         }

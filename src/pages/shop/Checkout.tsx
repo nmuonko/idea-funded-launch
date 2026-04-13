@@ -599,7 +599,7 @@ export default function Checkout() {
     return <CheckoutInlineLogin language={language} shop={shop} cartItems={displayItems} />;
   }
 
-  if (checkoutItems.length === 0 && hotProductFallbackItems.length === 0) {
+  if (effectiveCheckoutItems.length === 0) {
     return (
       <div className="min-h-screen bg-black">
         <ShopHeader />
@@ -871,7 +871,7 @@ export default function Checkout() {
                   
                   {/* Items Preview — show selected items */}
                   <div className="space-y-3 mb-4 pb-4 border-b border-white/10">
-                    {checkoutItems.slice(0, 3).map((item) => (
+                    {effectiveCheckoutItems.slice(0, 3).map((item) => (
                       <div key={item.id} className="flex gap-3">
                         <img
                           src={sanitizeCartImage(item.imageUrl)}
@@ -884,17 +884,17 @@ export default function Checkout() {
                         </div>
                       </div>
                     ))}
-                    {checkoutItems.length > 3 && (
+                    {effectiveCheckoutItems.length > 3 && (
                       <p className="text-sm text-white/50">
-                        +{checkoutItems.length - 3} {checkoutItems.length - 3 !== 1 ? (shop.moreItems || 'more items') : (shop.moreItem || 'more item')}
+                        +{effectiveCheckoutItems.length - 3} {effectiveCheckoutItems.length - 3 !== 1 ? (shop.moreItems || 'more items') : (shop.moreItem || 'more item')}
                       </p>
                     )}
                   </div>
 
                   <PriceBreakdown 
-                    itemPriceUsd={checkoutTotal} 
+                    itemPriceUsd={effectiveCheckoutTotal} 
                     serverTotal={orderServerTotal ?? serverTotalUsd} 
-                    isFixedPrice={checkoutItems.length > 0 && checkoutItems.every(item => item.isFixedPrice)}
+                    isFixedPrice={effectiveCheckoutItems.length > 0 && effectiveCheckoutItems.every(item => item.isFixedPrice)}
                   />
 
                   <Button

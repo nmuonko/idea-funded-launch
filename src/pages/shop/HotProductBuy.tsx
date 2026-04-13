@@ -9,6 +9,8 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/hooks/useShopCart';
 import { toast } from 'sonner';
 
+const HP_ADDED_KEY = 'hp_added_';
+
 interface HotProduct {
   id: string;
   title: string;
@@ -102,6 +104,12 @@ export default function HotProductBuy() {
 
     try {
       if (!alreadyInCart) {
+        const addedFlag = `${HP_ADDED_KEY}${product.id}`;
+        if (sessionStorage.getItem(addedFlag)) {
+          navigate('/checkout', { replace: true });
+          return;
+        }
+        sessionStorage.setItem(addedFlag, '1');
         await addItem({
           productId: product.provider_product_id || productUrl,
           provider: product.provider,

@@ -14,6 +14,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSupportContact } from '@/hooks/useSupportContact';
 import { toast } from 'sonner';
 
+const HP_ADDED_KEY = 'hp_added_';
+
 const buildHotProductUrl = (product: HotProduct) => {
   if (product.product_url) return product.product_url;
   const provider = (product.provider || '').toLowerCase();
@@ -140,17 +142,20 @@ export default function HotProducts() {
 
     setProcessingIds(prev => new Set(prev).add(key));
     try {
-      // Add to cart with admin-set price, then immediately go to checkout
-      await addItem({
-        productId: product.provider_product_id,
-        provider: product.provider,
-        title: product.title,
-        imageUrl: product.image_url,
-        priceUsd: product.total_price_usd,
-        quantity: 1,
-        productUrl: buildHotProductUrl(product) || `https://www.amazon.com/dp/${product.provider_product_id}`,
-        isFixedPrice: true, // Hot products use admin-set final price, no extra markup/shipping
-      });
+      const addedFlag = `${HP_ADDED_KEY}${product.id}`;
+      if (!sessionStorage.getItem(addedFlag)) {
+        sessionStorage.setItem(addedFlag, '1');
+        await addItem({
+          productId: product.provider_product_id,
+          provider: product.provider,
+          title: product.title,
+          imageUrl: product.image_url,
+          priceUsd: product.total_price_usd,
+          quantity: 1,
+          productUrl: buildHotProductUrl(product) || `https://www.amazon.com/dp/${product.provider_product_id}`,
+          isFixedPrice: true,
+        });
+      }
 
       // Navigate directly to checkout
       navigate('/checkout');

@@ -61,6 +61,7 @@ import {
   buildItemResponse,
   round2 as cartRound2,
   ShippingCategoryInfo,
+  buildAuditLogEntry,
 } from "../_shared/cart/pricing.ts";
 import {
   scrapeProductInfo,

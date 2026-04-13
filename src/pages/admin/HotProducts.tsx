@@ -134,6 +134,11 @@ export default function HotProducts() {
   const [catalogManualPrice, setCatalogManualPrice] = useState('');
   const [catalogHistory, setCatalogHistory] = useState<Array<{ title: string; provider: string; price: number; imageUrl: string; cached: boolean; url: string }>>([]);
 
+  // Link Generator state
+  const [linkGenUrl, setLinkGenUrl] = useState('');
+  const [linkGenExtracting, setLinkGenExtracting] = useState(false);
+  const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; total_price_usd: number; checkoutUrl: string }>>([]);
+  const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   useEffect(() => {
     loadShowcase();
     loadCampaigns();

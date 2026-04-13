@@ -3,12 +3,23 @@
  * Centralized price calculations for cart operations
  */
 
+import { 
+  applyPricingProtection, 
+  buildAuditLogEntry,
+  ProtectedPrice,
+  ProtectionSettings,
+  DEFAULT_PROTECTION,
+} from "./pricingProtection.ts";
+
 /**
  * Round to 2 decimal places
  */
 export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+export type { ProtectedPrice, ProtectionSettings };
+export { applyPricingProtection, buildAuditLogEntry, DEFAULT_PROTECTION };
 
 export interface ItemPricing {
   basePriceUsd: number;

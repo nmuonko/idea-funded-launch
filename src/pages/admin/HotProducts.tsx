@@ -272,6 +272,50 @@ export default function HotProducts() {
     setExtracting(false);
   }
 
+  async function extractAndCacheToCatalog() {
+    if (!catalogUrl.trim()) return;
+    setCatalogExtracting(true);
+    setCatalogResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('extract-price', {
+        body: {
+          url: catalogUrl.trim(),
+          forceRefresh: true,
+          cacheToCatalog: true,
+          categoryKey: catalogCategory.trim() || null,
+        },
+      });
+      if (error || !data) {
+        toast.error(t('Failed to extract product', 'Échec de l\'extraction'));
+        setCatalogExtracting(false);
+        return;
+      }
+      setCatalogResult(data);
+      if (data.cached) {
+        toast.success(t('Product added to catalog!', 'Produit ajouté au catalogue !'));
+        setCatalogHistory(prev => [{
+          title: data.title || 'Unknown',
+          provider: data.provider || 'external',
+          price: data.price || 0,
+          imageUrl: data.imageUrl || '',
+          cached: true,
+          url: catalogUrl.trim(),
+        }, ...prev].slice(0, 20));
+        setCatalogUrl('');
+        setCatalogCategory('');
+      } else if (!data.price || data.price <= 0) {
+        toast.error(t('Could not extract price — product not cached', 'Prix non trouvé — produit non mis en cache'));
+      } else if (!data.title) {
+        toast.error(t('Could not extract title — product not cached', 'Titre non trouvé — produit non mis en cache'));
+      } else {
+        toast.error(t('Product extracted but caching failed', 'Produit extrait mais mise en cache échouée'));
+      }
+    } catch {
+      toast.error(t('Extraction failed', 'Échec de l\'extraction'));
+    }
+    setCatalogExtracting(false);
+  }
+
   function removeProduct(id: string) {
     setShowcaseProducts(prev => prev.filter(p => p.id !== id));
   }

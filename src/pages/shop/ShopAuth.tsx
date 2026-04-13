@@ -356,7 +356,7 @@ export default function ShopAuth() {
               </div>
 
               <Link
-                to="/shop"
+                to={redirect || '/shop'}
                 className="block text-white/60 hover:text-white transition-colors text-sm"
               >
                 {auth.continueAsGuest || 'Continue as Guest'} →

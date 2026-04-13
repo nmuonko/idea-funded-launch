@@ -232,7 +232,7 @@ export default function Checkout() {
   };
 
   const processCheckout = useCallback(async () => {
-    if (checkoutItems.length === 0) {
+    if (effectiveCheckoutItems.length === 0) {
       toast({
         title: shop.emptyCartTitle || 'Empty Cart',
         description: shop.emptyCart || 'Your cart is empty',

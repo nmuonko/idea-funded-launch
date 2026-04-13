@@ -131,17 +131,38 @@ export function buildItemResponse(
   shippingFeeUsd: number,
   exchangeRate: number,
   merged: boolean = false,
-  effectiveMarkupPercent?: number
+  effectiveMarkupPercent?: number,
+  protectionSettings?: ProtectionSettings,
+  protectionOptions?: {
+    categoryKey?: string | null;
+    priceAgeHours?: number;
+    isVehicle?: boolean;
+    requiresManualQuote?: boolean;
+  },
 ): Record<string, unknown> {
-  const { totalUsd, totalCdf } = calculateTotalWithShipping(
-    pricing.itemSubtotalUsd,
-    shippingFeeUsd,
-    exchangeRate
-  );
+  // Apply pricing protection if settings are available
+  const protection = protectionSettings
+    ? applyPricingProtection(
+        pricing.itemBaseTotalUsd,  // source cost = base * qty
+        pricing.itemMarginUsd,     // markup already calculated
+        shippingFeeUsd,
+        exchangeRate,
+        protectionSettings,
+        {
+          ...protectionOptions,
+          quantity: pricing.quantity,
+        },
+      )
+    : null;
+
+  // Use protected price if available, otherwise fall back to raw calculation
+  const finalTotalUsd = protection
+    ? protection.safeFinalPriceUsd
+    : round2(pricing.itemSubtotalUsd + shippingFeeUsd);
+  const finalTotalCdf = round2(finalTotalUsd * exchangeRate);
 
   // For the frozen app: always show the all-inclusive total as the "base" price
-  // so no matter which field the app reads, it displays the correct all-inclusive price.
-  const allInclusiveUnitPrice = round2(totalUsd / (pricing.quantity || 1));
+  const allInclusiveUnitPrice = round2(finalTotalUsd / (pricing.quantity || 1));
 
   return {
     id: itemId,
@@ -152,7 +173,7 @@ export function buildItemResponse(
     store,
     basePriceUsd: allInclusiveUnitPrice,
     quantity: pricing.quantity,
-    itemBaseTotalUsd: totalUsd,
+    itemBaseTotalUsd: finalTotalUsd,
     itemMarginUsd: pricing.itemMarginUsd,
     markupFeeUsd: pricing.itemMarginUsd,
     markup_fee_usd: pricing.itemMarginUsd,
@@ -162,18 +183,31 @@ export function buildItemResponse(
     itemSubtotalCdf: pricing.itemSubtotalCdf,
     shippingFeeUsd,
     shipping_fee_usd: shippingFeeUsd,
-    lineTotalUsd: totalUsd,
-    lineTotalCdf: totalCdf,
-    totalPriceUsd: totalUsd,
-    total_price_usd: totalUsd,
-    priceUsd: totalUsd,
+    lineTotalUsd: finalTotalUsd,
+    lineTotalCdf: finalTotalCdf,
+    totalPriceUsd: finalTotalUsd,
+    total_price_usd: finalTotalUsd,
+    priceUsd: finalTotalUsd,
     merged,
     effectiveMarkupPercent: effectiveMarkupPercent ?? null,
     markupPercent: effectiveMarkupPercent ?? null,
     // Additive metadata for cross-platform all-inclusive pricing
-    display_price_usd: totalUsd,
+    display_price_usd: finalTotalUsd,
     fees_included: true,
     is_all_inclusive_display: true,
     pricing_mode: 'all_inclusive',
+    // Protection metadata (for backend/admin only — frontend ignores these)
+    ...(protection ? {
+      pricing_protection: {
+        status: protection.pricingStatus,
+        confidence: protection.pricingConfidence,
+        requires_review: protection.requiresManualReview,
+        profit_usd: protection.profitUsd,
+        margin_percent: protection.marginPercent,
+        total_protection_usd: protection.totalProtectionUsd,
+        reason_codes: protection.reasonCodes,
+        min_profit_floor_applied: protection.minProfitFloorApplied,
+      },
+    } : {}),
   };
 }

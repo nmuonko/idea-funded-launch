@@ -269,8 +269,15 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user]);
 
+  // Track whether items have ever been populated (prevents clearing localStorage during initial empty state)
+  const hadItemsRef = useRef(items.length > 0);
+  useEffect(() => {
+    if (items.length > 0) hadItemsRef.current = true;
+  }, [items.length]);
+
   // Persist cart to localStorage for ALL users as safety backup.
-  // When the cart becomes empty, clear the backup too so deleted items do not reappear on refresh.
+  // Only clear localStorage when items go from non-empty → empty (explicit user action),
+  // not during the initial mount when items start as [] before server sync.
   useEffect(() => {
     if (!initialized) return;
 
@@ -279,7 +286,10 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    localStorage.removeItem(CART_STORAGE_KEY);
+    // Only clear if we previously had items (user deleted them), not on initial empty load
+    if (hadItemsRef.current) {
+      localStorage.removeItem(CART_STORAGE_KEY);
+    }
   }, [items, initialized]);
 
   // Save wishlist to localStorage

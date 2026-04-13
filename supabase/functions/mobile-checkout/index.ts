@@ -401,8 +401,8 @@ async function recomputeTotalsServerSide(
       });
     } else {
       // Regular item - calculate markup
-      // ALL-INCLUSIVE FIX: If item was stored as all-inclusive, use stored totals directly
-      const isStoredAllInclusive = item.price_source === 'all_inclusive_display';
+      // ALL-INCLUSIVE FIX: If item was stored as all-inclusive or hot_product, use stored totals directly
+      const isStoredAllInclusive = item.price_source === 'all_inclusive_display' || item.price_source === 'hot_product';
       const unitPrice = Number(item.base_price_usd || item.unit_price_usd || 0);
       const basePrice = round2(unitPrice * qty);
 

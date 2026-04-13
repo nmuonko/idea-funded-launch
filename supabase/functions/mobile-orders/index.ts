@@ -110,6 +110,8 @@ function calculateCartSummary(
     itemCount += qty;
     
     const isQuotedVehicle = !!(item.is_vehicle && item.vehicle_quote_applied && Number(item.total_price_usd || 0) > 0);
+    const priceSource = (item.price_source ?? "").toLowerCase();
+    const isStoredAllInclusive = priceSource === 'all_inclusive_display' || priceSource === 'hot_product';
     
     if (isQuotedVehicle) {
       const base = Number(item.base_price_usd || 0) * qty;
@@ -123,6 +125,13 @@ function calculateCartSummary(
       grandTotalUsd += lineTotal;
       
       console.log(`[CREATE_ORDER] Quoted vehicle item=${item.id} base=${base} margin=${margin} shipping=${shipping} total=${lineTotal}`);
+    } else if (isStoredAllInclusive) {
+      // All-inclusive / hot_product: base_price_usd already contains markup+shipping
+      const storedTotal = Number(item.total_price_usd || 0) > 0 ? Number(item.total_price_usd) : round2(Number(item.base_price_usd || 0) * qty);
+      totalItemsUsd += storedTotal;
+      grandTotalUsd += storedTotal;
+      
+      console.log(`[CREATE_ORDER] All-inclusive item=${item.id} priceSource=${priceSource} total=${storedTotal} (no re-markup)`);
     } else {
       const base = round2(Number(item.base_price_usd || 0) * qty);
       const isVehicle = !!(item.is_vehicle || item.category_key?.startsWith('vehicle'));
@@ -139,8 +148,14 @@ function calculateCartSummary(
     }
   });
 
+  // Only calculate shipping for items that are NOT quoted vehicles AND NOT all-inclusive
   const nonQuotedBase = (items || [])
-    .filter((item: any) => !(item.is_vehicle && item.vehicle_quote_applied && Number(item.total_price_usd || 0) > 0))
+    .filter((item: any) => {
+      if (item.is_vehicle && item.vehicle_quote_applied && Number(item.total_price_usd || 0) > 0) return false;
+      const ps = (item.price_source ?? "").toLowerCase();
+      if (ps === 'all_inclusive_display' || ps === 'hot_product') return false;
+      return true;
+    })
     .reduce((sum: number, item: any) => sum + round2(Number(item.base_price_usd || 0) * (item.quantity || 1)), 0);
   
   const regularShipping = nonQuotedBase > 0 

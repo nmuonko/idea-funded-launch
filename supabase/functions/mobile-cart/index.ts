@@ -616,8 +616,7 @@ async function handleGetCart(req: Request): Promise<Response> {
   if (hasPendingPriceConfirmation) { summary.message = "Le prix d'un ou plusieurs articles est en attente de confirmation."; }
   
   summary.shipping_debug = {
-    raw_shippingPercent: shippingPercent,
-    shippingBaseFeeUsd, shippingRatePerKg, regularItemsBaseTotal, regularShippingTotal, vehicleShippingTotal,
+    shippingRatePerKg, regularItemsBaseTotal, regularShippingTotal, vehicleShippingTotal,
     mode: 'weight_based_per_item',
     important_note: 'Shipping is calculated per-item in formatItem using weight-based categories. Use summary.shippingFeeUsd directly.',
   };

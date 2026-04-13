@@ -38,18 +38,17 @@ export function calculateItemPricing(
   };
 }
 
-// Weight-based shipping calculation (replaces legacy flat+percent formula)
-// Parameters kept for backward call-site compatibility; baseFee and percent are ignored.
+// Dynamic shipping calculation: base + (percentage × items subtotal)
+// SAFEGUARD: Normalizes shippingPercent regardless of storage format
+// If shippingPercent > 1, it's stored as percent (10) so divide by 100
+// Otherwise treat as decimal (0.10)
 export function calculateShipping(
   itemsSubtotal: number, 
-  _shippingBaseFee: number, 
-  _shippingPercent: number,
-  shippingRatePerKg: number = 20,
+  shippingBaseFee: number, 
+  shippingPercent: number
 ): number {
-  // Use default fallback category: 0.5kg, 25% buffer
-  const baseShipping = 0.5 * shippingRatePerKg;
-  const bufferMultiplier = 1.25;
-  return round2(baseShipping * bufferMultiplier);
+  const normalizedPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
+  return round2(shippingBaseFee + (itemsSubtotal * normalizedPercent));
 }
 
 // Detect store from URL
@@ -339,8 +338,8 @@ export async function getOrCreateSingleDraftOrder(
 export async function updateOrderTotals(
   supabase: any,
   orderId: string,
-  _shippingBaseFeeUsd: number,  // deprecated, kept for call-site compat
-  _shippingPercent: number,      // deprecated, kept for call-site compat
+  shippingBaseFeeUsd: number,
+  shippingPercent: number,
   exchangeRate: number
 ): Promise<OrderTotals | null> {
   // Query all items including vehicle flags, stored shipping, and shipping category info
@@ -448,11 +447,10 @@ export async function updateOrderTotals(
         };
         regularShippingFeeUsd += calculateWeightBasedShippingFee(catInfo, shippingRatePerKg, Number(item.quantity || 1));
       } else {
-        // Fallback: use default category (0.5kg, 25% buffer) for items without category
-        const fallbackCat: ShippingCategoryInfo = {
-          est_weight_kg: 0.5, flat_shipping_usd: null, shipping_buffer_percent: 25, requires_manual_quote: false,
-        };
-        regularShippingFeeUsd += calculateWeightBasedShippingFee(fallbackCat, shippingRatePerKg, Number(item.quantity || 1));
+        // Fallback: legacy formula for items without category
+        const normalizedPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
+        const itemBase = Number(item.base_price_usd || 0);
+        regularShippingFeeUsd += round2(shippingBaseFeeUsd / regularItemCount + (itemBase * normalizedPercent));
       }
     });
     regularShippingFeeUsd = round2(regularShippingFeeUsd);

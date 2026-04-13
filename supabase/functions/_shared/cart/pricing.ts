@@ -33,6 +33,8 @@ export interface ItemPricing {
 export interface CartSettings {
   markupPercent: number;
   exchangeRate: number;
+  shippingBaseFeeUsd: number;
+  shippingPercent: number;
   shippingRatePerKg: number;
 }
 
@@ -42,14 +44,6 @@ export interface ShippingCategoryInfo {
   shipping_buffer_percent: number;
   requires_manual_quote: boolean;
 }
-
-/** Default fallback category when no category is detected */
-export const DEFAULT_FALLBACK_CATEGORY: ShippingCategoryInfo = {
-  est_weight_kg: 0.5,
-  flat_shipping_usd: null,
-  shipping_buffer_percent: 25,
-  requires_manual_quote: false,
-};
 
 /**
  * Calculate item pricing based on base price and settings
@@ -76,7 +70,7 @@ export function calculateItemPricing(
 }
 
 /**
- * Weight-based shipping fee calculation
+ * NEW: Weight-based shipping fee calculation
  */
 export function calculateWeightBasedShippingFee(
   category: ShippingCategoryInfo,
@@ -94,6 +88,21 @@ export function calculateWeightBasedShippingFee(
 
   const bufferMultiplier = 1 + (category.shipping_buffer_percent / 100);
   return round2(baseShipping * bufferMultiplier);
+}
+
+/**
+ * LEGACY: Calculate shipping fee for an item (flat + percent)
+ */
+export function calculateShippingFee(
+  itemBaseTotalUsd: number,
+  shippingBaseFeeUsd: number,
+  shippingPercent: number,
+  requiresManualQuote: boolean
+): number {
+  if (requiresManualQuote) {
+    return 0;
+  }
+  return round2(shippingBaseFeeUsd + (itemBaseTotalUsd * shippingPercent));
 }
 
 /**
@@ -134,8 +143,8 @@ export function buildItemResponse(
   // Apply pricing protection if settings are available
   const protection = protectionSettings
     ? applyPricingProtection(
-        pricing.itemBaseTotalUsd,
-        pricing.itemMarginUsd,
+        pricing.itemBaseTotalUsd,  // source cost = base * qty
+        pricing.itemMarginUsd,     // markup already calculated
         shippingFeeUsd,
         exchangeRate,
         protectionSettings,
@@ -182,10 +191,12 @@ export function buildItemResponse(
     merged,
     effectiveMarkupPercent: effectiveMarkupPercent ?? null,
     markupPercent: effectiveMarkupPercent ?? null,
+    // Additive metadata for cross-platform all-inclusive pricing
     display_price_usd: finalTotalUsd,
     fees_included: true,
     is_all_inclusive_display: true,
     pricing_mode: 'all_inclusive',
+    // Protection metadata (for backend/admin only — frontend ignores these)
     ...(protection ? {
       pricing_protection: {
         status: protection.pricingStatus,

@@ -8,6 +8,8 @@ import { useAuth } from '@/contexts/AuthContext';
 export interface FeeSettings {
   markupPercent: number;
   vehicleMarkupPercent: number;
+  shippingBaseFeeUsd: number;
+  shippingPercent: number;
   shippingRatePerKg: number;
   shippingCategories: import('@/lib/shippingCategoryDetector').ShippingCategoryRow[];
 }
@@ -106,6 +108,8 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const [feeSettings, setFeeSettings] = useState<FeeSettings>({
     markupPercent: 15,
     vehicleMarkupPercent: 15,
+    shippingBaseFeeUsd: 20,
+    shippingPercent: 10,
     shippingRatePerKg: 20,
     shippingCategories: [],
   });
@@ -315,6 +319,8 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
             setFeeSettings({
               markupPercent: data.markup?.value ?? data.markupPercent ?? 15,
               vehicleMarkupPercent: data.markup?.vehicleValue ?? data.markupVehiclePercent ?? data.markup?.value ?? 15,
+              shippingBaseFeeUsd: data.shipping?.flatUsd ?? data.shippingBaseFeeUsd ?? 20,
+              shippingPercent: data.shipping?.percentValue ?? data.shippingPercent ?? 10,
               shippingRatePerKg,
               shippingCategories,
             });

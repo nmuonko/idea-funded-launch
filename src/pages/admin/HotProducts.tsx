@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { calculateWeightBasedShipping } from '@/lib/shippingCalculation';
+import { calculateShippingUsd } from '@/lib/shippingCalculation';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -50,7 +50,8 @@ interface ShowcaseProduct {
 interface FeeSettings {
   markupPercent: number;
   vehicleMarkupPercent: number;
-  shippingRatePerKg: number;
+  shippingBaseFeeUsd: number;
+  shippingPercent: number;
 }
 
 interface Campaign {
@@ -91,11 +92,7 @@ function toHighResImage(url: string): string {
 
 function calcProductTotals(basePrice: number, fees: FeeSettings): { markup: number; shipping: number; total: number } {
   const markup = basePrice * (fees.markupPercent / 100);
-  const shipping = calculateWeightBasedShipping(
-    { est_weight_kg: 0.5, flat_shipping_usd: null, shipping_buffer_percent: 25, requires_manual_quote: false },
-    fees.shippingRatePerKg ?? 20,
-    1,
-  );
+  const shipping = calculateShippingUsd(basePrice, fees.shippingBaseFeeUsd, fees.shippingPercent);
   return { markup, shipping, total: Math.round((basePrice + markup + shipping) * 100) / 100 };
 }
 
@@ -113,7 +110,7 @@ export default function HotProducts() {
   const [searching, setSearching] = useState(false);
   const [pasteUrl, setPasteUrl] = useState('');
   const [extracting, setExtracting] = useState(false);
-  const [feeSettings, setFeeSettings] = useState<FeeSettings>({ markupPercent: 15, vehicleMarkupPercent: 15, shippingRatePerKg: 20 });
+  const [feeSettings, setFeeSettings] = useState<FeeSettings>({ markupPercent: 15, vehicleMarkupPercent: 15, shippingBaseFeeUsd: 20, shippingPercent: 10 });
 
   // Campaign state
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -135,13 +132,14 @@ export default function HotProducts() {
   }, []);
 
   async function loadFeeSettings() {
-    const { data } = await supabase.from('settings' as any).select('markup_percent, shipping_rate_per_kg, category_markups').limit(1).single();
+    const { data } = await supabase.from('settings' as any).select('markup_percent, shipping_base_fee_usd, shipping_percent, category_markups').limit(1).single();
     if (data) {
       const d = data as any;
       setFeeSettings({
         markupPercent: d.markup_percent ?? 15,
         vehicleMarkupPercent: (d.category_markups as any)?.vehicles ?? d.markup_percent ?? 15,
-        shippingRatePerKg: d.shipping_rate_per_kg ?? 20,
+        shippingBaseFeeUsd: d.shipping_base_fee_usd ?? 20,
+        shippingPercent: d.shipping_percent ?? 10,
       });
     }
   }

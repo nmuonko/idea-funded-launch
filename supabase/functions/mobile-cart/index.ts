@@ -56,8 +56,8 @@ import {
 } from "../_shared/cart/validate.ts";
 import {
   calculateItemPricing as cartPricingCalc,
+  calculateShippingFee,
   calculateWeightBasedShippingFee,
-  DEFAULT_FALLBACK_CATEGORY,
   buildItemResponse,
   round2 as cartRound2,
   ShippingCategoryInfo,
@@ -82,6 +82,19 @@ import { updateOrderTotals as sharedUpdateOrderTotals } from "../_shared/cartHel
 
 // ─── Shared Helpers ───────────────────────────────────────
 
+const HEAVY_THRESHOLD_KG = 9;
+const EXTRA_PER_KG_USD = 8;
+
+function calculateItemShipping(
+  subtotalUsd: number, estWeightKg: number,
+  shippingBaseFeeUsd: number, shippingPercent: number
+): number {
+  const normalizedPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
+  const basePart = shippingBaseFeeUsd + (subtotalUsd * normalizedPercent);
+  const extraWeight = Math.max(0, estWeightKg - 1);
+  const extraPart = extraWeight * EXTRA_PER_KG_USD;
+  return round2(basePart + extraPart);
+}
 
 /**
  * Fetch LIVE base price from provider API (Rainforest for Amazon, eBay API for eBay).
@@ -616,7 +629,8 @@ async function handleGetCart(req: Request): Promise<Response> {
   if (hasPendingPriceConfirmation) { summary.message = "Le prix d'un ou plusieurs articles est en attente de confirmation."; }
   
   summary.shipping_debug = {
-    shippingRatePerKg, regularItemsBaseTotal, regularShippingTotal, vehicleShippingTotal,
+    raw_shippingPercent: shippingPercent,
+    shippingBaseFeeUsd, shippingRatePerKg, regularItemsBaseTotal, regularShippingTotal, vehicleShippingTotal,
     mode: 'weight_based_per_item',
     important_note: 'Shipping is calculated per-item in formatItem using weight-based categories. Use summary.shippingFeeUsd directly.',
   };
@@ -856,15 +870,15 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
         console.log(`[CART_ADD][${correlationId}] reverseCalcBase=true sentPrice=${productPrice} shippingPerUnit=${shippingPerUnit} derivedBase=${derivedBase}`);
       }
     } else if (!resolvedFromCatalog) {
-      // Fallback reverse-calculation using default category (0.5kg, 25% buffer)
-      const fallbackShipping = calculateWeightBasedShippingFee(DEFAULT_FALLBACK_CATEGORY, settings.shippingRatePerKg, 1);
+      // Legacy fallback reverse-calculation
+      const normalizedPercent = settings.shippingPercent > 1 ? settings.shippingPercent / 100 : settings.shippingPercent;
       const markupRate = settings.markupPercent / 100;
-      const derivedBase = cartRound2((productPrice - fallbackShipping) / (1 + markupRate));
+      const derivedBase = cartRound2((productPrice - settings.shippingBaseFeeUsd) / (1 + markupRate + normalizedPercent));
       if (derivedBase > 0) {
         basePriceUsd = derivedBase;
         resolvedFromCatalog = true;
         priceSource = 'reverse_calculated';
-        console.log(`[CART_ADD][${correlationId}] reverseCalcFallback=true sentPrice=${productPrice} fallbackShipping=${fallbackShipping} derivedBase=${derivedBase}`);
+        console.log(`[CART_ADD][${correlationId}] reverseCalcBaseLegacy=true sentPrice=${productPrice} derivedBase=${derivedBase}`);
       }
     }
 
@@ -878,8 +892,8 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
       };
       shippingFeeUsd = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, quantity);
     } else {
-      // Fallback: use default category (0.5kg, 25% buffer)
-      shippingFeeUsd = calculateWeightBasedShippingFee(DEFAULT_FALLBACK_CATEGORY, settings.shippingRatePerKg, quantity);
+      const normalizedPercent = settings.shippingPercent > 1 ? settings.shippingPercent / 100 : settings.shippingPercent;
+      shippingFeeUsd = calculateShippingFee(cartRound2(basePriceUsd * quantity), settings.shippingBaseFeeUsd, normalizedPercent, false);
     }
   }
 
@@ -1367,7 +1381,9 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
   const settings = await getCachedGlobalSettings(supabase) as Record<string, any>;
   const markupPercent = Number(settings?.markup_percent) || 15;
   const exchangeRate = Number(settings?.exchange_rate_usd_to_cdf) || 2500;
-  const shippingRatePerKg = Number(settings?.shipping_rate_per_kg) || 20;
+  const shippingBaseFee = Number(settings?.shipping_base_fee_usd) || 10;
+  const rawShippingPercent = Number(settings?.shipping_percent) || 0.10;
+  const shippingPercent = rawShippingPercent > 1 ? rawShippingPercent / 100 : rawShippingPercent;
 
   let { data: draftOrder } = await supabase.from('orders').select('id, cart_version').eq('user_id', user.id).eq('status', 'DRAFT')
     .order('created_at', { ascending: false }).limit(1).single();
@@ -1470,7 +1486,7 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
   }
 
   // Recalculate totals
-  const { data: allItems } = await supabase.from('order_items').select('subtotal_usd, markup_fee_usd, total_price_usd, total_price_cdf, requires_manual_quote, shipping_fee_usd, quantity')
+  const { data: allItems } = await supabase.from('order_items').select('subtotal_usd, markup_fee_usd, total_price_usd, total_price_cdf, requires_manual_quote')
     .eq('order_id', draftOrder!.id).eq('is_saved_for_later', false);
   let itemTotalUsd = 0, totalMarginUsd = 0, totalUsd = 0, totalCdf = 0, requiresManualQuote = false;
   (allItems || []).forEach((item: any) => {
@@ -1478,23 +1494,7 @@ async function handleMergeGuest(req: Request, body: any): Promise<Response> {
     totalUsd += Number(item.total_price_usd) || 0; totalCdf += Number(item.total_price_cdf) || 0;
     if (item.requires_manual_quote) requiresManualQuote = true;
   });
-  // Weight-based shipping for merge_guest totals
-  let shippingFeeUsd = 0;
-  (allItems || []).forEach((item: any) => {
-    if (item.requires_manual_quote) return;
-    const qty = Number(item.quantity || 1);
-    // Use stored shipping if available, otherwise fallback default category
-    const storedShipping = Number(item.shipping_fee_usd || 0);
-    if (storedShipping > 0) {
-      shippingFeeUsd += storedShipping;
-    } else {
-      shippingFeeUsd += calculateWeightBasedShippingFee(
-        { est_weight_kg: 0.5, flat_shipping_usd: null, shipping_buffer_percent: 25, requires_manual_quote: false },
-        shippingRatePerKg, qty
-      );
-    }
-  });
-  shippingFeeUsd = Math.round(shippingFeeUsd * 100) / 100;
+  const shippingFeeUsd = Math.round((shippingBaseFee + (itemTotalUsd * shippingPercent)) * 100) / 100;
   const grandTotalUsd = Math.round((totalUsd + shippingFeeUsd) * 100) / 100;
   const grandTotalCdf = Math.round(grandTotalUsd * exchangeRate);
   await supabase.from('orders').update({

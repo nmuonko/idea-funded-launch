@@ -1,16 +1,12 @@
-import { calculateWeightBasedShipping, type ShippingCategoryInfo } from '@/lib/shippingCalculation';
+import { calculateShippingUsd, calculateWeightBasedShipping, type ShippingCategoryInfo } from '@/lib/shippingCalculation';
 import { detectShippingCategory, type ShippingCategoryRow } from '@/lib/shippingCategoryDetector';
-
-/** Default fallback category when no category is detected */
-const DEFAULT_FALLBACK_CATEGORY: ShippingCategoryInfo = {
-  est_weight_kg: 0.5,
-  flat_shipping_usd: null,
-  shipping_buffer_percent: 25,
-  requires_manual_quote: false,
-};
 
 export interface FeeConfig {
   markupPercent: number;
+  // Legacy fields (fallback)
+  shippingBaseFeeUsd: number;
+  shippingPercent: number;
+  // New weight-based fields
   shippingRatePerKg?: number;
   shippingCategories?: ShippingCategoryRow[];
 }
@@ -19,7 +15,7 @@ export interface FeeConfig {
  * Compute all-inclusive display price for a regular (non-vehicle, non-fixed-price) product.
  * 
  * Auto-detects shipping category from title when categories are available.
- * Falls back to a safe default category (0.5kg, 25% buffer) when no category is detected.
+ * Otherwise falls back to legacy flat+percent shipping.
  */
 export function allInclusivePrice(
   basePriceUsd: number,
@@ -33,22 +29,20 @@ export function allInclusivePrice(
   const markupRate = fees.markupPercent > 1 ? fees.markupPercent / 100 : fees.markupPercent;
   const markup = Math.round(baseTotal * markupRate * 100) / 100;
 
-  const ratePerKg = fees.shippingRatePerKg ?? 20;
-
   let shipping: number;
 
   // Priority 1: Explicit categoryInfo passed in
-  if (categoryInfo) {
-    shipping = calculateWeightBasedShipping(categoryInfo, ratePerKg, quantity);
+  if (categoryInfo && fees.shippingRatePerKg != null) {
+    shipping = calculateWeightBasedShipping(categoryInfo, fees.shippingRatePerKg, quantity);
   }
   // Priority 2: Auto-detect from title + available categories
-  else if (fees.shippingCategories?.length && productTitle) {
+  else if (fees.shippingCategories?.length && fees.shippingRatePerKg != null && productTitle) {
     const detected = detectShippingCategory(productTitle, productCategoryKey, fees.shippingCategories);
-    shipping = calculateWeightBasedShipping(detected, ratePerKg, quantity);
+    shipping = calculateWeightBasedShipping(detected, fees.shippingRatePerKg, quantity);
   }
-  // Fallback: Safe default category (0.5kg, 25% buffer)
+  // Fallback: Legacy formula
   else {
-    shipping = calculateWeightBasedShipping(DEFAULT_FALLBACK_CATEGORY, ratePerKg, quantity);
+    shipping = calculateShippingUsd(baseTotal, fees.shippingBaseFeeUsd, fees.shippingPercent);
   }
 
   return Math.round((baseTotal + markup + shipping) * 100) / 100;

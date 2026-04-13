@@ -166,6 +166,28 @@ export default function Checkout() {
   const checkoutItems = selectedItems.length > 0 ? selectedItems : items;
   const checkoutTotal = selectedItems.length > 0 ? selectedTotalUsd : totalUsd;
 
+  // Build fallback items from shared hot product (URL param or router state)
+  const hotProductFallbackItems = useMemo(() => {
+    if (!sharedHotProduct) return [];
+    const hpUrl = buildHotProductSourceUrl(sharedHotProduct);
+    return [{
+      id: `local_hp_${sharedHotProduct.id}`,
+      productId: sharedHotProduct.provider_product_id || hpUrl || sharedHotProduct.id,
+      provider: sharedHotProduct.provider,
+      title: sharedHotProduct.title,
+      imageUrl: sharedHotProduct.image_url,
+      priceUsd: sharedHotProduct.total_price_usd,
+      quantity: 1,
+      productUrl: hpUrl,
+      isFixedPrice: true,
+      itemTotalUsd: sharedHotProduct.total_price_usd,
+    }];
+  }, [sharedHotProduct]);
+
+  // Effective checkout items: use cart items if available, otherwise hot product fallback
+  const effectiveCheckoutItems = checkoutItems.length > 0 ? checkoutItems : hotProductFallbackItems;
+  const effectiveCheckoutTotal = checkoutItems.length > 0 ? checkoutTotal : (sharedHotProduct?.total_price_usd ?? 0);
+
   // Restore cart from pending checkout only if cart is genuinely empty AFTER initialization + loading, attempt once
   const didAttemptRestoreRef = useRef(false);
   useEffect(() => {
@@ -551,28 +573,6 @@ export default function Checkout() {
     setShowTermsDialog(false);
     processCheckout();
   };
-
-  // Build fallback items from shared hot product (URL param or router state)
-  const hotProductFallbackItems = useMemo(() => {
-    if (!sharedHotProduct) return [];
-    const hpUrl = buildHotProductSourceUrl(sharedHotProduct);
-    return [{
-      id: `local_hp_${sharedHotProduct.id}`,
-      productId: sharedHotProduct.provider_product_id || hpUrl || sharedHotProduct.id,
-      provider: sharedHotProduct.provider,
-      title: sharedHotProduct.title,
-      imageUrl: sharedHotProduct.image_url,
-      priceUsd: sharedHotProduct.total_price_usd,
-      quantity: 1,
-      productUrl: hpUrl,
-      isFixedPrice: true,
-      itemTotalUsd: sharedHotProduct.total_price_usd,
-    }];
-  }, [sharedHotProduct]);
-
-  // Effective checkout items: use cart items if available, otherwise hot product fallback
-  const effectiveCheckoutItems = checkoutItems.length > 0 ? checkoutItems : hotProductFallbackItems;
-  const effectiveCheckoutTotal = checkoutItems.length > 0 ? checkoutTotal : (sharedHotProduct?.total_price_usd ?? 0);
 
   // Wait only for auth hydration before evaluating checkout access.
   if (!isAuthReady || loadingSharedProduct) {

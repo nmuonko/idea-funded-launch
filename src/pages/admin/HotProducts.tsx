@@ -855,7 +855,7 @@ export default function HotProducts() {
                     onChange={e => setCatalogCategory(e.target.value)}
                   />
                 </div>
-                <Button onClick={extractAndCacheToCatalog} disabled={catalogExtracting || !catalogUrl.trim()} className="w-full">
+                <Button onClick={() => extractAndCacheToCatalog()} disabled={catalogExtracting || !catalogUrl.trim()} className="w-full">
                   {catalogExtracting ? (
                     <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('Extracting...', 'Extraction...')}</>
                   ) : (
@@ -866,7 +866,7 @@ export default function HotProducts() {
 
               {/* Result preview */}
               {catalogResult && (
-                <div className="border rounded-lg p-3 space-y-2">
+                <div className="border rounded-lg p-3 space-y-3">
                   <div className="flex items-start gap-3">
                     {catalogResult.imageUrl && (
                       <img src={catalogResult.imageUrl} alt="" className="w-16 h-16 rounded object-cover shrink-0" />
@@ -886,6 +886,46 @@ export default function HotProducts() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Manual override fields when extraction fails */}
+                  {!catalogResult.cached && (
+                    <div className="border-t pt-3 space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        {t('Auto-extraction failed. Enter details manually:', 'Extraction auto échouée. Entrez les détails manuellement :')}
+                      </p>
+                      {(!catalogResult.title) && (
+                        <div>
+                          <Label className="text-xs">{t('Title', 'Titre')}</Label>
+                          <Input
+                            placeholder={t('Product title...', 'Titre du produit...')}
+                            value={catalogManualTitle}
+                            onChange={e => setCatalogManualTitle(e.target.value)}
+                          />
+                        </div>
+                      )}
+                      {(!catalogResult.price || catalogResult.price <= 0) && (
+                        <div>
+                          <Label className="text-xs">{t('Price (USD)', 'Prix (USD)')}</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            placeholder="29.99"
+                            value={catalogManualPrice}
+                            onChange={e => setCatalogManualPrice(e.target.value)}
+                          />
+                        </div>
+                      )}
+                      <Button
+                        onClick={() => extractAndCacheToCatalog(true)}
+                        disabled={catalogExtracting || (!catalogManualTitle.trim() && !catalogResult.title) || (!catalogManualPrice.trim() && (!catalogResult.price || catalogResult.price <= 0))}
+                        variant="secondary"
+                        className="w-full"
+                      >
+                        <PackagePlus className="h-4 w-4 mr-2" />
+                        {t('Retry with Manual Data', 'Réessayer avec données manuelles')}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>

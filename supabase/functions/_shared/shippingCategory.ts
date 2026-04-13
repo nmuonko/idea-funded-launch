@@ -82,7 +82,7 @@ const CATEGORY_KEYWORDS: Record<ShippingCategoryKey, { keywords: string[]; weigh
 
   // Small Electronics (0.7 kg) - phones, watches, cameras, earbuds
   'small_electronics': [
-    { keywords: ['iphone', 'galaxy s', 'pixel phone', 'smartphone', 'cell phone', 'mobile phone'], weight: 1.5 },
+    { keywords: ['iphone', 'galaxy s2', 'galaxy s1', 'galaxy a', 'galaxy z', 'galaxy note', 'samsung galaxy', 'pixel phone', 'smartphone', 'cell phone', 'mobile phone', 'unlocked phone'], weight: 1.5 },
     { keywords: ['airpods', 'earbuds', 'écouteurs', 'buds', 'earpods'], weight: 1.3 },
     { keywords: ['apple watch', 'smartwatch', 'galaxy watch', 'fitbit', 'garmin'], weight: 1.3 },
     { keywords: ['gopro', 'action camera', 'dash cam', 'dashcam', 'webcam'], weight: 1.2 },

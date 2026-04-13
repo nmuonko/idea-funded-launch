@@ -126,7 +126,7 @@ export function CheckoutInlineLogin({ language, shop, cartItems = [] }: Checkout
                         {isFr ? 'Quantité' : 'Qty'}: {item.quantity}
                       </p>
                       <p className="text-base font-bold text-blue-400 mt-2">
-                        {formatCurrency(item.isFixedPrice ? item.priceUsd : (item.itemTotalUsd || item.priceUsd), 'USD')}
+                        {formatCurrency(item.isFixedPrice ? item.priceUsd : (item.itemTotalUsd || item.priceUsd), { currency: 'USD' })}
                       </p>
                       {item.isFixedPrice && (
                         <span className="inline-block mt-1 text-[10px] text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">
@@ -143,7 +143,7 @@ export function CheckoutInlineLogin({ language, shop, cartItems = [] }: Checkout
                   <span className="text-white font-bold text-lg">
                     {formatCurrency(
                       cartItems.reduce((sum, i) => sum + (i.isFixedPrice ? i.priceUsd : (i.itemTotalUsd || i.priceUsd)) * i.quantity, 0),
-                      'USD'
+                      { currency: 'USD' }
                     )}
                   </span>
                 </div>

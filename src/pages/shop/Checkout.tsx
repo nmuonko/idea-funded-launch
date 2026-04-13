@@ -65,13 +65,83 @@ export default function Checkout() {
   const { 
     items, loading: cartLoading, initialized, totalUsd, savePendingCheckout, restoreFromPendingCheckout, 
     vehicleQuoteStatus, serverTotalUsd,
-    selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment
+    selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment,
+    addItem
   } = useShopCart();
   const { user, session, isAuthReady } = useAuth();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
   const sessionUser = session?.user ?? user;
+
+  // --- Hot product from URL query param (survives refresh & sharing) ---
+  const hotProductId = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('hp') || null;
+  }, [location.search]);
+
+  const [sharedHotProduct, setSharedHotProduct] = useState<HotProductCheckoutData | null>(() => {
+    const state = location.state as any;
+    return state?.hotProduct ?? null;
+  });
+  const [loadingSharedProduct, setLoadingSharedProduct] = useState(!!hotProductId && !(location.state as any)?.hotProduct);
+  const hotProductHydratedRef = useRef(false);
+
+  // Fetch hot product from DB when we only have the URL param (no router state)
+  useEffect(() => {
+    if (!hotProductId || sharedHotProduct) {
+      setLoadingSharedProduct(false);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { data } = await supabase
+          .from('hot_products_showcase')
+          .select('id, title, image_url, total_price_usd, provider, provider_product_id, product_url')
+          .eq('id', hotProductId)
+          .eq('is_active', true)
+          .single();
+        if (!cancelled && data) setSharedHotProduct(data as HotProductCheckoutData);
+      } catch (e) {
+        console.error('[CHECKOUT] Failed to fetch shared hot product:', e);
+      } finally {
+        if (!cancelled) setLoadingSharedProduct(false);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [hotProductId, sharedHotProduct]);
+
+  // Auto-add hot product to cart once (so processCheckout can use real cart items)
+  useEffect(() => {
+    if (!sharedHotProduct || hotProductHydratedRef.current || !initialized) return;
+    hotProductHydratedRef.current = true;
+
+    const hpUrl = buildHotProductSourceUrl(sharedHotProduct);
+    if (!hpUrl) return;
+
+    // Check if already in cart
+    const alreadyInCart = items.some(i =>
+      i.productUrl?.trim().toLowerCase() === hpUrl.trim().toLowerCase()
+    );
+    if (alreadyInCart) return;
+
+    const addedFlag = `hp_added_checkout_${sharedHotProduct.id}`;
+    if (sessionStorage.getItem(addedFlag)) return;
+    sessionStorage.setItem(addedFlag, '1');
+
+    void addItem({
+      productId: sharedHotProduct.provider_product_id || hpUrl,
+      provider: sharedHotProduct.provider,
+      title: sharedHotProduct.title,
+      imageUrl: sharedHotProduct.image_url,
+      priceUsd: sharedHotProduct.total_price_usd,
+      quantity: 1,
+      productUrl: hpUrl,
+      isFixedPrice: true,
+    });
+  }, [sharedHotProduct, initialized, items, addItem]);
   
   const [loading, setLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -96,10 +166,33 @@ export default function Checkout() {
   const checkoutItems = selectedItems.length > 0 ? selectedItems : items;
   const checkoutTotal = selectedItems.length > 0 ? selectedTotalUsd : totalUsd;
 
+  // Build fallback items from shared hot product (URL param or router state)
+  const hotProductFallbackItems = useMemo(() => {
+    if (!sharedHotProduct) return [];
+    const hpUrl = buildHotProductSourceUrl(sharedHotProduct);
+    return [{
+      id: `local_hp_${sharedHotProduct.id}`,
+      productId: sharedHotProduct.provider_product_id || hpUrl || sharedHotProduct.id,
+      provider: sharedHotProduct.provider,
+      title: sharedHotProduct.title,
+      imageUrl: sharedHotProduct.image_url,
+      priceUsd: sharedHotProduct.total_price_usd,
+      quantity: 1,
+      productUrl: hpUrl,
+      isFixedPrice: true,
+      itemTotalUsd: sharedHotProduct.total_price_usd,
+    }];
+  }, [sharedHotProduct]);
+
+  // Effective checkout items: use cart items if available, otherwise hot product fallback
+  const effectiveCheckoutItems = checkoutItems.length > 0 ? checkoutItems : hotProductFallbackItems;
+  const effectiveCheckoutTotal = checkoutItems.length > 0 ? checkoutTotal : (sharedHotProduct?.total_price_usd ?? 0);
+
   // Restore cart from pending checkout only if cart is genuinely empty AFTER initialization + loading, attempt once
   const didAttemptRestoreRef = useRef(false);
   useEffect(() => {
     if (didAttemptRestoreRef.current) return;
+    if (hotProductId) { didAttemptRestoreRef.current = true; return; }
     if (!initialized) return;
 
     if (!cartLoading && items.length === 0) {
@@ -162,7 +255,7 @@ export default function Checkout() {
   };
 
   const processCheckout = useCallback(async () => {
-    if (checkoutItems.length === 0) {
+    if (effectiveCheckoutItems.length === 0) {
       toast({
         title: shop.emptyCartTitle || 'Empty Cart',
         description: shop.emptyCart || 'Your cart is empty',
@@ -172,7 +265,7 @@ export default function Checkout() {
     }
 
     // TikTok Pixel + Server: InitiateCheckout
-    trackInitiateCheckout(checkoutTotal, {
+    trackInitiateCheckout(effectiveCheckoutTotal, {
       email: sessionUser?.email ?? undefined,
       userId: sessionUser?.id ?? undefined,
     });
@@ -209,7 +302,7 @@ export default function Checkout() {
       };
 
       // Step 1: Ensure any visible local-only items are persisted to the backend cart first
-      const localOnlyCheckoutItems = checkoutItems.filter(item => item.id.startsWith('local_'));
+      const localOnlyCheckoutItems = effectiveCheckoutItems.filter(item => item.id.startsWith('local_'));
       if (localOnlyCheckoutItems.length > 0) {
         console.log('[WEB_CHECKOUT] Sync fallback: persisting local-only items before order creation...', localOnlyCheckoutItems.length);
 
@@ -237,7 +330,7 @@ export default function Checkout() {
       }
 
       // Step 2: Create/update DRAFT order from cart items
-      const selectedCartItemIds = checkoutItems.map(i => i.id).filter(id => !id.startsWith('local_'));
+      const selectedCartItemIds = effectiveCheckoutItems.map(i => i.id).filter(id => !id.startsWith('local_'));
       console.log('[WEB_CHECKOUT] Step 1: Creating order from cart... selectedIds=', selectedCartItemIds.length);
       
       const { data: orderData, error: orderError } = await supabase.functions.invoke(
@@ -465,7 +558,7 @@ export default function Checkout() {
     } finally {
       setLoading(false);
     }
-  }, [checkoutItems, checkoutTotal, paymentMethod, address, sessionUser, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal, language]);
+  }, [effectiveCheckoutItems, effectiveCheckoutTotal, paymentMethod, address, sessionUser, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal, language]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -482,28 +575,8 @@ export default function Checkout() {
     processCheckout();
   };
 
-  // Build fallback items from router state (hot product link) when cart hasn't hydrated yet
-  const hotProductFallbackItems = useMemo(() => {
-    const state = location.state as any;
-    if (!state?.hotProduct) return [];
-    const hp = state.hotProduct;
-    const hpUrl = state.hotProductUrl;
-    return [{
-      id: `hp_${hp.id}`,
-      productId: hp.provider_product_id || hpUrl || hp.id,
-      provider: hp.provider,
-      title: hp.title,
-      imageUrl: hp.image_url,
-      priceUsd: hp.total_price_usd,
-      quantity: 1,
-      productUrl: hpUrl,
-      isFixedPrice: true,
-      itemTotalUsd: hp.total_price_usd,
-    }];
-  }, [location.state]);
-
   // Wait only for auth hydration before evaluating checkout access.
-  if (!isAuthReady) {
+  if (!isAuthReady || loadingSharedProduct) {
     return (
       <div className="min-h-screen bg-black">
         <ShopHeader />
@@ -527,7 +600,7 @@ export default function Checkout() {
     return <CheckoutInlineLogin language={language} shop={shop} cartItems={displayItems} />;
   }
 
-  if (checkoutItems.length === 0 && hotProductFallbackItems.length === 0) {
+  if (effectiveCheckoutItems.length === 0) {
     return (
       <div className="min-h-screen bg-black">
         <ShopHeader />
@@ -799,7 +872,7 @@ export default function Checkout() {
                   
                   {/* Items Preview — show selected items */}
                   <div className="space-y-3 mb-4 pb-4 border-b border-white/10">
-                    {checkoutItems.slice(0, 3).map((item) => (
+                    {effectiveCheckoutItems.slice(0, 3).map((item) => (
                       <div key={item.id} className="flex gap-3">
                         <img
                           src={sanitizeCartImage(item.imageUrl)}
@@ -812,17 +885,17 @@ export default function Checkout() {
                         </div>
                       </div>
                     ))}
-                    {checkoutItems.length > 3 && (
+                    {effectiveCheckoutItems.length > 3 && (
                       <p className="text-sm text-white/50">
-                        +{checkoutItems.length - 3} {checkoutItems.length - 3 !== 1 ? (shop.moreItems || 'more items') : (shop.moreItem || 'more item')}
+                        +{effectiveCheckoutItems.length - 3} {effectiveCheckoutItems.length - 3 !== 1 ? (shop.moreItems || 'more items') : (shop.moreItem || 'more item')}
                       </p>
                     )}
                   </div>
 
                   <PriceBreakdown 
-                    itemPriceUsd={checkoutTotal} 
+                    itemPriceUsd={effectiveCheckoutTotal} 
                     serverTotal={orderServerTotal ?? serverTotalUsd} 
-                    isFixedPrice={checkoutItems.length > 0 && checkoutItems.every(item => item.isFixedPrice)}
+                    isFixedPrice={effectiveCheckoutItems.length > 0 && effectiveCheckoutItems.every(item => item.isFixedPrice)}
                   />
 
                   <Button

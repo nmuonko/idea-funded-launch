@@ -14,7 +14,7 @@ interface OperationalInsightsTabsProps {
 }
 
 export function OperationalInsightsTabs({ dateRange }: OperationalInsightsTabsProps) {
-  const [activeTab, setActiveTab] = useState('payments');
+  const [activeTab, setActiveTab] = useState('profit');
 
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm">

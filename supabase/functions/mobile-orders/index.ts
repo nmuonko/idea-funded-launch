@@ -266,7 +266,8 @@ async function handleCreate(user: any, supabase: any, url: URL): Promise<Respons
 
   console.log(`[CREATE_ORDER] correlationId=${correlationId} Calculated totals: grandTotalUsd=${summary.grandTotalUsd}`);
 
-  const { data: updatedOrder, error: updateError } = await supabase
+  // Use adminClient to bypass RLS — user client can't update PENDING_PAYMENT orders
+  const { data: updatedOrder, error: updateError } = await adminClient
     .from('orders')
     .update({
       status: 'PENDING_PAYMENT',

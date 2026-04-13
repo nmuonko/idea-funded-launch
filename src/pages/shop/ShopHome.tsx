@@ -20,7 +20,7 @@ import { translations } from '@/lib/i18n/translations';
 import { getRecentlyViewed } from '@/lib/recentlyViewed';
 import { isRenderableImageUrl } from '@/lib/imageValidation';
 import { supabase } from '@/integrations/supabase/client';
-// All pricing is computed server-side via compute_display_price RPC
+import { applyServerPrices, resolveDisplayPrice } from '@/lib/serverPricing';
 
 // Import static data and helpers from extracted module
 import {
@@ -221,20 +221,6 @@ export default function ShopHome() {
   const categoryProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
 
   const storeProductsCacheRef = useRef<Record<string, { products: Product[]; count: number }>>({});
-
-  /** Server-side all-inclusive price via RPC — no frontend calculation */
-  const applyFees = useCallback(async (basePriceUsd: number): Promise<number> => {
-    if (!basePriceUsd || basePriceUsd <= 0) return basePriceUsd;
-    try {
-      const { data, error } = await supabase.rpc('compute_display_price' as any, {
-        base_price_usd: basePriceUsd,
-      });
-      if (error) throw error;
-      return Number(data) || basePriceUsd;
-    } catch {
-      return basePriceUsd; // fallback: show raw price rather than nothing
-    }
-  }, []);
 
   useEffect(() => {
     (async () => {

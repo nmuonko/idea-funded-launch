@@ -11,7 +11,7 @@ import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { isRenderableImageUrl } from '@/lib/imageValidation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { supabase } from '@/integrations/supabase/client';
-import { allInclusivePrice, type FeeConfig } from '@/lib/allInclusivePrice';
+import { applyServerPrices } from '@/lib/serverPricing';
 
 const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   all: { fr: 'Toutes les catégories', en: 'All Categories' },

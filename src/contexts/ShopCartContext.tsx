@@ -661,6 +661,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
 
     // Snapshot the item for potential rollback
     const removedItem = items.find(item => item.id === id);
+    const removedItemKey = removedItem ? canonicalItemKey(removedItem) : null;
 
     // Remove locally immediately (optimistic)
     setItems((prev) => prev.filter((item) => item.id !== id));
@@ -671,10 +672,50 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
 
-    if (user && sessionRef.current && !id.startsWith('local_')) {
+    if (user && sessionRef.current) {
       try {
+        let serverItemId = id;
+
+        if (isLocalId(id) && removedItemKey) {
+          const { data: cartData, error: cartError } = await supabase.functions.invoke('mobile-cart', {
+            body: { action: 'get_cart' },
+          });
+
+          if (cartError) throw cartError;
+
+          const matchingServerItem = (cartData?.activeItems || []).find((item: any) => {
+            const productUrl = item.productUrl || item.product_url || '';
+            const provider = item.store || item.provider || 'unknown';
+
+            return canonicalItemKey({
+              id: item.id,
+              productId: productUrl,
+              provider,
+              title: item.title || item.productTitle || 'Product',
+              imageUrl: item.productImageUrl || item.image_url || '',
+              priceUsd: item.basePriceUsd || item.base_price_usd || item.total_price_usd || 0,
+              quantity: item.quantity || 1,
+              productUrl,
+            }) === removedItemKey;
+          });
+
+          if (!matchingServerItem?.id) {
+            deletedItemIdsRef.current.delete(id);
+            persistDeletedIds();
+            return;
+          }
+
+          serverItemId = matchingServerItem.id;
+        }
+
+        if (isLocalId(serverItemId)) {
+          deletedItemIdsRef.current.delete(id);
+          persistDeletedIds();
+          return;
+        }
+
         const { data, error } = await supabase.functions.invoke('mobile-cart', {
-          body: { action: 'delete_item', item_id: id },
+          body: { action: 'delete_item', item_id: serverItemId },
         });
         if (error) throw error;
         if (data?.success === false || data?.ok === false || data?.authenticated === false) {
@@ -682,6 +723,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         }
         // Server confirmed deletion — remove from deleted IDs (it's gone for real)
         deletedItemIdsRef.current.delete(id);
+        if (serverItemId !== id) {
+          deletedItemIdsRef.current.delete(serverItemId);
+        }
         persistDeletedIds();
         // Sync after confirmed deletion
         await syncCart();

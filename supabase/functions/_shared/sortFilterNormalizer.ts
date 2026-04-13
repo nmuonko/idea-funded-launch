@@ -5,12 +5,13 @@
 
 // ─── SORT OPTIONS ─────────────────────────────────────────────────────────────
 
-export const VALID_SORTS = ['relevance', 'price_asc', 'price_desc', 'newest', 'rating'] as const;
+export const VALID_SORTS = ['smart', 'relevance', 'price_asc', 'price_desc', 'newest', 'rating'] as const;
 export type SortOption = typeof VALID_SORTS[number];
 
 // eBay Browse API sort mappings
 // https://developer.ebay.com/api-docs/buy/browse/resources/item_summary/methods/search
 export const EBAY_SORT_MAP: Record<SortOption, string | null> = {
+  'smart': 'price',   // Fetch by price, re-rank client-side with composite score
   'relevance': null,  // Default (Best Match)
   'price_asc': 'price',
   'price_desc': '-price',
@@ -21,6 +22,7 @@ export const EBAY_SORT_MAP: Record<SortOption, string | null> = {
 // Rainforest API sort mappings
 // https://www.rainforestapi.com/docs/product-data-api/parameters/search
 export const RAINFOREST_SORT_MAP: Record<SortOption, string> = {
+  'smart': 'price_low_to_high', // Fetch by price, re-rank with composite score
   'relevance': 'featured',
   'price_asc': 'price_low_to_high',
   'price_desc': 'price_high_to_low',
@@ -30,6 +32,7 @@ export const RAINFOREST_SORT_MAP: Record<SortOption, string> = {
 
 // Supabase DB order mappings for catalog_items
 export const DB_SORT_MAP: Record<SortOption, { column: string; ascending: boolean }> = {
+  'smart': { column: 'price_usd', ascending: true }, // Fetch cheapest, re-rank with composite
   'relevance': { column: 'rating', ascending: false },
   'price_asc': { column: 'price_usd', ascending: true },
   'price_desc': { column: 'price_usd', ascending: false },
@@ -224,6 +227,12 @@ export function postFilterItems<T extends {
 
 /**
  * Post-sort items array (for sorts not supported by API, e.g., eBay rating)
+ * 
+ * "smart" sort: composite score blending relevance + price competitiveness + rating
+ *   Formula: 0.50 * relevance_norm + 0.35 * price_score + 0.15 * rating_norm
+ *   - relevance_norm: existing _score normalized to 0-100
+ *   - price_score: percentile rank inverted (cheapest = 100, most expensive = 0)
+ *   - rating_norm: rating/5 * 100
  */
 export function postSortItems<T extends { 
   priceUsd?: number | null;
@@ -231,6 +240,7 @@ export function postSortItems<T extends {
   rating?: number | null;
   updatedAt?: string | null;
   updated_at?: string | null;
+  _score?: number;
 }>(
   items: T[],
   sort: SortOption
@@ -238,6 +248,44 @@ export function postSortItems<T extends {
   const sorted = [...items];
   
   switch (sort) {
+    case 'smart': {
+      if (sorted.length === 0) return sorted;
+
+      // Gather numeric ranges for normalization
+      const prices = sorted.map(i => i.priceUsd ?? i.price_usd ?? 0).filter(p => p > 0);
+      const scores = sorted.map(i => (i as any)._score ?? 0);
+      const minPrice = Math.min(...prices, 1);
+      const maxPrice = Math.max(...prices, 1);
+      const maxScore = Math.max(...scores, 1);
+      const priceRange = maxPrice - minPrice || 1;
+
+      // Compute composite smart score for each item
+      const withSmartScore = sorted.map(item => {
+        const price = item.priceUsd ?? item.price_usd ?? 0;
+        const relevance = (item as any)._score ?? 0;
+        const rating = item.rating ?? 0;
+
+        // Normalize relevance: 0-100 based on max score in result set
+        const relevanceNorm = maxScore > 0 ? (relevance / maxScore) * 100 : 50;
+
+        // Price competitiveness: cheapest = 100, most expensive = 0
+        const priceScore = price > 0
+          ? (1 - (price - minPrice) / priceRange) * 100
+          : 0;
+
+        // Rating normalized: 0-100
+        const ratingNorm = (rating / 5) * 100;
+
+        // Weighted composite: relevance-heavy but rewards low price
+        const smartScore = 0.50 * relevanceNorm + 0.35 * priceScore + 0.15 * ratingNorm;
+
+        return { item, smartScore };
+      });
+
+      // Sort descending by smart score
+      withSmartScore.sort((a, b) => b.smartScore - a.smartScore);
+      return withSmartScore.map(s => s.item);
+    }
     case 'price_asc':
       return sorted.sort((a, b) => {
         const priceA = a.priceUsd ?? a.price_usd ?? 0;

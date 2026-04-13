@@ -754,7 +754,11 @@ export function scoreAndRankItems<T extends Record<string, unknown>>(
   // Sort descending
   scored.sort((a, b) => b.score - a.score);
 
-  const topItems = scored.slice(0, limit).map(s => s.item);
+  // Attach _score to each item for downstream use (e.g., smart sort composite)
+  const topItems = scored.slice(0, limit).map(s => {
+    (s.item as any)._score = s.score;
+    return s.item;
+  });
   const topScores = scored.slice(0, 5).map(s => s.score);
 
   // Log top 10 debug info for device-family queries

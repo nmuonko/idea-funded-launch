@@ -281,7 +281,7 @@ Deno.serve(async (req: Request) => {
     console.log(`[CATALOG_SEARCH] requestId=${requestId} env_auto_fallback: ${envName} → ${effectiveEnv}`);
   }
 
-  const sortParam = url.searchParams.get("sort") || "price_asc";
+  const sortParam = url.searchParams.get("sort") || "smart";
   const sort = validateSort(sortParam);
   const filtersParam = url.searchParams.get("filters") || null;
   const catalogFilters = parseFilters(filtersParam);
@@ -1676,7 +1676,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Sort (only if explicit sort requested — scoring already ranks by relevance)
+    // Sort: smart and explicit sorts always apply; pure relevance uses scorer order
     if (sort !== "relevance") {
       finalItems = postSortItems(finalItems, sort) as typeof finalItems;
     }

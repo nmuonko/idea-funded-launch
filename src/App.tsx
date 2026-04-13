@@ -184,6 +184,7 @@ const App = () => {
             <Route path="/cart" element={<ShopCart />} />
             <Route path="/paste-link" element={<PasteLink />} />
             <Route path="/hot-products" element={<HotProducts />} />
+            <Route path="/hot-products/:id" element={<HotProductBuy />} />
             <Route path="/saved" element={<SavedItems />} />
             <Route path="/my-orders" element={
               <ShopProtectedRoute>

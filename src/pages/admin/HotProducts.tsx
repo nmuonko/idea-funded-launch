@@ -630,9 +630,24 @@ export default function HotProducts() {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => recalcDefaults(p.id)}>
-                        ↻ {t('Reset to defaults', 'Réinitialiser')}
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => recalcDefaults(p.id)}>
+                          ↻ {t('Reset to defaults', 'Réinitialiser')}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-7 gap-1"
+                          onClick={() => {
+                            const url = `${window.location.origin}/checkout?hp=${p.id}`;
+                            navigator.clipboard.writeText(url);
+                            toast.success(t('Link copied!', 'Lien copié !'));
+                          }}
+                        >
+                          <Link2 className="h-3 w-3" />
+                          {t('Copy Link', 'Copier le lien')}
+                        </Button>
+                      </div>
                       <div className="flex items-center gap-2 bg-primary/10 rounded px-3 py-1.5 border border-primary/20">
                         <Label className="text-sm font-bold">{t('Total', 'Total')}:</Label>
                         <span className="text-lg font-bold text-primary">${p.total_price_usd.toFixed(2)}</span>

@@ -552,28 +552,30 @@ export default function Checkout() {
     processCheckout();
   };
 
-  // Build fallback items from router state (hot product link) when cart hasn't hydrated yet
+  // Build fallback items from shared hot product (URL param or router state)
   const hotProductFallbackItems = useMemo(() => {
-    const state = location.state as any;
-    if (!state?.hotProduct) return [];
-    const hp = state.hotProduct;
-    const hpUrl = state.hotProductUrl;
+    if (!sharedHotProduct) return [];
+    const hpUrl = buildHotProductSourceUrl(sharedHotProduct);
     return [{
-      id: `hp_${hp.id}`,
-      productId: hp.provider_product_id || hpUrl || hp.id,
-      provider: hp.provider,
-      title: hp.title,
-      imageUrl: hp.image_url,
-      priceUsd: hp.total_price_usd,
+      id: `local_hp_${sharedHotProduct.id}`,
+      productId: sharedHotProduct.provider_product_id || hpUrl || sharedHotProduct.id,
+      provider: sharedHotProduct.provider,
+      title: sharedHotProduct.title,
+      imageUrl: sharedHotProduct.image_url,
+      priceUsd: sharedHotProduct.total_price_usd,
       quantity: 1,
       productUrl: hpUrl,
       isFixedPrice: true,
-      itemTotalUsd: hp.total_price_usd,
+      itemTotalUsd: sharedHotProduct.total_price_usd,
     }];
-  }, [location.state]);
+  }, [sharedHotProduct]);
+
+  // Effective checkout items: use cart items if available, otherwise hot product fallback
+  const effectiveCheckoutItems = checkoutItems.length > 0 ? checkoutItems : hotProductFallbackItems;
+  const effectiveCheckoutTotal = checkoutItems.length > 0 ? checkoutTotal : (sharedHotProduct?.total_price_usd ?? 0);
 
   // Wait only for auth hydration before evaluating checkout access.
-  if (!isAuthReady) {
+  if (!isAuthReady || loadingSharedProduct) {
     return (
       <div className="min-h-screen bg-black">
         <ShopHeader />

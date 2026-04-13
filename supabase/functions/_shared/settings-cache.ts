@@ -102,6 +102,22 @@ async function fetchFreshSettings(supabase: any): Promise<CachedSettings> {
     console.error('[settings-cache] CRITICAL: No exchange rate in settings table! Using emergency fallback.');
   }
   
+  // Parse protection settings with safe defaults
+  const protection: ProtectionSettings = {
+    minProfitUsd: settings?.min_profit_usd ?? DEFAULT_PROTECTION.minProfitUsd,
+    minProfitPercent: settings?.min_profit_percent ?? DEFAULT_PROTECTION.minProfitPercent,
+    operationalBufferPercent: settings?.operational_buffer_percent ?? DEFAULT_PROTECTION.operationalBufferPercent,
+    exchangeRateBufferPercent: settings?.exchange_rate_buffer_percent ?? DEFAULT_PROTECTION.exchangeRateBufferPercent,
+    riskBufferPercent: settings?.risk_buffer_percent ?? DEFAULT_PROTECTION.riskBufferPercent,
+    paymentFeePercent: settings?.payment_fee_percent ?? DEFAULT_PROTECTION.paymentFeePercent,
+    paymentFeeFixedUsd: settings?.payment_fee_fixed_usd ?? DEFAULT_PROTECTION.paymentFeeFixedUsd,
+    priceRoundingMode: settings?.price_rounding_mode ?? DEFAULT_PROTECTION.priceRoundingMode,
+    emergencyProtectionPercent: settings?.emergency_protection_percent ?? DEFAULT_PROTECTION.emergencyProtectionPercent,
+    lowMarginBlockThresholdUsd: settings?.low_margin_block_threshold_usd ?? DEFAULT_PROTECTION.lowMarginBlockThresholdUsd,
+    stalePriceMaxHours: settings?.stale_price_max_hours ?? DEFAULT_PROTECTION.stalePriceMaxHours,
+    categoryProtectionOverrides: (settings?.category_protection_overrides || {}) as Record<string, CategoryOverride>,
+  };
+
   settingsCache = {
     exchangeRate: dbExchangeRate || 2500,
     markupPercent,
@@ -112,6 +128,7 @@ async function fetchFreshSettings(supabase: any): Promise<CachedSettings> {
     serviceFeePercent,
     minServiceFeeUsd: settings?.min_service_fee_usd ?? 5,
     vehiclePricingTiers: parseTiers(settings?.vehicle_pricing_tiers),
+    protection,
     fetchedAt: now,
   };
   

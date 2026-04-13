@@ -295,6 +295,9 @@ export default function ShopHome() {
         })
         .filter((p): p is Product => p !== null);
 
+      // Resolve prices server-side
+      await applyServerPrices(mapped);
+
       if (append) {
         setStoreProducts(prev => {
           const combined = [...prev, ...mapped];

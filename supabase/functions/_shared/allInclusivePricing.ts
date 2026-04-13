@@ -117,6 +117,8 @@ export async function loadPricingSettings(): Promise<PricingSettings> {
 }
 
 // Default category for items that don't match any specific category
+// NOTE: This is only used when shippingCategories are loaded from DB.
+// When no categories exist, the legacy fallback (flat+percent) is used instead.
 const DEFAULT_CATEGORY: ShippingCategoryRow = {
   key: 'console_medium',
   est_weight_kg: 6,

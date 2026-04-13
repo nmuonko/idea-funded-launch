@@ -338,8 +338,8 @@ export async function getOrCreateSingleDraftOrder(
 export async function updateOrderTotals(
   supabase: any,
   orderId: string,
-  shippingBaseFeeUsd: number,
-  shippingPercent: number,
+  _shippingBaseFeeUsd: number,  // deprecated, kept for call-site compat
+  _shippingPercent: number,      // deprecated, kept for call-site compat
   exchangeRate: number
 ): Promise<OrderTotals | null> {
   // Query all items including vehicle flags, stored shipping, and shipping category info
@@ -447,10 +447,11 @@ export async function updateOrderTotals(
         };
         regularShippingFeeUsd += calculateWeightBasedShippingFee(catInfo, shippingRatePerKg, Number(item.quantity || 1));
       } else {
-        // Fallback: legacy formula for items without category
-        const normalizedPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
-        const itemBase = Number(item.base_price_usd || 0);
-        regularShippingFeeUsd += round2(shippingBaseFeeUsd / regularItemCount + (itemBase * normalizedPercent));
+        // Fallback: use default category (0.5kg, 25% buffer) for items without category
+        const fallbackCat: ShippingCategoryInfo = {
+          est_weight_kg: 0.5, flat_shipping_usd: null, shipping_buffer_percent: 25, requires_manual_quote: false,
+        };
+        regularShippingFeeUsd += calculateWeightBasedShippingFee(fallbackCat, shippingRatePerKg, Number(item.quantity || 1));
       }
     });
     regularShippingFeeUsd = round2(regularShippingFeeUsd);

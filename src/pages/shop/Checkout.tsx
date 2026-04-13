@@ -192,6 +192,7 @@ export default function Checkout() {
   const didAttemptRestoreRef = useRef(false);
   useEffect(() => {
     if (didAttemptRestoreRef.current) return;
+    if (hotProductId) { didAttemptRestoreRef.current = true; return; }
     if (!initialized) return;
 
     if (!cartLoading && items.length === 0) {

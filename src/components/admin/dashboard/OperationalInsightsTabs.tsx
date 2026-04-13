@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Truck, CreditCard, ShoppingBag, Activity, Database } from 'lucide-react';
+import { Truck, CreditCard, ShoppingBag, Activity, Database, DollarSign } from 'lucide-react';
 import { ShippingMetrics } from './ShippingMetrics';
 import { PaymentsBreakdown } from './PaymentsBreakdown';
 import { SavedCartsReport } from './SavedCartsReport';
 import { CatalogStatsTab } from './CatalogStatsWidget';
+import { ProfitStatsTab } from './ProfitStatsTab';
 import type { DateRange } from './DateRangeFilter';
 
 interface OperationalInsightsTabsProps {

@@ -82,7 +82,7 @@ const CATEGORY_KEYWORDS: Record<ShippingCategoryKey, { keywords: string[]; weigh
 
   // Small Electronics (0.7 kg) - phones, watches, cameras, earbuds
   'small_electronics': [
-    { keywords: ['iphone', 'galaxy s', 'pixel phone', 'smartphone', 'cell phone', 'mobile phone'], weight: 1.5 },
+    { keywords: ['iphone', 'galaxy s', 'pixel phone', 'smartphone', 'cell phone', 'mobile phone', 'unlocked phone'], weight: 1.5 },
     { keywords: ['airpods', 'earbuds', 'écouteurs', 'buds', 'earpods'], weight: 1.3 },
     { keywords: ['apple watch', 'smartwatch', 'galaxy watch', 'fitbit', 'garmin'], weight: 1.3 },
     { keywords: ['gopro', 'action camera', 'dash cam', 'dashcam', 'webcam'], weight: 1.2 },
@@ -305,8 +305,9 @@ function normalizeText(text: string): string {
  */
 function containsKeyword(text: string, keyword: string): boolean {
   const normalizedKeyword = normalizeText(keyword);
-  // Use word boundary matching for more accuracy
-  const regex = new RegExp(`\\b${normalizedKeyword.replace(/\s+/g, '\\s+')}\\b`, 'i');
+  // Use word-start boundary matching — allow keyword to be a prefix of longer words
+  // e.g. "galaxy s" should match "galaxy s21", "galaxy s24 ultra", etc.
+  const regex = new RegExp(`\\b${normalizedKeyword.replace(/\s+/g, '\\s+')}`, 'i');
   return regex.test(text);
 }
 

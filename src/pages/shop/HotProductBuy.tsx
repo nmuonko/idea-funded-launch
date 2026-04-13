@@ -106,7 +106,7 @@ export default function HotProductBuy() {
       if (!alreadyInCart) {
         const addedFlag = `${HP_ADDED_KEY}${product.id}`;
         if (sessionStorage.getItem(addedFlag)) {
-          navigate('/checkout', { replace: true });
+          navigate('/checkout', { replace: true, state: { hotProduct: product, hotProductUrl: productUrl } });
           return;
         }
         sessionStorage.setItem(addedFlag, '1');
@@ -122,7 +122,7 @@ export default function HotProductBuy() {
         });
       }
 
-      navigate('/checkout', { replace: true });
+      navigate('/checkout', { replace: true, state: { hotProduct: product, hotProductUrl: productUrl } });
     } catch (error) {
       console.error('Failed to prepare hot product checkout:', error);
       setPreparingCheckout(false);

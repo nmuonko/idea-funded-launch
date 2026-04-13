@@ -109,6 +109,7 @@ import CardPayment from "./pages/shop/CardPayment";
 import PasteLink from "./pages/shop/PasteLink";
 import ShopPaymentSuccess from "./pages/shop/PaymentSuccess";
 import HotProducts from "./pages/shop/HotProducts";
+import HotProductBuy from "./pages/shop/HotProductBuy";
 
 // Suspense fallback for lazy-loaded routes
 function LazyFallback() {

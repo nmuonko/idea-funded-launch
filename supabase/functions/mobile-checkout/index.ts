@@ -2347,7 +2347,18 @@ serve(async (req) => {
     // INLINE PROVIDER SELECTION: If provider is specified in request body,
     // call select-payment-provider server-to-server to eliminate fragile 3rd frontend call
     // ============================================
-    const inlineProvider = (body.provider || '').toLowerCase();
+    // AUTO-INFER provider for standard orders: MOBILE_MONEY → pawapay, CARD → stripe
+    // This eliminates the need for a separate select-payment-provider call
+    let inlineProvider = (body.provider || '').toLowerCase();
+    if (!inlineProvider && !isLargeOrder) {
+      if (REQUESTED_METHOD === 'MOBILE_MONEY' && paymentSettings.pawapay_enabled) {
+        inlineProvider = 'pawapay';
+        console.log('[CHECKOUT_INLINE_PROVIDER] Auto-inferred provider=pawapay from MOBILE_MONEY method');
+      } else if (REQUESTED_METHOD === 'CARD' && paymentSettings.stripe_enabled) {
+        inlineProvider = 'stripe';
+        console.log('[CHECKOUT_INLINE_PROVIDER] Auto-inferred provider=stripe from CARD method');
+      }
+    }
     const inlinePhone = body.phone || validatedPhone;
     const inlineOperator = body.operator || '';
 

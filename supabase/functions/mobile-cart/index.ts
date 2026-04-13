@@ -977,7 +977,38 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     await sharedUpdateOrderTotals(adminClient, draft.id, settings.shippingBaseFeeUsd, settings.shippingPercent, settings.exchangeRate);
   } catch (e) { console.warn(`[CART_ADD] ${correlationId} Failed to update totals:`, (e as Error).message); }
 
-  const response = buildItemResponse(itemId, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, merged, effectiveMarkup);
+  const protectionOpts = { categoryKey: detectedCategoryData?.category ?? null, isVehicle: isVehicleDetected, requiresManualQuote };
+  const response = buildItemResponse(itemId, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, merged, effectiveMarkup, settings.protection, protectionOpts);
+
+  // Fire-and-forget: Log pricing protection audit
+  try {
+    const protection = (response as any).pricing_protection;
+    if (protection) {
+      const adminClient = createAdminClient();
+      const auditEntry = buildAuditLogEntry(
+        {
+          sourceCostUsd: pricing.itemBaseTotalUsd,
+          shippingUsedUsd: shippingFeeUsd,
+          markupAppliedUsd: pricing.itemMarginUsd,
+          paymentFeeEstimateUsd: 0, operationalBufferUsd: 0, exchangeBufferUsd: 0,
+          riskBufferUsd: 0, emergencyBufferUsd: 0, minProfitFloorApplied: protection.min_profit_floor_applied,
+          targetProfitUsd: 0, rawTotalUsd: 0,
+          totalProtectionUsd: protection.total_protection_usd,
+          safeFinalPriceUsd: Number(response.lineTotalUsd),
+          safeFinalPriceCdf: Number(response.lineTotalCdf),
+          profitUsd: protection.profit_usd, marginPercent: protection.margin_percent,
+          pricingStatus: protection.status, pricingConfidence: protection.confidence,
+          requiresManualReview: protection.requires_review, reasonCodes: protection.reason_codes,
+          categoryKey: detectedCategoryData?.category ?? null,
+        },
+        draft.id, itemId, productUrl,
+      );
+      adminClient.from('pricing_audit_log').insert(auditEntry).then(({ error: auditErr }) => {
+        if (auditErr) console.warn(`[CART_ADD] audit log failed: ${auditErr.message}`);
+      });
+    }
+  } catch (e) { console.warn(`[CART_ADD] audit log error:`, (e as Error).message); }
+
   console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=200 orderId=${draft.id} itemId=${itemId} merged=${merged} elapsedMs=${Date.now() - startTime}`);
   return jsonResponse({ success: true, merged, isGuest: false, item: response, orderId: draft.id, isVehicle: isVehicleDetected, requiresQuote: requiresManualQuote });
 }

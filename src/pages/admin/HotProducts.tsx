@@ -125,6 +125,13 @@ export default function HotProducts() {
   const [viewingCampaignId, setViewingCampaignId] = useState<string | null>(null);
   const [loadingLogs, setLoadingLogs] = useState(false);
 
+  // Add to Catalog state
+  const [catalogUrl, setCatalogUrl] = useState('');
+  const [catalogCategory, setCatalogCategory] = useState('');
+  const [catalogExtracting, setCatalogExtracting] = useState(false);
+  const [catalogResult, setCatalogResult] = useState<any>(null);
+  const [catalogHistory, setCatalogHistory] = useState<Array<{ title: string; provider: string; price: number; imageUrl: string; cached: boolean; url: string }>>([]);
+
   useEffect(() => {
     loadShowcase();
     loadCampaigns();

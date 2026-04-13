@@ -578,15 +578,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         },
       });
 
+      const buildSignUpError = (message: string, code?: string | null) => {
+        const authError = new Error(message) as Error & { code?: string };
+        if (code) authError.code = code;
+        return authError;
+      };
+
+      const extractFunctionError = async (invokeError: any) => {
+        const fallbackMessage = 'Registration failed. Please try again.';
+        const fallbackCode = invokeError?.code || null;
+        const responseContext = invokeError?.context;
+
+        if (responseContext?.clone) {
+          try {
+            const payload = await responseContext.clone().json();
+            return {
+              message: payload?.message || payload?.error || fallbackMessage,
+              code: payload?.code || payload?.error_code || fallbackCode,
+            };
+          } catch {
+            try {
+              const rawText = await responseContext.clone().text();
+              if (rawText) {
+                try {
+                  const payload = JSON.parse(rawText);
+                  return {
+                    message: payload?.message || payload?.error || fallbackMessage,
+                    code: payload?.code || payload?.error_code || fallbackCode,
+                  };
+                } catch {
+                  return { message: rawText, code: fallbackCode };
+                }
+              }
+            } catch {
+              // ignore parse failures and use fallback below
+            }
+          }
+        }
+
+        return {
+          message: response.data?.message || invokeError?.message || fallbackMessage,
+          code: response.data?.code || invokeError?.code || fallbackCode,
+        };
+      };
+
       if (response.error) {
         console.error('[Auth] Registration edge function error:', response.error);
-        const errorMessage = response.data?.message || response.error.message || 'Registration failed. Please try again.';
+        const { message, code } = await extractFunctionError(response.error);
         toast({
           title: 'Error',
-          description: errorMessage,
+          description: message,
           variant: 'destructive',
         });
-        return { error: new Error(errorMessage) };
+        return { error: buildSignUpError(message, code) };
       }
 
       const result = response.data;
@@ -598,7 +642,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           description: result.message || 'Registration failed. Please try again.',
           variant: 'destructive',
         });
-        return { error: new Error(result.message) };
+        return { error: buildSignUpError(result.message || 'Registration failed. Please try again.', result.code || result.error_code) };
       }
 
       console.log('[Auth] Registration successful, user ID:', result.userId);

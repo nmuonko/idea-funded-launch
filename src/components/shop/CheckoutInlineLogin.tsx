@@ -59,15 +59,22 @@ export function CheckoutInlineLogin({ language, shop, cartItems = [] }: Checkout
 
       if (result?.error) {
         const msg = result.error.message || '';
-        if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already exists') || msg.toLowerCase().includes('user already')) {
+        const errorCode = (result.error as any)?.code || '';
+        if (
+          errorCode === 'USER_EXISTS' ||
+          msg.toLowerCase().includes('already registered') ||
+          msg.toLowerCase().includes('already exists') ||
+          msg.toLowerCase().includes('user already')
+        ) {
           setError(isFr
             ? 'Ce compte existe déjà. Connectez-vous ci-dessous.'
             : 'This account already exists. Please sign in below.');
-          setLoginEmail(email);
+          setLoginEmail(email.trim());
           setMode('login');
         } else {
           setError(msg || (isFr ? 'Échec de l\'inscription' : 'Registration failed'));
         }
+        return;
       }
       // On success, AuthContext sets the session → parent re-renders with checkout UI
     } catch (err: any) {

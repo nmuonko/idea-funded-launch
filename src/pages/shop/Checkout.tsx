@@ -32,6 +32,7 @@ interface ShippingAddress {
 
 export default function Checkout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const { 
     items, loading: cartLoading, initialized, totalUsd, savePendingCheckout, restoreFromPendingCheckout, 

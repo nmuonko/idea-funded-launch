@@ -466,18 +466,40 @@ export default function Checkout() {
     );
   }
 
+  // Build fallback items from router state (hot product link) when cart hasn't hydrated yet
+  const hotProductFallbackItems = useMemo(() => {
+    const state = location.state as any;
+    if (!state?.hotProduct) return [];
+    const hp = state.hotProduct;
+    const hpUrl = state.hotProductUrl;
+    return [{
+      id: `hp_${hp.id}`,
+      productId: hp.provider_product_id || hpUrl || hp.id,
+      provider: hp.provider,
+      title: hp.title,
+      imageUrl: hp.image_url,
+      priceUsd: hp.total_price_usd,
+      quantity: 1,
+      productUrl: hpUrl,
+      isFixedPrice: true,
+      itemTotalUsd: hp.total_price_usd,
+    }];
+  }, [location.state]);
+
   if (!session) {
-    // items may still be empty if cart context hasn't hydrated yet — fall back to localStorage
+    // items may still be empty if cart context hasn't hydrated yet — fall back to localStorage, then router state
     const displayItems = items.length > 0 ? items : (() => {
       try {
         const raw = localStorage.getItem('afrishop_cart');
-        return raw ? JSON.parse(raw) : [];
-      } catch { return []; }
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (parsed.length > 0) return parsed;
+      } catch { /* ignore */ }
+      return hotProductFallbackItems;
     })();
     return <CheckoutInlineLogin language={language} shop={shop} cartItems={displayItems} />;
   }
 
-  if (checkoutItems.length === 0) {
+  if (checkoutItems.length === 0 && hotProductFallbackItems.length === 0) {
     return (
       <div className="min-h-screen bg-black">
         <ShopHeader />

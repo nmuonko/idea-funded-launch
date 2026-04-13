@@ -26,7 +26,11 @@ export function OperationalInsightsTabs({ dateRange }: OperationalInsightsTabsPr
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4 bg-muted/50 mb-4">
+          <TabsList className="grid w-full grid-cols-5 bg-muted/50 mb-4">
+            <TabsTrigger value="profit" className="gap-2 text-sm">
+              <DollarSign className="h-4 w-4" />
+              <span className="hidden sm:inline">Profit</span>
+            </TabsTrigger>
             <TabsTrigger value="shipping" className="gap-2 text-sm">
               <Truck className="h-4 w-4" />
               <span className="hidden sm:inline">Shipping</span>
@@ -44,6 +48,9 @@ export function OperationalInsightsTabs({ dateRange }: OperationalInsightsTabsPr
               <span className="hidden sm:inline">Catalog</span>
             </TabsTrigger>
           </TabsList>
+          <TabsContent value="profit" className="mt-0">
+            {activeTab === 'profit' && <ProfitStatsTab embedded />}
+          </TabsContent>
           <TabsContent value="shipping" className="mt-0">
             {activeTab === 'shipping' && <ShippingMetrics dateRange={dateRange} embedded />}
           </TabsContent>

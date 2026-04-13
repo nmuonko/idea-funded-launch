@@ -90,7 +90,7 @@ export function PasteBreakdownCard({
         <>
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">{isFr ? 'Prix total' : 'Total Price'}</span>
-            <span className="text-foreground font-medium">${totalUsd.toFixed(2)}</span>
+            <span className="text-foreground font-medium">{totalUsd != null ? `$${totalUsd.toFixed(2)}` : '…'}</span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">{isFr ? 'Frais de service' : 'Service Fee'}</span>
@@ -110,7 +110,7 @@ export function PasteBreakdownCard({
             <div className="flex justify-between text-base font-semibold">
               <span className="text-foreground">Total</span>
               <div className="text-right">
-                <div className="text-primary">${totalUsd.toFixed(2)}</div>
+                <div className="text-primary">{totalUsd != null ? `$${totalUsd.toFixed(2)}` : '…'}</div>
                 <div className="text-xs text-muted-foreground font-normal">
                   ≈ {Math.round(totalCdf).toLocaleString()} CDF
                 </div>

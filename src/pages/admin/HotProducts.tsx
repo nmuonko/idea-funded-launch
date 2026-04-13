@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink } from 'lucide-react';
+import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { calculateShippingUsd } from '@/lib/shippingCalculation';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -134,6 +134,11 @@ export default function HotProducts() {
   const [catalogManualPrice, setCatalogManualPrice] = useState('');
   const [catalogHistory, setCatalogHistory] = useState<Array<{ title: string; provider: string; price: number; imageUrl: string; cached: boolean; url: string }>>([]);
 
+  // Link Generator state
+  const [linkGenUrl, setLinkGenUrl] = useState('');
+  const [linkGenExtracting, setLinkGenExtracting] = useState(false);
+  const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; total_price_usd: number; checkoutUrl: string }>>([]);
+  const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   useEffect(() => {
     loadShowcase();
     loadCampaigns();
@@ -326,7 +331,60 @@ export default function HotProducts() {
     setCatalogExtracting(false);
   }
 
-  function removeProduct(id: string) {
+  async function generateCheckoutLink() {
+    if (!linkGenUrl.trim()) return;
+    setLinkGenExtracting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('extract-price', {
+        body: { url: linkGenUrl.trim(), forceRefresh: true },
+      });
+      if (error || !data) { toast.error('Failed to extract product'); setLinkGenExtracting(false); return; }
+      const basePrice = data.basePrice || data.price || data.priceUsd || 0;
+      const imageUrl = toHighResImage(data.imageUrl || data.image || '');
+      const title = data.title || data.name || 'Product';
+      const prov = data.provider || inferProvider(linkGenUrl.trim()) || 'external';
+      const pid = data.providerId || inferProductId(linkGenUrl.trim()) || '';
+      const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings);
+
+      // Save directly to hot_products_showcase as a standalone entry
+      await supabase.auth.refreshSession();
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (!currentUser) { toast.error('Session expired'); setLinkGenExtracting(false); return; }
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from('hot_products_showcase')
+        .insert({
+          title,
+          image_url: imageUrl,
+          price_usd: basePrice,
+          markup_usd: Math.round(markup * 100) / 100,
+          shipping_usd: Math.round(shipping * 100) / 100,
+          total_price_usd: total,
+          product_url: (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : linkGenUrl.trim(),
+          provider: prov,
+          provider_product_id: pid,
+          sort_order: 99,
+          is_active: true,
+          created_by: currentUser.id,
+        })
+        .select('id')
+        .single();
+
+      if (insertErr || !inserted) { toast.error('Failed to save: ' + (insertErr?.message || '')); setLinkGenExtracting(false); return; }
+
+      const checkoutUrl = `${window.location.origin}/checkout?hp=${inserted.id}`;
+      setGeneratedLinks(prev => [{ id: inserted.id, title, image_url: imageUrl, total_price_usd: total, checkoutUrl }, ...prev]);
+      setLinkGenUrl('');
+      navigator.clipboard.writeText(checkoutUrl);
+      setCopiedLinkId(inserted.id);
+      setTimeout(() => setCopiedLinkId(null), 3000);
+      toast.success(t('Link generated & copied!', 'Lien généré et copié !'));
+    } catch {
+      toast.error('Failed to generate link');
+    }
+    setLinkGenExtracting(false);
+  }
+
     setShowcaseProducts(prev => prev.filter(p => p.id !== id));
   }
 
@@ -483,10 +541,14 @@ export default function HotProducts() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="storefront" className="gap-2">
             <ShoppingBag className="h-4 w-4" />
             {t('Storefront', 'Vitrine')}
+          </TabsTrigger>
+          <TabsTrigger value="link-gen" className="gap-2">
+            <LinkIcon className="h-4 w-4" />
+            {t('Link Generator', 'Générateur de lien')}
           </TabsTrigger>
           <TabsTrigger value="add-catalog" className="gap-2">
             <PackagePlus className="h-4 w-4" />
@@ -639,6 +701,10 @@ export default function HotProducts() {
                           size="sm"
                           className="text-xs h-7 gap-1"
                           onClick={() => {
+                            if (p.id.startsWith('new-')) {
+                              toast.error(t('Save to Storefront first to generate the link', 'Sauvegardez d\'abord pour générer le lien'));
+                              return;
+                            }
                             const url = `${window.location.origin}/checkout?hp=${p.id}`;
                             navigator.clipboard.writeText(url);
                             toast.success(t('Link copied!', 'Lien copié !'));
@@ -670,6 +736,65 @@ export default function HotProducts() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* ====== LINK GENERATOR TAB ====== */}
+        <TabsContent value="link-gen" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <LinkIcon className="h-5 w-5" />
+                {t('Generate Checkout Link', 'Générer un lien de paiement')}
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                {t('Paste any product URL from Amazon, Walmart, eBay, etc. to generate a unique checkout link you can share.', 'Collez un lien produit Amazon, Walmart, eBay, etc. pour générer un lien de paiement unique à partager.')}
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="https://www.amazon.com/dp/B0..."
+                  value={linkGenUrl}
+                  onChange={e => setLinkGenUrl(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && generateCheckoutLink()}
+                />
+                <Button onClick={generateCheckoutLink} disabled={linkGenExtracting || !linkGenUrl.trim()}>
+                  {linkGenExtracting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LinkIcon className="h-4 w-4 mr-2" />}
+                  {t('Generate', 'Générer')}
+                </Button>
+              </div>
+
+              {generatedLinks.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-muted-foreground">{t('Generated Links', 'Liens générés')}</h4>
+                  {generatedLinks.map(link => (
+                    <div key={link.id} className="flex items-center gap-3 p-3 border rounded-lg">
+                      {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{link.title}</p>
+                        <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(2)} · {t('All inclusive', 'Tout inclus')}</p>
+                        <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 gap-1.5"
+                        onClick={() => {
+                          navigator.clipboard.writeText(link.checkoutUrl);
+                          setCopiedLinkId(link.id);
+                          setTimeout(() => setCopiedLinkId(null), 3000);
+                          toast.success(t('Copied!', 'Copié !'));
+                        }}
+                      >
+                        {copiedLinkId === link.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                        {copiedLinkId === link.id ? t('Copied', 'Copié') : t('Copy', 'Copier')}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* ====== TAB 2: EMAIL CAMPAIGNS ====== */}

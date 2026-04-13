@@ -541,10 +541,14 @@ export default function HotProducts() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="storefront" className="gap-2">
             <ShoppingBag className="h-4 w-4" />
             {t('Storefront', 'Vitrine')}
+          </TabsTrigger>
+          <TabsTrigger value="link-gen" className="gap-2">
+            <LinkIcon className="h-4 w-4" />
+            {t('Link Generator', 'Générateur de lien')}
           </TabsTrigger>
           <TabsTrigger value="add-catalog" className="gap-2">
             <PackagePlus className="h-4 w-4" />

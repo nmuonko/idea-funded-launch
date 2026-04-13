@@ -30,6 +30,34 @@ interface ShippingAddress {
   country: string;
 }
 
+interface HotProductCheckoutData {
+  id: string;
+  title: string;
+  image_url: string;
+  total_price_usd: number;
+  provider: string;
+  provider_product_id?: string;
+  product_url?: string;
+}
+
+const buildHotProductSourceUrl = (product: HotProductCheckoutData) => {
+  if (product.product_url) return product.product_url;
+
+  const provider = (product.provider || '').toLowerCase();
+  const rawId = product.provider_product_id?.trim();
+  if (!rawId) return null;
+
+  if (provider === 'ebay') {
+    const ebayItemId = rawId.startsWith('v1|') ? rawId.split('|')[1] || rawId : rawId;
+    return `https://www.ebay.com/itm/${ebayItemId}`;
+  }
+
+  let cleanId = rawId;
+  if (cleanId.toLowerCase().startsWith('amazon_')) cleanId = cleanId.slice(7);
+  if (cleanId.toLowerCase().startsWith('rainforest_')) cleanId = cleanId.slice(11);
+  return `https://www.amazon.com/dp/${cleanId.toUpperCase()}`;
+};
+
 export default function Checkout() {
   const navigate = useNavigate();
   const location = useLocation();

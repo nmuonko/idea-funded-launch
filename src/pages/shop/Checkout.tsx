@@ -65,13 +65,83 @@ export default function Checkout() {
   const { 
     items, loading: cartLoading, initialized, totalUsd, savePendingCheckout, restoreFromPendingCheckout, 
     vehicleQuoteStatus, serverTotalUsd,
-    selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment
+    selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment,
+    addItem
   } = useShopCart();
   const { user, session, isAuthReady } = useAuth();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
   const sessionUser = session?.user ?? user;
+
+  // --- Hot product from URL query param (survives refresh & sharing) ---
+  const hotProductId = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('hp') || null;
+  }, [location.search]);
+
+  const [sharedHotProduct, setSharedHotProduct] = useState<HotProductCheckoutData | null>(() => {
+    const state = location.state as any;
+    return state?.hotProduct ?? null;
+  });
+  const [loadingSharedProduct, setLoadingSharedProduct] = useState(!!hotProductId && !(location.state as any)?.hotProduct);
+  const hotProductHydratedRef = useRef(false);
+
+  // Fetch hot product from DB when we only have the URL param (no router state)
+  useEffect(() => {
+    if (!hotProductId || sharedHotProduct) {
+      setLoadingSharedProduct(false);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { data } = await supabase
+          .from('hot_products_showcase')
+          .select('id, title, image_url, total_price_usd, provider, provider_product_id, product_url')
+          .eq('id', hotProductId)
+          .eq('is_active', true)
+          .single();
+        if (!cancelled && data) setSharedHotProduct(data as HotProductCheckoutData);
+      } catch (e) {
+        console.error('[CHECKOUT] Failed to fetch shared hot product:', e);
+      } finally {
+        if (!cancelled) setLoadingSharedProduct(false);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [hotProductId, sharedHotProduct]);
+
+  // Auto-add hot product to cart once (so processCheckout can use real cart items)
+  useEffect(() => {
+    if (!sharedHotProduct || hotProductHydratedRef.current || !initialized) return;
+    hotProductHydratedRef.current = true;
+
+    const hpUrl = buildHotProductSourceUrl(sharedHotProduct);
+    if (!hpUrl) return;
+
+    // Check if already in cart
+    const alreadyInCart = items.some(i =>
+      i.productUrl?.trim().toLowerCase() === hpUrl.trim().toLowerCase()
+    );
+    if (alreadyInCart) return;
+
+    const addedFlag = `hp_added_checkout_${sharedHotProduct.id}`;
+    if (sessionStorage.getItem(addedFlag)) return;
+    sessionStorage.setItem(addedFlag, '1');
+
+    void addItem({
+      productId: sharedHotProduct.provider_product_id || hpUrl,
+      provider: sharedHotProduct.provider,
+      title: sharedHotProduct.title,
+      imageUrl: sharedHotProduct.image_url,
+      priceUsd: sharedHotProduct.total_price_usd,
+      quantity: 1,
+      productUrl: hpUrl,
+      isFixedPrice: true,
+    });
+  }, [sharedHotProduct, initialized, items, addItem]);
   
   const [loading, setLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);

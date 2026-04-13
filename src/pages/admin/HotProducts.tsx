@@ -385,6 +385,7 @@ export default function HotProducts() {
     setLinkGenExtracting(false);
   }
 
+  function removeProduct(id: string) {
     setShowcaseProducts(prev => prev.filter(p => p.id !== id));
   }
 

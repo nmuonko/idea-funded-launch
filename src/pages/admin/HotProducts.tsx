@@ -130,6 +130,8 @@ export default function HotProducts() {
   const [catalogCategory, setCatalogCategory] = useState('');
   const [catalogExtracting, setCatalogExtracting] = useState(false);
   const [catalogResult, setCatalogResult] = useState<any>(null);
+  const [catalogManualTitle, setCatalogManualTitle] = useState('');
+  const [catalogManualPrice, setCatalogManualPrice] = useState('');
   const [catalogHistory, setCatalogHistory] = useState<Array<{ title: string; provider: string; price: number; imageUrl: string; cached: boolean; url: string }>>([]);
 
   useEffect(() => {

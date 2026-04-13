@@ -869,7 +869,8 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   let pricing = cartPricingCalc(basePriceUsd, quantity, effectiveMarkup, settings.exchangeRate);
 
   if (isGuest) {
-    const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup);
+    const protectionOpts = { categoryKey: detectedCategoryData?.category ?? null, isVehicle: isVehicleDetected, requiresManualQuote };
+    const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup, settings.protection, protectionOpts);
     console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=false user_id=guest deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=false responseStatus=200 isGuest=true`);
     return jsonResponse({ success: true, isGuest: true, item: response, isVehicle: isVehicleDetected, requiresQuote: requiresManualQuote });
   }

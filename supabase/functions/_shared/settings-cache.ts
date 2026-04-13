@@ -66,7 +66,7 @@ async function fetchFreshSettings(supabase: any): Promise<CachedSettings> {
   // Fetch fresh settings - select only needed columns
   const { data: settings, error } = await supabase
     .from('settings')
-    .select('exchange_rate_usd_to_cdf, markup_percent, global_markup_percent, shipping_base_fee_usd, shipping_percent, shipping_rate_per_kg, service_fee_percent, min_service_fee_usd, category_markups, vehicle_pricing_tiers')
+    .select('exchange_rate_usd_to_cdf, markup_percent, global_markup_percent, shipping_base_fee_usd, shipping_percent, shipping_rate_per_kg, service_fee_percent, min_service_fee_usd, category_markups, vehicle_pricing_tiers, min_profit_usd, min_profit_percent, operational_buffer_percent, exchange_rate_buffer_percent, risk_buffer_percent, payment_fee_percent, payment_fee_fixed_usd, price_rounding_mode, emergency_protection_percent, low_margin_block_threshold_usd, stale_price_max_hours, category_protection_overrides')
     .limit(1)
     .maybeSingle();
 

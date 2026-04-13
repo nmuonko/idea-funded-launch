@@ -466,7 +466,14 @@ export default function Checkout() {
   }
 
   if (!session) {
-    return <CheckoutInlineLogin language={language} shop={shop} cartItems={items} />;
+    // items may still be empty if cart context hasn't hydrated yet — fall back to localStorage
+    const displayItems = items.length > 0 ? items : (() => {
+      try {
+        const raw = localStorage.getItem('afrishop_cart');
+        return raw ? JSON.parse(raw) : [];
+      } catch { return []; }
+    })();
+    return <CheckoutInlineLogin language={language} shop={shop} cartItems={displayItems} />;
   }
 
   if (checkoutItems.length === 0) {

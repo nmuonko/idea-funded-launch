@@ -6520,6 +6520,14 @@ export type Database = {
         Args: { base_price_usd: number; quantity?: number }
         Returns: number
       }
+      compute_display_price_with_category: {
+        Args: {
+          base_price_usd: number
+          p_category_key?: string
+          quantity?: number
+        }
+        Returns: number
+      }
       compute_display_prices: {
         Args: { base_prices: number[] }
         Returns: number[]

@@ -269,13 +269,14 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user]);
 
-  // Persist cart to localStorage ONLY for guest users as backup
+  // Persist cart to localStorage for ALL users as safety backup
+  // This prevents items from vanishing on page refresh, auth token changes, or server sync failures
   useEffect(() => {
-    if (initialized && !user) {
+    if (initialized && items.length > 0) {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
-      console.log('[CART] persisted items=', items.length, 'key=', CART_STORAGE_KEY);
     }
-  }, [items, initialized, user]);
+    // Don't clear localStorage when items=0 — could be transient server error
+  }, [items, initialized]);
 
   // Save wishlist to localStorage
   useEffect(() => {

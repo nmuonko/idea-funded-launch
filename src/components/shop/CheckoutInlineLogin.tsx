@@ -5,11 +5,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { useAuth } from '@/contexts/AuthContext';
+import { formatCurrency } from '@/lib/formatCurrency';
+import type { CartItem } from '@/contexts/ShopCartContext';
 
 
 interface CheckoutInlineLoginProps {
   language: string;
   shop: Record<string, string>;
+  cartItems?: CartItem[];
 }
 
 /**
@@ -18,7 +21,7 @@ interface CheckoutInlineLoginProps {
  * without OTP so it feels like a guest checkout.
  * Also supports existing users who can toggle to a login form.
  */
-export function CheckoutInlineLogin({ language, shop }: CheckoutInlineLoginProps) {
+export function CheckoutInlineLogin({ language, shop, cartItems = [] }: CheckoutInlineLoginProps) {
   const { signIn, signUp } = useAuth();
   const [mode, setMode] = useState<'guest' | 'login'>('guest');
 
@@ -99,20 +102,70 @@ export function CheckoutInlineLogin({ language, shop }: CheckoutInlineLoginProps
   return (
     <div className="min-h-screen bg-black">
       <ShopHeader />
-      <div className="pt-24 px-4 max-w-sm mx-auto pb-12">
-        <div className="text-center mb-6">
-          <ShoppingBag className="h-10 w-10 text-blue-400 mx-auto mb-3" />
-          <h2 className="text-lg font-semibold text-white">
-            {mode === 'guest'
-              ? (isFr ? 'Finaliser votre commande' : 'Complete your order')
-              : (isFr ? 'Se connecter' : 'Sign in')}
-          </h2>
-          <p className="text-sm text-white/50 mt-1">
-            {mode === 'guest'
-              ? (isFr ? 'Entrez vos coordonnées pour continuer' : 'Enter your details to continue')
-              : (isFr ? 'Connectez-vous à votre compte' : 'Sign in to your account')}
-          </p>
-        </div>
+      <div className="pt-24 px-4 max-w-4xl mx-auto pb-12">
+        <div className="flex flex-col lg:flex-row gap-8">
+          {/* Product summary — left/top */}
+          {cartItems.length > 0 && (
+            <div className="lg:w-1/2 space-y-4">
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <ShoppingBag className="h-5 w-5 text-blue-400" />
+                {isFr ? 'Votre commande' : 'Your order'}
+              </h2>
+              <div className="space-y-3">
+                {cartItems.map((item) => (
+                  <div key={item.id} className="flex gap-4 rounded-xl bg-white/5 border border-white/10 p-3">
+                    <img
+                      src={item.imageUrl}
+                      alt={item.title}
+                      className="w-24 h-24 rounded-lg object-contain bg-white flex-shrink-0"
+                      loading="lazy"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white font-medium line-clamp-2">{item.title}</p>
+                      <p className="text-xs text-white/50 mt-1">
+                        {isFr ? 'Quantité' : 'Qty'}: {item.quantity}
+                      </p>
+                      <p className="text-base font-bold text-blue-400 mt-2">
+                        {formatCurrency(item.isFixedPrice ? item.priceUsd : (item.itemTotalUsd || item.priceUsd), { currency: 'USD' })}
+                      </p>
+                      {item.isFixedPrice && (
+                        <span className="inline-block mt-1 text-[10px] text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">
+                          {isFr ? 'Livraison incluse' : 'Shipping included'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {cartItems.length > 0 && (
+                <div className="flex justify-between items-center pt-3 border-t border-white/10">
+                  <span className="text-white/60 text-sm">{isFr ? 'Total' : 'Total'}</span>
+                  <span className="text-white font-bold text-lg">
+                    {formatCurrency(
+                      cartItems.reduce((sum, i) => sum + (i.isFixedPrice ? i.priceUsd : (i.itemTotalUsd || i.priceUsd)) * i.quantity, 0),
+                      { currency: 'USD' }
+                    )}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Form — right/bottom */}
+          <div className={cartItems.length > 0 ? 'lg:w-1/2' : 'w-full max-w-sm mx-auto'}>
+            <div className="text-center mb-6">
+              <ShoppingBag className="h-10 w-10 text-blue-400 mx-auto mb-3" />
+              <h2 className="text-lg font-semibold text-white">
+                {mode === 'guest'
+                  ? (isFr ? 'Finaliser votre commande' : 'Complete your order')
+                  : (isFr ? 'Se connecter' : 'Sign in')}
+              </h2>
+              <p className="text-sm text-white/50 mt-1">
+                {mode === 'guest'
+                  ? (isFr ? 'Entrez vos coordonnées pour continuer' : 'Enter your details to continue')
+                  : (isFr ? 'Connectez-vous à votre compte' : 'Sign in to your account')}
+              </p>
+            </div>
 
         {mode === 'guest' ? (
           <form onSubmit={handleGuestCheckout} className="space-y-3">
@@ -300,6 +353,8 @@ export function CheckoutInlineLogin({ language, shop }: CheckoutInlineLoginProps
             </p>
           </form>
         )}
+          </div>
+        </div>
       </div>
     </div>
   );

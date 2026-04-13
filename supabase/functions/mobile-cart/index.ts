@@ -283,7 +283,7 @@ function formatItem(
   const priceSource = item.price_source ?? null;
   const capturedPrice = item.captured_price ?? null;
   const hasPendingPriceConfirmation = String(priceConfirmationStatus || '').toUpperCase().trim() === 'PENDING';
-  const safeImageUrl = normalizeImageUrl(item.product_image_url, item.product_url);
+  const safeImageUrl = sanitizeImageUrl(item.product_image_url) ?? normalizeImageUrl(item.product_image_url, item.product_url);
   const imageCount = mediaInfo?.image_count ?? 1;
   const imageCountStatus = mediaInfo?.image_count_status ?? "pending";
   

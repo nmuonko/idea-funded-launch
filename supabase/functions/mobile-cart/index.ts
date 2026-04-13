@@ -82,19 +82,6 @@ import { updateOrderTotals as sharedUpdateOrderTotals } from "../_shared/cartHel
 
 // ─── Shared Helpers ───────────────────────────────────────
 
-const HEAVY_THRESHOLD_KG = 9;
-const EXTRA_PER_KG_USD = 8;
-
-function calculateItemShipping(
-  subtotalUsd: number, estWeightKg: number,
-  shippingBaseFeeUsd: number, shippingPercent: number
-): number {
-  const normalizedPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
-  const basePart = shippingBaseFeeUsd + (subtotalUsd * normalizedPercent);
-  const extraWeight = Math.max(0, estWeightKg - 1);
-  const extraPart = extraWeight * EXTRA_PER_KG_USD;
-  return round2(basePart + extraPart);
-}
 
 /**
  * Fetch LIVE base price from provider API (Rainforest for Amazon, eBay API for eBay).

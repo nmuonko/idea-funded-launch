@@ -36,6 +36,7 @@ import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { calculateVehicleFinalPrice, parseTiers } from "../_shared/vehiclePricing.ts";
 import { normalizeCategorySlug, getCategoryLabel, determineShippingCategory } from "../_shared/shippingCategory.ts";
 import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
+import { sanitizeImageUrl } from "../_shared/imageValidator.ts";
 import { lookupCartItemMediaCounts } from "../_shared/mediaCache.ts";
 import { 
   calculateItemPricing, 
@@ -282,7 +283,7 @@ function formatItem(
   const priceSource = item.price_source ?? null;
   const capturedPrice = item.captured_price ?? null;
   const hasPendingPriceConfirmation = String(priceConfirmationStatus || '').toUpperCase().trim() === 'PENDING';
-  const safeImageUrl = normalizeImageUrl(item.product_image_url, item.product_url);
+  const safeImageUrl = sanitizeImageUrl(item.product_image_url) ?? normalizeImageUrl(item.product_image_url, item.product_url);
   const imageCount = mediaInfo?.image_count ?? 1;
   const imageCountStatus = mediaInfo?.image_count_status ?? "pending";
   

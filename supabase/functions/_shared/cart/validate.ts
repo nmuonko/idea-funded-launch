@@ -19,6 +19,7 @@ export const ALLOWED_DOMAINS = [
   'macys.com', 'www.macys.com', 'm.macys.com',
   'mercari.com', 'www.mercari.com',
   'wayfair.com', 'www.wayfair.com',
+  'afrishop-usa.com', 'www.afrishop-usa.com',
 ];
 
 // Input validation interface

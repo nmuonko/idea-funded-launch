@@ -30,6 +30,16 @@ function jsonRes(data: unknown, status = 200) {
   });
 }
 
+function registerError(message: string, code: string, extra: Record<string, unknown> = {}) {
+  return jsonRes({
+    ok: false,
+    success: false,
+    message,
+    code,
+    ...extra,
+  }, 200);
+}
+
 function createServiceClient() {
   return createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -157,16 +167,20 @@ async function handleRegister(body: any, req: Request) {
   if (!email || !email.trim()) missing.push('email');
   if (!password || !password.trim()) missing.push('password');
   if (!fullName || !fullName.trim()) missing.push('fullName');
-  if (missing.length) return jsonRes({ ok: false, message: `Missing required fields: ${missing.join(', ')}`, missingFields: missing }, 400);
+  if (missing.length) {
+    return registerError(`Missing required fields: ${missing.join(', ')}`, 'MISSING_FIELDS', {
+      missingFields: missing,
+    });
+  }
   if (!country) console.log('[auth-service:register] country missing in payload, defaulting to DR Congo for mobile compatibility');
 
-  if (!validateEmail(email.trim())) return jsonRes({ ok: false, message: 'Invalid email format' }, 400);
-  if (phoneNumber && !validatePhone(phoneNumber.trim())) return jsonRes({ ok: false, message: 'Invalid phone number. Must be between 8 and 15 digits.' }, 400);
-  if (password.length < 6) return jsonRes({ ok: false, message: 'Password must be at least 6 characters long' }, 400);
-  if (fullName.trim().length > 100) return jsonRes({ ok: false, message: 'Full name must be less than 100 characters' }, 400);
-  if (addressLine1 && addressLine1.trim().length > 200) return jsonRes({ ok: false, message: 'Address line 1 must be less than 200 characters' }, 400);
-  if (addressLine2 && addressLine2.trim().length > 200) return jsonRes({ ok: false, message: 'Address line 2 must be less than 200 characters' }, 400);
-  if (city && city.trim().length > 100) return jsonRes({ ok: false, message: 'City must be less than 100 characters' }, 400);
+  if (!validateEmail(email.trim())) return registerError('Invalid email format', 'INVALID_EMAIL');
+  if (phoneNumber && !validatePhone(phoneNumber.trim())) return registerError('Invalid phone number. Must be between 8 and 15 digits.', 'INVALID_PHONE');
+  if (password.length < 6) return registerError('Password must be at least 6 characters long', 'INVALID_PASSWORD');
+  if (fullName.trim().length > 100) return registerError('Full name must be less than 100 characters', 'INVALID_FULL_NAME');
+  if (addressLine1 && addressLine1.trim().length > 200) return registerError('Address line 1 must be less than 200 characters', 'INVALID_ADDRESS_LINE1');
+  if (addressLine2 && addressLine2.trim().length > 200) return registerError('Address line 2 must be less than 200 characters', 'INVALID_ADDRESS_LINE2');
+  if (city && city.trim().length > 100) return registerError('City must be less than 100 characters', 'INVALID_CITY');
 
   const supabaseAdmin = createServiceClient();
   const defaultBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
@@ -218,15 +232,19 @@ async function handleRegister(body: any, req: Request) {
       }
       
       console.log('[auth-service:register] Existing user sign-in FAILED:', signInErr?.message || 'no session');
-      return jsonRes({ 
-        success: false, ok: false, 
-        message: 'This email is already registered. Please sign in instead, or check your password.', 
-        message_fr: 'Cet email est déjà enregistré. Veuillez vous connecter ou vérifier votre mot de passe.',
-        code: 'USER_EXISTS' 
-      }, 409);
+      return registerError(
+        'This email is already registered. Please sign in instead, or check your password.',
+        'USER_EXISTS',
+        {
+          message_fr: 'Cet email est déjà enregistré. Veuillez vous connecter ou vérifier votre mot de passe.',
+        },
+      );
     }
     console.error('[auth-service:register] Unhandled createUser error:', authError.message);
-    return jsonRes({ ok: false, success: false, message: 'We could not create your account. Please check your information and try again.' }, 400);
+    return registerError(
+      'We could not create your account. Please check your information and try again.',
+      'REGISTER_FAILED',
+    );
   }
 
   // Verification email skipped — auto-confirm is enabled
@@ -270,13 +288,15 @@ async function handleRegister(body: any, req: Request) {
   if (signInError || !sessionData?.session) {
     // NEVER return success:true without a real session — mobile app depends on token
     console.error('[auth-service:register] FINAL FAILURE — no session obtained. Error:', signInError?.message || 'no session');
-    return jsonRes({
-      success: false, ok: false,
-      error: signInError?.message || 'Account created but session could not be established. Please try logging in.',
-      error_fr: 'Compte créé mais la session n\'a pas pu être établie. Veuillez essayer de vous connecter.',
-      code: 'SESSION_FAILED',
-      userId,
-    }, 500);
+    return registerError(
+      signInError?.message || 'Account created but session could not be established. Please try logging in.',
+      'SESSION_FAILED',
+      {
+        error: signInError?.message || 'Account created but session could not be established. Please try logging in.',
+        error_fr: 'Compte créé mais la session n\'a pas pu être établie. Veuillez essayer de vous connecter.',
+        userId,
+      },
+    );
   }
 
   return jsonRes({

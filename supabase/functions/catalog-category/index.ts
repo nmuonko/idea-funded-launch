@@ -67,14 +67,16 @@ const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 // The DB has items spread across many sub-category values (phones, computers, etc.)
 // When browsing a parent tab like "electronics", we must include ALL child values.
 const CATEGORY_UNIFIED_VALUES: Record<string, string[]> = {
-  electronics: ["electronics", "phones", "computers", "chargers", "audio", "tablets", "monitors", "electronics_phones", "electronics_computers", "electronics_audio"],
+  electronics: ["electronics", "computers", "audio", "tablets", "monitors", "electronics_computers", "electronics_audio"],
   electronics_phones: ["phones", "electronics_phones"],
   electronics_computers: ["computers", "electronics_computers", "tablets", "monitors"],
   electronics_gaming: ["gaming", "electronics_gaming"],
   electronics_cameras: ["cameras_photo"],
   electronics_audio: ["audio", "electronics_audio", "audio_music"],
+  phones: ["phones", "electronics_phones"],
   home_garden: ["home_garden", "home"],
   clothing_shoes_accessories: ["clothing_shoes_accessories", "clothing"],
+  clothing: ["clothing_shoes_accessories", "clothing"],
   toys: ["toys"],
   sporting_goods: ["sporting_goods"],
   jewelry_watches: ["jewelry_watches"],
@@ -84,6 +86,7 @@ const CATEGORY_UNIFIED_VALUES: Record<string, string[]> = {
   vehicles: ["vehicles"],
   // Kitchen appliances (new category replacing toys on mobile)
   kitchen: ["home_garden", "home"],
+  gaming: ["gaming", "electronics_gaming"],
 };
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 200;

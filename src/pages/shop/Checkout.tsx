@@ -242,7 +242,7 @@ export default function Checkout() {
     }
 
     // TikTok Pixel + Server: InitiateCheckout
-    trackInitiateCheckout(checkoutTotal, {
+    trackInitiateCheckout(effectiveCheckoutTotal, {
       email: sessionUser?.email ?? undefined,
       userId: sessionUser?.id ?? undefined,
     });
@@ -279,7 +279,7 @@ export default function Checkout() {
       };
 
       // Step 1: Ensure any visible local-only items are persisted to the backend cart first
-      const localOnlyCheckoutItems = checkoutItems.filter(item => item.id.startsWith('local_'));
+      const localOnlyCheckoutItems = effectiveCheckoutItems.filter(item => item.id.startsWith('local_'));
       if (localOnlyCheckoutItems.length > 0) {
         console.log('[WEB_CHECKOUT] Sync fallback: persisting local-only items before order creation...', localOnlyCheckoutItems.length);
 
@@ -307,7 +307,7 @@ export default function Checkout() {
       }
 
       // Step 2: Create/update DRAFT order from cart items
-      const selectedCartItemIds = checkoutItems.map(i => i.id).filter(id => !id.startsWith('local_'));
+      const selectedCartItemIds = effectiveCheckoutItems.map(i => i.id).filter(id => !id.startsWith('local_'));
       console.log('[WEB_CHECKOUT] Step 1: Creating order from cart... selectedIds=', selectedCartItemIds.length);
       
       const { data: orderData, error: orderError } = await supabase.functions.invoke(
@@ -535,7 +535,7 @@ export default function Checkout() {
     } finally {
       setLoading(false);
     }
-  }, [checkoutItems, checkoutTotal, paymentMethod, address, sessionUser, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal, language]);
+  }, [effectiveCheckoutItems, effectiveCheckoutTotal, paymentMethod, address, sessionUser, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal, language]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

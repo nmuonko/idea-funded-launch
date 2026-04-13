@@ -38,17 +38,18 @@ export function calculateItemPricing(
   };
 }
 
-// Dynamic shipping calculation: base + (percentage × items subtotal)
-// SAFEGUARD: Normalizes shippingPercent regardless of storage format
-// If shippingPercent > 1, it's stored as percent (10) so divide by 100
-// Otherwise treat as decimal (0.10)
+// Weight-based shipping calculation (replaces legacy flat+percent formula)
+// Parameters kept for backward call-site compatibility; baseFee and percent are ignored.
 export function calculateShipping(
   itemsSubtotal: number, 
-  shippingBaseFee: number, 
-  shippingPercent: number
+  _shippingBaseFee: number, 
+  _shippingPercent: number,
+  shippingRatePerKg: number = 20,
 ): number {
-  const normalizedPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
-  return round2(shippingBaseFee + (itemsSubtotal * normalizedPercent));
+  // Use default fallback category: 0.5kg, 25% buffer
+  const baseShipping = 0.5 * shippingRatePerKg;
+  const bufferMultiplier = 1.25;
+  return round2(baseShipping * bufferMultiplier);
 }
 
 // Detect store from URL

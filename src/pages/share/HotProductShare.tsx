@@ -25,7 +25,7 @@ export default function HotProductShare() {
   const [product, setProduct] = useState<ShareProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeImage, setActiveImage] = useState(0);
-
+  const [viewerOpen, setViewerOpen] = useState(false);
   useEffect(() => {
     if (!id) return;
     (async () => {

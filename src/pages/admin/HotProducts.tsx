@@ -94,9 +94,6 @@ interface GeneratedLink {
   gallery_images: string[];
 }
 
-const SHARE_PREVIEW_BUCKET = 'product-images';
-const SHARE_PREVIEW_FOLDER = 'share-previews';
-
 function toHighResImage(url: string): string {
   if (!url) return url;
   if (url.includes('amazon.com') || url.includes('media-amazon.com')) {
@@ -109,14 +106,6 @@ function toHighResImage(url: string): string {
     return url.replace(/\/s-l\d+\./, '/s-l1600.');
   }
   return url;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }
 
 function normalizeShareText(value: string | null | undefined): string {
@@ -154,81 +143,18 @@ function getSharePreviewDescription(link: Pick<GeneratedLink, 'description_fr' |
   return `Prix: $${Math.ceil(link.total_price_usd)} · Livraison en RDC incluse`;
 }
 
-function getSharePreviewPath(id: string): string {
-  return `${SHARE_PREVIEW_FOLDER}/${id}.html`;
-}
+const PUBLISHED_DOMAIN = 'https://afrishop-usa.com';
 
-function getSharePreviewPublicUrl(id: string): string {
-  return supabase.storage.from(SHARE_PREVIEW_BUCKET).getPublicUrl(getSharePreviewPath(id)).data.publicUrl;
-}
-
-function buildSharePreviewHtml(
-  link: Pick<GeneratedLink, 'id' | 'title' | 'image_url' | 'total_price_usd' | 'description_fr' | 'gallery_images'>,
-  publicShareUrl: string,
-): string {
-  const ogTitle = escapeHtml(getSharePreviewTitle(link));
-  const ogDescription = escapeHtml(getSharePreviewDescription(link));
-  const ogImage = escapeHtml(getSharePreviewImage(link));
-  const shareUrl = escapeHtml(publicShareUrl);
-  const redirectUrl = escapeHtml(`${window.location.origin}/share/hp/${link.id}`);
-
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${ogTitle}</title>
-<meta name="description" content="${ogDescription}" />
-<meta name="robots" content="noindex, nofollow" />
-<link rel="canonical" href="${shareUrl}" />
-<meta property="og:type" content="website" />
-<meta property="og:site_name" content="AfriShop" />
-<meta property="og:locale" content="fr_FR" />
-<meta property="og:title" content="${ogTitle}" />
-<meta property="og:description" content="${ogDescription}" />
-<meta property="og:image" content="${ogImage}" />
-<meta property="og:image:secure_url" content="${ogImage}" />
-<meta property="og:image:alt" content="${ogTitle}" />
-<meta property="og:url" content="${shareUrl}" />
-<meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="${ogTitle}" />
-<meta name="twitter:description" content="${ogDescription}" />
-<meta name="twitter:image" content="${ogImage}" />
-<meta http-equiv="refresh" content="0;url=${redirectUrl}" />
-<script>window.location.replace(${JSON.stringify(`${window.location.origin}/share/hp/${link.id}`)});</script>
-</head>
-<body>
-  <p>Redirection vers <a href="${redirectUrl}">AfriShop</a>…</p>
-</body>
-</html>`;
-}
-
-async function publishSharePreview(
-  link: Pick<GeneratedLink, 'id' | 'title' | 'image_url' | 'total_price_usd' | 'description_fr' | 'gallery_images'>,
-): Promise<string> {
-  const version = Date.now();
-  const publicShareUrl = `${getSharePreviewPublicUrl(link.id)}?v=${version}`;
-  const html = buildSharePreviewHtml(link, publicShareUrl);
-  const { error } = await supabase.storage.from(SHARE_PREVIEW_BUCKET).upload(
-    getSharePreviewPath(link.id),
-    new Blob([html], { type: 'text/html; charset=utf-8' }),
-    {
-      upsert: true,
-      cacheControl: '3600',
-      contentType: 'text/html; charset=utf-8',
-    },
-  );
-
-  if (error) throw error;
-  return publicShareUrl;
+function getShareUrl(id: string): string {
+  return `${PUBLISHED_DOMAIN}/share/hp/${id}`;
 }
 
 function buildWhatsAppShareMessage(
   link: Pick<GeneratedLink, 'title' | 'total_price_usd' | 'description_fr'>,
   shareUrl: string,
 ): string {
-  const description = normalizeShareText(link.description_fr) || cleanMarketplaceTitle(link.title) || 'Produit AfriShop';
-  return `${description}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
+  const desc = normalizeShareText(link.description_fr) || cleanMarketplaceTitle(link.title) || 'Produit AfriShop';
+  return `${desc}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
 }
 
 function calcProductTotals(basePrice: number, fees: FeeSettings, productTitle?: string, categoryKey?: string | null): { markup: number; shipping: number; total: number } {

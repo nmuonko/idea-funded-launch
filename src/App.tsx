@@ -398,12 +398,12 @@ const App = () => {
               } />
               {/* search-relevancy route removed */}
               <Route path="referrals" element={
-                <AdminRouteGuard requiredPermission="can_view_payments">
+                <AdminRouteGuard requiredPermission="can_view_marketing">
                   <AdminReferrals />
                 </AdminRouteGuard>
               } />
               <Route path="hot-products" element={
-                <AdminRouteGuard requiredPermission="can_view_settings">
+                <AdminRouteGuard requiredPermission="can_view_marketing">
                   <AdminHotProducts />
                 </AdminRouteGuard>
               } />

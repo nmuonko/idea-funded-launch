@@ -7,8 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon, Pencil, MessageCircle, ImagePlus, X, Upload } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon, Pencil, MessageCircle, ImagePlus, X, Upload, MoreHorizontal, Download, ClipboardCopy, Image as ImageIcon } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { allInclusivePrice, type FeeConfig } from '@/lib/allInclusivePrice';
 import type { ShippingCategoryRow } from '@/lib/shippingCategoryDetector';
 
@@ -170,6 +171,117 @@ function buildWhatsAppShareMessage(
   return `${desc}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
 }
 
+function buildCaption(
+  link: Pick<GeneratedLink, 'title' | 'total_price_usd' | 'description_fr'>,
+  shareUrl: string,
+): string {
+  const desc = normalizeShareText(link.description_fr) || cleanMarketplaceTitle(link.title) || 'Produit AfriShop';
+  return `${desc}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
+}
+
+function supportsClipboardImage(): boolean {
+  return typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
+}
+
+async function fetchImageAsBlob(url: string): Promise<Blob> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Image fetch failed: ${res.status}`);
+  return res.blob();
+}
+
+async function copyImageToClipboard(imageUrl: string): Promise<boolean> {
+  if (!supportsClipboardImage()) return false;
+  try {
+    const blob = await fetchImageAsBlob(imageUrl);
+    // Convert to PNG if needed (ClipboardItem requires image/png)
+    let pngBlob = blob;
+    if (blob.type !== 'image/png') {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const loaded = new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+      });
+      img.src = URL.createObjectURL(blob);
+      await loaded;
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(img.src);
+      pngBlob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('Canvas toBlob failed')), 'image/png'),
+      );
+    }
+    await navigator.clipboard.write([
+      new ClipboardItem({ 'image/png': pngBlob }),
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function copyBothToClipboard(imageUrl: string, caption: string): Promise<'full' | 'text-only' | 'failed'> {
+  if (!supportsClipboardImage()) {
+    try {
+      await navigator.clipboard.writeText(caption);
+      return 'text-only';
+    } catch {
+      return 'failed';
+    }
+  }
+  try {
+    const blob = await fetchImageAsBlob(imageUrl);
+    let pngBlob = blob;
+    if (blob.type !== 'image/png') {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const loaded = new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+      });
+      img.src = URL.createObjectURL(blob);
+      await loaded;
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(img.src);
+      pngBlob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/png'),
+      );
+    }
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'image/png': pngBlob,
+        'text/plain': new Blob([caption], { type: 'text/plain' }),
+      }),
+    ]);
+    return 'full';
+  } catch {
+    try {
+      await navigator.clipboard.writeText(caption);
+      return 'text-only';
+    } catch {
+      return 'failed';
+    }
+  }
+}
+
+function downloadImage(imageUrl: string, filename: string) {
+  const a = document.createElement('a');
+  a.href = imageUrl;
+  a.download = filename;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 function calcProductTotals(basePrice: number, fees: FeeSettings, productTitle?: string, categoryKey?: string | null): { markup: number; shipping: number; total: number } {
   const feeConfig: FeeConfig = {
     markupPercent: fees.markupPercent,
@@ -250,6 +362,7 @@ export default function HotProducts() {
   const [newEditImageUrl, setNewEditImageUrl] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [whatsappPreviewLink, setWhatsappPreviewLink] = useState<string | null>(null);
+  const [imageFallbackModal, setImageFallbackModal] = useState<{ imageUrl: string; caption: string; title: string } | null>(null);
 
   async function uploadProductImage(file: File, target: 'extract' | 'edit') {
     setUploadingImage(true);
@@ -1449,16 +1562,8 @@ export default function HotProducts() {
                                 </a>
                               )}
                             </div>
-                          <div className="flex gap-1.5 shrink-0">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="gap-1.5"
-                              title={t('Preview WhatsApp', 'Aperçu WhatsApp')}
-                              onClick={() => setWhatsappPreviewLink(whatsappPreviewLink === link.id ? null : link.id)}
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                            </Button>
+                          <div className="flex gap-1.5 shrink-0 flex-wrap">
+                            {/* WhatsApp Share (default) */}
                             <Button
                               variant="outline"
                               size="sm"
@@ -1467,27 +1572,98 @@ export default function HotProducts() {
                               onClick={() => { void handleShareOnWhatsApp(link); }}
                             >
                               <MessageCircle className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">{t('WhatsApp', 'WhatsApp')}</span>
                             </Button>
-                            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => startEditLink(link)}>
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
+                            {/* Copy Caption */}
                             <Button
                               variant="outline"
                               size="sm"
                               className="gap-1.5"
+                              title={t('Copy caption text', 'Copier le texte')}
                               onClick={() => {
-                                navigator.clipboard.writeText(getShareUrl(link.id));
-                                setCopiedLinkId(link.id);
-                                setTimeout(() => setCopiedLinkId(null), 3000);
-                                toast.success(t('Copied!', 'Copié !'));
+                                const caption = buildCaption(link, getShareUrl(link.id));
+                                navigator.clipboard.writeText(caption);
+                                toast.success(t('Caption copied', 'Texte copié'));
                               }}
                             >
-                              {copiedLinkId === link.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                              {copiedLinkId === link.id ? t('Copied', 'Copié') : t('Copy', 'Copier')}
+                              <ClipboardCopy className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">{t('Caption', 'Texte')}</span>
                             </Button>
-                            <Button variant="ghost" size="sm" className="text-destructive" onClick={() => deleteLinkGenProduct(link.id)}>
-                              <Trash2 className="h-3.5 w-3.5" />
+                            {/* Copy Image */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5"
+                              title={t('Copy product image', 'Copier l\'image')}
+                              onClick={async () => {
+                                const imgUrl = link.gallery_images?.[0] || link.image_url;
+                                if (!imgUrl) { toast.error(t('No image available', 'Aucune image disponible')); return; }
+                                if (!supportsClipboardImage()) {
+                                  setImageFallbackModal({
+                                    imageUrl: imgUrl,
+                                    caption: buildCaption(link, getShareUrl(link.id)),
+                                    title: link.title,
+                                  });
+                                  return;
+                                }
+                                const ok = await copyImageToClipboard(imgUrl);
+                                if (ok) toast.success(t('Image copied', 'Image copiée'));
+                                else {
+                                  setImageFallbackModal({
+                                    imageUrl: imgUrl,
+                                    caption: buildCaption(link, getShareUrl(link.id)),
+                                    title: link.title,
+                                  });
+                                }
+                              }}
+                            >
+                              <ImageIcon className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">{t('Image', 'Image')}</span>
                             </Button>
+                            {/* More dropdown */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" className="gap-1">
+                                  <MoreHorizontal className="h-3.5 w-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => setWhatsappPreviewLink(whatsappPreviewLink === link.id ? null : link.id)}>
+                                  <Eye className="h-3.5 w-3.5 mr-2" />
+                                  {t('Preview WhatsApp', 'Aperçu WhatsApp')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={async () => {
+                                  const imgUrl = link.gallery_images?.[0] || link.image_url;
+                                  const caption = buildCaption(link, getShareUrl(link.id));
+                                  if (!imgUrl) { toast.error(t('No image', 'Pas d\'image')); return; }
+                                  const result = await copyBothToClipboard(imgUrl, caption);
+                                  if (result === 'full') toast.success(t('Image + caption copied', 'Image + texte copiés'));
+                                  else if (result === 'text-only') toast.success(t('Caption copied (image not supported)', 'Texte copié (image non supportée)'));
+                                  else toast.error(t('Copy failed', 'Échec de la copie'));
+                                }}>
+                                  <Copy className="h-3.5 w-3.5 mr-2" />
+                                  {t('Copy Both (Experimental)', 'Copier les deux (Expérimental)')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => {
+                                  navigator.clipboard.writeText(getShareUrl(link.id));
+                                  setCopiedLinkId(link.id);
+                                  setTimeout(() => setCopiedLinkId(null), 3000);
+                                  toast.success(t('Link copied!', 'Lien copié !'));
+                                }}>
+                                  <Link2 className="h-3.5 w-3.5 mr-2" />
+                                  {t('Copy Link', 'Copier le lien')}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => startEditLink(link)}>
+                                  <Pencil className="h-3.5 w-3.5 mr-2" />
+                                  {t('Edit', 'Modifier')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="text-destructive" onClick={() => deleteLinkGenProduct(link.id)}>
+                                  <Trash2 className="h-3.5 w-3.5 mr-2" />
+                                  {t('Delete', 'Supprimer')}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                           </div>
                           {/* Gallery thumbnails preview */}
@@ -1844,6 +2020,53 @@ export default function HotProducts() {
           <HotProductAnalytics />
         </TabsContent>
       </Tabs>
+
+      {/* Image Fallback Modal */}
+      <Dialog open={!!imageFallbackModal} onOpenChange={(open) => !open && setImageFallbackModal(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('Save & Share Image', 'Enregistrer et partager l\'image')}</DialogTitle>
+          </DialogHeader>
+          {imageFallbackModal && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  'Image clipboard copy is not supported on this browser. Long-press (mobile) or right-click (desktop) the image to save it, then paste into WhatsApp.',
+                  'La copie d\'image n\'est pas supportée sur ce navigateur. Appuyez longuement (mobile) ou clic droit (PC) sur l\'image pour l\'enregistrer, puis collez dans WhatsApp.'
+                )}
+              </p>
+              <img
+                src={imageFallbackModal.imageUrl}
+                alt={imageFallbackModal.title}
+                className="w-full max-h-[400px] object-contain rounded-lg border bg-white"
+              />
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => {
+                    navigator.clipboard.writeText(imageFallbackModal.caption);
+                    toast.success(t('Caption copied', 'Texte copié'));
+                  }}
+                >
+                  <ClipboardCopy className="h-3.5 w-3.5" />
+                  {t('Copy Caption', 'Copier le texte')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => downloadImage(imageFallbackModal.imageUrl, `${imageFallbackModal.title.slice(0, 30)}.jpg`)}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {t('Download Image', 'Télécharger l\'image')}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

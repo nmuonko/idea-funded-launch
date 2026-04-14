@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react'; // rebuilt
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -7,8 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon, Pencil, MessageCircle, ImagePlus, X, Upload } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon, Pencil, MessageCircle, ImagePlus, X, Upload, MoreHorizontal, Download, ClipboardCopy, Image as ImageIcon } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { allInclusivePrice, type FeeConfig } from '@/lib/allInclusivePrice';
 import type { ShippingCategoryRow } from '@/lib/shippingCategoryDetector';
 
@@ -94,9 +95,6 @@ interface GeneratedLink {
   gallery_images: string[];
 }
 
-const SHARE_PREVIEW_BUCKET = 'product-images';
-const SHARE_PREVIEW_FOLDER = 'share-previews';
-
 function toHighResImage(url: string): string {
   if (!url) return url;
   if (url.includes('amazon.com') || url.includes('media-amazon.com')) {
@@ -109,14 +107,6 @@ function toHighResImage(url: string): string {
     return url.replace(/\/s-l\d+\./, '/s-l1600.');
   }
   return url;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }
 
 function normalizeShareText(value: string | null | undefined): string {
@@ -154,81 +144,141 @@ function getSharePreviewDescription(link: Pick<GeneratedLink, 'description_fr' |
   return `Prix: $${Math.ceil(link.total_price_usd)} · Livraison en RDC incluse`;
 }
 
-function getSharePreviewPath(id: string): string {
-  return `${SHARE_PREVIEW_FOLDER}/${id}.html`;
+function getShareUrl(id: string): string {
+  return `https://afrishop-usa.com/share/hp/${id}`;
 }
 
-function getSharePreviewPublicUrl(id: string): string {
-  return supabase.storage.from(SHARE_PREVIEW_BUCKET).getPublicUrl(getSharePreviewPath(id)).data.publicUrl;
-}
+async function syncSharePreviewPages(ids?: string[]): Promise<boolean> {
+  const { error } = await supabase.functions.invoke('backfill-share-previews', {
+    body: ids && ids.length > 0 ? { ids } : {},
+  });
 
-function buildSharePreviewHtml(
-  link: Pick<GeneratedLink, 'id' | 'title' | 'image_url' | 'total_price_usd' | 'description_fr' | 'gallery_images'>,
-  publicShareUrl: string,
-): string {
-  const ogTitle = escapeHtml(getSharePreviewTitle(link));
-  const ogDescription = escapeHtml(getSharePreviewDescription(link));
-  const ogImage = escapeHtml(getSharePreviewImage(link));
-  const shareUrl = escapeHtml(publicShareUrl);
-  const redirectUrl = escapeHtml(`${window.location.origin}/share/hp/${link.id}`);
+  if (error) {
+    console.error('Failed to sync share preview pages:', error);
+    return false;
+  }
 
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${ogTitle}</title>
-<meta name="description" content="${ogDescription}" />
-<meta name="robots" content="noindex, nofollow" />
-<link rel="canonical" href="${shareUrl}" />
-<meta property="og:type" content="website" />
-<meta property="og:site_name" content="AfriShop" />
-<meta property="og:locale" content="fr_FR" />
-<meta property="og:title" content="${ogTitle}" />
-<meta property="og:description" content="${ogDescription}" />
-<meta property="og:image" content="${ogImage}" />
-<meta property="og:image:secure_url" content="${ogImage}" />
-<meta property="og:image:alt" content="${ogTitle}" />
-<meta property="og:url" content="${shareUrl}" />
-<meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="${ogTitle}" />
-<meta name="twitter:description" content="${ogDescription}" />
-<meta name="twitter:image" content="${ogImage}" />
-<meta http-equiv="refresh" content="0;url=${redirectUrl}" />
-<script>window.location.replace(${JSON.stringify(`${window.location.origin}/share/hp/${link.id}`)});</script>
-</head>
-<body>
-  <p>Redirection vers <a href="${redirectUrl}">AfriShop</a>…</p>
-</body>
-</html>`;
-}
-
-async function publishSharePreview(
-  link: Pick<GeneratedLink, 'id' | 'title' | 'image_url' | 'total_price_usd' | 'description_fr' | 'gallery_images'>,
-): Promise<string> {
-  const version = Date.now();
-  const publicShareUrl = `${getSharePreviewPublicUrl(link.id)}?v=${version}`;
-  const html = buildSharePreviewHtml(link, publicShareUrl);
-  const { error } = await supabase.storage.from(SHARE_PREVIEW_BUCKET).upload(
-    getSharePreviewPath(link.id),
-    new Blob([html], { type: 'text/html; charset=utf-8' }),
-    {
-      upsert: true,
-      cacheControl: '3600',
-      contentType: 'text/html; charset=utf-8',
-    },
-  );
-
-  if (error) throw error;
-  return publicShareUrl;
+  return true;
 }
 
 function buildWhatsAppShareMessage(
   link: Pick<GeneratedLink, 'title' | 'total_price_usd' | 'description_fr'>,
   shareUrl: string,
 ): string {
-  const description = normalizeShareText(link.description_fr) || cleanMarketplaceTitle(link.title) || 'Produit AfriShop';
-  return `${description}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
+  const desc = normalizeShareText(link.description_fr) || cleanMarketplaceTitle(link.title) || 'Produit AfriShop';
+  return `${desc}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
+}
+
+function buildCaption(
+  link: Pick<GeneratedLink, 'title' | 'total_price_usd' | 'description_fr'>,
+  shareUrl: string,
+): string {
+  const desc = normalizeShareText(link.description_fr) || cleanMarketplaceTitle(link.title) || 'Produit AfriShop';
+  const shortDesc = desc.length > 120 ? desc.slice(0, 117).trimEnd() + '…' : desc;
+  return `${shortDesc}\n\n💰 $${Math.ceil(link.total_price_usd)} · Livraison incluse 🇨🇩\n\n👉 ${shareUrl}`;
+}
+
+function supportsClipboardImage(): boolean {
+  return typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
+}
+
+async function fetchImageAsBlob(url: string): Promise<Blob> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Image fetch failed: ${res.status}`);
+  return res.blob();
+}
+
+async function copyImageToClipboard(imageUrl: string): Promise<boolean> {
+  if (!supportsClipboardImage()) return false;
+  try {
+    const blob = await fetchImageAsBlob(imageUrl);
+    // Convert to PNG if needed (ClipboardItem requires image/png)
+    let pngBlob = blob;
+    if (blob.type !== 'image/png') {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const loaded = new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+      });
+      img.src = URL.createObjectURL(blob);
+      await loaded;
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(img.src);
+      pngBlob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('Canvas toBlob failed')), 'image/png'),
+      );
+    }
+    await navigator.clipboard.write([
+      new ClipboardItem({ 'image/png': pngBlob }),
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function copyBothToClipboard(imageUrl: string, caption: string): Promise<'full' | 'text-only' | 'failed'> {
+  if (!supportsClipboardImage()) {
+    try {
+      await navigator.clipboard.writeText(caption);
+      return 'text-only';
+    } catch {
+      return 'failed';
+    }
+  }
+  try {
+    const blob = await fetchImageAsBlob(imageUrl);
+    let pngBlob = blob;
+    if (blob.type !== 'image/png') {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const loaded = new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+      });
+      img.src = URL.createObjectURL(blob);
+      await loaded;
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(img.src);
+      pngBlob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/png'),
+      );
+    }
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'image/png': pngBlob,
+        'text/plain': new Blob([caption], { type: 'text/plain' }),
+      }),
+    ]);
+    return 'full';
+  } catch {
+    try {
+      await navigator.clipboard.writeText(caption);
+      return 'text-only';
+    } catch {
+      return 'failed';
+    }
+  }
+}
+
+function downloadImage(imageUrl: string, filename: string) {
+  const a = document.createElement('a');
+  a.href = imageUrl;
+  a.download = filename;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 function calcProductTotals(basePrice: number, fees: FeeSettings, productTitle?: string, categoryKey?: string | null): { markup: number; shipping: number; total: number } {
@@ -311,6 +361,7 @@ export default function HotProducts() {
   const [newEditImageUrl, setNewEditImageUrl] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [whatsappPreviewLink, setWhatsappPreviewLink] = useState<string | null>(null);
+  const [imageFallbackModal, setImageFallbackModal] = useState<{ imageUrl: string; caption: string; title: string } | null>(null);
 
   async function uploadProductImage(file: File, target: 'extract' | 'edit') {
     setUploadingImage(true);
@@ -570,19 +621,10 @@ export default function HotProducts() {
     }
   }
 
-  async function handleShareOnWhatsApp(link: GeneratedLink) {
-    const popup = window.open('', '_blank');
-    try {
-      const shareUrl = await publishSharePreview(link);
-      const msg = buildWhatsAppShareMessage(link, shareUrl);
-      const waUrl = `https://wa.me/?text=${encodeURIComponent(msg)}`;
-      if (popup) popup.location.href = waUrl;
-      else window.open(waUrl, '_blank');
-    } catch (error) {
-      popup?.close();
-      console.error('Failed to prepare WhatsApp preview:', error);
-      toast.error(t('Unable to prepare WhatsApp preview', 'Impossible de préparer l’aperçu WhatsApp'));
-    }
+  function handleShareOnWhatsApp(link: GeneratedLink) {
+    const shareUrl = getShareUrl(link.id);
+    const msg = buildWhatsAppShareMessage(link, shareUrl);
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   }
 
   async function extractLinkGenProduct() {
@@ -694,12 +736,9 @@ export default function HotProducts() {
         description_fr: linkGenDescFr,
         gallery_images: linkGenExtracted.gallery_images || [],
       };
+      const shareUrl = getShareUrl(inserted.id);
+      const shareSynced = await syncSharePreviewPages([inserted.id]);
       setGeneratedLinks(prev => [savedLink, ...prev]);
-      try {
-        await publishSharePreview(savedLink);
-      } catch (previewError) {
-        console.error('Failed to publish share preview:', previewError);
-      }
       setLinkGenUrl('');
       setLinkGenExtracted(null);
       setLinkGenManualPrice('');
@@ -708,10 +747,14 @@ export default function HotProducts() {
       setLinkGenManualMarkup('');
       setLinkGenManualShipping('');
       setLinkGenDescFr('');
-      navigator.clipboard.writeText(checkoutUrl);
+      if (!shareSynced) {
+        toast.error(t('Product saved, but share page sync failed', 'Produit sauvegardé, mais la page de partage n\'a pas pu être générée'));
+        return;
+      }
+      navigator.clipboard.writeText(shareUrl);
       setCopiedLinkId(inserted.id);
       setTimeout(() => setCopiedLinkId(null), 3000);
-      toast.success(t('Link generated & copied!', 'Lien généré et copié !'));
+      toast.success(t('Share link generated & copied!', 'Lien de partage généré et copié !'));
     } catch {
       toast.error('Failed to generate link');
     }
@@ -770,12 +813,12 @@ export default function HotProducts() {
       image_url: editLinkGallery[0] || existingLink?.image_url || '',
     };
     setGeneratedLinks(prev => prev.map(link => link.id === id ? updatedLink : link));
-    try {
-      await publishSharePreview(updatedLink);
-    } catch (previewError) {
-      console.error('Failed to refresh share preview:', previewError);
-    }
+    const shareSynced = await syncSharePreviewPages([id]);
     setEditingLinkId(null);
+    if (!shareSynced) {
+      toast.error(t('Updated, but share page sync failed', 'Mis à jour, mais la page de partage n\'a pas pu être régénérée'));
+      return;
+    }
     toast.success(t('Updated', 'Mis à jour'));
   }
 
@@ -834,7 +877,12 @@ export default function HotProducts() {
       if (error) { toast.error('Failed: ' + error.message); setSavingShowcase(false); return; }
     }
 
-    toast.success(t('Storefront products saved!', 'Produits vitrine sauvegardés !'));
+    const shareSynced = await syncSharePreviewPages();
+    if (!shareSynced) {
+      toast.error(t('Storefront saved, but share pages failed to refresh', 'La vitrine a été sauvegardée, mais les pages de partage n\'ont pas pu être rafraîchies'));
+    } else {
+      toast.success(t('Storefront products saved!', 'Produits vitrine sauvegardés !'));
+    }
     loadShowcase();
     setSavingShowcase(false);
   }
@@ -1100,7 +1148,7 @@ export default function HotProducts() {
                               toast.error(t('Save to Storefront first to generate the link', 'Sauvegardez d\'abord pour générer le lien'));
                               return;
                             }
-                            const url = `${window.location.origin}/checkout?hp=${p.id}`;
+                            const url = getShareUrl(p.id);
                             navigator.clipboard.writeText(url);
                             toast.success(t('Link copied!', 'Lien copié !'));
                           }}
@@ -1506,88 +1554,89 @@ export default function HotProducts() {
                               <p className="text-sm font-medium truncate">{link.title}</p>
                               {link.description_fr && <p className="text-xs text-muted-foreground truncate">{link.description_fr}</p>}
                               <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(0)} · {t('All inclusive', 'Tout inclus')}</p>
-                              <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
+                              <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{getShareUrl(link.id)}</p>
                               {link.product_url && (
                                 <a href={link.product_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300 truncate mt-0.5 block">
                                   🔗 {t('Original link', 'Lien original')}
                                 </a>
                               )}
                             </div>
-                          <div className="flex gap-1.5 shrink-0">
+                          <div className="flex gap-1.5 shrink-0 flex-wrap">
+                            {/* Copy Caption */}
                             <Button
                               variant="outline"
                               size="sm"
                               className="gap-1.5"
-                              title={t('Preview WhatsApp', 'Aperçu WhatsApp')}
-                              onClick={() => setWhatsappPreviewLink(whatsappPreviewLink === link.id ? null : link.id)}
+                              title={t('Copy caption text', 'Copier le texte')}
+                              onClick={() => {
+                                const caption = buildCaption(link, getShareUrl(link.id));
+                                navigator.clipboard.writeText(caption);
+                                toast.success(t('Caption copied', 'Texte copié'));
+                              }}
                             >
-                              <Eye className="h-3.5 w-3.5" />
+                              <ClipboardCopy className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">{t('Caption', 'Texte')}</span>
                             </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="gap-1.5"
-                              title="Share on WhatsApp"
-                              onClick={() => { void handleShareOnWhatsApp(link); }}
-                            >
-                              <MessageCircle className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => startEditLink(link)}>
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
+                            {/* Copy Link */}
                             <Button
                               variant="outline"
                               size="sm"
                               className="gap-1.5"
                               onClick={() => {
-                                navigator.clipboard.writeText(link.checkoutUrl);
+                                navigator.clipboard.writeText(getShareUrl(link.id));
                                 setCopiedLinkId(link.id);
                                 setTimeout(() => setCopiedLinkId(null), 3000);
-                                toast.success(t('Copied!', 'Copié !'));
+                                toast.success(t('Link copied!', 'Lien copié !'));
                               }}
                             >
-                              {copiedLinkId === link.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                              {copiedLinkId === link.id ? t('Copied', 'Copié') : t('Copy', 'Copier')}
+                              <Link2 className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">{t('Link', 'Lien')}</span>
                             </Button>
-                            <Button variant="ghost" size="sm" className="text-destructive" onClick={() => deleteLinkGenProduct(link.id)}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            {/* More dropdown */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" className="gap-1">
+                                  <MoreHorizontal className="h-3.5 w-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => startEditLink(link)}>
+                                  <Pencil className="h-3.5 w-3.5 mr-2" />
+                                  {t('Edit', 'Modifier')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="text-destructive" onClick={() => deleteLinkGenProduct(link.id)}>
+                                  <Trash2 className="h-3.5 w-3.5 mr-2" />
+                                  {t('Delete', 'Supprimer')}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                           </div>
-                          {/* Gallery thumbnails preview */}
-                          {link.gallery_images.length > 1 && (
-                            <div className="flex gap-1.5 overflow-x-auto">
-                              {link.gallery_images.slice(0, 5).map((img, i) => (
-                                <img key={i} src={img} alt="" className="w-10 h-10 rounded border object-cover shrink-0" />
-                              ))}
-                              <span className="text-xs text-muted-foreground self-center">{link.gallery_images.length} {t('images', 'images')}</span>
-                            </div>
-                          )}
-                          {/* WhatsApp Preview */}
-                          {whatsappPreviewLink === link.id && (
-                            <div className="mt-3 rounded-xl border-2 border-emerald-600/30 overflow-hidden">
-                              <div className="bg-emerald-800/20 px-3 py-1.5 flex items-center gap-2">
-                                <MessageCircle className="h-4 w-4 text-emerald-500" />
-                                <span className="text-xs font-medium text-emerald-400">{t('WhatsApp Preview', 'Aperçu WhatsApp')}</span>
-                              </div>
-                              <div className="bg-[#0b141a] p-3 space-y-2">
-                                {/* OG link preview card */}
-                                <div className="rounded-lg overflow-hidden bg-[#1f2c34] max-w-[320px]">
-                                  {link.gallery_images[0] && (
-                                    <img src={link.gallery_images[0]} alt="" className="w-full h-40 object-cover" />
-                                  )}
-                                  <div className="px-3 py-2">
-                                    <p className="text-[11px] text-emerald-400/70 truncate">{new URL(getSharePreviewPublicUrl(link.id)).hostname}</p>
-                                    <p className="text-[13px] text-[#e9edef] font-medium leading-tight mt-0.5">{getSharePreviewTitle(link)}</p>
-                                    <p className="text-[11px] text-[#8696a0] mt-0.5 line-clamp-2">{getSharePreviewDescription(link)}</p>
+                          {/* Product images - hover to copy */}
+                          {link.gallery_images.length > 0 && (
+                            <div className="flex gap-2 overflow-x-auto pt-1">
+                              {link.gallery_images.map((img, i) => (
+                                <div
+                                  key={i}
+                                  className="relative group shrink-0 cursor-pointer"
+                                  onClick={async () => {
+                                    if (supportsClipboardImage()) {
+                                      const ok = await copyImageToClipboard(img);
+                                      if (ok) { toast.success(t('Image copied', 'Image copiée')); return; }
+                                    }
+                                    setImageFallbackModal({
+                                      imageUrl: img,
+                                      caption: buildCaption(link, getShareUrl(link.id)),
+                                      title: link.title,
+                                    });
+                                  }}
+                                >
+                                  <img src={img} alt="" className="w-16 h-16 rounded border border-border object-cover" />
+                                  <div className="absolute inset-0 bg-black/50 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <Copy className="h-4 w-4 text-white" />
                                   </div>
                                 </div>
-                                {/* Message text */}
-                                <div className="bg-[#005c4b] rounded-lg px-3 py-2 max-w-[320px] text-[13px] text-[#e9edef] whitespace-pre-wrap leading-relaxed">
-                                  {`${link.description_fr || link.title}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: `}
-                                  <span className="text-[#53bdeb] underline">{getSharePreviewPublicUrl(link.id)}</span>
-                                </div>
-                              </div>
+                              ))}
                             </div>
                           )}
                         </div>
@@ -1908,6 +1957,53 @@ export default function HotProducts() {
           <HotProductAnalytics />
         </TabsContent>
       </Tabs>
+
+      {/* Image Fallback Modal */}
+      <Dialog open={!!imageFallbackModal} onOpenChange={(open) => !open && setImageFallbackModal(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('Save & Share Image', 'Enregistrer et partager l\'image')}</DialogTitle>
+          </DialogHeader>
+          {imageFallbackModal && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  'Image clipboard copy is not supported on this browser. Long-press (mobile) or right-click (desktop) the image to save it, then paste into WhatsApp.',
+                  'La copie d\'image n\'est pas supportée sur ce navigateur. Appuyez longuement (mobile) ou clic droit (PC) sur l\'image pour l\'enregistrer, puis collez dans WhatsApp.'
+                )}
+              </p>
+              <img
+                src={imageFallbackModal.imageUrl}
+                alt={imageFallbackModal.title}
+                className="w-full max-h-[400px] object-contain rounded-lg border bg-white"
+              />
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => {
+                    navigator.clipboard.writeText(imageFallbackModal.caption);
+                    toast.success(t('Caption copied', 'Texte copié'));
+                  }}
+                >
+                  <ClipboardCopy className="h-3.5 w-3.5" />
+                  {t('Copy Caption', 'Copier le texte')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => downloadImage(imageFallbackModal.imageUrl, `${imageFallbackModal.title.slice(0, 30)}.jpg`)}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {t('Download Image', 'Télécharger l\'image')}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

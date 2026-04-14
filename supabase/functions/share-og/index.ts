@@ -101,6 +101,7 @@ serve(async (req) => {
   const galleryImages: string[] = product.gallery_images || [];
   const ogImage = galleryImages[0] || product.image_url || "";
 
+  const publicShareUrl = `${frontendUrl}/functions/v1/share-og?id=${product.id}`;
   const sharePageUrl = `${frontendUrl}/share/hp/${product.id}`;
 
   const html = `<!DOCTYPE html>
@@ -109,13 +110,16 @@ serve(async (req) => {
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>${ogTitle}</title>
+<meta name="description" content="${ogDesc}"/>
+<link rel="canonical" href="${escapeHtml(publicShareUrl)}"/>
 <meta property="og:type" content="product"/>
 <meta property="og:title" content="${ogTitle}"/>
 <meta property="og:description" content="${ogDesc}"/>
 <meta property="og:image" content="${escapeHtml(ogImage)}"/>
+<meta property="og:image:secure_url" content="${escapeHtml(ogImage)}"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
-<meta property="og:url" content="${escapeHtml(sharePageUrl)}"/>
+<meta property="og:url" content="${escapeHtml(publicShareUrl)}"/>
 <meta property="og:site_name" content="AfriShop"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="${ogTitle}"/>

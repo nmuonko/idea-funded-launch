@@ -1330,7 +1330,7 @@ export default function HotProducts() {
                               className="gap-1.5"
                               title="Share on WhatsApp"
                               onClick={() => {
-                                const shareUrl = `${window.location.origin}/functions/v1/share-og?id=${link.id}`;
+                                const shareUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/share-og?id=${link.id}&v=2`;
                                 const desc = link.description_fr || link.title;
                                 const msg = `${desc}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
                                 window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
@@ -1391,7 +1391,7 @@ export default function HotProducts() {
                                 {/* Message text */}
                                 <div className="bg-[#005c4b] rounded-lg px-3 py-2 max-w-[320px] text-[13px] text-[#e9edef] whitespace-pre-wrap leading-relaxed">
                                   {`${link.description_fr || link.title}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: `}
-                                  <span className="text-[#53bdeb] underline">{`${window.location.origin}/functions/v1/share-og?id=${link.id}`}</span>
+                                  <span className="text-[#53bdeb] underline">{`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/share-og?id=${link.id}&v=2`}</span>
                                 </div>
                               </div>
                             </div>

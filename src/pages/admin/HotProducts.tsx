@@ -169,6 +169,9 @@ export default function HotProducts() {
   const [editLinkMarkup, setEditLinkMarkup] = useState('');
   const [editLinkShipping, setEditLinkShipping] = useState('');
   const [editLinkDescFr, setEditLinkDescFr] = useState('');
+  const [editLinkGallery, setEditLinkGallery] = useState<string[]>([]);
+  const [newImageUrl, setNewImageUrl] = useState('');
+  const [newEditImageUrl, setNewEditImageUrl] = useState('');
 
   // Persist link generator state to localStorage
   useEffect(() => {

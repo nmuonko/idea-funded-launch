@@ -85,7 +85,7 @@ export default function HotProductShare() {
           {/* Main Image with navigation */}
           {uniqueImages.length > 0 && (
             <div className="space-y-3">
-              <div className="relative bg-white rounded-2xl overflow-hidden">
+              <div className="relative bg-white rounded-2xl overflow-hidden cursor-pointer" onClick={() => setViewerOpen(true)}>
                 <img
                   src={uniqueImages[activeImage]}
                   alt={product.title}

@@ -182,42 +182,43 @@ function supportsClipboardImage(): boolean {
   return typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
 }
 
-async function fetchImageAsBlob(url: string): Promise<Blob> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Image fetch failed: ${res.status}`);
-  return res.blob();
+function convertToPngBlob(imageUrl: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob(
+          b => b ? resolve(b) : reject(new Error('toBlob failed')),
+          'image/png',
+        );
+      } catch (e) {
+        reject(e);
+      }
+    };
+    img.onerror = () => reject(new Error('Image load failed'));
+    // Use proxy-friendly URL to avoid CORS issues
+    img.src = imageUrl;
+  });
 }
 
 async function copyImageToClipboard(imageUrl: string): Promise<boolean> {
   if (!supportsClipboardImage()) return false;
   try {
-    const blob = await fetchImageAsBlob(imageUrl);
-    // Convert to PNG if needed (ClipboardItem requires image/png)
-    let pngBlob = blob;
-    if (blob.type !== 'image/png') {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      const loaded = new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = reject;
-      });
-      img.src = URL.createObjectURL(blob);
-      await loaded;
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(img.src);
-      pngBlob = await new Promise<Blob>((resolve, reject) =>
-        canvas.toBlob(b => b ? resolve(b) : reject(new Error('Canvas toBlob failed')), 'image/png'),
-      );
-    }
+    // Pass a Promise to ClipboardItem so the browser keeps user-activation alive
+    // during the async fetch+convert. This is the Chrome-supported pattern.
+    const pngPromise = convertToPngBlob(imageUrl);
     await navigator.clipboard.write([
-      new ClipboardItem({ 'image/png': pngBlob }),
+      new ClipboardItem({ 'image/png': pngPromise }),
     ]);
     return true;
-  } catch {
+  } catch (err) {
+    console.warn('Clipboard image copy failed:', err);
     return false;
   }
 }
@@ -232,30 +233,10 @@ async function copyBothToClipboard(imageUrl: string, caption: string): Promise<'
     }
   }
   try {
-    const blob = await fetchImageAsBlob(imageUrl);
-    let pngBlob = blob;
-    if (blob.type !== 'image/png') {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      const loaded = new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = reject;
-      });
-      img.src = URL.createObjectURL(blob);
-      await loaded;
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(img.src);
-      pngBlob = await new Promise<Blob>((resolve, reject) =>
-        canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/png'),
-      );
-    }
+    const pngPromise = convertToPngBlob(imageUrl);
     await navigator.clipboard.write([
       new ClipboardItem({
-        'image/png': pngBlob,
+        'image/png': pngPromise,
         'text/plain': new Blob([caption], { type: 'text/plain' }),
       }),
     ]);

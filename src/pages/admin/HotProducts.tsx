@@ -362,6 +362,7 @@ export default function HotProducts() {
   const [newEditImageUrl, setNewEditImageUrl] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [whatsappPreviewLink, setWhatsappPreviewLink] = useState<string | null>(null);
+  const [imageFallbackModal, setImageFallbackModal] = useState<{ imageUrl: string; caption: string; title: string } | null>(null);
 
   async function uploadProductImage(file: File, target: 'extract' | 'edit') {
     setUploadingImage(true);

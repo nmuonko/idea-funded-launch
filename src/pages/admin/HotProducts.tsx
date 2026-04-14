@@ -143,15 +143,12 @@ function getSharePreviewDescription(link: Pick<GeneratedLink, 'description_fr' |
   return `Prix: $${Math.ceil(link.total_price_usd)} · Livraison en RDC incluse`;
 }
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const PUBLISHED_DOMAIN = 'https://afrishop-usa.com';
 
 function getShareUrl(id: string): string {
-  // Use storage URL (serves text/html) so WhatsApp can parse OG tags
-  return `${SUPABASE_URL}/storage/v1/object/public/product-images/share-previews/${id}.html`;
-}
-
-function getEdgeFunctionShareUrl(id: string): string {
-  return `${SUPABASE_URL}/functions/v1/share-og?id=${id}`;
+  // Uses production domain — _redirects proxies to share-og edge function
+  // so WhatsApp crawler gets proper HTML with OG tags
+  return `${PUBLISHED_DOMAIN}/share/hp/${id}`;
 }
 
 function buildWhatsAppShareMessage(

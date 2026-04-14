@@ -337,50 +337,108 @@ export default function HotProducts() {
     setCatalogExtracting(false);
   }
 
-  async function generateCheckoutLink() {
+  async function loadGeneratedLinks() {
+    const { data } = await supabase
+      .from('hot_products_showcase')
+      .select('*')
+      .eq('link_source' as any, 'link_generator')
+      .order('created_at', { ascending: false });
+    if (data) {
+      setGeneratedLinks((data as any[]).map(d => ({
+        id: d.id,
+        title: d.title,
+        image_url: d.image_url || '',
+        price_usd: d.price_usd || 0,
+        total_price_usd: d.total_price_usd || 0,
+        checkoutUrl: `${window.location.origin}/checkout?hp=${d.id}`,
+        product_url: d.product_url || '',
+      })));
+    }
+  }
+
+  async function extractLinkGenProduct() {
     if (!linkGenUrl.trim()) return;
     setLinkGenExtracting(true);
+    setLinkGenExtracted(null);
+    setLinkGenPriceEditable(false);
+    setLinkGenManualPrice('');
+    setLinkGenManualTitle('');
     try {
       const { data, error } = await supabase.functions.invoke('extract-price', {
         body: { url: linkGenUrl.trim(), forceRefresh: true },
       });
-      if (error || !data) { toast.error('Failed to extract product'); setLinkGenExtracting(false); return; }
-      const basePrice = data.basePrice || data.price || data.priceUsd || 0;
-      const imageUrl = toHighResImage(data.imageUrl || data.image || '');
-      const title = data.title || data.name || 'Product';
-      const prov = data.provider || inferProvider(linkGenUrl.trim()) || 'external';
-      const pid = data.providerId || inferProductId(linkGenUrl.trim()) || '';
-      const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings);
+      const basePrice = data?.basePrice || data?.price || data?.priceUsd || 0;
+      const imageUrl = toHighResImage(data?.imageUrl || data?.image || '');
+      const title = data?.title || data?.name || '';
+      const prov = data?.provider || inferProvider(linkGenUrl.trim()) || 'external';
+      const pid = data?.providerId || inferProductId(linkGenUrl.trim()) || '';
 
-      // Save directly to hot_products_showcase as a standalone entry
+      if (error || !data || basePrice <= 0) {
+        setLinkGenPriceEditable(true);
+      }
+      if (!title) {
+        setLinkGenManualTitle('');
+      }
+
+      setLinkGenExtracted({
+        title: title || '',
+        image_url: imageUrl,
+        price: basePrice,
+        provider: prov,
+        pid,
+        url: linkGenUrl.trim(),
+      });
+      if (basePrice > 0) setLinkGenManualPrice(basePrice.toFixed(2));
+    } catch {
+      setLinkGenPriceEditable(true);
+      setLinkGenExtracted({ title: '', image_url: '', price: 0, provider: inferProvider(linkGenUrl.trim()) || 'external', pid: inferProductId(linkGenUrl.trim()) || '', url: linkGenUrl.trim() });
+    }
+    setLinkGenExtracting(false);
+  }
+
+  async function saveLinkGenProduct() {
+    if (!linkGenExtracted) return;
+    const finalTitle = linkGenManualTitle.trim() || linkGenExtracted.title || 'Product';
+    const finalPrice = linkGenManualPrice ? parseFloat(linkGenManualPrice) : linkGenExtracted.price;
+    if (!finalPrice || finalPrice <= 0) { toast.error(t('Enter a valid price', 'Entrez un prix valide')); return; }
+
+    setLinkGenExtracting(true);
+    try {
+      const { markup, shipping, total } = calcProductTotals(finalPrice, feeSettings);
       await supabase.auth.refreshSession();
       const { data: { user: currentUser } } = await supabase.auth.getUser();
       if (!currentUser) { toast.error('Session expired'); setLinkGenExtracting(false); return; }
 
+      const prov = linkGenExtracted.provider;
+      const pid = linkGenExtracted.pid;
       const { data: inserted, error: insertErr } = await supabase
         .from('hot_products_showcase')
         .insert({
-          title,
-          image_url: imageUrl,
-          price_usd: basePrice,
+          title: finalTitle,
+          image_url: linkGenExtracted.image_url,
+          price_usd: finalPrice,
           markup_usd: Math.round(markup * 100) / 100,
           shipping_usd: Math.round(shipping * 100) / 100,
           total_price_usd: total,
-          product_url: (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : linkGenUrl.trim(),
+          product_url: (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : linkGenExtracted.url,
           provider: prov,
           provider_product_id: pid,
           sort_order: 99,
           is_active: true,
           created_by: currentUser.id,
-        })
+          link_source: 'link_generator',
+        } as any)
         .select('id')
         .single();
 
       if (insertErr || !inserted) { toast.error('Failed to save: ' + (insertErr?.message || '')); setLinkGenExtracting(false); return; }
 
       const checkoutUrl = `${window.location.origin}/checkout?hp=${inserted.id}`;
-      setGeneratedLinks(prev => [{ id: inserted.id, title, image_url: imageUrl, total_price_usd: total, checkoutUrl }, ...prev]);
+      setGeneratedLinks(prev => [{ id: inserted.id, title: finalTitle, image_url: linkGenExtracted.image_url, price_usd: finalPrice, total_price_usd: total, checkoutUrl, product_url: linkGenExtracted.url }, ...prev]);
       setLinkGenUrl('');
+      setLinkGenExtracted(null);
+      setLinkGenManualPrice('');
+      setLinkGenManualTitle('');
       navigator.clipboard.writeText(checkoutUrl);
       setCopiedLinkId(inserted.id);
       setTimeout(() => setCopiedLinkId(null), 3000);
@@ -389,6 +447,12 @@ export default function HotProducts() {
       toast.error('Failed to generate link');
     }
     setLinkGenExtracting(false);
+  }
+
+  async function deleteLinkGenProduct(id: string) {
+    await supabase.from('hot_products_showcase').delete().eq('id', id);
+    setGeneratedLinks(prev => prev.filter(l => l.id !== id));
+    toast.success(t('Deleted', 'Supprimé'));
   }
 
   function removeProduct(id: string) {

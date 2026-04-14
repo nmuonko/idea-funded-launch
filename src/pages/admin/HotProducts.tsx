@@ -338,10 +338,10 @@ export default function HotProducts() {
   }
 
   async function loadGeneratedLinks() {
-    const { data } = await supabase
+    const { data } = await (supabase
       .from('hot_products_showcase')
-      .select('*')
-      .eq('link_source' as any, 'link_generator')
+      .select('*') as any)
+      .eq('link_source', 'link_generator')
       .order('created_at', { ascending: false });
     if (data) {
       setGeneratedLinks((data as any[]).map(d => ({

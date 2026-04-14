@@ -1562,7 +1562,6 @@ export default function HotProducts() {
                                 </a>
                               )}
                             </div>
-                          <div className="flex gap-1.5 shrink-0">
                           <div className="flex gap-1.5 shrink-0 flex-wrap">
                             {/* WhatsApp Share (default) */}
                             <Button

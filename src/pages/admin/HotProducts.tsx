@@ -144,10 +144,10 @@ function getSharePreviewDescription(link: Pick<GeneratedLink, 'description_fr' |
   return `Prix: $${Math.ceil(link.total_price_usd)} · Livraison en RDC incluse`;
 }
 
-const SHARE_OG_BASE_URL = 'https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/share-og';
+const SHARE_PREVIEW_BASE = 'https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/product-images/share-previews';
 
 function getShareUrl(id: string): string {
-  return `${SHARE_OG_BASE_URL}?id=${id}`;
+  return `${SHARE_PREVIEW_BASE}/${id}.html`;
 }
 
 async function syncSharePreviewPages(ids?: string[]): Promise<boolean> {

@@ -254,7 +254,7 @@ export default function HotProducts() {
     if (showcaseProducts.length >= 10) { toast.error('Maximum 10 products'); return; }
     if (showcaseProducts.find(p => p.provider_product_id === item.provider_product_id && p.provider === item.provider)) { toast.error('Already added'); return; }
     const basePrice = item.price_usd || 0;
-    const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings);
+    const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings, item.title, item.category_key);
     setShowcaseProducts(prev => [...prev, {
       id: `new-${Date.now()}`,
       title: item.title || 'Untitled',
@@ -283,7 +283,7 @@ export default function HotProducts() {
       const basePrice = data.basePrice || data.price || data.priceUsd || 0;
       const imageUrl = toHighResImage(data.imageUrl || data.image || '');
       const title = data.title || data.name || 'Product';
-      const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings);
+      const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings, title);
       const prov = data.provider || inferProvider(pasteUrl.trim()) || 'external';
       const pid = data.providerId || inferProductId(pasteUrl.trim()) || '';
 
@@ -428,7 +428,7 @@ export default function HotProducts() {
 
     setLinkGenExtracting(true);
     try {
-      const { markup, shipping, total } = calcProductTotals(finalPrice, feeSettings);
+      const { markup, shipping, total } = calcProductTotals(finalPrice, feeSettings, finalTitle);
       await supabase.auth.refreshSession();
       const { data: { user: currentUser } } = await supabase.auth.getUser();
       if (!currentUser) { toast.error('Session expired'); setLinkGenExtracting(false); return; }
@@ -501,7 +501,7 @@ export default function HotProducts() {
   function recalcDefaults(id: string) {
     setShowcaseProducts(prev => prev.map(p => {
       if (p.id !== id) return p;
-      const { markup, shipping, total } = calcProductTotals(p.price_usd, feeSettings);
+      const { markup, shipping, total } = calcProductTotals(p.price_usd, feeSettings, p.title);
       return { ...p, markup_usd: Math.round(markup * 100) / 100, shipping_usd: Math.round(shipping * 100) / 100, total_price_usd: total };
     }));
   }
@@ -904,7 +904,8 @@ export default function HotProducts() {
                       {(() => {
                         const p = linkGenManualPrice ? parseFloat(linkGenManualPrice) : linkGenExtracted.price;
                         if (p > 0) {
-                          const { total } = calcProductTotals(p, feeSettings);
+                          const title = linkGenManualTitle.trim() || linkGenExtracted?.title || '';
+                          const { total, shipping } = calcProductTotals(p, feeSettings, title);
                           return <p className="text-sm font-bold text-primary">{t('Final price:', 'Prix final :')} ${total.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">({t('all inclusive', 'tout inclus')})</span></p>;
                         }
                         return null;

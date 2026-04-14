@@ -137,12 +137,18 @@ export default function HotProducts() {
   // Link Generator state
   const [linkGenUrl, setLinkGenUrl] = useState('');
   const [linkGenExtracting, setLinkGenExtracting] = useState(false);
-  const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; total_price_usd: number; checkoutUrl: string }>>([]);
+  const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; price_usd: number; total_price_usd: number; checkoutUrl: string; product_url: string }>>([]);
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
+  const [linkGenExtracted, setLinkGenExtracted] = useState<{ title: string; image_url: string; price: number; provider: string; pid: string; url: string } | null>(null);
+  const [linkGenManualPrice, setLinkGenManualPrice] = useState('');
+  const [linkGenManualTitle, setLinkGenManualTitle] = useState('');
+  const [linkGenPriceEditable, setLinkGenPriceEditable] = useState(false);
+
   useEffect(() => {
     loadShowcase();
     loadCampaigns();
     loadFeeSettings();
+    loadGeneratedLinks();
   }, []);
 
   async function loadFeeSettings() {

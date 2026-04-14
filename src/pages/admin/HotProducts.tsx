@@ -147,15 +147,25 @@ export default function HotProducts() {
   const [catalogManualPrice, setCatalogManualPrice] = useState('');
   const [catalogHistory, setCatalogHistory] = useState<Array<{ title: string; provider: string; price: number; imageUrl: string; cached: boolean; url: string }>>([]);
 
-  // Link Generator state
-  const [linkGenUrl, setLinkGenUrl] = useState('');
+  // Link Generator state — hydrate from localStorage so extraction survives refresh
+  const storedExtracted = (() => { try { const s = localStorage.getItem('hp_linkgen_extracted'); return s ? JSON.parse(s) : null; } catch { return null; } })();
+  const [linkGenUrl, setLinkGenUrl] = useState(() => localStorage.getItem('hp_linkgen_url') || '');
   const [linkGenExtracting, setLinkGenExtracting] = useState(false);
   const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; price_usd: number; total_price_usd: number; checkoutUrl: string; product_url: string }>>([]);
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
-  const [linkGenExtracted, setLinkGenExtracted] = useState<{ title: string; image_url: string; price: number; provider: string; pid: string; url: string } | null>(null);
-  const [linkGenManualPrice, setLinkGenManualPrice] = useState('');
-  const [linkGenManualTitle, setLinkGenManualTitle] = useState('');
-  const [linkGenPriceEditable, setLinkGenPriceEditable] = useState(false);
+  const [linkGenExtracted, setLinkGenExtracted] = useState<{ title: string; image_url: string; price: number; provider: string; pid: string; url: string } | null>(storedExtracted);
+  const [linkGenManualPrice, setLinkGenManualPrice] = useState(() => localStorage.getItem('hp_linkgen_price') || (storedExtracted?.price > 0 ? String(storedExtracted.price) : ''));
+  const [linkGenManualTitle, setLinkGenManualTitle] = useState(() => localStorage.getItem('hp_linkgen_title') || '');
+  const [linkGenPriceEditable, setLinkGenPriceEditable] = useState(() => storedExtracted ? (!storedExtracted.price || storedExtracted.price <= 0) : false);
+
+  // Persist link generator state to localStorage
+  useEffect(() => {
+    if (linkGenExtracted) localStorage.setItem('hp_linkgen_extracted', JSON.stringify(linkGenExtracted));
+    else localStorage.removeItem('hp_linkgen_extracted');
+  }, [linkGenExtracted]);
+  useEffect(() => { localStorage.setItem('hp_linkgen_url', linkGenUrl); }, [linkGenUrl]);
+  useEffect(() => { localStorage.setItem('hp_linkgen_price', linkGenManualPrice); }, [linkGenManualPrice]);
+  useEffect(() => { localStorage.setItem('hp_linkgen_title', linkGenManualTitle); }, [linkGenManualTitle]);
 
   useEffect(() => {
     loadShowcase();

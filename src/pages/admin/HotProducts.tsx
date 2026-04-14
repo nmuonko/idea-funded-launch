@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon, Pencil, MessageCircle } from 'lucide-react';
+import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon, Pencil, MessageCircle, ImagePlus, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { allInclusivePrice, type FeeConfig } from '@/lib/allInclusivePrice';
 import type { ShippingCategoryRow } from '@/lib/shippingCategoryDetector';
@@ -169,6 +169,9 @@ export default function HotProducts() {
   const [editLinkMarkup, setEditLinkMarkup] = useState('');
   const [editLinkShipping, setEditLinkShipping] = useState('');
   const [editLinkDescFr, setEditLinkDescFr] = useState('');
+  const [editLinkGallery, setEditLinkGallery] = useState<string[]>([]);
+  const [newImageUrl, setNewImageUrl] = useState('');
+  const [newEditImageUrl, setNewEditImageUrl] = useState('');
 
   // Persist link generator state to localStorage
   useEffect(() => {
@@ -437,7 +440,7 @@ export default function HotProducts() {
         provider: prov,
         pid,
         url: linkGenUrl.trim(),
-        gallery_images: (data?.galleryImages || data?.images || []).filter((u: string) => typeof u === 'string').slice(0, 2),
+        gallery_images: [imageUrl, ...(data?.galleryImages || data?.images || []).filter((u: string) => typeof u === 'string' && u !== imageUrl)].filter(Boolean).slice(0, 5),
       });
       if (basePrice > 0) setLinkGenManualPrice(basePrice.toFixed(0));
 
@@ -535,6 +538,8 @@ export default function HotProducts() {
     setEditLinkShipping(String(link.shipping_usd));
     setEditLinkFinalPrice(String(link.total_price_usd));
     setEditLinkDescFr(link.description_fr || '');
+    setEditLinkGallery([...link.gallery_images]);
+    setNewEditImageUrl('');
   }
 
   async function saveEditLink(id: string) {
@@ -544,9 +549,9 @@ export default function HotProducts() {
     const newShipping = parseFloat(editLinkShipping) || 0;
     const newFinal = parseFloat(editLinkFinalPrice) || Math.ceil(newItemPrice + newMarkup + newShipping);
     if (!newTitle || newFinal <= 0) { toast.error(t('Invalid values', 'Valeurs invalides')); return; }
-    const { error } = await supabase.from('hot_products_showcase').update({ title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr || null } as any).eq('id', id);
+    const { error } = await supabase.from('hot_products_showcase').update({ title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr || null, gallery_images: editLinkGallery.length > 0 ? editLinkGallery : null, image_url: editLinkGallery[0] || undefined } as any).eq('id', id);
     if (error) { toast.error('Save failed'); return; }
-    setGeneratedLinks(prev => prev.map(l => l.id === id ? { ...l, title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr } : l));
+    setGeneratedLinks(prev => prev.map(l => l.id === id ? { ...l, title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr, gallery_images: editLinkGallery, image_url: editLinkGallery[0] || l.image_url } : l));
     setEditingLinkId(null);
     toast.success(t('Updated', 'Mis à jour'));
   }
@@ -949,6 +954,52 @@ export default function HotProducts() {
                           className="h-8 text-sm"
                         />
                       </div>
+                      {/* Product Images Gallery */}
+                      <div>
+                        <Label className="text-xs flex items-center gap-1">{t('Product Images', 'Images du produit')} ({(linkGenExtracted.gallery_images || []).length})</Label>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {(linkGenExtracted.gallery_images || []).map((img, i) => (
+                            <div key={i} className="relative group">
+                              <img src={img} alt="" className="w-16 h-16 rounded border object-cover" />
+                              <button
+                                type="button"
+                                className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground rounded-full w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => {
+                                  const updated = (linkGenExtracted.gallery_images || []).filter((_, idx) => idx !== i);
+                                  setLinkGenExtracted({ ...linkGenExtracted, gallery_images: updated });
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex gap-1 mt-1">
+                          <Input
+                            value={newImageUrl}
+                            onChange={e => setNewImageUrl(e.target.value)}
+                            placeholder={t('Paste image URL to add...', 'Collez une URL d\'image...')}
+                            className="h-7 text-xs flex-1"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2"
+                            disabled={!newImageUrl.trim()}
+                            onClick={() => {
+                              const url = newImageUrl.trim();
+                              if (url) {
+                                const current = linkGenExtracted.gallery_images || [];
+                                setLinkGenExtracted({ ...linkGenExtracted, gallery_images: [...current, url] });
+                                setNewImageUrl('');
+                              }
+                            }}
+                          >
+                            <ImagePlus className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
                       {(() => {
                         const p = linkGenManualPrice ? parseFloat(linkGenManualPrice) : linkGenExtracted.price;
                         if (p <= 0) return null;
@@ -1140,20 +1191,62 @@ export default function HotProducts() {
                               rows={2}
                             />
                           </div>
+                          {/* Gallery Images in edit mode */}
+                          <div>
+                            <Label className="text-xs flex items-center gap-1">{t('Images', 'Images')} ({editLinkGallery.length})</Label>
+                            <div className="flex flex-wrap gap-2 mt-1">
+                              {editLinkGallery.map((img, i) => (
+                                <div key={i} className="relative group">
+                                  <img src={img} alt="" className="w-14 h-14 rounded border object-cover" />
+                                  <button
+                                    type="button"
+                                    className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground rounded-full w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={() => setEditLinkGallery(prev => prev.filter((_, idx) => idx !== i))}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex gap-1 mt-1">
+                              <Input
+                                value={newEditImageUrl}
+                                onChange={e => setNewEditImageUrl(e.target.value)}
+                                placeholder={t('Paste image URL...', 'Collez une URL d\'image...')}
+                                className="h-7 text-xs flex-1"
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2"
+                                disabled={!newEditImageUrl.trim()}
+                                onClick={() => {
+                                  if (newEditImageUrl.trim()) {
+                                    setEditLinkGallery(prev => [...prev, newEditImageUrl.trim()]);
+                                    setNewEditImageUrl('');
+                                  }
+                                }}
+                              >
+                                <ImagePlus className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
                           <div className="flex gap-2 justify-end">
                             <Button variant="outline" size="sm" onClick={() => setEditingLinkId(null)}>{t('Cancel', 'Annuler')}</Button>
                             <Button size="sm" onClick={() => saveEditLink(link.id)}>{t('Save', 'Enregistrer')}</Button>
                           </div>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-3">
-                          {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{link.title}</p>
-                            {link.description_fr && <p className="text-xs text-muted-foreground truncate">{link.description_fr}</p>}
-                            <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(0)} · {t('All inclusive', 'Tout inclus')}</p>
-                            <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
-                          </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-3">
+                            {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{link.title}</p>
+                              {link.description_fr && <p className="text-xs text-muted-foreground truncate">{link.description_fr}</p>}
+                              <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(0)} · {t('All inclusive', 'Tout inclus')}</p>
+                              <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
+                            </div>
                           <div className="flex gap-1.5 shrink-0">
                             <Button
                               variant="outline"
@@ -1190,6 +1283,16 @@ export default function HotProducts() {
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
+                          </div>
+                          {/* Gallery thumbnails preview */}
+                          {link.gallery_images.length > 1 && (
+                            <div className="flex gap-1.5 overflow-x-auto">
+                              {link.gallery_images.slice(0, 5).map((img, i) => (
+                                <img key={i} src={img} alt="" className="w-10 h-10 rounded border object-cover shrink-0" />
+                              ))}
+                              <span className="text-xs text-muted-foreground self-center">{link.gallery_images.length} {t('images', 'images')}</span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

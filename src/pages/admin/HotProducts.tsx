@@ -1238,14 +1238,15 @@ export default function HotProducts() {
                           </div>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-3">
-                          {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{link.title}</p>
-                            {link.description_fr && <p className="text-xs text-muted-foreground truncate">{link.description_fr}</p>}
-                            <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(0)} · {t('All inclusive', 'Tout inclus')}</p>
-                            <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
-                          </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-3">
+                            {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{link.title}</p>
+                              {link.description_fr && <p className="text-xs text-muted-foreground truncate">{link.description_fr}</p>}
+                              <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(0)} · {t('All inclusive', 'Tout inclus')}</p>
+                              <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
+                            </div>
                           <div className="flex gap-1.5 shrink-0">
                             <Button
                               variant="outline"

@@ -135,9 +135,10 @@ export default function HotProductShare() {
 
           {/* Product Info */}
           <div className="space-y-3">
-            <h1 className="text-xl font-bold">{product.title}</h1>
-            {product.description_fr && (
-              <p className="text-white/70 text-sm leading-relaxed">{product.description_fr}</p>
+            {product.description_fr ? (
+              <p className="text-white/90 text-base leading-relaxed">{product.description_fr}</p>
+            ) : (
+              <h1 className="text-xl font-bold">{product.title}</h1>
             )}
             <div className="flex items-baseline gap-2">
               <span className="text-3xl font-extrabold text-orange-400">

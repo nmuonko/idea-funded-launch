@@ -1,74 +1,66 @@
 
-Goal
 
-Make every Amazon outbound click from your site — especially the “View on Amazon” button on the product detail page — resolve to the real Amazon product detail page, not a category or best-sellers page.
+## Plan: WhatsApp Product Sharing with Images
 
-Root cause I found
+### The Problem
+WhatsApp `wa.me/?text=...` links only support plain text — you can't attach images directly. So just pasting an image URL in the message won't show the photo inline.
 
-- `src/lib/amazonProductLinks.ts` is still too permissive: if it cannot cleanly extract an ASIN, it falls back to the raw stored Amazon URL, even when that URL is bad, stale, or not a PDP.
-- `src/pages/shop/ProductDetails.tsx` can keep Amazon IDs in prefixed form like `amazon_B0...` because it prefers `item.id` over `providerProductId` / `provider_product_id`, so the CTA does not always have a clean ASIN source.
-- Amazon link building is fragmented in several places (`ProductDetails`, cart persistence, admin catalog links, order links, hot products), so bad Amazon URLs can keep getting stored and reused.
+### The Solution: Shareable Product Pages with Open Graph
 
-Plan
+Create a **public product page** for each generated link (e.g., `/share/hp/{id}`) that includes Open Graph meta tags with the product image. When you paste that URL into WhatsApp, **WhatsApp automatically fetches the page and shows the product image as a rich preview** — title, description, and 1-2 photos, no extra work needed.
 
-1. Harden the shared Amazon URL helper
-- Replace/extend the logic in `src/lib/amazonProductLinks.ts` with a strict `normalizeAmazonProductUrl(...)`.
-- It will accept:
-  - a raw Amazon URL
-  - a plain ASIN
-  - prefixed IDs like `amazon_B0...` or `rainforest_B0...`
-- It will extract the ASIN and always return:
-  - `https://www.amazon.com/dp/{ASIN}`
-- It will never return:
-  - `/-/dp/`
-  - category/search pages
-  - raw bad Amazon URLs
+```text
+How it works:
 
-2. Fix the product detail page data flow
-- In `src/pages/shop/ProductDetails.tsx`, prefer `providerProductId` / `provider_product_id` over `item.id` when setting the product id.
-- Use the shared normalizer for the “View on Amazon” CTA after:
-  - initial nav state
-  - main product fetch
-  - retry fetch
-  - variant switching
-- If an Amazon ASIN cannot be resolved, do not send the user to a wrong Amazon page.
+  Admin clicks "Share on WhatsApp"
+       │
+       ▼
+  Opens wa.me with message containing:
+    🛒 *iPhone 15 Pro Max*
+    📱 French description...
+    💰 $1,250
+    👉 https://idea-funded-launch.lovable.app/share/hp/abc123
+       │
+       ▼
+  WhatsApp fetches that URL, reads og:image
+       │
+       ▼
+  Customer sees product photo + title + price
+  in the WhatsApp chat bubble automatically
+```
 
-3. Enforce the same normalizer everywhere Amazon URLs are created or persisted
-- `src/contexts/ShopCartContext.tsx`: normalize Amazon URLs before storing/syncing them.
-- `src/pages/shop/HotProducts.tsx`: stop passing internal fallback URLs as if they were Amazon product URLs.
-- `src/pages/admin/CatalogCache.tsx`: replace inline Amazon `/dp/` formatting with the shared helper.
-- `src/lib/orderProductLinks.ts`: remove duplicated Amazon parsing and delegate to the shared helper.
-- `src/pages/OrderDetail.tsx` and any remaining Amazon anchors: normalize before opening.
-- Update `src/components/shop/ViewSourceLink.tsx` too so future usage stays consistent.
+### Steps
 
-Technical details
+1. **Database migration** — Add `description_fr` and `gallery_images` columns to `hot_products_showcase`
+   - `description_fr TEXT` — French product description (editable)
+   - `gallery_images TEXT[]` — store 1-2 extra product images from extraction
 
-- No UI styling changes.
-- Canonical outbound format will be `https://www.amazon.com/dp/{ASIN}`.
-- Before: some Amazon clicks could use raw/stale URLs or prefixed IDs and land on category/best-seller pages.
-- After: Amazon clicks will either open the canonical PDP URL or not render/open at all if no valid ASIN exists.
-- There is no test runner configured in this repo, so verification should be done with deterministic helper examples plus end-to-end preview clicks.
+2. **Edge function: `translate-product`** — Auto-generate a short French product description from the English title using Lovable AI (Gemini Flash). Called during extraction, result is editable.
 
-Verification
+3. **Update extraction flow** — When extracting a product, also save up to 2 gallery images (already returned by `extract-price`) into the new column.
 
-- Helper examples to verify:
-  - `https://www.amazon.com/-/dp/B0BYLM8RRW` -> `https://www.amazon.com/dp/B0BYLM8RRW`
-  - `B0BYLM8RRW` -> `https://www.amazon.com/dp/B0BYLM8RRW`
-  - `amazon_B0BYLM8RRW` -> `https://www.amazon.com/dp/B0BYLM8RRW`
-  - an already valid PDP URL -> canonical PDP URL
-- End-to-end checks:
-  - open Amazon items from home/search/similar products
-  - land on the internal product detail page
-  - click “View on Amazon”
-  - confirm the new tab opens the exact Amazon product page
+4. **Create `/share/hp/:id` public page** — A lightweight page that:
+   - Fetches the product from `hot_products_showcase`
+   - Sets `og:image`, `og:title`, `og:description` meta tags for WhatsApp preview
+   - Shows the product with 1-2 images, French description, and price
+   - Has a "Buy / Order" CTA button
 
-Likely files to change
+5. **Add WhatsApp share button** to the Generated Links list in admin — Opens `wa.me/?text=...` with a pre-formatted French message including the shareable product URL.
 
-- `src/lib/amazonProductLinks.ts`
-- `src/pages/shop/ProductDetails.tsx`
-- `src/contexts/ShopCartContext.tsx`
-- `src/pages/shop/HotProducts.tsx`
-- `src/pages/admin/CatalogCache.tsx`
-- `src/lib/orderProductLinks.ts`
-- `src/pages/OrderDetail.tsx`
-- `src/components/shop/ViewSourceLink.tsx`
+6. **Make `description_fr` editable** — In both the extraction preview and the post-save edit mode, alongside the existing price fields.
+
+### What the Customer Sees in WhatsApp
+- A rich link preview with the product image (automatic from OG tags)
+- French product name and description
+- Price
+- A link they can tap to view the product and order
+
+### Files to Change
+| File | Change |
+|---|---|
+| DB migration | Add `description_fr`, `gallery_images` columns |
+| `supabase/functions/translate-product/index.ts` | New edge function for EN→FR |
+| `src/pages/share/HotProductShare.tsx` | New public share page with OG tags |
+| `src/pages/admin/HotProducts.tsx` | WhatsApp button, description field, gallery storage |
+| `src/App.tsx` | Add `/share/hp/:id` route |
+

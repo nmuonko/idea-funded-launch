@@ -144,10 +144,8 @@ function getSharePreviewDescription(link: Pick<GeneratedLink, 'description_fr' |
   return `Prix: $${Math.ceil(link.total_price_usd)} · Livraison en RDC incluse`;
 }
 
-const SHARE_PREVIEW_BASE = 'https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/product-images/share-previews';
-
 function getShareUrl(id: string): string {
-  return `${SHARE_PREVIEW_BASE}/${id}.html`;
+  return `https://afrishop-usa.com/share/hp/${id}`;
 }
 
 async function syncSharePreviewPages(ids?: string[]): Promise<boolean> {
@@ -176,7 +174,8 @@ function buildCaption(
   shareUrl: string,
 ): string {
   const desc = normalizeShareText(link.description_fr) || cleanMarketplaceTitle(link.title) || 'Produit AfriShop';
-  return `${desc}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
+  const shortDesc = desc.length > 120 ? desc.slice(0, 117).trimEnd() + '…' : desc;
+  return `${shortDesc}\n\n💰 $${Math.ceil(link.total_price_usd)} · Livraison incluse 🇨🇩\n\n👉 ${shareUrl}`;
 }
 
 function supportsClipboardImage(): boolean {
@@ -1563,17 +1562,6 @@ export default function HotProducts() {
                               )}
                             </div>
                           <div className="flex gap-1.5 shrink-0 flex-wrap">
-                            {/* WhatsApp Share (default) */}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="gap-1.5"
-                              title="Share on WhatsApp"
-                              onClick={() => { void handleShareOnWhatsApp(link); }}
-                            >
-                              <MessageCircle className="h-3.5 w-3.5" />
-                              <span className="hidden sm:inline">{t('WhatsApp', 'WhatsApp')}</span>
-                            </Button>
                             {/* Copy Caption */}
                             <Button
                               variant="outline"
@@ -1589,36 +1577,20 @@ export default function HotProducts() {
                               <ClipboardCopy className="h-3.5 w-3.5" />
                               <span className="hidden sm:inline">{t('Caption', 'Texte')}</span>
                             </Button>
-                            {/* Copy Image */}
+                            {/* Copy Link */}
                             <Button
                               variant="outline"
                               size="sm"
                               className="gap-1.5"
-                              title={t('Copy product image', 'Copier l\'image')}
-                              onClick={async () => {
-                                const imgUrl = link.gallery_images?.[0] || link.image_url;
-                                if (!imgUrl) { toast.error(t('No image available', 'Aucune image disponible')); return; }
-                                if (!supportsClipboardImage()) {
-                                  setImageFallbackModal({
-                                    imageUrl: imgUrl,
-                                    caption: buildCaption(link, getShareUrl(link.id)),
-                                    title: link.title,
-                                  });
-                                  return;
-                                }
-                                const ok = await copyImageToClipboard(imgUrl);
-                                if (ok) toast.success(t('Image copied', 'Image copiée'));
-                                else {
-                                  setImageFallbackModal({
-                                    imageUrl: imgUrl,
-                                    caption: buildCaption(link, getShareUrl(link.id)),
-                                    title: link.title,
-                                  });
-                                }
+                              onClick={() => {
+                                navigator.clipboard.writeText(getShareUrl(link.id));
+                                setCopiedLinkId(link.id);
+                                setTimeout(() => setCopiedLinkId(null), 3000);
+                                toast.success(t('Link copied!', 'Lien copié !'));
                               }}
                             >
-                              <ImageIcon className="h-3.5 w-3.5" />
-                              <span className="hidden sm:inline">{t('Image', 'Image')}</span>
+                              <Link2 className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">{t('Link', 'Lien')}</span>
                             </Button>
                             {/* More dropdown */}
                             <DropdownMenu>
@@ -1628,32 +1600,6 @@ export default function HotProducts() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => setWhatsappPreviewLink(whatsappPreviewLink === link.id ? null : link.id)}>
-                                  <Eye className="h-3.5 w-3.5 mr-2" />
-                                  {t('Preview WhatsApp', 'Aperçu WhatsApp')}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={async () => {
-                                  const imgUrl = link.gallery_images?.[0] || link.image_url;
-                                  const caption = buildCaption(link, getShareUrl(link.id));
-                                  if (!imgUrl) { toast.error(t('No image', 'Pas d\'image')); return; }
-                                  const result = await copyBothToClipboard(imgUrl, caption);
-                                  if (result === 'full') toast.success(t('Image + caption copied', 'Image + texte copiés'));
-                                  else if (result === 'text-only') toast.success(t('Caption copied (image not supported)', 'Texte copié (image non supportée)'));
-                                  else toast.error(t('Copy failed', 'Échec de la copie'));
-                                }}>
-                                  <Copy className="h-3.5 w-3.5 mr-2" />
-                                  {t('Copy Both (Experimental)', 'Copier les deux (Expérimental)')}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => {
-                                  navigator.clipboard.writeText(getShareUrl(link.id));
-                                  setCopiedLinkId(link.id);
-                                  setTimeout(() => setCopiedLinkId(null), 3000);
-                                  toast.success(t('Link copied!', 'Lien copié !'));
-                                }}>
-                                  <Link2 className="h-3.5 w-3.5 mr-2" />
-                                  {t('Copy Link', 'Copier le lien')}
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
                                 <DropdownMenuItem onClick={() => startEditLink(link)}>
                                   <Pencil className="h-3.5 w-3.5 mr-2" />
                                   {t('Edit', 'Modifier')}
@@ -1666,40 +1612,31 @@ export default function HotProducts() {
                             </DropdownMenu>
                           </div>
                           </div>
-                          {/* Gallery thumbnails preview */}
-                          {link.gallery_images.length > 1 && (
-                            <div className="flex gap-1.5 overflow-x-auto">
-                              {link.gallery_images.slice(0, 5).map((img, i) => (
-                                <img key={i} src={img} alt="" className="w-10 h-10 rounded border object-cover shrink-0" />
-                              ))}
-                              <span className="text-xs text-muted-foreground self-center">{link.gallery_images.length} {t('images', 'images')}</span>
-                            </div>
-                          )}
-                          {/* WhatsApp Preview */}
-                          {whatsappPreviewLink === link.id && (
-                            <div className="mt-3 rounded-xl border-2 border-emerald-600/30 overflow-hidden">
-                              <div className="bg-emerald-800/20 px-3 py-1.5 flex items-center gap-2">
-                                <MessageCircle className="h-4 w-4 text-emerald-500" />
-                                <span className="text-xs font-medium text-emerald-400">{t('WhatsApp Preview', 'Aperçu WhatsApp')}</span>
-                              </div>
-                              <div className="bg-[#0b141a] p-3 space-y-2">
-                                {/* OG link preview card */}
-                                <div className="rounded-lg overflow-hidden bg-[#1f2c34] max-w-[320px]">
-                                  {link.gallery_images[0] && (
-                                    <img src={link.gallery_images[0]} alt="" className="w-full h-40 object-cover" />
-                                  )}
-                                  <div className="px-3 py-2">
-                                    <p className="text-[11px] text-emerald-400/70 truncate">{'afrishop-usa.com'}</p>
-                                    <p className="text-[13px] text-[#e9edef] font-medium leading-tight mt-0.5">{getSharePreviewTitle(link)}</p>
-                                    <p className="text-[11px] text-[#8696a0] mt-0.5 line-clamp-2">{getSharePreviewDescription(link)}</p>
+                          {/* Product images - hover to copy */}
+                          {link.gallery_images.length > 0 && (
+                            <div className="flex gap-2 overflow-x-auto pt-1">
+                              {link.gallery_images.map((img, i) => (
+                                <div
+                                  key={i}
+                                  className="relative group shrink-0 cursor-pointer"
+                                  onClick={async () => {
+                                    if (supportsClipboardImage()) {
+                                      const ok = await copyImageToClipboard(img);
+                                      if (ok) { toast.success(t('Image copied', 'Image copiée')); return; }
+                                    }
+                                    setImageFallbackModal({
+                                      imageUrl: img,
+                                      caption: buildCaption(link, getShareUrl(link.id)),
+                                      title: link.title,
+                                    });
+                                  }}
+                                >
+                                  <img src={img} alt="" className="w-16 h-16 rounded border border-border object-cover" />
+                                  <div className="absolute inset-0 bg-black/50 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <Copy className="h-4 w-4 text-white" />
                                   </div>
                                 </div>
-                                {/* Message text */}
-                                <div className="bg-[#005c4b] rounded-lg px-3 py-2 max-w-[320px] text-[13px] text-[#e9edef] whitespace-pre-wrap leading-relaxed">
-                                  {`${link.description_fr || link.title}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: `}
-                                  <span className="text-[#53bdeb] underline">{getShareUrl(link.id)}</span>
-                                </div>
-                              </div>
+                              ))}
                             </div>
                           )}
                         </div>

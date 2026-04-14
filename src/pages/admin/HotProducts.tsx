@@ -163,6 +163,9 @@ export default function HotProducts() {
   const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
   const [editLinkTitle, setEditLinkTitle] = useState('');
   const [editLinkFinalPrice, setEditLinkFinalPrice] = useState('');
+  const [editLinkItemPrice, setEditLinkItemPrice] = useState('');
+  const [editLinkMarkup, setEditLinkMarkup] = useState('');
+  const [editLinkShipping, setEditLinkShipping] = useState('');
 
   // Persist link generator state to localStorage
   useEffect(() => {
@@ -389,6 +392,8 @@ export default function HotProducts() {
         title: d.title,
         image_url: d.image_url || '',
         price_usd: d.price_usd || 0,
+        markup_usd: d.markup_usd || 0,
+        shipping_usd: d.shipping_usd || 0,
         total_price_usd: d.total_price_usd || 0,
         checkoutUrl: `${window.location.origin}/checkout?hp=${d.id}`,
         product_url: d.product_url || '',
@@ -478,7 +483,7 @@ export default function HotProducts() {
       if (insertErr || !inserted) { toast.error('Failed to save: ' + (insertErr?.message || '')); setLinkGenExtracting(false); return; }
 
       const checkoutUrl = `${window.location.origin}/checkout?hp=${inserted.id}`;
-      setGeneratedLinks(prev => [{ id: inserted.id, title: finalTitle, image_url: linkGenExtracted.image_url, price_usd: finalPrice, total_price_usd: total, checkoutUrl, product_url: linkGenExtracted.url }, ...prev]);
+      setGeneratedLinks(prev => [{ id: inserted.id, title: finalTitle, image_url: linkGenExtracted.image_url, price_usd: finalPrice, markup_usd: markup, shipping_usd: shipping, total_price_usd: total, checkoutUrl, product_url: linkGenExtracted.url }, ...prev]);
       setLinkGenUrl('');
       setLinkGenExtracted(null);
       setLinkGenManualPrice('');
@@ -505,16 +510,22 @@ export default function HotProducts() {
   function startEditLink(link: typeof generatedLinks[0]) {
     setEditingLinkId(link.id);
     setEditLinkTitle(link.title);
-    setEditLinkFinalPrice(link.total_price_usd.toFixed(0));
+    setEditLinkItemPrice(String(link.price_usd));
+    setEditLinkMarkup(String(link.markup_usd));
+    setEditLinkShipping(String(link.shipping_usd));
+    setEditLinkFinalPrice(String(link.total_price_usd));
   }
 
   async function saveEditLink(id: string) {
     const newTitle = editLinkTitle.trim();
-    const newFinal = parseFloat(editLinkFinalPrice);
-    if (!newTitle || !newFinal || newFinal <= 0) { toast.error(t('Invalid values', 'Valeurs invalides')); return; }
-    const { error } = await supabase.from('hot_products_showcase').update({ title: newTitle, total_price_usd: newFinal } as any).eq('id', id);
+    const newItemPrice = parseFloat(editLinkItemPrice) || 0;
+    const newMarkup = parseFloat(editLinkMarkup) || 0;
+    const newShipping = parseFloat(editLinkShipping) || 0;
+    const newFinal = parseFloat(editLinkFinalPrice) || Math.ceil(newItemPrice + newMarkup + newShipping);
+    if (!newTitle || newFinal <= 0) { toast.error(t('Invalid values', 'Valeurs invalides')); return; }
+    const { error } = await supabase.from('hot_products_showcase').update({ title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal } as any).eq('id', id);
     if (error) { toast.error('Save failed'); return; }
-    setGeneratedLinks(prev => prev.map(l => l.id === id ? { ...l, title: newTitle, total_price_usd: newFinal } : l));
+    setGeneratedLinks(prev => prev.map(l => l.id === id ? { ...l, title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal } : l));
     setEditingLinkId(null);
     toast.success(t('Updated', 'Mis à jour'));
   }

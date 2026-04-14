@@ -146,6 +146,8 @@ function getSharePreviewDescription(link: Pick<GeneratedLink, 'description_fr' |
 const PUBLISHED_DOMAIN = 'https://afrishop-usa.com';
 
 function getShareUrl(id: string): string {
+  // Uses production domain — _redirects proxies to share-og edge function
+  // so WhatsApp crawler gets proper HTML with OG tags
   return `${PUBLISHED_DOMAIN}/share/hp/${id}`;
 }
 

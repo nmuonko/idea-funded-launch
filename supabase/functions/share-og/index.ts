@@ -4,10 +4,9 @@
  *
  * GET /share-og?id=<hot_product_id>
  *
- * Always returns HTML with product-specific OG tags plus an instant
- * client-side redirect to the public React share page.
- * This avoids relying on crawler User-Agent detection, which can fail
- * for messaging apps that unfurl links with generic fetchers.
+ * Returns HTML with product-specific OG tags plus a redirect
+ * to the interactive share page. When proxied through _redirects,
+ * the production domain serves this with proper content-type.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -19,12 +18,16 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-function escapeHtml(str: string): string {
-  return str
+function esc(s: string): string {
+  return s
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function trunc(s: string, n: number): string {
+  return s.length <= n ? s : s.slice(0, n - 1).trimEnd() + "…";
 }
 
 serve(async (req) => {
@@ -65,44 +68,54 @@ serve(async (req) => {
     });
   }
 
-  const title = escapeHtml(product.title || "AfriShop Product");
-  const description = escapeHtml(product.description_fr || product.title || "").slice(0, 200);
+  // Build OG metadata – prefer French description
+  const descFr = (product.description_fr || "").replace(/\s+/g, " ").trim();
+  const rawTitle = (product.title || "").replace(/\s+/g, " ").trim();
+  let ogTitle: string;
+  if (descFr) {
+    const m = descFr.match(/^.*?[.!?](?:\s|$)/);
+    ogTitle = trunc(m ? m[0].trim() : descFr, 110);
+  } else {
+    ogTitle = trunc(rawTitle || "Produit AfriShop", 110);
+  }
+
   const price = Math.ceil(product.total_price_usd || 0);
-  const ogTitle = `${title} - $${price}`;
-  const ogDesc = description || title;
+  const ogDesc = descFr
+    ? trunc(descFr, 180)
+    : `Prix: $${price} · Livraison en RDC incluse`;
+
   const galleryImages: string[] = product.gallery_images || [];
   const ogImage = galleryImages[0] || product.image_url || "";
-  const publicShareUrl = url.toString();
   const sharePageUrl = `${frontendUrl}/share/hp/${product.id}`;
+  const publicShareUrl = `${frontendUrl}/share/hp/${product.id}`;
 
   const html = `<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>${ogTitle}</title>
-<meta name="description" content="${ogDesc}"/>
+<title>${esc(ogTitle)}</title>
+<meta name="description" content="${esc(ogDesc)}"/>
 <meta name="robots" content="noindex, nofollow"/>
-<link rel="canonical" href="${escapeHtml(publicShareUrl)}"/>
 <meta property="og:type" content="product"/>
-<meta property="og:title" content="${ogTitle}"/>
-<meta property="og:description" content="${ogDesc}"/>
-<meta property="og:image" content="${escapeHtml(ogImage)}"/>
-<meta property="og:image:secure_url" content="${escapeHtml(ogImage)}"/>
-<meta property="og:image:alt" content="${title}"/>
+<meta property="og:title" content="${esc(ogTitle)}"/>
+<meta property="og:description" content="${esc(ogDesc)}"/>
+<meta property="og:image" content="${esc(ogImage)}"/>
+<meta property="og:image:secure_url" content="${esc(ogImage)}"/>
+<meta property="og:image:alt" content="${esc(ogTitle)}"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
-<meta property="og:url" content="${escapeHtml(publicShareUrl)}"/>
+<meta property="og:url" content="${esc(publicShareUrl)}"/>
 <meta property="og:site_name" content="AfriShop"/>
 <meta name="twitter:card" content="summary_large_image"/>
-<meta name="twitter:title" content="${ogTitle}"/>
-<meta name="twitter:description" content="${ogDesc}"/>
-<meta name="twitter:image" content="${escapeHtml(ogImage)}"/>
-<meta http-equiv="refresh" content="0;url=${escapeHtml(sharePageUrl)}"/>
-<script>window.location.replace(${JSON.stringify(sharePageUrl)});</script>
+<meta name="twitter:title" content="${esc(ogTitle)}"/>
+<meta name="twitter:description" content="${esc(ogDesc)}"/>
+<meta name="twitter:image" content="${esc(ogImage)}"/>
+<meta http-equiv="refresh" content="1;url=${esc(sharePageUrl)}"/>
+<script>setTimeout(function(){window.location.replace(${JSON.stringify(sharePageUrl)});},500);</script>
 </head>
 <body>
-<p>Redirecting to <a href="${escapeHtml(sharePageUrl)}">AfriShop</a>...</p>
+<p>Redirection vers <a href="${esc(sharePageUrl)}">AfriShop</a>…</p>
 </body>
 </html>`;
 

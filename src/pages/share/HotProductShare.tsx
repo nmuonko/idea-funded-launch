@@ -16,6 +16,7 @@ interface ShareProduct {
   gallery_images: string[] | null;
   provider: string;
   provider_product_id: string;
+  product_url: string | null;
   is_active: boolean;
 }
 
@@ -31,7 +32,7 @@ export default function HotProductShare() {
     (async () => {
       const { data } = await (supabase
         .from('hot_products_showcase')
-        .select('id, title, image_url, total_price_usd, description_fr, gallery_images, provider, provider_product_id, is_active') as any)
+        .select('id, title, image_url, total_price_usd, description_fr, gallery_images, provider, provider_product_id, product_url, is_active') as any)
         .eq('id', id)
         .single();
       if (data) setProduct(data as ShareProduct);
@@ -155,6 +156,17 @@ export default function HotProductShare() {
             <ShoppingCart className="w-5 h-5 mr-2" />
             Commander maintenant
           </Button>
+
+          {product.product_url && (
+            <a
+              href={product.product_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-center text-sm text-white/50 hover:text-white/80 underline underline-offset-2 transition-colors"
+            >
+              🔗 Voir le produit original
+            </a>
+          )}
 
           <p className="text-center text-white/40 text-xs">
             AfriShop · Livraison depuis les USA vers la RDC

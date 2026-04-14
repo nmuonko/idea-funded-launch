@@ -2975,6 +2975,7 @@ export type Database = {
           id: string
           image_url: string | null
           is_active: boolean | null
+          link_source: string
           markup_usd: number | null
           price_usd: number | null
           product_url: string | null
@@ -2992,6 +2993,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_active?: boolean | null
+          link_source?: string
           markup_usd?: number | null
           price_usd?: number | null
           product_url?: string | null
@@ -3009,6 +3011,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_active?: boolean | null
+          link_source?: string
           markup_usd?: number | null
           price_usd?: number | null
           product_url?: string | null

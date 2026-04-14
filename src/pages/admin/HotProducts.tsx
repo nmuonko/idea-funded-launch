@@ -151,7 +151,7 @@ export default function HotProducts() {
   const storedExtracted = (() => { try { const s = localStorage.getItem('hp_linkgen_extracted'); return s ? JSON.parse(s) : null; } catch { return null; } })();
   const [linkGenUrl, setLinkGenUrl] = useState(() => localStorage.getItem('hp_linkgen_url') || '');
   const [linkGenExtracting, setLinkGenExtracting] = useState(false);
-  const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; price_usd: number; total_price_usd: number; checkoutUrl: string; product_url: string }>>([]);
+  const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; price_usd: number; markup_usd: number; shipping_usd: number; total_price_usd: number; checkoutUrl: string; product_url: string }>>([]);
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   const [linkGenExtracted, setLinkGenExtracted] = useState<{ title: string; image_url: string; price: number; provider: string; pid: string; url: string } | null>(storedExtracted);
   const [linkGenManualPrice, setLinkGenManualPrice] = useState(() => localStorage.getItem('hp_linkgen_price') || (storedExtracted?.price > 0 ? String(storedExtracted.price) : ''));

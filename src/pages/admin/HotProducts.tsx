@@ -498,20 +498,7 @@ export default function HotProducts() {
     }
   }
 
-  async function handleShareOnWhatsApp(link: GeneratedLink) {
-    // Trigger edge function to generate/upload the OG HTML to storage
-    try {
-      await supabase.functions.invoke('share-og', {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        body: null,
-      });
-      // Use fetch directly since functions.invoke doesn't support query params well
-      const edgeUrl = getEdgeFunctionShareUrl(link.id);
-      await fetch(edgeUrl, { method: 'GET', redirect: 'manual' });
-    } catch {
-      // Non-blocking: share even if upload fails
-    }
+  function handleShareOnWhatsApp(link: GeneratedLink) {
     const shareUrl = getShareUrl(link.id);
     const msg = buildWhatsAppShareMessage(link, shareUrl);
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');

@@ -158,6 +158,8 @@ export default function HotProducts() {
   const [linkGenManualTitle, setLinkGenManualTitle] = useState(() => localStorage.getItem('hp_linkgen_title') || '');
   const [linkGenPriceEditable, setLinkGenPriceEditable] = useState(() => storedExtracted ? (!storedExtracted.price || storedExtracted.price <= 0) : false);
   const [linkGenFinalOverride, setLinkGenFinalOverride] = useState('');
+  const [linkGenManualMarkup, setLinkGenManualMarkup] = useState('');
+  const [linkGenManualShipping, setLinkGenManualShipping] = useState('');
   const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
   const [editLinkTitle, setEditLinkTitle] = useState('');
   const [editLinkFinalPrice, setEditLinkFinalPrice] = useState('');
@@ -442,9 +444,11 @@ export default function HotProducts() {
 
     setLinkGenExtracting(true);
     try {
-      const { markup, shipping, total: calcTotal } = calcProductTotals(finalPrice, feeSettings, finalTitle);
+      const { markup: calcMarkup, shipping: calcShipping } = calcProductTotals(finalPrice, feeSettings, finalTitle);
+      const markup = linkGenManualMarkup ? parseFloat(linkGenManualMarkup) : calcMarkup;
+      const shipping = linkGenManualShipping ? parseFloat(linkGenManualShipping) : calcShipping;
       const finalOverride = linkGenFinalOverride ? parseFloat(linkGenFinalOverride) : 0;
-      const total = finalOverride > 0 ? finalOverride : calcTotal;
+      const total = finalOverride > 0 ? finalOverride : Math.ceil(finalPrice + markup + shipping);
       await supabase.auth.refreshSession();
       const { data: { user: currentUser } } = await supabase.auth.getUser();
       if (!currentUser) { toast.error('Session expired'); setLinkGenExtracting(false); return; }
@@ -480,6 +484,8 @@ export default function HotProducts() {
       setLinkGenManualPrice('');
       setLinkGenManualTitle('');
       setLinkGenFinalOverride('');
+      setLinkGenManualMarkup('');
+      setLinkGenManualShipping('');
       navigator.clipboard.writeText(checkoutUrl);
       setCopiedLinkId(inserted.id);
       setTimeout(() => setCopiedLinkId(null), 3000);
@@ -911,57 +917,102 @@ export default function HotProducts() {
                           className="h-8 text-sm"
                         />
                       </div>
+                      {(() => {
+                        const p = linkGenManualPrice ? parseFloat(linkGenManualPrice) : linkGenExtracted.price;
+                        if (p <= 0) return null;
+                        const title = linkGenManualTitle.trim() || linkGenExtracted?.title || '';
+                        const { markup: calcMarkup, shipping: calcShipping, total: calcTotal } = calcProductTotals(p, feeSettings, title);
+                        const dispMarkup = linkGenManualMarkup ? parseFloat(linkGenManualMarkup) : calcMarkup;
+                        const dispShipping = linkGenManualShipping ? parseFloat(linkGenManualShipping) : calcShipping;
+                        const finalOverrideVal = linkGenFinalOverride ? parseFloat(linkGenFinalOverride) : 0;
+                        const dispTotal = finalOverrideVal > 0 ? finalOverrideVal : Math.ceil(p + dispMarkup + dispShipping);
+                        return null; // rendered below
+                      })()}
                       <div className="grid grid-cols-3 gap-2">
                         <div>
-                          <Label className="text-xs">{t('Base Price ($)', 'Prix de base ($)')}</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={linkGenManualPrice || (linkGenExtracted.price > 0 ? linkGenExtracted.price.toFixed(0) : '')}
-                            onChange={e => { setLinkGenManualPrice(e.target.value); setLinkGenPriceEditable(true); }}
-                            placeholder="0.00"
-                            className="h-8 text-sm"
-                          />
+                          <Label className="text-xs">{t('Item Price', 'Prix article')}</Label>
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                            <Input
+                              type="number"
+                              step="1"
+                              value={linkGenManualPrice || (linkGenExtracted.price > 0 ? Math.ceil(linkGenExtracted.price) : '')}
+                              onChange={e => { setLinkGenManualPrice(e.target.value); setLinkGenPriceEditable(true); }}
+                              placeholder="0"
+                              className="h-8 text-sm pl-6"
+                            />
+                          </div>
                           {linkGenExtracted.price <= 0 && (
-                            <p className="text-xs text-destructive mt-0.5">{t('Auto-extract failed — enter price manually', 'Extraction échouée — entrez le prix')}</p>
+                            <p className="text-xs text-destructive mt-0.5">{t('Enter price manually', 'Entrez le prix')}</p>
                           )}
                         </div>
                         <div>
                           <Label className="text-xs">{t('Markup', 'Marge')}</Label>
-                          <p className="text-sm font-medium mt-1">{feeSettings.markupPercent}%</p>
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                            <Input
+                              type="number"
+                              step="1"
+                              value={linkGenManualMarkup || (() => {
+                                const p = linkGenManualPrice ? parseFloat(linkGenManualPrice) : linkGenExtracted.price;
+                                if (p <= 0) return '';
+                                const title = linkGenManualTitle.trim() || linkGenExtracted?.title || '';
+                                return calcProductTotals(p, feeSettings, title).markup;
+                              })()}
+                              onChange={e => setLinkGenManualMarkup(e.target.value)}
+                              placeholder="0"
+                              className="h-8 text-sm pl-6"
+                            />
+                          </div>
                         </div>
-                         <div>
+                        <div>
                           <Label className="text-xs">{t('Shipping', 'Livraison')}</Label>
-                          <p className="text-sm font-medium mt-1">{t('Weight-based', 'Par poids')} (${feeSettings.shippingRatePerKg}/kg)</p>
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                            <Input
+                              type="number"
+                              step="1"
+                              value={linkGenManualShipping || (() => {
+                                const p = linkGenManualPrice ? parseFloat(linkGenManualPrice) : linkGenExtracted.price;
+                                if (p <= 0) return '';
+                                const title = linkGenManualTitle.trim() || linkGenExtracted?.title || '';
+                                return calcProductTotals(p, feeSettings, title).shipping;
+                              })()}
+                              onChange={e => setLinkGenManualShipping(e.target.value)}
+                              placeholder="0"
+                              className="h-8 text-sm pl-6"
+                            />
+                          </div>
                         </div>
                       </div>
                       {(() => {
                         const p = linkGenManualPrice ? parseFloat(linkGenManualPrice) : linkGenExtracted.price;
-                        if (p > 0) {
-                          const title = linkGenManualTitle.trim() || linkGenExtracted?.title || '';
-                          const { total, shipping } = calcProductTotals(p, feeSettings, title);
-                          const displayTotal = linkGenFinalOverride ? parseFloat(linkGenFinalOverride) || total : total;
-                          return (
-                            <div className="space-y-1">
-                              <p className="text-sm font-bold text-primary">{t('Calculated:', 'Calculé :')} ${total.toFixed(0)} <span className="text-xs font-normal text-muted-foreground">({t('all inclusive', 'tout inclus')})</span></p>
-                              <div>
-                                <Label className="text-xs">{t('Override Final Price ($)', 'Remplacer le prix final ($)')}</Label>
+                        if (p <= 0) return null;
+                        const title = linkGenManualTitle.trim() || linkGenExtracted?.title || '';
+                        const { markup: calcMarkup, shipping: calcShipping } = calcProductTotals(p, feeSettings, title);
+                        const m = linkGenManualMarkup ? parseFloat(linkGenManualMarkup) : calcMarkup;
+                        const s = linkGenManualShipping ? parseFloat(linkGenManualShipping) : calcShipping;
+                        const finalOverrideVal = linkGenFinalOverride ? parseFloat(linkGenFinalOverride) : 0;
+                        const total = finalOverrideVal > 0 ? finalOverrideVal : Math.ceil(p + m + s);
+                        return (
+                          <div className="flex items-center gap-3 pt-1">
+                            <p className="text-sm font-bold text-primary">{t('Total:', 'Total :')} ${total}</p>
+                            <div className="flex items-center gap-1">
+                              <Label className="text-xs text-muted-foreground">{t('Override:', 'Remplacer :')}</Label>
+                              <div className="relative">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
                                 <Input
                                   type="number"
-                                  step="0.01"
+                                  step="1"
                                   value={linkGenFinalOverride}
                                   onChange={e => setLinkGenFinalOverride(e.target.value)}
-                                  placeholder={total.toFixed(0)}
-                                  className="h-8 text-sm w-40"
+                                  placeholder={String(total)}
+                                  className="h-7 text-sm w-24 pl-6"
                                 />
-                                {linkGenFinalOverride && parseFloat(linkGenFinalOverride) > 0 && (
-                                  <p className="text-xs text-orange-500 mt-0.5">{t('Will use', 'Utilisera')} ${parseFloat(linkGenFinalOverride).toFixed(0)} {t('instead', 'à la place')}</p>
-                                )}
                               </div>
                             </div>
-                          );
-                        }
-                        return null;
+                          </div>
+                        );
                       })()}
                     </div>
                   </div>

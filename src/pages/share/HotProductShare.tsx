@@ -157,6 +157,17 @@ export default function HotProductShare() {
             Commander maintenant
           </Button>
 
+          {product.product_url && (
+            <a
+              href={product.product_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-center text-sm text-white/50 hover:text-white/80 underline underline-offset-2 transition-colors"
+            >
+              🔗 Voir le produit original
+            </a>
+          )}
+
           <p className="text-center text-white/40 text-xs">
             AfriShop · Livraison depuis les USA vers la RDC
           </p>

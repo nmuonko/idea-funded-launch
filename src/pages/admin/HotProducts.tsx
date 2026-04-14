@@ -1563,45 +1563,6 @@ export default function HotProducts() {
                               )}
                             </div>
                           <div className="flex gap-1.5 shrink-0">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="gap-1.5"
-                              title={t('Preview WhatsApp', 'Aperçu WhatsApp')}
-                              onClick={() => setWhatsappPreviewLink(whatsappPreviewLink === link.id ? null : link.id)}
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="gap-1.5"
-                              title="Share on WhatsApp"
-                              onClick={() => { void handleShareOnWhatsApp(link); }}
-                            >
-                              <MessageCircle className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => startEditLink(link)}>
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="gap-1.5"
-                              onClick={() => {
-                                navigator.clipboard.writeText(getShareUrl(link.id));
-                                setCopiedLinkId(link.id);
-                                setTimeout(() => setCopiedLinkId(null), 3000);
-                                toast.success(t('Copied!', 'Copié !'));
-                              }}
-                            >
-                              {copiedLinkId === link.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                              {copiedLinkId === link.id ? t('Copied', 'Copié') : t('Copy', 'Copier')}
-                            </Button>
-                            <Button variant="ghost" size="sm" className="text-destructive" onClick={() => deleteLinkGenProduct(link.id)}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
                           <div className="flex gap-1.5 shrink-0 flex-wrap">
                             {/* WhatsApp Share (default) */}
                             <Button

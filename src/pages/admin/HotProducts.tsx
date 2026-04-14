@@ -818,26 +818,86 @@ export default function HotProducts() {
                 {t('Generate Checkout Link', 'Générer un lien de paiement')}
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                {t('Paste any product URL from Amazon, Walmart, eBay, etc. to generate a unique checkout link you can share.', 'Collez un lien produit Amazon, Walmart, eBay, etc. pour générer un lien de paiement unique à partager.')}
+                {t('Paste any product URL from Amazon, Walmart, eBay, etc. We\'ll extract images & price, apply your markup/shipping, and generate a unique checkout link.', 'Collez un lien produit. Nous extrairons images et prix, appliquerons votre marge/livraison, et générerons un lien de paiement unique.')}
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Step 1: URL input */}
               <div className="flex gap-2">
                 <Input
                   placeholder="https://www.amazon.com/dp/B0..."
                   value={linkGenUrl}
                   onChange={e => setLinkGenUrl(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && generateCheckoutLink()}
+                  onKeyDown={e => e.key === 'Enter' && extractLinkGenProduct()}
                 />
-                <Button onClick={generateCheckoutLink} disabled={linkGenExtracting || !linkGenUrl.trim()}>
-                  {linkGenExtracting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LinkIcon className="h-4 w-4 mr-2" />}
-                  {t('Generate', 'Générer')}
+                <Button onClick={extractLinkGenProduct} disabled={linkGenExtracting || !linkGenUrl.trim()}>
+                  {linkGenExtracting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Search className="h-4 w-4 mr-2" />}
+                  {t('Extract', 'Extraire')}
                 </Button>
               </div>
 
+              {/* Step 2: Extracted product preview with editable fields */}
+              {linkGenExtracted && (
+                <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+                  <div className="flex items-start gap-3">
+                    {linkGenExtracted.image_url && (
+                      <img src={linkGenExtracted.image_url} alt="" className="w-20 h-20 rounded object-cover shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0 space-y-2">
+                      <div>
+                        <Label className="text-xs">{t('Title', 'Titre')}</Label>
+                        <Input
+                          value={linkGenManualTitle || linkGenExtracted.title}
+                          onChange={e => setLinkGenManualTitle(e.target.value)}
+                          placeholder={t('Product title...', 'Titre du produit...')}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <Label className="text-xs">{t('Base Price ($)', 'Prix de base ($)')}</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={linkGenManualPrice || (linkGenExtracted.price > 0 ? linkGenExtracted.price.toFixed(2) : '')}
+                            onChange={e => { setLinkGenManualPrice(e.target.value); setLinkGenPriceEditable(true); }}
+                            placeholder="0.00"
+                            className="h-8 text-sm"
+                          />
+                          {linkGenExtracted.price <= 0 && (
+                            <p className="text-xs text-destructive mt-0.5">{t('Auto-extract failed — enter price manually', 'Extraction échouée — entrez le prix')}</p>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-xs">{t('Markup', 'Marge')}</Label>
+                          <p className="text-sm font-medium mt-1">{feeSettings.markupPercent}%</p>
+                        </div>
+                        <div>
+                          <Label className="text-xs">{t('Shipping', 'Livraison')}</Label>
+                          <p className="text-sm font-medium mt-1">${feeSettings.shippingBaseFeeUsd} + {feeSettings.shippingPercent}%</p>
+                        </div>
+                      </div>
+                      {(() => {
+                        const p = linkGenManualPrice ? parseFloat(linkGenManualPrice) : linkGenExtracted.price;
+                        if (p > 0) {
+                          const { total } = calcProductTotals(p, feeSettings);
+                          return <p className="text-sm font-bold text-primary">{t('Final price:', 'Prix final :')} ${total.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">({t('all inclusive', 'tout inclus')})</span></p>;
+                        }
+                        return null;
+                      })()}
+                    </div>
+                  </div>
+                  <Button onClick={saveLinkGenProduct} disabled={linkGenExtracting} className="w-full">
+                    {linkGenExtracting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LinkIcon className="h-4 w-4 mr-2" />}
+                    {t('Generate Link', 'Générer le lien')}
+                  </Button>
+                </div>
+              )}
+
+              {/* Step 3: Persisted generated links */}
               {generatedLinks.length > 0 && (
                 <div className="space-y-3">
-                  <h4 className="text-sm font-semibold text-muted-foreground">{t('Generated Links', 'Liens générés')}</h4>
+                  <h4 className="text-sm font-semibold text-muted-foreground">{t('Generated Links', 'Liens générés')} ({generatedLinks.length})</h4>
                   {generatedLinks.map(link => (
                     <div key={link.id} className="flex items-center gap-3 p-3 border rounded-lg">
                       {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
@@ -846,20 +906,25 @@ export default function HotProducts() {
                         <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(2)} · {t('All inclusive', 'Tout inclus')}</p>
                         <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0 gap-1.5"
-                        onClick={() => {
-                          navigator.clipboard.writeText(link.checkoutUrl);
-                          setCopiedLinkId(link.id);
-                          setTimeout(() => setCopiedLinkId(null), 3000);
-                          toast.success(t('Copied!', 'Copié !'));
-                        }}
-                      >
-                        {copiedLinkId === link.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                        {copiedLinkId === link.id ? t('Copied', 'Copié') : t('Copy', 'Copier')}
-                      </Button>
+                      <div className="flex gap-1.5 shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                          onClick={() => {
+                            navigator.clipboard.writeText(link.checkoutUrl);
+                            setCopiedLinkId(link.id);
+                            setTimeout(() => setCopiedLinkId(null), 3000);
+                            toast.success(t('Copied!', 'Copié !'));
+                          }}
+                        >
+                          {copiedLinkId === link.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                          {copiedLinkId === link.id ? t('Copied', 'Copié') : t('Copy', 'Copier')}
+                        </Button>
+                        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => deleteLinkGenProduct(link.id)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>

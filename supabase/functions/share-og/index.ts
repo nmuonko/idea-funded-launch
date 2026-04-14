@@ -4,9 +4,11 @@
  *
  * GET /share-og?id=<hot_product_id>
  *
- * Returns HTML with product-specific OG tags plus a redirect
- * to the interactive share page. When proxied through _redirects,
- * the production domain serves this with proper content-type.
+ * For bot crawlers (WhatsApp, Facebook, Twitter, etc.): returns a minimal
+ * HTML page with OG tags only — no redirect, no JavaScript.
+ *
+ * For real browsers: returns HTML with OG tags + JS redirect to the
+ * interactive share page.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -28,6 +30,11 @@ function esc(s: string): string {
 
 function trunc(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 1).trimEnd() + "…";
+}
+
+/** Detect social media / link preview crawlers */
+function isBot(ua: string): boolean {
+  return /whatsapp|facebookexternalhit|facebot|twitterbot|telegrambot|linkedinbot|slackbot|discordbot|googlebot|bingbot|bot|crawl|spider|preview/i.test(ua);
 }
 
 serve(async (req) => {
@@ -87,35 +94,39 @@ serve(async (req) => {
   const galleryImages: string[] = product.gallery_images || [];
   const ogImage = galleryImages[0] || product.image_url || "";
   const sharePageUrl = `${frontendUrl}/share/hp/${product.id}`;
-  const publicShareUrl = `${frontendUrl}/share/hp/${product.id}`;
+
+  const userAgent = req.headers.get("user-agent") || "";
+  const isCrawler = isBot(userAgent);
+
+  // For bots: pure OG tags, NO redirect, NO JavaScript
+  // For browsers: OG tags + redirect to the interactive page
+  const redirectTags = isCrawler ? "" : `
+<meta http-equiv="refresh" content="0;url=${esc(sharePageUrl)}"/>
+<script>window.location.replace(${JSON.stringify(sharePageUrl)});</script>`;
 
   const html = `<!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" prefix="og: https://ogp.me/ns#">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>${esc(ogTitle)}</title>
 <meta name="description" content="${esc(ogDesc)}"/>
-<meta name="robots" content="noindex, nofollow"/>
 <meta property="og:type" content="product"/>
 <meta property="og:title" content="${esc(ogTitle)}"/>
 <meta property="og:description" content="${esc(ogDesc)}"/>
 <meta property="og:image" content="${esc(ogImage)}"/>
-<meta property="og:image:secure_url" content="${esc(ogImage)}"/>
-<meta property="og:image:alt" content="${esc(ogTitle)}"/>
-<meta property="og:image:width" content="1200"/>
-<meta property="og:image:height" content="630"/>
 <meta property="og:url" content="${esc(url.href)}"/>
 <meta property="og:site_name" content="AfriShop"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="${esc(ogTitle)}"/>
 <meta name="twitter:description" content="${esc(ogDesc)}"/>
-<meta name="twitter:image" content="${esc(ogImage)}"/>
-<meta http-equiv="refresh" content="1;url=${esc(sharePageUrl)}"/>
-<script>setTimeout(function(){window.location.replace(${JSON.stringify(sharePageUrl)});},500);</script>
+<meta name="twitter:image" content="${esc(ogImage)}"/>${redirectTags}
 </head>
 <body>
-<p>Redirection vers <a href="${esc(sharePageUrl)}">AfriShop</a>…</p>
+<h1>${esc(ogTitle)}</h1>
+<img src="${esc(ogImage)}" alt="${esc(ogTitle)}" style="max-width:600px"/>
+<p>${esc(ogDesc)}</p>
+<p><a href="${esc(sharePageUrl)}">Voir sur AfriShop</a></p>
 </body>
 </html>`;
 

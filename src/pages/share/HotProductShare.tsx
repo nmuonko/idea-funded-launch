@@ -16,6 +16,7 @@ interface ShareProduct {
   gallery_images: string[] | null;
   provider: string;
   provider_product_id: string;
+  product_url: string | null;
   is_active: boolean;
 }
 

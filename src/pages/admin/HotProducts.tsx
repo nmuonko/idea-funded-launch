@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon, Pencil } from 'lucide-react';
+import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon, Pencil, MessageCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { allInclusivePrice, type FeeConfig } from '@/lib/allInclusivePrice';
 import type { ShippingCategoryRow } from '@/lib/shippingCategoryDetector';
@@ -151,21 +151,24 @@ export default function HotProducts() {
   const storedExtracted = (() => { try { const s = localStorage.getItem('hp_linkgen_extracted'); return s ? JSON.parse(s) : null; } catch { return null; } })();
   const [linkGenUrl, setLinkGenUrl] = useState(() => localStorage.getItem('hp_linkgen_url') || '');
   const [linkGenExtracting, setLinkGenExtracting] = useState(false);
-  const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; price_usd: number; markup_usd: number; shipping_usd: number; total_price_usd: number; checkoutUrl: string; product_url: string }>>([]);
+  const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; price_usd: number; markup_usd: number; shipping_usd: number; total_price_usd: number; checkoutUrl: string; product_url: string; description_fr: string; gallery_images: string[] }>>([]);
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
-  const [linkGenExtracted, setLinkGenExtracted] = useState<{ title: string; image_url: string; price: number; provider: string; pid: string; url: string } | null>(storedExtracted);
+  const [linkGenExtracted, setLinkGenExtracted] = useState<{ title: string; image_url: string; price: number; provider: string; pid: string; url: string; gallery_images?: string[] } | null>(storedExtracted);
   const [linkGenManualPrice, setLinkGenManualPrice] = useState(() => localStorage.getItem('hp_linkgen_price') || (storedExtracted?.price > 0 ? String(storedExtracted.price) : ''));
   const [linkGenManualTitle, setLinkGenManualTitle] = useState(() => localStorage.getItem('hp_linkgen_title') || '');
   const [linkGenPriceEditable, setLinkGenPriceEditable] = useState(() => storedExtracted ? (!storedExtracted.price || storedExtracted.price <= 0) : false);
   const [linkGenFinalOverride, setLinkGenFinalOverride] = useState('');
   const [linkGenManualMarkup, setLinkGenManualMarkup] = useState('');
   const [linkGenManualShipping, setLinkGenManualShipping] = useState('');
+  const [linkGenDescFr, setLinkGenDescFr] = useState('');
+  const [translatingFr, setTranslatingFr] = useState(false);
   const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
   const [editLinkTitle, setEditLinkTitle] = useState('');
   const [editLinkFinalPrice, setEditLinkFinalPrice] = useState('');
   const [editLinkItemPrice, setEditLinkItemPrice] = useState('');
   const [editLinkMarkup, setEditLinkMarkup] = useState('');
   const [editLinkShipping, setEditLinkShipping] = useState('');
+  const [editLinkDescFr, setEditLinkDescFr] = useState('');
 
   // Persist link generator state to localStorage
   useEffect(() => {
@@ -397,6 +400,8 @@ export default function HotProducts() {
         total_price_usd: d.total_price_usd || 0,
         checkoutUrl: `${window.location.origin}/checkout?hp=${d.id}`,
         product_url: d.product_url || '',
+        description_fr: d.description_fr || '',
+        gallery_images: d.gallery_images || [],
       })));
     }
   }
@@ -432,8 +437,20 @@ export default function HotProducts() {
         provider: prov,
         pid,
         url: linkGenUrl.trim(),
+        gallery_images: (data?.galleryImages || data?.images || []).filter((u: string) => typeof u === 'string').slice(0, 2),
       });
       if (basePrice > 0) setLinkGenManualPrice(basePrice.toFixed(0));
+
+      // Auto-translate title to French
+      if (title) {
+        setTranslatingFr(true);
+        supabase.functions.invoke('translate-product', { body: { title, price: basePrice } })
+          .then(({ data: trData }) => {
+            if (trData?.description_fr) setLinkGenDescFr(trData.description_fr);
+          })
+          .catch(() => {})
+          .finally(() => setTranslatingFr(false));
+      }
     } catch {
       setLinkGenPriceEditable(true);
       setLinkGenExtracted({ title: '', image_url: '', price: 0, provider: inferProvider(linkGenUrl.trim()) || 'external', pid: inferProductId(linkGenUrl.trim()) || '', url: linkGenUrl.trim() });
@@ -476,6 +493,8 @@ export default function HotProducts() {
           is_active: true,
           created_by: currentUser.id,
           link_source: 'link_generator',
+          description_fr: linkGenDescFr || null,
+          gallery_images: linkGenExtracted.gallery_images || null,
         } as any)
         .select('id')
         .single();
@@ -483,7 +502,7 @@ export default function HotProducts() {
       if (insertErr || !inserted) { toast.error('Failed to save: ' + (insertErr?.message || '')); setLinkGenExtracting(false); return; }
 
       const checkoutUrl = `${window.location.origin}/checkout?hp=${inserted.id}`;
-      setGeneratedLinks(prev => [{ id: inserted.id, title: finalTitle, image_url: linkGenExtracted.image_url, price_usd: finalPrice, markup_usd: markup, shipping_usd: shipping, total_price_usd: total, checkoutUrl, product_url: linkGenExtracted.url }, ...prev]);
+      setGeneratedLinks(prev => [{ id: inserted.id, title: finalTitle, image_url: linkGenExtracted.image_url, price_usd: finalPrice, markup_usd: markup, shipping_usd: shipping, total_price_usd: total, checkoutUrl, product_url: linkGenExtracted.url, description_fr: linkGenDescFr, gallery_images: linkGenExtracted.gallery_images || [] }, ...prev]);
       setLinkGenUrl('');
       setLinkGenExtracted(null);
       setLinkGenManualPrice('');
@@ -491,6 +510,7 @@ export default function HotProducts() {
       setLinkGenFinalOverride('');
       setLinkGenManualMarkup('');
       setLinkGenManualShipping('');
+      setLinkGenDescFr('');
       navigator.clipboard.writeText(checkoutUrl);
       setCopiedLinkId(inserted.id);
       setTimeout(() => setCopiedLinkId(null), 3000);
@@ -514,6 +534,7 @@ export default function HotProducts() {
     setEditLinkMarkup(String(link.markup_usd));
     setEditLinkShipping(String(link.shipping_usd));
     setEditLinkFinalPrice(String(link.total_price_usd));
+    setEditLinkDescFr(link.description_fr || '');
   }
 
   async function saveEditLink(id: string) {
@@ -523,9 +544,9 @@ export default function HotProducts() {
     const newShipping = parseFloat(editLinkShipping) || 0;
     const newFinal = parseFloat(editLinkFinalPrice) || Math.ceil(newItemPrice + newMarkup + newShipping);
     if (!newTitle || newFinal <= 0) { toast.error(t('Invalid values', 'Valeurs invalides')); return; }
-    const { error } = await supabase.from('hot_products_showcase').update({ title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal } as any).eq('id', id);
+    const { error } = await supabase.from('hot_products_showcase').update({ title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr || null } as any).eq('id', id);
     if (error) { toast.error('Save failed'); return; }
-    setGeneratedLinks(prev => prev.map(l => l.id === id ? { ...l, title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal } : l));
+    setGeneratedLinks(prev => prev.map(l => l.id === id ? { ...l, title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr } : l));
     setEditingLinkId(null);
     toast.success(t('Updated', 'Mis à jour'));
   }
@@ -1027,6 +1048,18 @@ export default function HotProducts() {
                       })()}
                     </div>
                   </div>
+                  {/* Description FR */}
+                  <div>
+                    <Label className="text-xs">{t('Description (FR) for WhatsApp', 'Description (FR) pour WhatsApp')}</Label>
+                    <textarea
+                      value={linkGenDescFr}
+                      onChange={e => setLinkGenDescFr(e.target.value)}
+                      placeholder={translatingFr ? t('Generating French description...', 'Génération de la description...') : t('French product description...', 'Description du produit en français...')}
+                      className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[60px] resize-y"
+                      rows={2}
+                    />
+                    {translatingFr && <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> {t('AI translating...', 'Traduction IA...')}</p>}
+                  </div>
                   <Button onClick={saveLinkGenProduct} disabled={linkGenExtracting} className="w-full">
                     {linkGenExtracting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LinkIcon className="h-4 w-4 mr-2" />}
                     {t('Generate Link', 'Générer le lien')}
@@ -1097,6 +1130,16 @@ export default function HotProducts() {
                               </div>
                             </div>
                           </div>
+                          <div>
+                            <Label className="text-xs">{t('Description (FR)', 'Description (FR)')}</Label>
+                            <textarea
+                              value={editLinkDescFr}
+                              onChange={e => setEditLinkDescFr(e.target.value)}
+                              placeholder={t('French description...', 'Description en français...')}
+                              className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[50px] resize-y"
+                              rows={2}
+                            />
+                          </div>
                           <div className="flex gap-2 justify-end">
                             <Button variant="outline" size="sm" onClick={() => setEditingLinkId(null)}>{t('Cancel', 'Annuler')}</Button>
                             <Button size="sm" onClick={() => saveEditLink(link.id)}>{t('Save', 'Enregistrer')}</Button>
@@ -1107,10 +1150,25 @@ export default function HotProducts() {
                           {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium truncate">{link.title}</p>
+                            {link.description_fr && <p className="text-xs text-muted-foreground truncate">{link.description_fr}</p>}
                             <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(0)} · {t('All inclusive', 'Tout inclus')}</p>
                             <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
                           </div>
                           <div className="flex gap-1.5 shrink-0">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5"
+                              title="Share on WhatsApp"
+                              onClick={() => {
+                                const shareUrl = `${window.location.origin}/share/hp/${link.id}`;
+                                const desc = link.description_fr || link.title;
+                                const msg = `🛒 *${link.title}*\n\n${desc}\n\n💰 Prix: $${link.total_price_usd}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
+                                window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                              }}
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" />
+                            </Button>
                             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => startEditLink(link)}>
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>

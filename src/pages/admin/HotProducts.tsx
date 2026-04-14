@@ -496,19 +496,10 @@ export default function HotProducts() {
     }
   }
 
-  async function handleShareOnWhatsApp(link: GeneratedLink) {
-    const popup = window.open('', '_blank');
-    try {
-      const shareUrl = await publishSharePreview(link);
-      const msg = buildWhatsAppShareMessage(link, shareUrl);
-      const waUrl = `https://wa.me/?text=${encodeURIComponent(msg)}`;
-      if (popup) popup.location.href = waUrl;
-      else window.open(waUrl, '_blank');
-    } catch (error) {
-      popup?.close();
-      console.error('Failed to prepare WhatsApp preview:', error);
-      toast.error(t('Unable to prepare WhatsApp preview', 'Impossible de préparer l’aperçu WhatsApp'));
-    }
+  function handleShareOnWhatsApp(link: GeneratedLink) {
+    const shareUrl = getShareUrl(link.id);
+    const msg = buildWhatsAppShareMessage(link, shareUrl);
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   }
 
   async function extractLinkGenProduct() {
@@ -621,11 +612,6 @@ export default function HotProducts() {
         gallery_images: linkGenExtracted.gallery_images || [],
       };
       setGeneratedLinks(prev => [savedLink, ...prev]);
-      try {
-        await publishSharePreview(savedLink);
-      } catch (previewError) {
-        console.error('Failed to publish share preview:', previewError);
-      }
       setLinkGenUrl('');
       setLinkGenExtracted(null);
       setLinkGenManualPrice('');
@@ -696,11 +682,6 @@ export default function HotProducts() {
       image_url: editLinkGallery[0] || existingLink?.image_url || '',
     };
     setGeneratedLinks(prev => prev.map(link => link.id === id ? updatedLink : link));
-    try {
-      await publishSharePreview(updatedLink);
-    } catch (previewError) {
-      console.error('Failed to refresh share preview:', previewError);
-    }
     setEditingLinkId(null);
     toast.success(t('Updated', 'Mis à jour'));
   }
@@ -1503,7 +1484,7 @@ export default function HotProducts() {
                                     <img src={link.gallery_images[0]} alt="" className="w-full h-40 object-cover" />
                                   )}
                                   <div className="px-3 py-2">
-                                    <p className="text-[11px] text-emerald-400/70 truncate">{new URL(getSharePreviewPublicUrl(link.id)).hostname}</p>
+                                    <p className="text-[11px] text-emerald-400/70 truncate">{'afrishop-usa.com'}</p>
                                     <p className="text-[13px] text-[#e9edef] font-medium leading-tight mt-0.5">{getSharePreviewTitle(link)}</p>
                                     <p className="text-[11px] text-[#8696a0] mt-0.5 line-clamp-2">{getSharePreviewDescription(link)}</p>
                                   </div>
@@ -1511,7 +1492,7 @@ export default function HotProducts() {
                                 {/* Message text */}
                                 <div className="bg-[#005c4b] rounded-lg px-3 py-2 max-w-[320px] text-[13px] text-[#e9edef] whitespace-pre-wrap leading-relaxed">
                                   {`${link.description_fr || link.title}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: `}
-                                  <span className="text-[#53bdeb] underline">{getSharePreviewPublicUrl(link.id)}</span>
+                                  <span className="text-[#53bdeb] underline">{getShareUrl(link.id)}</span>
                                 </div>
                               </div>
                             </div>

@@ -37,7 +37,7 @@ export function formatCurrency(
     currency = 'USD',
     locale = 'en',
     showSymbol = true,
-    decimals = currency === 'CDF' ? 0 : 2,
+    decimals = 0,
   } = options;
 
   // Handle null/undefined

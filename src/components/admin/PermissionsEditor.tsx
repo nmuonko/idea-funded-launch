@@ -37,7 +37,7 @@ export function PermissionsEditor({
     onChange({ ...permissions, [key]: checked });
   };
 
-  const categoryOrder = ['Core', 'Experiments & Analytics', 'Payments & Shipping', 'Support & Knowledge', 'Admin & Settings'];
+  const categoryOrder = ['Core', 'Experiments & Analytics', 'Payments & Shipping', 'Support & Knowledge', 'Admin & Settings', 'Marketing'];
 
   return (
     <div className="space-y-4">

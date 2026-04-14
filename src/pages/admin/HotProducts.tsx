@@ -481,6 +481,8 @@ export default function HotProducts() {
           is_active: true,
           created_by: currentUser.id,
           link_source: 'link_generator',
+          description_fr: linkGenDescFr || null,
+          gallery_images: linkGenExtracted.gallery_images || null,
         } as any)
         .select('id')
         .single();
@@ -488,7 +490,7 @@ export default function HotProducts() {
       if (insertErr || !inserted) { toast.error('Failed to save: ' + (insertErr?.message || '')); setLinkGenExtracting(false); return; }
 
       const checkoutUrl = `${window.location.origin}/checkout?hp=${inserted.id}`;
-      setGeneratedLinks(prev => [{ id: inserted.id, title: finalTitle, image_url: linkGenExtracted.image_url, price_usd: finalPrice, markup_usd: markup, shipping_usd: shipping, total_price_usd: total, checkoutUrl, product_url: linkGenExtracted.url }, ...prev]);
+      setGeneratedLinks(prev => [{ id: inserted.id, title: finalTitle, image_url: linkGenExtracted.image_url, price_usd: finalPrice, markup_usd: markup, shipping_usd: shipping, total_price_usd: total, checkoutUrl, product_url: linkGenExtracted.url, description_fr: linkGenDescFr, gallery_images: linkGenExtracted.gallery_images || [] }, ...prev]);
       setLinkGenUrl('');
       setLinkGenExtracted(null);
       setLinkGenManualPrice('');
@@ -496,6 +498,7 @@ export default function HotProducts() {
       setLinkGenFinalOverride('');
       setLinkGenManualMarkup('');
       setLinkGenManualShipping('');
+      setLinkGenDescFr('');
       navigator.clipboard.writeText(checkoutUrl);
       setCopiedLinkId(inserted.id);
       setTimeout(() => setCopiedLinkId(null), 3000);

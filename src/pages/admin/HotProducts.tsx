@@ -9,7 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { calculateShippingUsd } from '@/lib/shippingCalculation';
+import { allInclusivePrice, type FeeConfig } from '@/lib/allInclusivePrice';
+import type { ShippingCategoryRow } from '@/lib/shippingCategoryDetector';
+
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -52,6 +54,8 @@ interface FeeSettings {
   vehicleMarkupPercent: number;
   shippingBaseFeeUsd: number;
   shippingPercent: number;
+  shippingRatePerKg: number;
+  shippingCategories: ShippingCategoryRow[];
 }
 
 interface Campaign {
@@ -90,10 +94,19 @@ function toHighResImage(url: string): string {
   return url;
 }
 
-function calcProductTotals(basePrice: number, fees: FeeSettings): { markup: number; shipping: number; total: number } {
-  const markup = basePrice * (fees.markupPercent / 100);
-  const shipping = calculateShippingUsd(basePrice, fees.shippingBaseFeeUsd, fees.shippingPercent);
-  return { markup, shipping, total: Math.round((basePrice + markup + shipping) * 100) / 100 };
+function calcProductTotals(basePrice: number, fees: FeeSettings, productTitle?: string, categoryKey?: string | null): { markup: number; shipping: number; total: number } {
+  const feeConfig: FeeConfig = {
+    markupPercent: fees.markupPercent,
+    shippingBaseFeeUsd: fees.shippingBaseFeeUsd,
+    shippingPercent: fees.shippingPercent,
+    shippingRatePerKg: fees.shippingRatePerKg,
+    shippingCategories: fees.shippingCategories,
+  };
+  const total = allInclusivePrice(basePrice, feeConfig, 1, null, productTitle, categoryKey);
+  const markupRate = fees.markupPercent > 1 ? fees.markupPercent / 100 : fees.markupPercent;
+  const markup = Math.round(basePrice * markupRate * 100) / 100;
+  const shipping = Math.round((total - basePrice - markup) * 100) / 100;
+  return { markup, shipping, total };
 }
 
 export default function HotProducts() {
@@ -110,7 +123,7 @@ export default function HotProducts() {
   const [searching, setSearching] = useState(false);
   const [pasteUrl, setPasteUrl] = useState('');
   const [extracting, setExtracting] = useState(false);
-  const [feeSettings, setFeeSettings] = useState<FeeSettings>({ markupPercent: 15, vehicleMarkupPercent: 15, shippingBaseFeeUsd: 20, shippingPercent: 10 });
+  const [feeSettings, setFeeSettings] = useState<FeeSettings>({ markupPercent: 15, vehicleMarkupPercent: 15, shippingBaseFeeUsd: 20, shippingPercent: 10, shippingRatePerKg: 20, shippingCategories: [] });
 
   // Campaign state
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -152,16 +165,26 @@ export default function HotProducts() {
   }, []);
 
   async function loadFeeSettings() {
-    const { data } = await supabase.from('settings' as any).select('markup_percent, shipping_base_fee_usd, shipping_percent, category_markups').limit(1).single();
-    if (data) {
-      const d = data as any;
-      setFeeSettings({
-        markupPercent: d.markup_percent ?? 15,
-        vehicleMarkupPercent: (d.category_markups as any)?.vehicles ?? d.markup_percent ?? 15,
-        shippingBaseFeeUsd: d.shipping_base_fee_usd ?? 20,
-        shippingPercent: d.shipping_percent ?? 10,
-      });
-    }
+    const [settingsRes, categoriesRes] = await Promise.all([
+      supabase.from('settings' as any).select('markup_percent, shipping_base_fee_usd, shipping_percent, shipping_rate_per_kg, category_markups').limit(1).single(),
+      supabase.from('shipping_item_types' as any).select('key, label, est_weight_kg, flat_shipping_usd, shipping_buffer_percent, requires_manual_quote').eq('active', true).order('label'),
+    ]);
+    const d = (settingsRes.data as any) || {};
+    const cats: ShippingCategoryRow[] = ((categoriesRes.data as any[]) || []).map((c: any) => ({
+      key: c.key,
+      est_weight_kg: Number(c.est_weight_kg) || 0,
+      flat_shipping_usd: c.flat_shipping_usd != null ? Number(c.flat_shipping_usd) : null,
+      shipping_buffer_percent: Number(c.shipping_buffer_percent) || 0,
+      requires_manual_quote: c.requires_manual_quote || false,
+    }));
+    setFeeSettings({
+      markupPercent: d.markup_percent ?? 15,
+      vehicleMarkupPercent: (d.category_markups as any)?.vehicles ?? d.markup_percent ?? 15,
+      shippingBaseFeeUsd: d.shipping_base_fee_usd ?? 20,
+      shippingPercent: d.shipping_percent ?? 10,
+      shippingRatePerKg: d.shipping_rate_per_kg ?? 20,
+      shippingCategories: cats,
+    });
   }
 
   async function loadShowcase() {
@@ -231,7 +254,7 @@ export default function HotProducts() {
     if (showcaseProducts.length >= 10) { toast.error('Maximum 10 products'); return; }
     if (showcaseProducts.find(p => p.provider_product_id === item.provider_product_id && p.provider === item.provider)) { toast.error('Already added'); return; }
     const basePrice = item.price_usd || 0;
-    const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings);
+    const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings, item.title, item.category_key);
     setShowcaseProducts(prev => [...prev, {
       id: `new-${Date.now()}`,
       title: item.title || 'Untitled',
@@ -260,7 +283,7 @@ export default function HotProducts() {
       const basePrice = data.basePrice || data.price || data.priceUsd || 0;
       const imageUrl = toHighResImage(data.imageUrl || data.image || '');
       const title = data.title || data.name || 'Product';
-      const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings);
+      const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings, title);
       const prov = data.provider || inferProvider(pasteUrl.trim()) || 'external';
       const pid = data.providerId || inferProductId(pasteUrl.trim()) || '';
 
@@ -405,7 +428,7 @@ export default function HotProducts() {
 
     setLinkGenExtracting(true);
     try {
-      const { markup, shipping, total } = calcProductTotals(finalPrice, feeSettings);
+      const { markup, shipping, total } = calcProductTotals(finalPrice, feeSettings, finalTitle);
       await supabase.auth.refreshSession();
       const { data: { user: currentUser } } = await supabase.auth.getUser();
       if (!currentUser) { toast.error('Session expired'); setLinkGenExtracting(false); return; }
@@ -478,7 +501,7 @@ export default function HotProducts() {
   function recalcDefaults(id: string) {
     setShowcaseProducts(prev => prev.map(p => {
       if (p.id !== id) return p;
-      const { markup, shipping, total } = calcProductTotals(p.price_usd, feeSettings);
+      const { markup, shipping, total } = calcProductTotals(p.price_usd, feeSettings, p.title);
       return { ...p, markup_usd: Math.round(markup * 100) / 100, shipping_usd: Math.round(shipping * 100) / 100, total_price_usd: total };
     }));
   }
@@ -873,15 +896,16 @@ export default function HotProducts() {
                           <Label className="text-xs">{t('Markup', 'Marge')}</Label>
                           <p className="text-sm font-medium mt-1">{feeSettings.markupPercent}%</p>
                         </div>
-                        <div>
+                         <div>
                           <Label className="text-xs">{t('Shipping', 'Livraison')}</Label>
-                          <p className="text-sm font-medium mt-1">${feeSettings.shippingBaseFeeUsd} + {feeSettings.shippingPercent}%</p>
+                          <p className="text-sm font-medium mt-1">{t('Weight-based', 'Par poids')} (${feeSettings.shippingRatePerKg}/kg)</p>
                         </div>
                       </div>
                       {(() => {
                         const p = linkGenManualPrice ? parseFloat(linkGenManualPrice) : linkGenExtracted.price;
                         if (p > 0) {
-                          const { total } = calcProductTotals(p, feeSettings);
+                          const title = linkGenManualTitle.trim() || linkGenExtracted?.title || '';
+                          const { total, shipping } = calcProductTotals(p, feeSettings, title);
                           return <p className="text-sm font-bold text-primary">{t('Final price:', 'Prix final :')} ${total.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">({t('all inclusive', 'tout inclus')})</span></p>;
                         }
                         return null;

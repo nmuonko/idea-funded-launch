@@ -1602,6 +1602,109 @@ export default function HotProducts() {
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
+                          <div className="flex gap-1.5 shrink-0 flex-wrap">
+                            {/* WhatsApp Share (default) */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5"
+                              title="Share on WhatsApp"
+                              onClick={() => { void handleShareOnWhatsApp(link); }}
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">{t('WhatsApp', 'WhatsApp')}</span>
+                            </Button>
+                            {/* Copy Caption */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5"
+                              title={t('Copy caption text', 'Copier le texte')}
+                              onClick={() => {
+                                const caption = buildCaption(link, getShareUrl(link.id));
+                                navigator.clipboard.writeText(caption);
+                                toast.success(t('Caption copied', 'Texte copié'));
+                              }}
+                            >
+                              <ClipboardCopy className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">{t('Caption', 'Texte')}</span>
+                            </Button>
+                            {/* Copy Image */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5"
+                              title={t('Copy product image', 'Copier l\'image')}
+                              onClick={async () => {
+                                const imgUrl = link.gallery_images?.[0] || link.image_url;
+                                if (!imgUrl) { toast.error(t('No image available', 'Aucune image disponible')); return; }
+                                if (!supportsClipboardImage()) {
+                                  setImageFallbackModal({
+                                    imageUrl: imgUrl,
+                                    caption: buildCaption(link, getShareUrl(link.id)),
+                                    title: link.title,
+                                  });
+                                  return;
+                                }
+                                const ok = await copyImageToClipboard(imgUrl);
+                                if (ok) toast.success(t('Image copied', 'Image copiée'));
+                                else {
+                                  setImageFallbackModal({
+                                    imageUrl: imgUrl,
+                                    caption: buildCaption(link, getShareUrl(link.id)),
+                                    title: link.title,
+                                  });
+                                }
+                              }}
+                            >
+                              <ImageIcon className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">{t('Image', 'Image')}</span>
+                            </Button>
+                            {/* More dropdown */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" className="gap-1">
+                                  <MoreHorizontal className="h-3.5 w-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => setWhatsappPreviewLink(whatsappPreviewLink === link.id ? null : link.id)}>
+                                  <Eye className="h-3.5 w-3.5 mr-2" />
+                                  {t('Preview WhatsApp', 'Aperçu WhatsApp')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={async () => {
+                                  const imgUrl = link.gallery_images?.[0] || link.image_url;
+                                  const caption = buildCaption(link, getShareUrl(link.id));
+                                  if (!imgUrl) { toast.error(t('No image', 'Pas d\'image')); return; }
+                                  const result = await copyBothToClipboard(imgUrl, caption);
+                                  if (result === 'full') toast.success(t('Image + caption copied', 'Image + texte copiés'));
+                                  else if (result === 'text-only') toast.success(t('Caption copied (image not supported)', 'Texte copié (image non supportée)'));
+                                  else toast.error(t('Copy failed', 'Échec de la copie'));
+                                }}>
+                                  <Copy className="h-3.5 w-3.5 mr-2" />
+                                  {t('Copy Both (Experimental)', 'Copier les deux (Expérimental)')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => {
+                                  navigator.clipboard.writeText(getShareUrl(link.id));
+                                  setCopiedLinkId(link.id);
+                                  setTimeout(() => setCopiedLinkId(null), 3000);
+                                  toast.success(t('Link copied!', 'Lien copié !'));
+                                }}>
+                                  <Link2 className="h-3.5 w-3.5 mr-2" />
+                                  {t('Copy Link', 'Copier le lien')}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => startEditLink(link)}>
+                                  <Pencil className="h-3.5 w-3.5 mr-2" />
+                                  {t('Edit', 'Modifier')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="text-destructive" onClick={() => deleteLinkGenProduct(link.id)}>
+                                  <Trash2 className="h-3.5 w-3.5 mr-2" />
+                                  {t('Delete', 'Supprimer')}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                           </div>
                           {/* Gallery thumbnails preview */}
                           {link.gallery_images.length > 1 && (

@@ -104,8 +104,8 @@ function calcProductTotals(basePrice: number, fees: FeeSettings, productTitle?: 
   };
   const total = allInclusivePrice(basePrice, feeConfig, 1, null, productTitle, categoryKey);
   const markupRate = fees.markupPercent > 1 ? fees.markupPercent / 100 : fees.markupPercent;
-  const markup = Math.round(basePrice * markupRate * 100) / 100;
-  const shipping = Math.round((total - basePrice - markup) * 100) / 100;
+  const markup = Math.ceil(basePrice * markupRate);
+  const shipping = Math.ceil(total - basePrice - markup);
   return { markup, shipping, total };
 }
 
@@ -274,8 +274,8 @@ export default function HotProducts() {
       title: item.title || 'Untitled',
       image_url: getBestImage(item),
       price_usd: basePrice,
-      markup_usd: Math.round(markup * 100) / 100,
-      shipping_usd: Math.round(shipping * 100) / 100,
+      markup_usd: Math.ceil(markup),
+      shipping_usd: Math.ceil(shipping),
       total_price_usd: total,
       product_url: `https://afrishop-usa.com/product/${item.provider}/${item.provider_product_id}`,
       provider: item.provider || '',
@@ -306,8 +306,8 @@ export default function HotProducts() {
         title,
         image_url: imageUrl,
         price_usd: basePrice,
-        markup_usd: Math.round(markup * 100) / 100,
-        shipping_usd: Math.round(shipping * 100) / 100,
+        markup_usd: Math.ceil(markup),
+        shipping_usd: Math.ceil(shipping),
         total_price_usd: total,
         product_url: (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : `https://afrishop-usa.com/paste-link`,
         provider: prov,
@@ -426,7 +426,7 @@ export default function HotProducts() {
         pid,
         url: linkGenUrl.trim(),
       });
-      if (basePrice > 0) setLinkGenManualPrice(basePrice.toFixed(2));
+      if (basePrice > 0) setLinkGenManualPrice(basePrice.toFixed(0));
     } catch {
       setLinkGenPriceEditable(true);
       setLinkGenExtracted({ title: '', image_url: '', price: 0, provider: inferProvider(linkGenUrl.trim()) || 'external', pid: inferProductId(linkGenUrl.trim()) || '', url: linkGenUrl.trim() });
@@ -457,8 +457,8 @@ export default function HotProducts() {
           title: finalTitle,
           image_url: linkGenExtracted.image_url,
           price_usd: finalPrice,
-          markup_usd: Math.round(markup * 100) / 100,
-          shipping_usd: Math.round(shipping * 100) / 100,
+          markup_usd: Math.ceil(markup),
+          shipping_usd: Math.ceil(shipping),
           total_price_usd: total,
           product_url: (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : linkGenExtracted.url,
           provider: prov,
@@ -499,7 +499,7 @@ export default function HotProducts() {
   function startEditLink(link: typeof generatedLinks[0]) {
     setEditingLinkId(link.id);
     setEditLinkTitle(link.title);
-    setEditLinkFinalPrice(link.total_price_usd.toFixed(2));
+    setEditLinkFinalPrice(link.total_price_usd.toFixed(0));
   }
 
   async function saveEditLink(id: string) {
@@ -526,7 +526,7 @@ export default function HotProducts() {
         const price = field === 'price_usd' ? value : p.price_usd;
         const markup = field === 'markup_usd' ? value : p.markup_usd;
         const ship = field === 'shipping_usd' ? value : p.shipping_usd;
-        updated.total_price_usd = Math.round((price + markup + ship) * 100) / 100;
+        updated.total_price_usd = Math.ceil(price + markup + ship);
       }
       return updated;
     }));
@@ -536,7 +536,7 @@ export default function HotProducts() {
     setShowcaseProducts(prev => prev.map(p => {
       if (p.id !== id) return p;
       const { markup, shipping, total } = calcProductTotals(p.price_usd, feeSettings, p.title);
-      return { ...p, markup_usd: Math.round(markup * 100) / 100, shipping_usd: Math.round(shipping * 100) / 100, total_price_usd: total };
+      return { ...p, markup_usd: markup, shipping_usd: shipping, total_price_usd: total };
     }));
   }
 
@@ -724,7 +724,7 @@ export default function HotProducts() {
                           {item.image_url && <img src={toHighResImage(item.image_url)} alt="" className="w-10 h-10 rounded object-cover" />}
                           <div className="flex-1 min-w-0">
                             <p className="text-sm truncate">{item.title}</p>
-                            <p className="text-xs text-muted-foreground">${item.price_usd?.toFixed(2) || '0.00'}</p>
+                            <p className="text-xs text-muted-foreground">${item.price_usd?.toFixed(0) || '0.00'}</p>
                           </div>
                           <Plus className="h-4 w-4 text-primary shrink-0" />
                         </div>
@@ -845,7 +845,7 @@ export default function HotProducts() {
                       </div>
                       <div className="flex items-center gap-2 bg-primary/10 rounded px-3 py-1.5 border border-primary/20">
                         <Label className="text-sm font-bold">{t('Total', 'Total')}:</Label>
-                        <span className="text-lg font-bold text-primary">${p.total_price_usd.toFixed(2)}</span>
+                        <span className="text-lg font-bold text-primary">${p.total_price_usd.toFixed(0)}</span>
                       </div>
                     </div>
                   </div>
@@ -917,7 +917,7 @@ export default function HotProducts() {
                           <Input
                             type="number"
                             step="0.01"
-                            value={linkGenManualPrice || (linkGenExtracted.price > 0 ? linkGenExtracted.price.toFixed(2) : '')}
+                            value={linkGenManualPrice || (linkGenExtracted.price > 0 ? linkGenExtracted.price.toFixed(0) : '')}
                             onChange={e => { setLinkGenManualPrice(e.target.value); setLinkGenPriceEditable(true); }}
                             placeholder="0.00"
                             className="h-8 text-sm"
@@ -943,7 +943,7 @@ export default function HotProducts() {
                           const displayTotal = linkGenFinalOverride ? parseFloat(linkGenFinalOverride) || total : total;
                           return (
                             <div className="space-y-1">
-                              <p className="text-sm font-bold text-primary">{t('Calculated:', 'Calculé :')} ${total.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">({t('all inclusive', 'tout inclus')})</span></p>
+                              <p className="text-sm font-bold text-primary">{t('Calculated:', 'Calculé :')} ${total.toFixed(0)} <span className="text-xs font-normal text-muted-foreground">({t('all inclusive', 'tout inclus')})</span></p>
                               <div>
                                 <Label className="text-xs">{t('Override Final Price ($)', 'Remplacer le prix final ($)')}</Label>
                                 <Input
@@ -951,11 +951,11 @@ export default function HotProducts() {
                                   step="0.01"
                                   value={linkGenFinalOverride}
                                   onChange={e => setLinkGenFinalOverride(e.target.value)}
-                                  placeholder={total.toFixed(2)}
+                                  placeholder={total.toFixed(0)}
                                   className="h-8 text-sm w-40"
                                 />
                                 {linkGenFinalOverride && parseFloat(linkGenFinalOverride) > 0 && (
-                                  <p className="text-xs text-orange-500 mt-0.5">{t('Will use', 'Utilisera')} ${parseFloat(linkGenFinalOverride).toFixed(2)} {t('instead', 'à la place')}</p>
+                                  <p className="text-xs text-orange-500 mt-0.5">{t('Will use', 'Utilisera')} ${parseFloat(linkGenFinalOverride).toFixed(0)} {t('instead', 'à la place')}</p>
                                 )}
                               </div>
                             </div>
@@ -1003,7 +1003,7 @@ export default function HotProducts() {
                           {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium truncate">{link.title}</p>
-                            <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(2)} · {t('All inclusive', 'Tout inclus')}</p>
+                            <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(0)} · {t('All inclusive', 'Tout inclus')}</p>
                             <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
                           </div>
                           <div className="flex gap-1.5 shrink-0">
@@ -1086,7 +1086,7 @@ export default function HotProducts() {
                           {p.image_url && <img src={p.image_url} alt="" className="w-10 h-10 rounded object-cover" />}
                           <div className="flex-1 min-w-0">
                             <p className="text-sm truncate">{p.title}</p>
-                            <p className="text-xs text-muted-foreground">${p.total_price_usd.toFixed(2)}</p>
+                            <p className="text-xs text-muted-foreground">${p.total_price_usd.toFixed(0)}</p>
                           </div>
                         </label>
                       ))}
@@ -1254,7 +1254,7 @@ export default function HotProducts() {
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{catalogResult.title || 'No title'}</p>
-                      <p className="text-xs text-muted-foreground">{catalogResult.provider} · ${catalogResult.price?.toFixed(2) || '0.00'}</p>
+                      <p className="text-xs text-muted-foreground">{catalogResult.provider} · ${catalogResult.price?.toFixed(0) || '0.00'}</p>
                       <div className="flex items-center gap-1 mt-1">
                         {catalogResult.cached ? (
                           <Badge variant="default" className="text-xs gap-1"><Check className="h-3 w-3" />{t('Cached', 'En cache')}</Badge>
@@ -1328,7 +1328,7 @@ export default function HotProducts() {
                       {item.imageUrl && <img src={item.imageUrl} alt="" className="w-10 h-10 rounded object-cover" />}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm truncate">{item.title}</p>
-                        <p className="text-xs text-muted-foreground">{item.provider} · ${item.price.toFixed(2)}</p>
+                        <p className="text-xs text-muted-foreground">{item.provider} · ${item.price.toFixed(0)}</p>
                       </div>
                       <a href={item.url} target="_blank" rel="noopener noreferrer">
                         <ExternalLink className="h-4 w-4 text-muted-foreground" />
@@ -1357,7 +1357,7 @@ function buildPreviewHtml(products: ShowcaseProduct[]): string {
         ${p.image_url ? `<img src="${p.image_url}" alt="${p.title}" style="width:100%;height:180px;object-fit:cover;display:block;" />` : ''}
         <div style="padding:10px;">
           <p style="font-weight:600;font-size:12px;margin:0 0 2px;color:#1a1a1a;line-height:1.3;">${p.title.length > 45 ? p.title.slice(0, 45) + '…' : p.title}</p>
-          <p style="font-size:20px;font-weight:800;color:#e63946;margin:4px 0 2px;">$${p.total_price_usd.toFixed(2)}</p>
+          <p style="font-size:20px;font-weight:800;color:#e63946;margin:4px 0 2px;">$${p.total_price_usd.toFixed(0)}</p>
           <p style="font-size:9px;color:#666;margin:0 0 8px;">Tout inclus · All-inclusive</p>
           <a href="${p.product_url}${p.product_url.includes('?') ? '&' : '?'}hot=1" style="display:inline-block;background:#e63946;color:#fff;padding:8px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;">Commander</a>
         </div>

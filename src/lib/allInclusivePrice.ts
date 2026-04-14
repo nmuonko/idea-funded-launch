@@ -45,5 +45,5 @@ export function allInclusivePrice(
     shipping = calculateShippingUsd(baseTotal, fees.shippingBaseFeeUsd, fees.shippingPercent);
   }
 
-  return Math.round((baseTotal + markup + shipping) * 100) / 100;
+  return Math.ceil(baseTotal + markup + shipping);
 }

@@ -1191,6 +1191,47 @@ export default function HotProducts() {
                               rows={2}
                             />
                           </div>
+                          {/* Gallery Images in edit mode */}
+                          <div>
+                            <Label className="text-xs flex items-center gap-1">{t('Images', 'Images')} ({editLinkGallery.length})</Label>
+                            <div className="flex flex-wrap gap-2 mt-1">
+                              {editLinkGallery.map((img, i) => (
+                                <div key={i} className="relative group">
+                                  <img src={img} alt="" className="w-14 h-14 rounded border object-cover" />
+                                  <button
+                                    type="button"
+                                    className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground rounded-full w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={() => setEditLinkGallery(prev => prev.filter((_, idx) => idx !== i))}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex gap-1 mt-1">
+                              <Input
+                                value={newEditImageUrl}
+                                onChange={e => setNewEditImageUrl(e.target.value)}
+                                placeholder={t('Paste image URL...', 'Collez une URL d\'image...')}
+                                className="h-7 text-xs flex-1"
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2"
+                                disabled={!newEditImageUrl.trim()}
+                                onClick={() => {
+                                  if (newEditImageUrl.trim()) {
+                                    setEditLinkGallery(prev => [...prev, newEditImageUrl.trim()]);
+                                    setNewEditImageUrl('');
+                                  }
+                                }}
+                              >
+                                <ImagePlus className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
                           <div className="flex gap-2 justify-end">
                             <Button variant="outline" size="sm" onClick={() => setEditingLinkId(null)}>{t('Cancel', 'Annuler')}</Button>
                             <Button size="sm" onClick={() => saveEditLink(link.id)}>{t('Save', 'Enregistrer')}</Button>

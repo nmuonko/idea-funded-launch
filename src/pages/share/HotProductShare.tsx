@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency } from '@/lib/formatCurrency';
 import { Loader2, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ProductImageViewer } from '@/components/shop/ProductImageViewer';
 
 interface ShareProduct {
   id: string;

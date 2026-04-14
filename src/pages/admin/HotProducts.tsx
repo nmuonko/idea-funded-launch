@@ -440,7 +440,7 @@ export default function HotProducts() {
         provider: prov,
         pid,
         url: linkGenUrl.trim(),
-        gallery_images: (data?.galleryImages || data?.images || []).filter((u: string) => typeof u === 'string').slice(0, 2),
+        gallery_images: [imageUrl, ...(data?.galleryImages || data?.images || []).filter((u: string) => typeof u === 'string' && u !== imageUrl)].filter(Boolean).slice(0, 5),
       });
       if (basePrice > 0) setLinkGenManualPrice(basePrice.toFixed(0));
 
@@ -538,6 +538,8 @@ export default function HotProducts() {
     setEditLinkShipping(String(link.shipping_usd));
     setEditLinkFinalPrice(String(link.total_price_usd));
     setEditLinkDescFr(link.description_fr || '');
+    setEditLinkGallery([...link.gallery_images]);
+    setNewEditImageUrl('');
   }
 
   async function saveEditLink(id: string) {
@@ -547,9 +549,9 @@ export default function HotProducts() {
     const newShipping = parseFloat(editLinkShipping) || 0;
     const newFinal = parseFloat(editLinkFinalPrice) || Math.ceil(newItemPrice + newMarkup + newShipping);
     if (!newTitle || newFinal <= 0) { toast.error(t('Invalid values', 'Valeurs invalides')); return; }
-    const { error } = await supabase.from('hot_products_showcase').update({ title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr || null } as any).eq('id', id);
+    const { error } = await supabase.from('hot_products_showcase').update({ title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr || null, gallery_images: editLinkGallery.length > 0 ? editLinkGallery : null, image_url: editLinkGallery[0] || undefined } as any).eq('id', id);
     if (error) { toast.error('Save failed'); return; }
-    setGeneratedLinks(prev => prev.map(l => l.id === id ? { ...l, title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr } : l));
+    setGeneratedLinks(prev => prev.map(l => l.id === id ? { ...l, title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr, gallery_images: editLinkGallery, image_url: editLinkGallery[0] || l.image_url } : l));
     setEditingLinkId(null);
     toast.success(t('Updated', 'Mis à jour'));
   }

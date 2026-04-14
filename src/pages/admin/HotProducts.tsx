@@ -137,12 +137,18 @@ export default function HotProducts() {
   // Link Generator state
   const [linkGenUrl, setLinkGenUrl] = useState('');
   const [linkGenExtracting, setLinkGenExtracting] = useState(false);
-  const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; total_price_usd: number; checkoutUrl: string }>>([]);
+  const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; price_usd: number; total_price_usd: number; checkoutUrl: string; product_url: string }>>([]);
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
+  const [linkGenExtracted, setLinkGenExtracted] = useState<{ title: string; image_url: string; price: number; provider: string; pid: string; url: string } | null>(null);
+  const [linkGenManualPrice, setLinkGenManualPrice] = useState('');
+  const [linkGenManualTitle, setLinkGenManualTitle] = useState('');
+  const [linkGenPriceEditable, setLinkGenPriceEditable] = useState(false);
+
   useEffect(() => {
     loadShowcase();
     loadCampaigns();
     loadFeeSettings();
+    loadGeneratedLinks();
   }, []);
 
   async function loadFeeSettings() {
@@ -160,9 +166,10 @@ export default function HotProducts() {
 
   async function loadShowcase() {
     setLoadingShowcase(true);
-    const { data } = await supabase
+    const { data } = await (supabase
       .from('hot_products_showcase')
-      .select('*')
+      .select('*') as any)
+      .or('link_source.eq.storefront,link_source.is.null')
       .order('sort_order', { ascending: true });
     if (data) setShowcaseProducts(data as any);
     setLoadingShowcase(false);
@@ -331,50 +338,108 @@ export default function HotProducts() {
     setCatalogExtracting(false);
   }
 
-  async function generateCheckoutLink() {
+  async function loadGeneratedLinks() {
+    const { data } = await (supabase
+      .from('hot_products_showcase')
+      .select('*') as any)
+      .eq('link_source', 'link_generator')
+      .order('created_at', { ascending: false });
+    if (data) {
+      setGeneratedLinks((data as any[]).map(d => ({
+        id: d.id,
+        title: d.title,
+        image_url: d.image_url || '',
+        price_usd: d.price_usd || 0,
+        total_price_usd: d.total_price_usd || 0,
+        checkoutUrl: `${window.location.origin}/checkout?hp=${d.id}`,
+        product_url: d.product_url || '',
+      })));
+    }
+  }
+
+  async function extractLinkGenProduct() {
     if (!linkGenUrl.trim()) return;
     setLinkGenExtracting(true);
+    setLinkGenExtracted(null);
+    setLinkGenPriceEditable(false);
+    setLinkGenManualPrice('');
+    setLinkGenManualTitle('');
     try {
       const { data, error } = await supabase.functions.invoke('extract-price', {
         body: { url: linkGenUrl.trim(), forceRefresh: true },
       });
-      if (error || !data) { toast.error('Failed to extract product'); setLinkGenExtracting(false); return; }
-      const basePrice = data.basePrice || data.price || data.priceUsd || 0;
-      const imageUrl = toHighResImage(data.imageUrl || data.image || '');
-      const title = data.title || data.name || 'Product';
-      const prov = data.provider || inferProvider(linkGenUrl.trim()) || 'external';
-      const pid = data.providerId || inferProductId(linkGenUrl.trim()) || '';
-      const { markup, shipping, total } = calcProductTotals(basePrice, feeSettings);
+      const basePrice = data?.basePrice || data?.price || data?.priceUsd || 0;
+      const imageUrl = toHighResImage(data?.imageUrl || data?.image || '');
+      const title = data?.title || data?.name || '';
+      const prov = data?.provider || inferProvider(linkGenUrl.trim()) || 'external';
+      const pid = data?.providerId || inferProductId(linkGenUrl.trim()) || '';
 
-      // Save directly to hot_products_showcase as a standalone entry
+      if (error || !data || basePrice <= 0) {
+        setLinkGenPriceEditable(true);
+      }
+      if (!title) {
+        setLinkGenManualTitle('');
+      }
+
+      setLinkGenExtracted({
+        title: title || '',
+        image_url: imageUrl,
+        price: basePrice,
+        provider: prov,
+        pid,
+        url: linkGenUrl.trim(),
+      });
+      if (basePrice > 0) setLinkGenManualPrice(basePrice.toFixed(2));
+    } catch {
+      setLinkGenPriceEditable(true);
+      setLinkGenExtracted({ title: '', image_url: '', price: 0, provider: inferProvider(linkGenUrl.trim()) || 'external', pid: inferProductId(linkGenUrl.trim()) || '', url: linkGenUrl.trim() });
+    }
+    setLinkGenExtracting(false);
+  }
+
+  async function saveLinkGenProduct() {
+    if (!linkGenExtracted) return;
+    const finalTitle = linkGenManualTitle.trim() || linkGenExtracted.title || 'Product';
+    const finalPrice = linkGenManualPrice ? parseFloat(linkGenManualPrice) : linkGenExtracted.price;
+    if (!finalPrice || finalPrice <= 0) { toast.error(t('Enter a valid price', 'Entrez un prix valide')); return; }
+
+    setLinkGenExtracting(true);
+    try {
+      const { markup, shipping, total } = calcProductTotals(finalPrice, feeSettings);
       await supabase.auth.refreshSession();
       const { data: { user: currentUser } } = await supabase.auth.getUser();
       if (!currentUser) { toast.error('Session expired'); setLinkGenExtracting(false); return; }
 
+      const prov = linkGenExtracted.provider;
+      const pid = linkGenExtracted.pid;
       const { data: inserted, error: insertErr } = await supabase
         .from('hot_products_showcase')
         .insert({
-          title,
-          image_url: imageUrl,
-          price_usd: basePrice,
+          title: finalTitle,
+          image_url: linkGenExtracted.image_url,
+          price_usd: finalPrice,
           markup_usd: Math.round(markup * 100) / 100,
           shipping_usd: Math.round(shipping * 100) / 100,
           total_price_usd: total,
-          product_url: (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : linkGenUrl.trim(),
+          product_url: (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : linkGenExtracted.url,
           provider: prov,
           provider_product_id: pid,
           sort_order: 99,
           is_active: true,
           created_by: currentUser.id,
-        })
+          link_source: 'link_generator',
+        } as any)
         .select('id')
         .single();
 
       if (insertErr || !inserted) { toast.error('Failed to save: ' + (insertErr?.message || '')); setLinkGenExtracting(false); return; }
 
       const checkoutUrl = `${window.location.origin}/checkout?hp=${inserted.id}`;
-      setGeneratedLinks(prev => [{ id: inserted.id, title, image_url: imageUrl, total_price_usd: total, checkoutUrl }, ...prev]);
+      setGeneratedLinks(prev => [{ id: inserted.id, title: finalTitle, image_url: linkGenExtracted.image_url, price_usd: finalPrice, total_price_usd: total, checkoutUrl, product_url: linkGenExtracted.url }, ...prev]);
       setLinkGenUrl('');
+      setLinkGenExtracted(null);
+      setLinkGenManualPrice('');
+      setLinkGenManualTitle('');
       navigator.clipboard.writeText(checkoutUrl);
       setCopiedLinkId(inserted.id);
       setTimeout(() => setCopiedLinkId(null), 3000);
@@ -383,6 +448,12 @@ export default function HotProducts() {
       toast.error('Failed to generate link');
     }
     setLinkGenExtracting(false);
+  }
+
+  async function deleteLinkGenProduct(id: string) {
+    await supabase.from('hot_products_showcase').delete().eq('id', id);
+    setGeneratedLinks(prev => prev.filter(l => l.id !== id));
+    toast.success(t('Deleted', 'Supprimé'));
   }
 
   function removeProduct(id: string) {
@@ -418,8 +489,8 @@ export default function HotProducts() {
     const { data: { user: currentUser } } = await supabase.auth.getUser();
     if (!currentUser) { toast.error('Session expired'); setSavingShowcase(false); return; }
 
-    // Delete all existing showcase products and re-insert
-    await supabase.from('hot_products_showcase').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    // Delete only storefront products (preserve link_generator entries)
+    await (supabase.from('hot_products_showcase').delete() as any).neq('id', '00000000-0000-0000-0000-000000000000').neq('link_source', 'link_generator');
 
     if (showcaseProducts.length > 0) {
       const rows = showcaseProducts.map((p, i) => ({
@@ -748,26 +819,86 @@ export default function HotProducts() {
                 {t('Generate Checkout Link', 'Générer un lien de paiement')}
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                {t('Paste any product URL from Amazon, Walmart, eBay, etc. to generate a unique checkout link you can share.', 'Collez un lien produit Amazon, Walmart, eBay, etc. pour générer un lien de paiement unique à partager.')}
+                {t('Paste any product URL from Amazon, Walmart, eBay, etc. We\'ll extract images & price, apply your markup/shipping, and generate a unique checkout link.', 'Collez un lien produit. Nous extrairons images et prix, appliquerons votre marge/livraison, et générerons un lien de paiement unique.')}
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Step 1: URL input */}
               <div className="flex gap-2">
                 <Input
                   placeholder="https://www.amazon.com/dp/B0..."
                   value={linkGenUrl}
                   onChange={e => setLinkGenUrl(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && generateCheckoutLink()}
+                  onKeyDown={e => e.key === 'Enter' && extractLinkGenProduct()}
                 />
-                <Button onClick={generateCheckoutLink} disabled={linkGenExtracting || !linkGenUrl.trim()}>
-                  {linkGenExtracting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LinkIcon className="h-4 w-4 mr-2" />}
-                  {t('Generate', 'Générer')}
+                <Button onClick={extractLinkGenProduct} disabled={linkGenExtracting || !linkGenUrl.trim()}>
+                  {linkGenExtracting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Search className="h-4 w-4 mr-2" />}
+                  {t('Extract', 'Extraire')}
                 </Button>
               </div>
 
+              {/* Step 2: Extracted product preview with editable fields */}
+              {linkGenExtracted && (
+                <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+                  <div className="flex items-start gap-3">
+                    {linkGenExtracted.image_url && (
+                      <img src={linkGenExtracted.image_url} alt="" className="w-20 h-20 rounded object-cover shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0 space-y-2">
+                      <div>
+                        <Label className="text-xs">{t('Title', 'Titre')}</Label>
+                        <Input
+                          value={linkGenManualTitle || linkGenExtracted.title}
+                          onChange={e => setLinkGenManualTitle(e.target.value)}
+                          placeholder={t('Product title...', 'Titre du produit...')}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <Label className="text-xs">{t('Base Price ($)', 'Prix de base ($)')}</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={linkGenManualPrice || (linkGenExtracted.price > 0 ? linkGenExtracted.price.toFixed(2) : '')}
+                            onChange={e => { setLinkGenManualPrice(e.target.value); setLinkGenPriceEditable(true); }}
+                            placeholder="0.00"
+                            className="h-8 text-sm"
+                          />
+                          {linkGenExtracted.price <= 0 && (
+                            <p className="text-xs text-destructive mt-0.5">{t('Auto-extract failed — enter price manually', 'Extraction échouée — entrez le prix')}</p>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-xs">{t('Markup', 'Marge')}</Label>
+                          <p className="text-sm font-medium mt-1">{feeSettings.markupPercent}%</p>
+                        </div>
+                        <div>
+                          <Label className="text-xs">{t('Shipping', 'Livraison')}</Label>
+                          <p className="text-sm font-medium mt-1">${feeSettings.shippingBaseFeeUsd} + {feeSettings.shippingPercent}%</p>
+                        </div>
+                      </div>
+                      {(() => {
+                        const p = linkGenManualPrice ? parseFloat(linkGenManualPrice) : linkGenExtracted.price;
+                        if (p > 0) {
+                          const { total } = calcProductTotals(p, feeSettings);
+                          return <p className="text-sm font-bold text-primary">{t('Final price:', 'Prix final :')} ${total.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">({t('all inclusive', 'tout inclus')})</span></p>;
+                        }
+                        return null;
+                      })()}
+                    </div>
+                  </div>
+                  <Button onClick={saveLinkGenProduct} disabled={linkGenExtracting} className="w-full">
+                    {linkGenExtracting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LinkIcon className="h-4 w-4 mr-2" />}
+                    {t('Generate Link', 'Générer le lien')}
+                  </Button>
+                </div>
+              )}
+
+              {/* Step 3: Persisted generated links */}
               {generatedLinks.length > 0 && (
                 <div className="space-y-3">
-                  <h4 className="text-sm font-semibold text-muted-foreground">{t('Generated Links', 'Liens générés')}</h4>
+                  <h4 className="text-sm font-semibold text-muted-foreground">{t('Generated Links', 'Liens générés')} ({generatedLinks.length})</h4>
                   {generatedLinks.map(link => (
                     <div key={link.id} className="flex items-center gap-3 p-3 border rounded-lg">
                       {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
@@ -776,20 +907,25 @@ export default function HotProducts() {
                         <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(2)} · {t('All inclusive', 'Tout inclus')}</p>
                         <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0 gap-1.5"
-                        onClick={() => {
-                          navigator.clipboard.writeText(link.checkoutUrl);
-                          setCopiedLinkId(link.id);
-                          setTimeout(() => setCopiedLinkId(null), 3000);
-                          toast.success(t('Copied!', 'Copié !'));
-                        }}
-                      >
-                        {copiedLinkId === link.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                        {copiedLinkId === link.id ? t('Copied', 'Copié') : t('Copy', 'Copier')}
-                      </Button>
+                      <div className="flex gap-1.5 shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                          onClick={() => {
+                            navigator.clipboard.writeText(link.checkoutUrl);
+                            setCopiedLinkId(link.id);
+                            setTimeout(() => setCopiedLinkId(null), 3000);
+                            toast.success(t('Copied!', 'Copié !'));
+                          }}
+                        >
+                          {copiedLinkId === link.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                          {copiedLinkId === link.id ? t('Copied', 'Copié') : t('Copy', 'Copier')}
+                        </Button>
+                        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => deleteLinkGenProduct(link.id)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>

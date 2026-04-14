@@ -1,0 +1,1 @@
+ALTER TABLE public.hot_products_showcase ADD COLUMN IF NOT EXISTS link_source text NOT NULL DEFAULT 'storefront';

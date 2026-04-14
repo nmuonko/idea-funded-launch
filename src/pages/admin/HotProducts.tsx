@@ -488,8 +488,8 @@ export default function HotProducts() {
     const { data: { user: currentUser } } = await supabase.auth.getUser();
     if (!currentUser) { toast.error('Session expired'); setSavingShowcase(false); return; }
 
-    // Delete all existing showcase products and re-insert
-    await supabase.from('hot_products_showcase').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    // Delete only storefront products (preserve link_generator entries)
+    await (supabase.from('hot_products_showcase').delete() as any).neq('id', '00000000-0000-0000-0000-000000000000').neq('link_source', 'link_generator');
 
     if (showcaseProducts.length > 0) {
       const rows = showcaseProducts.map((p, i) => ({

@@ -400,6 +400,8 @@ export default function HotProducts() {
         total_price_usd: d.total_price_usd || 0,
         checkoutUrl: `${window.location.origin}/checkout?hp=${d.id}`,
         product_url: d.product_url || '',
+        description_fr: d.description_fr || '',
+        gallery_images: d.gallery_images || [],
       })));
     }
   }

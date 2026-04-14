@@ -166,9 +166,10 @@ export default function HotProducts() {
 
   async function loadShowcase() {
     setLoadingShowcase(true);
-    const { data } = await supabase
+    const { data } = await (supabase
       .from('hot_products_showcase')
-      .select('*')
+      .select('*') as any)
+      .or('link_source.eq.storefront,link_source.is.null')
       .order('sort_order', { ascending: true });
     if (data) setShowcaseProducts(data as any);
     setLoadingShowcase(false);

@@ -1283,6 +1283,16 @@ export default function HotProducts() {
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
+                          </div>
+                          {/* Gallery thumbnails preview */}
+                          {link.gallery_images.length > 1 && (
+                            <div className="flex gap-1.5 overflow-x-auto">
+                              {link.gallery_images.slice(0, 5).map((img, i) => (
+                                <img key={i} src={img} alt="" className="w-10 h-10 rounded border object-cover shrink-0" />
+                              ))}
+                              <span className="text-xs text-muted-foreground self-center">{link.gallery_images.length} {t('images', 'images')}</span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

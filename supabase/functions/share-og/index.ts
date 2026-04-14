@@ -4,11 +4,10 @@
  *
  * GET /share-og?id=<hot_product_id>
  *
- * For bot crawlers (WhatsApp, Facebook, Twitter, etc.): returns a minimal
- * HTML page with OG tags only — no redirect, no JavaScript.
- *
- * For real browsers: returns HTML with OG tags + JS redirect to the
- * interactive share page.
+ * Always returns HTML with product-specific OG tags plus an instant
+ * client-side redirect to the public React share page.
+ * This avoids relying on crawler User-Agent detection, which can fail
+ * for messaging apps that unfurl links with generic fetchers.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -20,21 +19,12 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-function esc(s: string): string {
-  return s
+function escapeHtml(str: string): string {
+  return str
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-}
-
-function trunc(s: string, n: number): string {
-  return s.length <= n ? s : s.slice(0, n - 1).trimEnd() + "…";
-}
-
-/** Detect social media / link preview crawlers */
-function isBot(ua: string): boolean {
-  return /whatsapp|facebookexternalhit|facebot|twitterbot|telegrambot|linkedinbot|slackbot|discordbot|googlebot|bingbot|bot|crawl|spider|preview/i.test(ua);
 }
 
 serve(async (req) => {
@@ -75,58 +65,44 @@ serve(async (req) => {
     });
   }
 
-  // Build OG metadata – prefer French description
-  const descFr = (product.description_fr || "").replace(/\s+/g, " ").trim();
-  const rawTitle = (product.title || "").replace(/\s+/g, " ").trim();
-  let ogTitle: string;
-  if (descFr) {
-    const m = descFr.match(/^.*?[.!?](?:\s|$)/);
-    ogTitle = trunc(m ? m[0].trim() : descFr, 110);
-  } else {
-    ogTitle = trunc(rawTitle || "Produit AfriShop", 110);
-  }
-
+  const title = escapeHtml(product.title || "AfriShop Product");
+  const description = escapeHtml(product.description_fr || product.title || "").slice(0, 200);
   const price = Math.ceil(product.total_price_usd || 0);
-  const ogDesc = descFr
-    ? trunc(descFr, 180)
-    : `Prix: $${price} · Livraison en RDC incluse`;
-
+  const ogTitle = `${title} - $${price}`;
+  const ogDesc = description || title;
   const galleryImages: string[] = product.gallery_images || [];
   const ogImage = galleryImages[0] || product.image_url || "";
+  const publicShareUrl = url.toString();
   const sharePageUrl = `${frontendUrl}/share/hp/${product.id}`;
 
-  const userAgent = req.headers.get("user-agent") || "";
-  const isCrawler = isBot(userAgent);
-
-  // For bots: pure OG tags, NO redirect, NO JavaScript
-  // For browsers: OG tags + redirect to the interactive page
-  const redirectTags = isCrawler ? "" : `
-<meta http-equiv="refresh" content="0;url=${esc(sharePageUrl)}"/>
-<script>window.location.replace(${JSON.stringify(sharePageUrl)});</script>`;
-
   const html = `<!DOCTYPE html>
-<html lang="fr" prefix="og: https://ogp.me/ns#">
+<html lang="fr">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>${esc(ogTitle)}</title>
-<meta name="description" content="${esc(ogDesc)}"/>
+<title>${ogTitle}</title>
+<meta name="description" content="${ogDesc}"/>
+<meta name="robots" content="noindex, nofollow"/>
+<link rel="canonical" href="${escapeHtml(publicShareUrl)}"/>
 <meta property="og:type" content="product"/>
-<meta property="og:title" content="${esc(ogTitle)}"/>
-<meta property="og:description" content="${esc(ogDesc)}"/>
-<meta property="og:image" content="${esc(ogImage)}"/>
-<meta property="og:url" content="${esc(url.href)}"/>
+<meta property="og:title" content="${ogTitle}"/>
+<meta property="og:description" content="${ogDesc}"/>
+<meta property="og:image" content="${escapeHtml(ogImage)}"/>
+<meta property="og:image:secure_url" content="${escapeHtml(ogImage)}"/>
+<meta property="og:image:alt" content="${title}"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta property="og:url" content="${escapeHtml(publicShareUrl)}"/>
 <meta property="og:site_name" content="AfriShop"/>
 <meta name="twitter:card" content="summary_large_image"/>
-<meta name="twitter:title" content="${esc(ogTitle)}"/>
-<meta name="twitter:description" content="${esc(ogDesc)}"/>
-<meta name="twitter:image" content="${esc(ogImage)}"/>${redirectTags}
+<meta name="twitter:title" content="${ogTitle}"/>
+<meta name="twitter:description" content="${ogDesc}"/>
+<meta name="twitter:image" content="${escapeHtml(ogImage)}"/>
+<meta http-equiv="refresh" content="0;url=${escapeHtml(sharePageUrl)}"/>
+<script>window.location.replace(${JSON.stringify(sharePageUrl)});</script>
 </head>
 <body>
-<h1>${esc(ogTitle)}</h1>
-<img src="${esc(ogImage)}" alt="${esc(ogTitle)}" style="max-width:600px"/>
-<p>${esc(ogDesc)}</p>
-<p><a href="${esc(sharePageUrl)}">Voir sur AfriShop</a></p>
+<p>Redirecting to <a href="${escapeHtml(sharePageUrl)}">AfriShop</a>...</p>
 </body>
 </html>`;
 

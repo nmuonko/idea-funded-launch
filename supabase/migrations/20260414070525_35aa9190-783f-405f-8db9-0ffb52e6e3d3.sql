@@ -1,0 +1,1 @@
+ALTER TABLE public.admin_user_permissions ADD COLUMN IF NOT EXISTS can_view_marketing boolean NOT NULL DEFAULT false;

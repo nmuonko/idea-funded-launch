@@ -70,6 +70,7 @@ const DEFAULT_PERMISSIONS: SectionPermissions = {
   can_manage_users: false,
   can_view_settings: false,
   can_view_theme_settings: false,
+  can_view_marketing: false,
 };
 
 export default function AdminUsers() {
@@ -174,6 +175,7 @@ export default function AdminUsers() {
             can_manage_users: perms.can_manage_users,
             can_view_settings: perms.can_view_settings,
             can_view_theme_settings: perms.can_view_theme_settings,
+            can_view_marketing: perms.can_view_marketing ?? false,
           } : ROLE_DEFAULT_PERMISSIONS[adminRole as AdminRole] || DEFAULT_PERMISSIONS,
         };
       }) || [];

@@ -159,6 +159,7 @@ export type Database = {
           can_view_customers: boolean
           can_view_dashboard: boolean
           can_view_knowledge_base: boolean
+          can_view_marketing: boolean
           can_view_orders: boolean
           can_view_payments: boolean
           can_view_saved_carts: boolean
@@ -181,6 +182,7 @@ export type Database = {
           can_view_customers?: boolean
           can_view_dashboard?: boolean
           can_view_knowledge_base?: boolean
+          can_view_marketing?: boolean
           can_view_orders?: boolean
           can_view_payments?: boolean
           can_view_saved_carts?: boolean
@@ -203,6 +205,7 @@ export type Database = {
           can_view_customers?: boolean
           can_view_dashboard?: boolean
           can_view_knowledge_base?: boolean
+          can_view_marketing?: boolean
           can_view_orders?: boolean
           can_view_payments?: boolean
           can_view_saved_carts?: boolean

@@ -21,6 +21,7 @@ export interface SectionPermissions {
   can_manage_users: boolean;
   can_view_settings: boolean;
   can_view_theme_settings: boolean;
+  can_view_marketing: boolean;
 }
 
 export interface AdminPermissions extends SectionPermissions {
@@ -47,6 +48,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<AdminRole, SectionPermissions> = {
     can_manage_users: true,
     can_view_settings: true,
     can_view_theme_settings: true,
+    can_view_marketing: true,
   },
   operations: {
     can_view_dashboard: true,
@@ -65,6 +67,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<AdminRole, SectionPermissions> = {
     can_manage_users: false,
     can_view_settings: false,
     can_view_theme_settings: false,
+    can_view_marketing: false,
   },
   finance: {
     can_view_dashboard: true,
@@ -83,6 +86,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<AdminRole, SectionPermissions> = {
     can_manage_users: false,
     can_view_settings: false,
     can_view_theme_settings: false,
+    can_view_marketing: false,
   },
   support: {
     can_view_dashboard: true,
@@ -101,6 +105,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<AdminRole, SectionPermissions> = {
     can_manage_users: false,
     can_view_settings: false,
     can_view_theme_settings: false,
+    can_view_marketing: false,
   },
   delivery: {
     can_view_dashboard: false,
@@ -119,6 +124,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<AdminRole, SectionPermissions> = {
     can_manage_users: false,
     can_view_settings: false,
     can_view_theme_settings: false,
+    can_view_marketing: false,
   },
 };
 
@@ -140,6 +146,7 @@ export const ALL_PERMISSION_KEYS: (keyof SectionPermissions)[] = [
   'can_manage_users',
   'can_view_settings',
   'can_view_theme_settings',
+  'can_view_marketing',
 ];
 
 // Permission labels for UI
@@ -160,6 +167,7 @@ export const PERMISSION_LABELS: Record<keyof SectionPermissions, { label: string
   can_manage_users: { label: 'Staff Management', category: 'Admin & Settings' },
   can_view_settings: { label: 'Settings', category: 'Admin & Settings' },
   can_view_theme_settings: { label: 'Theme Settings', category: 'Admin & Settings' },
+  can_view_marketing: { label: 'Marketing', category: 'Marketing' },
 };
 
 export function useAdminPermissions() {
@@ -231,6 +239,7 @@ export function useAdminPermissions() {
             can_manage_users: permData.can_manage_users,
             can_view_settings: permData.can_view_settings,
             can_view_theme_settings: permData.can_view_theme_settings,
+            can_view_marketing: permData.can_view_marketing ?? false,
           });
         } else {
           // Fallback to role defaults if no custom permissions

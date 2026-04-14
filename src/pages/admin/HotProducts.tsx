@@ -1002,7 +1002,7 @@ export default function HotProducts() {
                           <Input
                             value={newImageUrl}
                             onChange={e => setNewImageUrl(e.target.value)}
-                            placeholder={t('Paste image URL to add...', 'Collez une URL d\'image...')}
+                            placeholder={t('Paste image URL or upload...', 'Collez une URL ou téléchargez...')}
                             className="h-7 text-xs flex-1"
                           />
                           <Button
@@ -1021,6 +1021,25 @@ export default function HotProducts() {
                             }}
                           >
                             <ImagePlus className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2"
+                            disabled={uploadingImage}
+                            onClick={() => {
+                              const input = document.createElement('input');
+                              input.type = 'file';
+                              input.accept = 'image/*';
+                              input.onchange = (e) => {
+                                const file = (e.target as HTMLInputElement).files?.[0];
+                                if (file) uploadProductImage(file, 'extract');
+                              };
+                              input.click();
+                            }}
+                          >
+                            {uploadingImage ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
                           </Button>
                         </div>
                       </div>

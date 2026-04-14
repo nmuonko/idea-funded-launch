@@ -1,12 +1,12 @@
 /**
- * share-og – Generates a static HTML page with Open Graph meta tags,
- * uploads it to Supabase Storage (which serves .html as text/html),
- * and redirects the crawler/user to the storage URL.
- *
- * This bypasses the Supabase Edge Function gateway which forces
- * Content-Type: text/plain on responses, breaking WhatsApp link previews.
+ * share-og – Server-rendered HTML with Open Graph meta tags
+ * for WhatsApp / social media link previews.
  *
  * GET /share-og?id=<hot_product_id>
+ *
+ * Returns HTML with product-specific OG tags plus a redirect
+ * to the interactive share page. When proxied through _redirects,
+ * the production domain serves this with proper content-type.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -68,7 +68,7 @@ serve(async (req) => {
     });
   }
 
-  // Build OG metadata
+  // Build OG metadata – prefer French description
   const descFr = (product.description_fr || "").replace(/\s+/g, " ").trim();
   const rawTitle = (product.title || "").replace(/\s+/g, " ").trim();
   let ogTitle: string;
@@ -83,14 +83,11 @@ serve(async (req) => {
   const ogDesc = descFr
     ? trunc(descFr, 180)
     : `Prix: $${price} · Livraison en RDC incluse`;
+
   const galleryImages: string[] = product.gallery_images || [];
   const ogImage = galleryImages[0] || product.image_url || "";
   const sharePageUrl = `${frontendUrl}/share/hp/${product.id}`;
-
-  // Build the storage path and public URL
-  const BUCKET = "product-images";
-  const storagePath = `share-previews/${product.id}.html`;
-  const storagePublicUrl = `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${storagePath}`;
+  const publicShareUrl = `${frontendUrl}/share/hp/${product.id}`;
 
   const html = `<!DOCTYPE html>
 <html lang="fr">
@@ -108,44 +105,26 @@ serve(async (req) => {
 <meta property="og:image:alt" content="${esc(ogTitle)}"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
-<meta property="og:url" content="${esc(storagePublicUrl)}"/>
+<meta property="og:url" content="${esc(publicShareUrl)}"/>
 <meta property="og:site_name" content="AfriShop"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="${esc(ogTitle)}"/>
 <meta name="twitter:description" content="${esc(ogDesc)}"/>
 <meta name="twitter:image" content="${esc(ogImage)}"/>
-<meta http-equiv="refresh" content="0;url=${esc(sharePageUrl)}"/>
-<script>window.location.replace(${JSON.stringify(sharePageUrl)});</script>
+<meta http-equiv="refresh" content="1;url=${esc(sharePageUrl)}"/>
+<script>setTimeout(function(){window.location.replace(${JSON.stringify(sharePageUrl)});},500);</script>
 </head>
 <body>
 <p>Redirection vers <a href="${esc(sharePageUrl)}">AfriShop</a>…</p>
 </body>
 </html>`;
 
-  // Upload to storage (serves .html as text/html)
-  const { error: uploadErr } = await supabase.storage
-    .from(BUCKET)
-    .upload(storagePath, new Blob([html], { type: "text/html; charset=utf-8" }), {
-      upsert: true,
-      cacheControl: "300",
-      contentType: "text/html; charset=utf-8",
-    });
-
-  if (uploadErr) {
-    console.error("Storage upload failed:", uploadErr.message);
-    // Fallback: redirect to the share page directly
-    return new Response(null, {
-      status: 302,
-      headers: { ...corsHeaders, Location: sharePageUrl },
-    });
-  }
-
-  // Redirect crawler/user to the storage URL which serves text/html
-  return new Response(null, {
-    status: 302,
+  return new Response(html, {
+    status: 200,
     headers: {
       ...corsHeaders,
-      Location: storagePublicUrl,
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, s-maxage=3600",
     },
   });
 });

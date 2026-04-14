@@ -172,6 +172,30 @@ export default function HotProducts() {
   const [editLinkGallery, setEditLinkGallery] = useState<string[]>([]);
   const [newImageUrl, setNewImageUrl] = useState('');
   const [newEditImageUrl, setNewEditImageUrl] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [whatsappPreviewLink, setWhatsappPreviewLink] = useState<string | null>(null);
+
+  async function uploadProductImage(file: File, target: 'extract' | 'edit') {
+    setUploadingImage(true);
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const path = `hot-products/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error } = await supabase.storage.from('product-images').upload(path, file);
+      if (error) { toast.error('Upload failed: ' + error.message); return; }
+      const { data: urlData } = supabase.storage.from('product-images').getPublicUrl(path);
+      const publicUrl = urlData.publicUrl;
+      if (target === 'extract' && linkGenExtracted) {
+        setLinkGenExtracted({ ...linkGenExtracted, gallery_images: [...(linkGenExtracted.gallery_images || []), publicUrl] });
+      } else if (target === 'edit') {
+        setEditLinkGallery(prev => [...prev, publicUrl]);
+      }
+      toast.success(t('Image uploaded', 'Image téléchargée'));
+    } catch (e: any) {
+      toast.error('Upload error');
+    } finally {
+      setUploadingImage(false);
+    }
+  }
 
   // Persist link generator state to localStorage
   useEffect(() => {

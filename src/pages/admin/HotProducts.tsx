@@ -437,8 +437,20 @@ export default function HotProducts() {
         provider: prov,
         pid,
         url: linkGenUrl.trim(),
+        gallery_images: (data?.galleryImages || data?.images || []).filter((u: string) => typeof u === 'string').slice(0, 2),
       });
       if (basePrice > 0) setLinkGenManualPrice(basePrice.toFixed(0));
+
+      // Auto-translate title to French
+      if (title) {
+        setTranslatingFr(true);
+        supabase.functions.invoke('translate-product', { body: { title, price: basePrice } })
+          .then(({ data: trData }) => {
+            if (trData?.description_fr) setLinkGenDescFr(trData.description_fr);
+          })
+          .catch(() => {})
+          .finally(() => setTranslatingFr(false));
+      }
     } catch {
       setLinkGenPriceEditable(true);
       setLinkGenExtracted({ title: '', image_url: '', price: 0, provider: inferProvider(linkGenUrl.trim()) || 'external', pid: inferProductId(linkGenUrl.trim()) || '', url: linkGenUrl.trim() });

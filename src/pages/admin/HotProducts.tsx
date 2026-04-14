@@ -158,6 +158,8 @@ export default function HotProducts() {
   const [linkGenManualTitle, setLinkGenManualTitle] = useState(() => localStorage.getItem('hp_linkgen_title') || '');
   const [linkGenPriceEditable, setLinkGenPriceEditable] = useState(() => storedExtracted ? (!storedExtracted.price || storedExtracted.price <= 0) : false);
   const [linkGenFinalOverride, setLinkGenFinalOverride] = useState('');
+  const [linkGenManualMarkup, setLinkGenManualMarkup] = useState('');
+  const [linkGenManualShipping, setLinkGenManualShipping] = useState('');
   const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
   const [editLinkTitle, setEditLinkTitle] = useState('');
   const [editLinkFinalPrice, setEditLinkFinalPrice] = useState('');

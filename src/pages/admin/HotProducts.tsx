@@ -534,6 +534,7 @@ export default function HotProducts() {
     setEditLinkMarkup(String(link.markup_usd));
     setEditLinkShipping(String(link.shipping_usd));
     setEditLinkFinalPrice(String(link.total_price_usd));
+    setEditLinkDescFr(link.description_fr || '');
   }
 
   async function saveEditLink(id: string) {
@@ -543,9 +544,9 @@ export default function HotProducts() {
     const newShipping = parseFloat(editLinkShipping) || 0;
     const newFinal = parseFloat(editLinkFinalPrice) || Math.ceil(newItemPrice + newMarkup + newShipping);
     if (!newTitle || newFinal <= 0) { toast.error(t('Invalid values', 'Valeurs invalides')); return; }
-    const { error } = await supabase.from('hot_products_showcase').update({ title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal } as any).eq('id', id);
+    const { error } = await supabase.from('hot_products_showcase').update({ title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr || null } as any).eq('id', id);
     if (error) { toast.error('Save failed'); return; }
-    setGeneratedLinks(prev => prev.map(l => l.id === id ? { ...l, title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal } : l));
+    setGeneratedLinks(prev => prev.map(l => l.id === id ? { ...l, title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr } : l));
     setEditingLinkId(null);
     toast.success(t('Updated', 'Mis à jour'));
   }

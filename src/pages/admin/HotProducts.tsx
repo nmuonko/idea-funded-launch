@@ -143,14 +143,23 @@ function getSharePreviewDescription(link: Pick<GeneratedLink, 'description_fr' |
   return `Prix: $${Math.ceil(link.total_price_usd)} · Livraison en RDC incluse`;
 }
 
-const PUBLISHED_DOMAIN = 'https://afrishop-usa.com';
-const SUPABASE_FUNCTIONS_URL = 'https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1';
+const SHARE_PREVIEW_BASE_URL = 'https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/product-images/share-previews';
 
 function getShareUrl(id: string): string {
-  // Share the edge function URL directly — it returns text/html with OG tags
-  // so WhatsApp's crawler can parse og:image for the preview card.
-  // The edge function then redirects the user to the interactive share page.
-  return `${SUPABASE_FUNCTIONS_URL}/share-og?id=${id}`;
+  return `${SHARE_PREVIEW_BASE_URL}/${id}.html`;
+}
+
+async function syncSharePreviewPages(ids?: string[]): Promise<boolean> {
+  const { error } = await supabase.functions.invoke('backfill-share-previews', {
+    body: ids && ids.length > 0 ? { ids } : {},
+  });
+
+  if (error) {
+    console.error('Failed to sync share preview pages:', error);
+    return false;
+  }
+
+  return true;
 }
 
 function buildWhatsAppShareMessage(
@@ -615,6 +624,8 @@ export default function HotProducts() {
         description_fr: linkGenDescFr,
         gallery_images: linkGenExtracted.gallery_images || [],
       };
+      const shareUrl = getShareUrl(inserted.id);
+      const shareSynced = await syncSharePreviewPages([inserted.id]);
       setGeneratedLinks(prev => [savedLink, ...prev]);
       setLinkGenUrl('');
       setLinkGenExtracted(null);
@@ -624,10 +635,14 @@ export default function HotProducts() {
       setLinkGenManualMarkup('');
       setLinkGenManualShipping('');
       setLinkGenDescFr('');
-      navigator.clipboard.writeText(checkoutUrl);
+      if (!shareSynced) {
+        toast.error(t('Product saved, but share page sync failed', 'Produit sauvegardé, mais la page de partage n\'a pas pu être générée'));
+        return;
+      }
+      navigator.clipboard.writeText(shareUrl);
       setCopiedLinkId(inserted.id);
       setTimeout(() => setCopiedLinkId(null), 3000);
-      toast.success(t('Link generated & copied!', 'Lien généré et copié !'));
+      toast.success(t('Share link generated & copied!', 'Lien de partage généré et copié !'));
     } catch {
       toast.error('Failed to generate link');
     }
@@ -686,7 +701,12 @@ export default function HotProducts() {
       image_url: editLinkGallery[0] || existingLink?.image_url || '',
     };
     setGeneratedLinks(prev => prev.map(link => link.id === id ? updatedLink : link));
+    const shareSynced = await syncSharePreviewPages([id]);
     setEditingLinkId(null);
+    if (!shareSynced) {
+      toast.error(t('Updated, but share page sync failed', 'Mis à jour, mais la page de partage n\'a pas pu être régénérée'));
+      return;
+    }
     toast.success(t('Updated', 'Mis à jour'));
   }
 
@@ -745,7 +765,12 @@ export default function HotProducts() {
       if (error) { toast.error('Failed: ' + error.message); setSavingShowcase(false); return; }
     }
 
-    toast.success(t('Storefront products saved!', 'Produits vitrine sauvegardés !'));
+    const shareSynced = await syncSharePreviewPages();
+    if (!shareSynced) {
+      toast.error(t('Storefront saved, but share pages failed to refresh', 'La vitrine a été sauvegardée, mais les pages de partage n\'ont pas pu être rafraîchies'));
+    } else {
+      toast.success(t('Storefront products saved!', 'Produits vitrine sauvegardés !'));
+    }
     loadShowcase();
     setSavingShowcase(false);
   }
@@ -1011,7 +1036,7 @@ export default function HotProducts() {
                               toast.error(t('Save to Storefront first to generate the link', 'Sauvegardez d\'abord pour générer le lien'));
                               return;
                             }
-                            const url = `${window.location.origin}/checkout?hp=${p.id}`;
+                            const url = getShareUrl(p.id);
                             navigator.clipboard.writeText(url);
                             toast.success(t('Link copied!', 'Lien copié !'));
                           }}
@@ -1417,7 +1442,7 @@ export default function HotProducts() {
                               <p className="text-sm font-medium truncate">{link.title}</p>
                               {link.description_fr && <p className="text-xs text-muted-foreground truncate">{link.description_fr}</p>}
                               <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(0)} · {t('All inclusive', 'Tout inclus')}</p>
-                              <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
+                              <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{getShareUrl(link.id)}</p>
                               {link.product_url && (
                                 <a href={link.product_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300 truncate mt-0.5 block">
                                   🔗 {t('Original link', 'Lien original')}
@@ -1451,7 +1476,7 @@ export default function HotProducts() {
                               size="sm"
                               className="gap-1.5"
                               onClick={() => {
-                                navigator.clipboard.writeText(link.checkoutUrl);
+                                navigator.clipboard.writeText(getShareUrl(link.id));
                                 setCopiedLinkId(link.id);
                                 setTimeout(() => setCopiedLinkId(null), 3000);
                                 toast.success(t('Copied!', 'Copié !'));

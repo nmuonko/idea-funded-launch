@@ -1130,6 +1130,16 @@ export default function HotProducts() {
                               </div>
                             </div>
                           </div>
+                          <div>
+                            <Label className="text-xs">{t('Description (FR)', 'Description (FR)')}</Label>
+                            <textarea
+                              value={editLinkDescFr}
+                              onChange={e => setEditLinkDescFr(e.target.value)}
+                              placeholder={t('French description...', 'Description en français...')}
+                              className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[50px] resize-y"
+                              rows={2}
+                            />
+                          </div>
                           <div className="flex gap-2 justify-end">
                             <Button variant="outline" size="sm" onClick={() => setEditingLinkId(null)}>{t('Cancel', 'Annuler')}</Button>
                             <Button size="sm" onClick={() => saveEditLink(link.id)}>{t('Save', 'Enregistrer')}</Button>
@@ -1140,10 +1150,25 @@ export default function HotProducts() {
                           {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium truncate">{link.title}</p>
+                            {link.description_fr && <p className="text-xs text-muted-foreground truncate">{link.description_fr}</p>}
                             <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(0)} · {t('All inclusive', 'Tout inclus')}</p>
                             <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
                           </div>
                           <div className="flex gap-1.5 shrink-0">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5"
+                              title="Share on WhatsApp"
+                              onClick={() => {
+                                const shareUrl = `${window.location.origin}/share/hp/${link.id}`;
+                                const desc = link.description_fr || link.title;
+                                const msg = `🛒 *${link.title}*\n\n${desc}\n\n💰 Prix: $${link.total_price_usd}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
+                                window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                              }}
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" />
+                            </Button>
                             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => startEditLink(link)}>
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>

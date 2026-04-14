@@ -233,30 +233,10 @@ async function copyBothToClipboard(imageUrl: string, caption: string): Promise<'
     }
   }
   try {
-    const blob = await fetchImageAsBlob(imageUrl);
-    let pngBlob = blob;
-    if (blob.type !== 'image/png') {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      const loaded = new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = reject;
-      });
-      img.src = URL.createObjectURL(blob);
-      await loaded;
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(img.src);
-      pngBlob = await new Promise<Blob>((resolve, reject) =>
-        canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/png'),
-      );
-    }
+    const pngPromise = convertToPngBlob(imageUrl);
     await navigator.clipboard.write([
       new ClipboardItem({
-        'image/png': pngBlob,
+        'image/png': pngPromise,
         'text/plain': new Blob([caption], { type: 'text/plain' }),
       }),
     ]);

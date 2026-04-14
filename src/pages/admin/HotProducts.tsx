@@ -1041,17 +1041,59 @@ export default function HotProducts() {
                   {generatedLinks.map(link => (
                     <div key={link.id} className="p-3 border rounded-lg space-y-2">
                       {editingLinkId === link.id ? (
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           <div className="flex items-start gap-3">
                             {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
-                            <div className="flex-1 min-w-0 space-y-2">
-                              <div>
-                                <Label className="text-xs">{t('Title', 'Titre')}</Label>
-                                <Input value={editLinkTitle} onChange={e => setEditLinkTitle(e.target.value)} className="h-8 text-sm" />
+                            <div className="flex-1 min-w-0">
+                              <Label className="text-xs">{t('Title', 'Titre')}</Label>
+                              <Input value={editLinkTitle} onChange={e => setEditLinkTitle(e.target.value)} className="h-8 text-sm" />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-4 gap-2">
+                            <div>
+                              <Label className="text-xs">{t('Item Price', 'Prix article')}</Label>
+                              <div className="relative">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                                <Input type="number" step="1" value={editLinkItemPrice} onChange={e => {
+                                  setEditLinkItemPrice(e.target.value);
+                                  const p = parseFloat(e.target.value) || 0;
+                                  const m = parseFloat(editLinkMarkup) || 0;
+                                  const s = parseFloat(editLinkShipping) || 0;
+                                  setEditLinkFinalPrice(String(Math.ceil(p + m + s)));
+                                }} className="h-8 text-sm pl-6" />
                               </div>
-                              <div>
-                                <Label className="text-xs">{t('Final Price ($)', 'Prix final ($)')}</Label>
-                                <Input type="number" step="0.01" value={editLinkFinalPrice} onChange={e => setEditLinkFinalPrice(e.target.value)} className="h-8 text-sm w-40" />
+                            </div>
+                            <div>
+                              <Label className="text-xs">{t('Markup', 'Marge')}</Label>
+                              <div className="relative">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                                <Input type="number" step="1" value={editLinkMarkup} onChange={e => {
+                                  setEditLinkMarkup(e.target.value);
+                                  const p = parseFloat(editLinkItemPrice) || 0;
+                                  const m = parseFloat(e.target.value) || 0;
+                                  const s = parseFloat(editLinkShipping) || 0;
+                                  setEditLinkFinalPrice(String(Math.ceil(p + m + s)));
+                                }} className="h-8 text-sm pl-6" />
+                              </div>
+                            </div>
+                            <div>
+                              <Label className="text-xs">{t('Shipping', 'Livraison')}</Label>
+                              <div className="relative">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                                <Input type="number" step="1" value={editLinkShipping} onChange={e => {
+                                  setEditLinkShipping(e.target.value);
+                                  const p = parseFloat(editLinkItemPrice) || 0;
+                                  const m = parseFloat(editLinkMarkup) || 0;
+                                  const s = parseFloat(e.target.value) || 0;
+                                  setEditLinkFinalPrice(String(Math.ceil(p + m + s)));
+                                }} className="h-8 text-sm pl-6" />
+                              </div>
+                            </div>
+                            <div>
+                              <Label className="text-xs font-bold">{t('Total', 'Total')}</Label>
+                              <div className="relative">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                                <Input type="number" step="1" value={editLinkFinalPrice} onChange={e => setEditLinkFinalPrice(e.target.value)} className="h-8 text-sm pl-6 font-bold" />
                               </div>
                             </div>
                           </div>

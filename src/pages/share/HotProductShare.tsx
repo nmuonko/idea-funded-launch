@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency } from '@/lib/formatCurrency';
-import { Loader2, ShoppingCart } from 'lucide-react';
+import { Loader2, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface ShareProduct {
@@ -23,6 +23,7 @@ export default function HotProductShare() {
   const navigate = useNavigate();
   const [product, setProduct] = useState<ShareProduct | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeImage, setActiveImage] = useState(0);
 
   useEffect(() => {
     if (!id) return;
@@ -60,6 +61,8 @@ export default function HotProductShare() {
   const ogDesc = description.slice(0, 155);
   const checkoutUrl = `${window.location.origin}/checkout?hp=${product.id}`;
   const allImages = [product.image_url, ...(product.gallery_images || [])].filter(Boolean);
+  // Deduplicate
+  const uniqueImages = [...new Set(allImages)];
 
   return (
     <>
@@ -67,29 +70,66 @@ export default function HotProductShare() {
         <title>{ogTitle}</title>
         <meta property="og:title" content={ogTitle} />
         <meta property="og:description" content={ogDesc} />
-        <meta property="og:image" content={allImages[0]} />
+        <meta property="og:image" content={uniqueImages[0]} />
         <meta property="og:type" content="product" />
         <meta property="og:url" content={window.location.href} />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={ogTitle} />
         <meta name="twitter:description" content={ogDesc} />
-        <meta name="twitter:image" content={allImages[0]} />
+        <meta name="twitter:image" content={uniqueImages[0]} />
       </Helmet>
 
       <div className="min-h-screen bg-black text-white">
         <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
-          {/* Product Images */}
-          <div className="space-y-3">
-            {allImages.map((img, i) => (
-              <div key={i} className="bg-white rounded-2xl overflow-hidden">
+          {/* Main Image with navigation */}
+          {uniqueImages.length > 0 && (
+            <div className="space-y-3">
+              <div className="relative bg-white rounded-2xl overflow-hidden">
                 <img
-                  src={img}
+                  src={uniqueImages[activeImage]}
                   alt={product.title}
-                  className="w-full object-contain max-h-[400px]"
+                  className="w-full object-contain max-h-[420px]"
                 />
+                {uniqueImages.length > 1 && (
+                  <>
+                    <button
+                      onClick={() => setActiveImage(i => (i - 1 + uniqueImages.length) % uniqueImages.length)}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 rounded-full p-1.5 transition-colors"
+                    >
+                      <ChevronLeft className="w-5 h-5 text-white" />
+                    </button>
+                    <button
+                      onClick={() => setActiveImage(i => (i + 1) % uniqueImages.length)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 rounded-full p-1.5 transition-colors"
+                    >
+                      <ChevronRight className="w-5 h-5 text-white" />
+                    </button>
+                    {/* Counter */}
+                    <div className="absolute bottom-2 right-2 bg-black/60 rounded-full px-2.5 py-0.5 text-xs font-medium">
+                      {activeImage + 1}/{uniqueImages.length}
+                    </div>
+                  </>
+                )}
               </div>
-            ))}
-          </div>
+
+              {/* Thumbnail strip */}
+              {uniqueImages.length > 1 && (
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {uniqueImages.map((img, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setActiveImage(i)}
+                      className={`shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all ${
+                        i === activeImage ? 'border-orange-400 ring-1 ring-orange-400/50' : 'border-white/20 opacity-60 hover:opacity-100'
+                      }`}
+                    >
+                      <img src={img} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Product Info */}
           <div className="space-y-3">

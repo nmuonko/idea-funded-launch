@@ -32,7 +32,7 @@ export default function HotProductShare() {
     (async () => {
       const { data } = await (supabase
         .from('hot_products_showcase')
-        .select('id, title, image_url, total_price_usd, description_fr, gallery_images, provider, provider_product_id, is_active') as any)
+        .select('id, title, image_url, total_price_usd, description_fr, gallery_images, provider, provider_product_id, product_url, is_active') as any)
         .eq('id', id)
         .single();
       if (data) setProduct(data as ShareProduct);

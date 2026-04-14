@@ -161,6 +161,15 @@ export default function HotProductShare() {
           </p>
         </div>
       </div>
+
+      {viewerOpen && uniqueImages.length > 0 && (
+        <ProductImageViewer
+          images={uniqueImages}
+          currentIndex={activeImage}
+          onClose={() => setViewerOpen(false)}
+          onIndexChange={setActiveImage}
+        />
+      )}
     </>
   );
 }

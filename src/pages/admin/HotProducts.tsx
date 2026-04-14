@@ -1308,6 +1308,11 @@ export default function HotProducts() {
                               {link.description_fr && <p className="text-xs text-muted-foreground truncate">{link.description_fr}</p>}
                               <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(0)} · {t('All inclusive', 'Tout inclus')}</p>
                               <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
+                              {link.product_url && (
+                                <a href={link.product_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300 truncate mt-0.5 block">
+                                  🔗 {t('Original link', 'Lien original')}
+                                </a>
+                              )}
                             </div>
                           <div className="flex gap-1.5 shrink-0">
                             <Button

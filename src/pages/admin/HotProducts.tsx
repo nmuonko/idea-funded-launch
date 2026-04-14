@@ -52,6 +52,8 @@ interface FeeSettings {
   vehicleMarkupPercent: number;
   shippingBaseFeeUsd: number;
   shippingPercent: number;
+  shippingRatePerKg: number;
+  shippingCategories: ShippingCategoryRow[];
 }
 
 interface Campaign {
@@ -90,10 +92,19 @@ function toHighResImage(url: string): string {
   return url;
 }
 
-function calcProductTotals(basePrice: number, fees: FeeSettings): { markup: number; shipping: number; total: number } {
-  const markup = basePrice * (fees.markupPercent / 100);
-  const shipping = calculateShippingUsd(basePrice, fees.shippingBaseFeeUsd, fees.shippingPercent);
-  return { markup, shipping, total: Math.round((basePrice + markup + shipping) * 100) / 100 };
+function calcProductTotals(basePrice: number, fees: FeeSettings, productTitle?: string, categoryKey?: string | null): { markup: number; shipping: number; total: number } {
+  const feeConfig: FeeConfig = {
+    markupPercent: fees.markupPercent,
+    shippingBaseFeeUsd: fees.shippingBaseFeeUsd,
+    shippingPercent: fees.shippingPercent,
+    shippingRatePerKg: fees.shippingRatePerKg,
+    shippingCategories: fees.shippingCategories,
+  };
+  const total = allInclusivePrice(basePrice, feeConfig, 1, null, productTitle, categoryKey);
+  const markupRate = fees.markupPercent > 1 ? fees.markupPercent / 100 : fees.markupPercent;
+  const markup = Math.round(basePrice * markupRate * 100) / 100;
+  const shipping = Math.round((total - basePrice - markup) * 100) / 100;
+  return { markup, shipping, total };
 }
 
 export default function HotProducts() {
@@ -110,7 +121,7 @@ export default function HotProducts() {
   const [searching, setSearching] = useState(false);
   const [pasteUrl, setPasteUrl] = useState('');
   const [extracting, setExtracting] = useState(false);
-  const [feeSettings, setFeeSettings] = useState<FeeSettings>({ markupPercent: 15, vehicleMarkupPercent: 15, shippingBaseFeeUsd: 20, shippingPercent: 10 });
+  const [feeSettings, setFeeSettings] = useState<FeeSettings>({ markupPercent: 15, vehicleMarkupPercent: 15, shippingBaseFeeUsd: 20, shippingPercent: 10, shippingRatePerKg: 20, shippingCategories: [] });
 
   // Campaign state
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -152,16 +163,26 @@ export default function HotProducts() {
   }, []);
 
   async function loadFeeSettings() {
-    const { data } = await supabase.from('settings' as any).select('markup_percent, shipping_base_fee_usd, shipping_percent, category_markups').limit(1).single();
-    if (data) {
-      const d = data as any;
-      setFeeSettings({
-        markupPercent: d.markup_percent ?? 15,
-        vehicleMarkupPercent: (d.category_markups as any)?.vehicles ?? d.markup_percent ?? 15,
-        shippingBaseFeeUsd: d.shipping_base_fee_usd ?? 20,
-        shippingPercent: d.shipping_percent ?? 10,
-      });
-    }
+    const [settingsRes, categoriesRes] = await Promise.all([
+      supabase.from('settings' as any).select('markup_percent, shipping_base_fee_usd, shipping_percent, shipping_rate_per_kg, category_markups').limit(1).single(),
+      supabase.from('shipping_item_types' as any).select('key, label, est_weight_kg, flat_shipping_usd, shipping_buffer_percent, requires_manual_quote').eq('active', true).order('label'),
+    ]);
+    const d = (settingsRes.data as any) || {};
+    const cats: ShippingCategoryRow[] = ((categoriesRes.data as any[]) || []).map((c: any) => ({
+      key: c.key,
+      est_weight_kg: Number(c.est_weight_kg) || 0,
+      flat_shipping_usd: c.flat_shipping_usd != null ? Number(c.flat_shipping_usd) : null,
+      shipping_buffer_percent: Number(c.shipping_buffer_percent) || 0,
+      requires_manual_quote: c.requires_manual_quote || false,
+    }));
+    setFeeSettings({
+      markupPercent: d.markup_percent ?? 15,
+      vehicleMarkupPercent: (d.category_markups as any)?.vehicles ?? d.markup_percent ?? 15,
+      shippingBaseFeeUsd: d.shipping_base_fee_usd ?? 20,
+      shippingPercent: d.shipping_percent ?? 10,
+      shippingRatePerKg: d.shipping_rate_per_kg ?? 20,
+      shippingCategories: cats,
+    });
   }
 
   async function loadShowcase() {
@@ -873,9 +894,9 @@ export default function HotProducts() {
                           <Label className="text-xs">{t('Markup', 'Marge')}</Label>
                           <p className="text-sm font-medium mt-1">{feeSettings.markupPercent}%</p>
                         </div>
-                        <div>
+                         <div>
                           <Label className="text-xs">{t('Shipping', 'Livraison')}</Label>
-                          <p className="text-sm font-medium mt-1">${feeSettings.shippingBaseFeeUsd} + {feeSettings.shippingPercent}%</p>
+                          <p className="text-sm font-medium mt-1">{t('Weight-based', 'Par poids')} (${feeSettings.shippingRatePerKg}/kg)</p>
                         </div>
                       </div>
                       {(() => {

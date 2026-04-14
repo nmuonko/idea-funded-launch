@@ -1562,21 +1562,80 @@ export default function HotProducts() {
                               )}
                             </div>
                           <div className="flex gap-1.5 shrink-0 flex-wrap">
-                            {/* Copy Caption */}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="gap-1.5"
-                              title={t('Copy caption text', 'Copier le texte')}
-                              onClick={() => {
-                                const caption = buildCaption(link, getShareUrl(link.id));
-                                navigator.clipboard.writeText(caption);
-                                toast.success(t('Caption copied', 'Texte copié'));
-                              }}
-                            >
-                              <ClipboardCopy className="h-3.5 w-3.5" />
-                              <span className="hidden sm:inline">{t('Caption', 'Texte')}</span>
-                            </Button>
+                            {/* Caption - shows preview then copy */}
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button variant="outline" size="sm" className="gap-1.5">
+                                  <ClipboardCopy className="h-3.5 w-3.5" />
+                                  <span className="hidden sm:inline">{t('Caption', 'Texte')}</span>
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent className="max-w-md">
+                                <DialogHeader>
+                                  <DialogTitle>{t('Caption Preview', 'Aperçu du texte')}</DialogTitle>
+                                </DialogHeader>
+                                <pre className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md border max-h-60 overflow-y-auto font-sans">
+                                  {buildCaption(link, getShareUrl(link.id))}
+                                </pre>
+                                <div className="flex justify-end">
+                                  <Button
+                                    size="sm"
+                                    className="gap-1.5"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(buildCaption(link, getShareUrl(link.id)));
+                                      toast.success(t('Caption copied', 'Texte copié'));
+                                    }}
+                                  >
+                                    <Copy className="h-3.5 w-3.5" />
+                                    {t('Copy Caption', 'Copier le texte')}
+                                  </Button>
+                                </div>
+                              </DialogContent>
+                            </Dialog>
+                            {/* Images - opens gallery dialog */}
+                            {link.gallery_images.length > 0 && (
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button variant="outline" size="sm" className="gap-1.5">
+                                    <ImageIcon className="h-3.5 w-3.5" />
+                                    <span className="hidden sm:inline">{t('Images', 'Images')}</span>
+                                    <Badge variant="secondary" className="text-[9px] px-1 py-0 ml-0.5">{link.gallery_images.length}</Badge>
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-w-2xl">
+                                  <DialogHeader>
+                                    <DialogTitle className="text-sm">{t('Product Images — Click to copy', 'Images du produit — Cliquez pour copier')}</DialogTitle>
+                                  </DialogHeader>
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto">
+                                    {link.gallery_images.map((img, i) => (
+                                      <div
+                                        key={i}
+                                        className="relative group cursor-pointer rounded-lg overflow-hidden border border-border bg-white aspect-square"
+                                        onClick={async () => {
+                                          if (supportsClipboardImage()) {
+                                            const ok = await copyImageToClipboard(img);
+                                            if (ok) { toast.success(t('Image copied', 'Image copiée')); return; }
+                                          }
+                                          setImageFallbackModal({
+                                            imageUrl: img,
+                                            caption: buildCaption(link, getShareUrl(link.id)),
+                                            title: link.title,
+                                          });
+                                        }}
+                                      >
+                                        <img src={img} alt="" className="w-full h-full object-contain p-2" />
+                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                          <div className="flex flex-col items-center gap-1 text-white">
+                                            <Copy className="h-5 w-5" />
+                                            <span className="text-xs font-medium">{t('Copy', 'Copier')}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </DialogContent>
+                              </Dialog>
+                            )}
                             {/* Copy Link */}
                             <Button
                               variant="outline"
@@ -1612,33 +1671,6 @@ export default function HotProducts() {
                             </DropdownMenu>
                           </div>
                           </div>
-                          {/* Product images - hover to copy */}
-                          {link.gallery_images.length > 0 && (
-                            <div className="flex gap-2 overflow-x-auto pt-1">
-                              {link.gallery_images.map((img, i) => (
-                                <div
-                                  key={i}
-                                  className="relative group shrink-0 cursor-pointer"
-                                  onClick={async () => {
-                                    if (supportsClipboardImage()) {
-                                      const ok = await copyImageToClipboard(img);
-                                      if (ok) { toast.success(t('Image copied', 'Image copiée')); return; }
-                                    }
-                                    setImageFallbackModal({
-                                      imageUrl: img,
-                                      caption: buildCaption(link, getShareUrl(link.id)),
-                                      title: link.title,
-                                    });
-                                  }}
-                                >
-                                  <img src={img} alt="" className="w-16 h-16 rounded border border-border object-cover" />
-                                  <div className="absolute inset-0 bg-black/50 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                    <Copy className="h-4 w-4 text-white" />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>

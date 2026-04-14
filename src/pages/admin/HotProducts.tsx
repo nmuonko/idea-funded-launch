@@ -2020,6 +2020,53 @@ export default function HotProducts() {
           <HotProductAnalytics />
         </TabsContent>
       </Tabs>
+
+      {/* Image Fallback Modal */}
+      <Dialog open={!!imageFallbackModal} onOpenChange={(open) => !open && setImageFallbackModal(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('Save & Share Image', 'Enregistrer et partager l\'image')}</DialogTitle>
+          </DialogHeader>
+          {imageFallbackModal && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  'Image clipboard copy is not supported on this browser. Long-press (mobile) or right-click (desktop) the image to save it, then paste into WhatsApp.',
+                  'La copie d\'image n\'est pas supportée sur ce navigateur. Appuyez longuement (mobile) ou clic droit (PC) sur l\'image pour l\'enregistrer, puis collez dans WhatsApp.'
+                )}
+              </p>
+              <img
+                src={imageFallbackModal.imageUrl}
+                alt={imageFallbackModal.title}
+                className="w-full max-h-[400px] object-contain rounded-lg border bg-white"
+              />
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => {
+                    navigator.clipboard.writeText(imageFallbackModal.caption);
+                    toast.success(t('Caption copied', 'Texte copié'));
+                  }}
+                >
+                  <ClipboardCopy className="h-3.5 w-3.5" />
+                  {t('Copy Caption', 'Copier le texte')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => downloadImage(imageFallbackModal.imageUrl, `${imageFallbackModal.title.slice(0, 30)}.jpg`)}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {t('Download Image', 'Télécharger l\'image')}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -451,7 +451,7 @@ export default function AdminUsers() {
         .upsert({
           user_id: editingUser.user_id,
           ...editPermissions,
-        });
+        }, { onConflict: 'user_id' });
 
       if (error) throw error;
 

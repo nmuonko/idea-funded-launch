@@ -104,8 +104,8 @@ function calcProductTotals(basePrice: number, fees: FeeSettings, productTitle?: 
   };
   const total = allInclusivePrice(basePrice, feeConfig, 1, null, productTitle, categoryKey);
   const markupRate = fees.markupPercent > 1 ? fees.markupPercent / 100 : fees.markupPercent;
-  const markup = Math.round(basePrice * markupRate * 100) / 100;
-  const shipping = Math.round((total - basePrice - markup) * 100) / 100;
+  const markup = Math.ceil(basePrice * markupRate);
+  const shipping = Math.ceil(total - basePrice - markup);
   return { markup, shipping, total };
 }
 
@@ -526,7 +526,7 @@ export default function HotProducts() {
         const price = field === 'price_usd' ? value : p.price_usd;
         const markup = field === 'markup_usd' ? value : p.markup_usd;
         const ship = field === 'shipping_usd' ? value : p.shipping_usd;
-        updated.total_price_usd = Math.round((price + markup + ship) * 100) / 100;
+        updated.total_price_usd = Math.ceil(price + markup + ship);
       }
       return updated;
     }));
@@ -536,7 +536,7 @@ export default function HotProducts() {
     setShowcaseProducts(prev => prev.map(p => {
       if (p.id !== id) return p;
       const { markup, shipping, total } = calcProductTotals(p.price_usd, feeSettings, p.title);
-      return { ...p, markup_usd: Math.round(markup * 100) / 100, shipping_usd: Math.round(shipping * 100) / 100, total_price_usd: total };
+      return { ...p, markup_usd: markup, shipping_usd: shipping, total_price_usd: total };
     }));
   }
 

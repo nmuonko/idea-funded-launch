@@ -157,6 +157,10 @@ export default function HotProducts() {
   const [linkGenManualPrice, setLinkGenManualPrice] = useState(() => localStorage.getItem('hp_linkgen_price') || (storedExtracted?.price > 0 ? String(storedExtracted.price) : ''));
   const [linkGenManualTitle, setLinkGenManualTitle] = useState(() => localStorage.getItem('hp_linkgen_title') || '');
   const [linkGenPriceEditable, setLinkGenPriceEditable] = useState(() => storedExtracted ? (!storedExtracted.price || storedExtracted.price <= 0) : false);
+  const [linkGenFinalOverride, setLinkGenFinalOverride] = useState('');
+  const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
+  const [editLinkTitle, setEditLinkTitle] = useState('');
+  const [editLinkFinalPrice, setEditLinkFinalPrice] = useState('');
 
   // Persist link generator state to localStorage
   useEffect(() => {
@@ -473,6 +477,7 @@ export default function HotProducts() {
       setLinkGenExtracted(null);
       setLinkGenManualPrice('');
       setLinkGenManualTitle('');
+      setLinkGenFinalOverride('');
       navigator.clipboard.writeText(checkoutUrl);
       setCopiedLinkId(inserted.id);
       setTimeout(() => setCopiedLinkId(null), 3000);
@@ -487,6 +492,23 @@ export default function HotProducts() {
     await supabase.from('hot_products_showcase').delete().eq('id', id);
     setGeneratedLinks(prev => prev.filter(l => l.id !== id));
     toast.success(t('Deleted', 'Supprimé'));
+  }
+
+  function startEditLink(link: typeof generatedLinks[0]) {
+    setEditingLinkId(link.id);
+    setEditLinkTitle(link.title);
+    setEditLinkFinalPrice(link.total_price_usd.toFixed(2));
+  }
+
+  async function saveEditLink(id: string) {
+    const newTitle = editLinkTitle.trim();
+    const newFinal = parseFloat(editLinkFinalPrice);
+    if (!newTitle || !newFinal || newFinal <= 0) { toast.error(t('Invalid values', 'Valeurs invalides')); return; }
+    const { error } = await supabase.from('hot_products_showcase').update({ title: newTitle, total_price_usd: newFinal } as any).eq('id', id);
+    if (error) { toast.error('Save failed'); return; }
+    setGeneratedLinks(prev => prev.map(l => l.id === id ? { ...l, title: newTitle, total_price_usd: newFinal } : l));
+    setEditingLinkId(null);
+    toast.success(t('Updated', 'Mis à jour'));
   }
 
   function removeProduct(id: string) {
@@ -916,7 +938,26 @@ export default function HotProducts() {
                         if (p > 0) {
                           const title = linkGenManualTitle.trim() || linkGenExtracted?.title || '';
                           const { total, shipping } = calcProductTotals(p, feeSettings, title);
-                          return <p className="text-sm font-bold text-primary">{t('Final price:', 'Prix final :')} ${total.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">({t('all inclusive', 'tout inclus')})</span></p>;
+                          const displayTotal = linkGenFinalOverride ? parseFloat(linkGenFinalOverride) || total : total;
+                          return (
+                            <div className="space-y-1">
+                              <p className="text-sm font-bold text-primary">{t('Calculated:', 'Calculé :')} ${total.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">({t('all inclusive', 'tout inclus')})</span></p>
+                              <div>
+                                <Label className="text-xs">{t('Override Final Price ($)', 'Remplacer le prix final ($)')}</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={linkGenFinalOverride}
+                                  onChange={e => setLinkGenFinalOverride(e.target.value)}
+                                  placeholder={total.toFixed(2)}
+                                  className="h-8 text-sm w-40"
+                                />
+                                {linkGenFinalOverride && parseFloat(linkGenFinalOverride) > 0 && (
+                                  <p className="text-xs text-orange-500 mt-0.5">{t('Will use', 'Utilisera')} ${parseFloat(linkGenFinalOverride).toFixed(2)} {t('instead', 'à la place')}</p>
+                                )}
+                              </div>
+                            </div>
+                          );
                         }
                         return null;
                       })()}
@@ -934,32 +975,59 @@ export default function HotProducts() {
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-muted-foreground">{t('Generated Links', 'Liens générés')} ({generatedLinks.length})</h4>
                   {generatedLinks.map(link => (
-                    <div key={link.id} className="flex items-center gap-3 p-3 border rounded-lg">
-                      {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{link.title}</p>
-                        <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(2)} · {t('All inclusive', 'Tout inclus')}</p>
-                        <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
-                      </div>
-                      <div className="flex gap-1.5 shrink-0">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="gap-1.5"
-                          onClick={() => {
-                            navigator.clipboard.writeText(link.checkoutUrl);
-                            setCopiedLinkId(link.id);
-                            setTimeout(() => setCopiedLinkId(null), 3000);
-                            toast.success(t('Copied!', 'Copié !'));
-                          }}
-                        >
-                          {copiedLinkId === link.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                          {copiedLinkId === link.id ? t('Copied', 'Copié') : t('Copy', 'Copier')}
-                        </Button>
-                        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => deleteLinkGenProduct(link.id)}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
+                    <div key={link.id} className="p-3 border rounded-lg space-y-2">
+                      {editingLinkId === link.id ? (
+                        <div className="space-y-2">
+                          <div className="flex items-start gap-3">
+                            {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
+                            <div className="flex-1 min-w-0 space-y-2">
+                              <div>
+                                <Label className="text-xs">{t('Title', 'Titre')}</Label>
+                                <Input value={editLinkTitle} onChange={e => setEditLinkTitle(e.target.value)} className="h-8 text-sm" />
+                              </div>
+                              <div>
+                                <Label className="text-xs">{t('Final Price ($)', 'Prix final ($)')}</Label>
+                                <Input type="number" step="0.01" value={editLinkFinalPrice} onChange={e => setEditLinkFinalPrice(e.target.value)} className="h-8 text-sm w-40" />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 justify-end">
+                            <Button variant="outline" size="sm" onClick={() => setEditingLinkId(null)}>{t('Cancel', 'Annuler')}</Button>
+                            <Button size="sm" onClick={() => saveEditLink(link.id)}>{t('Save', 'Enregistrer')}</Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{link.title}</p>
+                            <p className="text-xs text-muted-foreground">${link.total_price_usd.toFixed(2)} · {t('All inclusive', 'Tout inclus')}</p>
+                            <p className="text-xs text-muted-foreground/70 truncate mt-0.5 font-mono">{link.checkoutUrl}</p>
+                          </div>
+                          <div className="flex gap-1.5 shrink-0">
+                            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => startEditLink(link)}>
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5"
+                              onClick={() => {
+                                navigator.clipboard.writeText(link.checkoutUrl);
+                                setCopiedLinkId(link.id);
+                                setTimeout(() => setCopiedLinkId(null), 3000);
+                                toast.success(t('Copied!', 'Copié !'));
+                              }}
+                            >
+                              {copiedLinkId === link.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                              {copiedLinkId === link.id ? t('Copied', 'Copié') : t('Copy', 'Copier')}
+                            </Button>
+                            <Button variant="ghost" size="sm" className="text-destructive" onClick={() => deleteLinkGenProduct(link.id)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

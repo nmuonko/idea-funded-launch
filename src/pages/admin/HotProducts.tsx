@@ -80,6 +80,23 @@ interface DeliveryLog {
   updated_at: string;
 }
 
+interface GeneratedLink {
+  id: string;
+  title: string;
+  image_url: string;
+  price_usd: number;
+  markup_usd: number;
+  shipping_usd: number;
+  total_price_usd: number;
+  checkoutUrl: string;
+  product_url: string;
+  description_fr: string;
+  gallery_images: string[];
+}
+
+const SHARE_PREVIEW_BUCKET = 'product-images';
+const SHARE_PREVIEW_FOLDER = 'share-previews';
+
 function toHighResImage(url: string): string {
   if (!url) return url;
   if (url.includes('amazon.com') || url.includes('media-amazon.com')) {
@@ -92,6 +109,126 @@ function toHighResImage(url: string): string {
     return url.replace(/\/s-l\d+\./, '/s-l1600.');
   }
   return url;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function normalizeShareText(value: string | null | undefined): string {
+  return (value || '').replace(/\s+/g, ' ').trim();
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function cleanMarketplaceTitle(title: string): string {
+  return normalizeShareText(title)
+    .replace(/^[^:]{2,40}:\s*/, '')
+    .replace(/\s+:\s+[^:]{2,40}$/, '')
+    .trim();
+}
+
+function getSharePreviewImage(link: Pick<GeneratedLink, 'gallery_images' | 'image_url'>): string {
+  return link.gallery_images[0] || link.image_url || '';
+}
+
+function getSharePreviewTitle(link: Pick<GeneratedLink, 'description_fr' | 'title'>): string {
+  const description = normalizeShareText(link.description_fr);
+  if (description) {
+    const firstSentence = description.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim() || description;
+    return truncateText(firstSentence, 110);
+  }
+  return truncateText(cleanMarketplaceTitle(link.title) || 'Produit AfriShop', 110);
+}
+
+function getSharePreviewDescription(link: Pick<GeneratedLink, 'description_fr' | 'title' | 'total_price_usd'>): string {
+  const description = normalizeShareText(link.description_fr);
+  if (description) return truncateText(description, 180);
+  return `Prix: $${Math.ceil(link.total_price_usd)} · Livraison en RDC incluse`;
+}
+
+function getSharePreviewPath(id: string): string {
+  return `${SHARE_PREVIEW_FOLDER}/${id}.html`;
+}
+
+function getSharePreviewPublicUrl(id: string): string {
+  return supabase.storage.from(SHARE_PREVIEW_BUCKET).getPublicUrl(getSharePreviewPath(id)).data.publicUrl;
+}
+
+function buildSharePreviewHtml(
+  link: Pick<GeneratedLink, 'id' | 'title' | 'image_url' | 'total_price_usd' | 'description_fr' | 'gallery_images'>,
+  publicShareUrl: string,
+): string {
+  const ogTitle = escapeHtml(getSharePreviewTitle(link));
+  const ogDescription = escapeHtml(getSharePreviewDescription(link));
+  const ogImage = escapeHtml(getSharePreviewImage(link));
+  const shareUrl = escapeHtml(publicShareUrl);
+  const redirectUrl = escapeHtml(`${window.location.origin}/share/hp/${link.id}`);
+
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${ogTitle}</title>
+<meta name="description" content="${ogDescription}" />
+<meta name="robots" content="noindex, nofollow" />
+<link rel="canonical" href="${shareUrl}" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="AfriShop" />
+<meta property="og:locale" content="fr_FR" />
+<meta property="og:title" content="${ogTitle}" />
+<meta property="og:description" content="${ogDescription}" />
+<meta property="og:image" content="${ogImage}" />
+<meta property="og:image:secure_url" content="${ogImage}" />
+<meta property="og:image:alt" content="${ogTitle}" />
+<meta property="og:url" content="${shareUrl}" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="${ogTitle}" />
+<meta name="twitter:description" content="${ogDescription}" />
+<meta name="twitter:image" content="${ogImage}" />
+<meta http-equiv="refresh" content="0;url=${redirectUrl}" />
+<script>window.location.replace(${JSON.stringify(`${window.location.origin}/share/hp/${link.id}`)});</script>
+</head>
+<body>
+  <p>Redirection vers <a href="${redirectUrl}">AfriShop</a>…</p>
+</body>
+</html>`;
+}
+
+async function publishSharePreview(
+  link: Pick<GeneratedLink, 'id' | 'title' | 'image_url' | 'total_price_usd' | 'description_fr' | 'gallery_images'>,
+): Promise<string> {
+  const version = Date.now();
+  const publicShareUrl = `${getSharePreviewPublicUrl(link.id)}?v=${version}`;
+  const html = buildSharePreviewHtml(link, publicShareUrl);
+  const { error } = await supabase.storage.from(SHARE_PREVIEW_BUCKET).upload(
+    getSharePreviewPath(link.id),
+    new Blob([html], { type: 'text/html; charset=utf-8' }),
+    {
+      upsert: true,
+      cacheControl: '3600',
+      contentType: 'text/html; charset=utf-8',
+    },
+  );
+
+  if (error) throw error;
+  return publicShareUrl;
+}
+
+function buildWhatsAppShareMessage(
+  link: Pick<GeneratedLink, 'title' | 'total_price_usd' | 'description_fr'>,
+  shareUrl: string,
+): string {
+  const description = normalizeShareText(link.description_fr) || cleanMarketplaceTitle(link.title) || 'Produit AfriShop';
+  return `${description}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
 }
 
 function calcProductTotals(basePrice: number, fees: FeeSettings, productTitle?: string, categoryKey?: string | null): { markup: number; shipping: number; total: number } {
@@ -151,7 +288,7 @@ export default function HotProducts() {
   const storedExtracted = (() => { try { const s = localStorage.getItem('hp_linkgen_extracted'); return s ? JSON.parse(s) : null; } catch { return null; } })();
   const [linkGenUrl, setLinkGenUrl] = useState(() => localStorage.getItem('hp_linkgen_url') || '');
   const [linkGenExtracting, setLinkGenExtracting] = useState(false);
-  const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; price_usd: number; markup_usd: number; shipping_usd: number; total_price_usd: number; checkoutUrl: string; product_url: string; description_fr: string; gallery_images: string[] }>>([]);
+  const [generatedLinks, setGeneratedLinks] = useState<GeneratedLink[]>([]);
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   const [linkGenExtracted, setLinkGenExtracted] = useState<{ title: string; image_url: string; price: number; provider: string; pid: string; url: string; gallery_images?: string[] } | null>(storedExtracted);
   const [linkGenManualPrice, setLinkGenManualPrice] = useState(() => localStorage.getItem('hp_linkgen_price') || (storedExtracted?.price > 0 ? String(storedExtracted.price) : ''));
@@ -433,6 +570,21 @@ export default function HotProducts() {
     }
   }
 
+  async function handleShareOnWhatsApp(link: GeneratedLink) {
+    const popup = window.open('', '_blank');
+    try {
+      const shareUrl = await publishSharePreview(link);
+      const msg = buildWhatsAppShareMessage(link, shareUrl);
+      const waUrl = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+      if (popup) popup.location.href = waUrl;
+      else window.open(waUrl, '_blank');
+    } catch (error) {
+      popup?.close();
+      console.error('Failed to prepare WhatsApp preview:', error);
+      toast.error(t('Unable to prepare WhatsApp preview', 'Impossible de préparer l’aperçu WhatsApp'));
+    }
+  }
+
   async function extractLinkGenProduct() {
     if (!linkGenUrl.trim()) return;
     setLinkGenExtracting(true);
@@ -529,7 +681,25 @@ export default function HotProducts() {
       if (insertErr || !inserted) { toast.error('Failed to save: ' + (insertErr?.message || '')); setLinkGenExtracting(false); return; }
 
       const checkoutUrl = `${window.location.origin}/checkout?hp=${inserted.id}`;
-      setGeneratedLinks(prev => [{ id: inserted.id, title: finalTitle, image_url: linkGenExtracted.image_url, price_usd: finalPrice, markup_usd: markup, shipping_usd: shipping, total_price_usd: total, checkoutUrl, product_url: linkGenExtracted.url, description_fr: linkGenDescFr, gallery_images: linkGenExtracted.gallery_images || [] }, ...prev]);
+      const savedLink: GeneratedLink = {
+        id: inserted.id,
+        title: finalTitle,
+        image_url: linkGenExtracted.image_url,
+        price_usd: finalPrice,
+        markup_usd: markup,
+        shipping_usd: shipping,
+        total_price_usd: total,
+        checkoutUrl,
+        product_url: linkGenExtracted.url,
+        description_fr: linkGenDescFr,
+        gallery_images: linkGenExtracted.gallery_images || [],
+      };
+      setGeneratedLinks(prev => [savedLink, ...prev]);
+      try {
+        await publishSharePreview(savedLink);
+      } catch (previewError) {
+        console.error('Failed to publish share preview:', previewError);
+      }
       setLinkGenUrl('');
       setLinkGenExtracted(null);
       setLinkGenManualPrice('');
@@ -554,7 +724,7 @@ export default function HotProducts() {
     toast.success(t('Deleted', 'Supprimé'));
   }
 
-  function startEditLink(link: typeof generatedLinks[0]) {
+  function startEditLink(link: GeneratedLink) {
     setEditingLinkId(link.id);
     setEditLinkTitle(link.title);
     setEditLinkItemPrice(String(link.price_usd));
@@ -575,7 +745,36 @@ export default function HotProducts() {
     if (!newTitle || newFinal <= 0) { toast.error(t('Invalid values', 'Valeurs invalides')); return; }
     const { error } = await supabase.from('hot_products_showcase').update({ title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr || null, gallery_images: editLinkGallery.length > 0 ? editLinkGallery : null, image_url: editLinkGallery[0] || undefined } as any).eq('id', id);
     if (error) { toast.error('Save failed'); return; }
-    setGeneratedLinks(prev => prev.map(l => l.id === id ? { ...l, title: newTitle, price_usd: newItemPrice, markup_usd: newMarkup, shipping_usd: newShipping, total_price_usd: newFinal, description_fr: editLinkDescFr, gallery_images: editLinkGallery, image_url: editLinkGallery[0] || l.image_url } : l));
+    const existingLink = generatedLinks.find(link => link.id === id);
+    const updatedLink: GeneratedLink = {
+      ...(existingLink || {
+        id,
+        title: newTitle,
+        image_url: editLinkGallery[0] || '',
+        price_usd: newItemPrice,
+        markup_usd: newMarkup,
+        shipping_usd: newShipping,
+        total_price_usd: newFinal,
+        checkoutUrl: `${window.location.origin}/checkout?hp=${id}`,
+        product_url: '',
+        description_fr: editLinkDescFr,
+        gallery_images: editLinkGallery,
+      }),
+      title: newTitle,
+      price_usd: newItemPrice,
+      markup_usd: newMarkup,
+      shipping_usd: newShipping,
+      total_price_usd: newFinal,
+      description_fr: editLinkDescFr,
+      gallery_images: editLinkGallery,
+      image_url: editLinkGallery[0] || existingLink?.image_url || '',
+    };
+    setGeneratedLinks(prev => prev.map(link => link.id === id ? updatedLink : link));
+    try {
+      await publishSharePreview(updatedLink);
+    } catch (previewError) {
+      console.error('Failed to refresh share preview:', previewError);
+    }
     setEditingLinkId(null);
     toast.success(t('Updated', 'Mis à jour'));
   }
@@ -1329,12 +1528,7 @@ export default function HotProducts() {
                               size="sm"
                               className="gap-1.5"
                               title="Share on WhatsApp"
-                              onClick={() => {
-                                const shareUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/share-og?id=${link.id}&v=2`;
-                                const desc = link.description_fr || link.title;
-                                const msg = `${desc}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
-                                window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
-                              }}
+                              onClick={() => { void handleShareOnWhatsApp(link); }}
                             >
                               <MessageCircle className="h-3.5 w-3.5" />
                             </Button>
@@ -1383,15 +1577,15 @@ export default function HotProducts() {
                                     <img src={link.gallery_images[0]} alt="" className="w-full h-40 object-cover" />
                                   )}
                                   <div className="px-3 py-2">
-                                    <p className="text-[11px] text-emerald-400/70 truncate">afrishop-usa.com</p>
-                                    <p className="text-[13px] text-[#e9edef] font-medium leading-tight mt-0.5">{link.title} - ${Math.ceil(link.total_price_usd)}</p>
-                                    <p className="text-[11px] text-[#8696a0] mt-0.5 line-clamp-2">{link.description_fr || link.title}</p>
+                                    <p className="text-[11px] text-emerald-400/70 truncate">{new URL(getSharePreviewPublicUrl(link.id)).hostname}</p>
+                                    <p className="text-[13px] text-[#e9edef] font-medium leading-tight mt-0.5">{getSharePreviewTitle(link)}</p>
+                                    <p className="text-[11px] text-[#8696a0] mt-0.5 line-clamp-2">{getSharePreviewDescription(link)}</p>
                                   </div>
                                 </div>
                                 {/* Message text */}
                                 <div className="bg-[#005c4b] rounded-lg px-3 py-2 max-w-[320px] text-[13px] text-[#e9edef] whitespace-pre-wrap leading-relaxed">
                                   {`${link.description_fr || link.title}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: `}
-                                  <span className="text-[#53bdeb] underline">{`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/share-og?id=${link.id}&v=2`}</span>
+                                  <span className="text-[#53bdeb] underline">{getSharePreviewPublicUrl(link.id)}</span>
                                 </div>
                               </div>
                             </div>

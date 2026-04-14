@@ -151,21 +151,24 @@ export default function HotProducts() {
   const storedExtracted = (() => { try { const s = localStorage.getItem('hp_linkgen_extracted'); return s ? JSON.parse(s) : null; } catch { return null; } })();
   const [linkGenUrl, setLinkGenUrl] = useState(() => localStorage.getItem('hp_linkgen_url') || '');
   const [linkGenExtracting, setLinkGenExtracting] = useState(false);
-  const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; price_usd: number; markup_usd: number; shipping_usd: number; total_price_usd: number; checkoutUrl: string; product_url: string }>>([]);
+  const [generatedLinks, setGeneratedLinks] = useState<Array<{ id: string; title: string; image_url: string; price_usd: number; markup_usd: number; shipping_usd: number; total_price_usd: number; checkoutUrl: string; product_url: string; description_fr: string; gallery_images: string[] }>>([]);
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
-  const [linkGenExtracted, setLinkGenExtracted] = useState<{ title: string; image_url: string; price: number; provider: string; pid: string; url: string } | null>(storedExtracted);
+  const [linkGenExtracted, setLinkGenExtracted] = useState<{ title: string; image_url: string; price: number; provider: string; pid: string; url: string; gallery_images?: string[] } | null>(storedExtracted);
   const [linkGenManualPrice, setLinkGenManualPrice] = useState(() => localStorage.getItem('hp_linkgen_price') || (storedExtracted?.price > 0 ? String(storedExtracted.price) : ''));
   const [linkGenManualTitle, setLinkGenManualTitle] = useState(() => localStorage.getItem('hp_linkgen_title') || '');
   const [linkGenPriceEditable, setLinkGenPriceEditable] = useState(() => storedExtracted ? (!storedExtracted.price || storedExtracted.price <= 0) : false);
   const [linkGenFinalOverride, setLinkGenFinalOverride] = useState('');
   const [linkGenManualMarkup, setLinkGenManualMarkup] = useState('');
   const [linkGenManualShipping, setLinkGenManualShipping] = useState('');
+  const [linkGenDescFr, setLinkGenDescFr] = useState('');
+  const [translatingFr, setTranslatingFr] = useState(false);
   const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
   const [editLinkTitle, setEditLinkTitle] = useState('');
   const [editLinkFinalPrice, setEditLinkFinalPrice] = useState('');
   const [editLinkItemPrice, setEditLinkItemPrice] = useState('');
   const [editLinkMarkup, setEditLinkMarkup] = useState('');
   const [editLinkShipping, setEditLinkShipping] = useState('');
+  const [editLinkDescFr, setEditLinkDescFr] = useState('');
 
   // Persist link generator state to localStorage
   useEffect(() => {

@@ -1048,6 +1048,18 @@ export default function HotProducts() {
                       })()}
                     </div>
                   </div>
+                  {/* Description FR */}
+                  <div>
+                    <Label className="text-xs">{t('Description (FR) for WhatsApp', 'Description (FR) pour WhatsApp')}</Label>
+                    <textarea
+                      value={linkGenDescFr}
+                      onChange={e => setLinkGenDescFr(e.target.value)}
+                      placeholder={translatingFr ? t('Generating French description...', 'Génération de la description...') : t('French product description...', 'Description du produit en français...')}
+                      className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[60px] resize-y"
+                      rows={2}
+                    />
+                    {translatingFr && <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> {t('AI translating...', 'Traduction IA...')}</p>}
+                  </div>
                   <Button onClick={saveLinkGenProduct} disabled={linkGenExtracting} className="w-full">
                     {linkGenExtracting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LinkIcon className="h-4 w-4 mr-2" />}
                     {t('Generate Link', 'Générer le lien')}

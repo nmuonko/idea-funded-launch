@@ -954,6 +954,52 @@ export default function HotProducts() {
                           className="h-8 text-sm"
                         />
                       </div>
+                      {/* Product Images Gallery */}
+                      <div>
+                        <Label className="text-xs flex items-center gap-1">{t('Product Images', 'Images du produit')} ({(linkGenExtracted.gallery_images || []).length})</Label>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {(linkGenExtracted.gallery_images || []).map((img, i) => (
+                            <div key={i} className="relative group">
+                              <img src={img} alt="" className="w-16 h-16 rounded border object-cover" />
+                              <button
+                                type="button"
+                                className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground rounded-full w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => {
+                                  const updated = (linkGenExtracted.gallery_images || []).filter((_, idx) => idx !== i);
+                                  setLinkGenExtracted({ ...linkGenExtracted, gallery_images: updated });
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex gap-1 mt-1">
+                          <Input
+                            value={newImageUrl}
+                            onChange={e => setNewImageUrl(e.target.value)}
+                            placeholder={t('Paste image URL to add...', 'Collez une URL d\'image...')}
+                            className="h-7 text-xs flex-1"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2"
+                            disabled={!newImageUrl.trim()}
+                            onClick={() => {
+                              const url = newImageUrl.trim();
+                              if (url) {
+                                const current = linkGenExtracted.gallery_images || [];
+                                setLinkGenExtracted({ ...linkGenExtracted, gallery_images: [...current, url] });
+                                setNewImageUrl('');
+                              }
+                            }}
+                          >
+                            <ImagePlus className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
                       {(() => {
                         const p = linkGenManualPrice ? parseFloat(linkGenManualPrice) : linkGenExtracted.price;
                         if (p <= 0) return null;

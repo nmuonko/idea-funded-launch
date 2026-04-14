@@ -144,11 +144,13 @@ function getSharePreviewDescription(link: Pick<GeneratedLink, 'description_fr' |
 }
 
 const PUBLISHED_DOMAIN = 'https://afrishop-usa.com';
+const SUPABASE_FUNCTIONS_URL = 'https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1';
 
 function getShareUrl(id: string): string {
-  // Uses production domain — _redirects proxies to share-og edge function
-  // so WhatsApp crawler gets proper HTML with OG tags
-  return `${PUBLISHED_DOMAIN}/share/hp/${id}`;
+  // Share the edge function URL directly — it returns text/html with OG tags
+  // so WhatsApp's crawler can parse og:image for the preview card.
+  // The edge function then redirects the user to the interactive share page.
+  return `${SUPABASE_FUNCTIONS_URL}/share-og?id=${id}`;
 }
 
 function buildWhatsAppShareMessage(

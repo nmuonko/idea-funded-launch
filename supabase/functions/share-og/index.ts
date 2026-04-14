@@ -105,7 +105,7 @@ serve(async (req) => {
 <meta property="og:image:alt" content="${esc(ogTitle)}"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
-<meta property="og:url" content="${esc(publicShareUrl)}"/>
+<meta property="og:url" content="${esc(url.href)}"/>
 <meta property="og:site_name" content="AfriShop"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="${esc(ogTitle)}"/>

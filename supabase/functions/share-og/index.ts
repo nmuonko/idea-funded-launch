@@ -4,9 +4,10 @@
  *
  * GET /share-og?id=<hot_product_id>
  *
- * Bots (WhatsApp, Facebook, Twitter) get a minimal HTML page
- * with og:image, og:title, og:description pointing to the product.
- * Real browsers get a 302 redirect to the React share page.
+ * Always returns HTML with product-specific OG tags plus an instant
+ * client-side redirect to the public React share page.
+ * This avoids relying on crawler User-Agent detection, which can fail
+ * for messaging apps that unfurl links with generic fetchers.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -17,13 +18,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
-
-// Simple bot detection via User-Agent
-function isBot(ua: string): boolean {
-  const botPatterns =
-    /whatsapp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|yandex|Pinterestbot|bot|crawl|spider|preview/i;
-  return botPatterns.test(ua);
-}
 
 function escapeHtml(str: string): string {
   return str
@@ -45,7 +39,6 @@ serve(async (req) => {
     return new Response("Missing id", { status: 400, headers: corsHeaders });
   }
 
-  // Validate UUID format
   const uuidRegex =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!uuidRegex.test(productId)) {
@@ -58,9 +51,7 @@ serve(async (req) => {
 
   const { data: product, error } = await supabase
     .from("hot_products_showcase")
-    .select(
-      "id, title, image_url, total_price_usd, description_fr, gallery_images, is_active"
-    )
+    .select("id, title, image_url, total_price_usd, description_fr, gallery_images")
     .eq("id", productId)
     .single();
 
@@ -68,40 +59,20 @@ serve(async (req) => {
     Deno.env.get("FRONTEND_BASE_URL") || "https://afrishop-usa.com";
 
   if (error || !product) {
-    // Redirect to homepage
     return new Response(null, {
       status: 302,
       headers: { ...corsHeaders, Location: frontendUrl },
     });
   }
 
-  const ua = req.headers.get("user-agent") || "";
-
-  // Real browsers → redirect to React share page
-  if (!isBot(ua)) {
-    return new Response(null, {
-      status: 302,
-      headers: {
-        ...corsHeaders,
-        Location: `${frontendUrl}/share/hp/${product.id}`,
-      },
-    });
-  }
-
-  // Bot → serve HTML with OG tags
   const title = escapeHtml(product.title || "AfriShop Product");
-  const description = escapeHtml(
-    product.description_fr || product.title || ""
-  ).slice(0, 200);
+  const description = escapeHtml(product.description_fr || product.title || "").slice(0, 200);
   const price = Math.ceil(product.total_price_usd || 0);
   const ogTitle = `${title} - $${price}`;
   const ogDesc = description || title;
-
-  // Pick the best image: first gallery image or main image
   const galleryImages: string[] = product.gallery_images || [];
   const ogImage = galleryImages[0] || product.image_url || "";
-
-  const publicShareUrl = `${frontendUrl}/functions/v1/share-og?id=${product.id}`;
+  const publicShareUrl = url.toString();
   const sharePageUrl = `${frontendUrl}/share/hp/${product.id}`;
 
   const html = `<!DOCTYPE html>
@@ -111,12 +82,14 @@ serve(async (req) => {
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>${ogTitle}</title>
 <meta name="description" content="${ogDesc}"/>
+<meta name="robots" content="noindex, nofollow"/>
 <link rel="canonical" href="${escapeHtml(publicShareUrl)}"/>
 <meta property="og:type" content="product"/>
 <meta property="og:title" content="${ogTitle}"/>
 <meta property="og:description" content="${ogDesc}"/>
 <meta property="og:image" content="${escapeHtml(ogImage)}"/>
 <meta property="og:image:secure_url" content="${escapeHtml(ogImage)}"/>
+<meta property="og:image:alt" content="${title}"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
 <meta property="og:url" content="${escapeHtml(publicShareUrl)}"/>
@@ -126,6 +99,7 @@ serve(async (req) => {
 <meta name="twitter:description" content="${ogDesc}"/>
 <meta name="twitter:image" content="${escapeHtml(ogImage)}"/>
 <meta http-equiv="refresh" content="0;url=${escapeHtml(sharePageUrl)}"/>
+<script>window.location.replace(${JSON.stringify(sharePageUrl)});</script>
 </head>
 <body>
 <p>Redirecting to <a href="${escapeHtml(sharePageUrl)}">AfriShop</a>...</p>

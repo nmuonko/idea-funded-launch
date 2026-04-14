@@ -1314,6 +1314,15 @@ export default function HotProducts() {
                               variant="outline"
                               size="sm"
                               className="gap-1.5"
+                              title={t('Preview WhatsApp', 'Aperçu WhatsApp')}
+                              onClick={() => setWhatsappPreviewLink(whatsappPreviewLink === link.id ? null : link.id)}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5"
                               title="Share on WhatsApp"
                               onClick={() => {
                                 const shareUrl = `${window.location.origin}/share/hp/${link.id}`;
@@ -1353,6 +1362,33 @@ export default function HotProducts() {
                                 <img key={i} src={img} alt="" className="w-10 h-10 rounded border object-cover shrink-0" />
                               ))}
                               <span className="text-xs text-muted-foreground self-center">{link.gallery_images.length} {t('images', 'images')}</span>
+                            </div>
+                          )}
+                          {/* WhatsApp Preview */}
+                          {whatsappPreviewLink === link.id && (
+                            <div className="mt-3 rounded-xl border-2 border-emerald-600/30 overflow-hidden">
+                              <div className="bg-emerald-800/20 px-3 py-1.5 flex items-center gap-2">
+                                <MessageCircle className="h-4 w-4 text-emerald-500" />
+                                <span className="text-xs font-medium text-emerald-400">{t('WhatsApp Preview', 'Aperçu WhatsApp')}</span>
+                              </div>
+                              <div className="bg-[#0b141a] p-3 space-y-2">
+                                {/* OG link preview card */}
+                                <div className="rounded-lg overflow-hidden bg-[#1f2c34] max-w-[320px]">
+                                  {link.gallery_images[0] && (
+                                    <img src={link.gallery_images[0]} alt="" className="w-full h-40 object-cover" />
+                                  )}
+                                  <div className="px-3 py-2">
+                                    <p className="text-[11px] text-emerald-400/70 truncate">afrishop-usa.com</p>
+                                    <p className="text-[13px] text-[#e9edef] font-medium leading-tight mt-0.5">{link.title} - ${Math.ceil(link.total_price_usd)}</p>
+                                    <p className="text-[11px] text-[#8696a0] mt-0.5 line-clamp-2">{link.description_fr || link.title}</p>
+                                  </div>
+                                </div>
+                                {/* Message text */}
+                                <div className="bg-[#005c4b] rounded-lg px-3 py-2 max-w-[320px] text-[13px] text-[#e9edef] whitespace-pre-wrap leading-relaxed">
+                                  {`🛒 *${link.title}*\n\n${link.description_fr || link.title}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: `}
+                                  <span className="text-[#53bdeb] underline">{`${window.location.origin}/share/hp/${link.id}`}</span>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>

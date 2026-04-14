@@ -171,6 +171,117 @@ function buildWhatsAppShareMessage(
   return `${desc}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
 }
 
+function buildCaption(
+  link: Pick<GeneratedLink, 'title' | 'total_price_usd' | 'description_fr'>,
+  shareUrl: string,
+): string {
+  const desc = normalizeShareText(link.description_fr) || cleanMarketplaceTitle(link.title) || 'Produit AfriShop';
+  return `${desc}\n\n💰 Prix: $${Math.ceil(link.total_price_usd)}\n✅ Livraison en RDC incluse\n\n👉 Commander ici: ${shareUrl}`;
+}
+
+function supportsClipboardImage(): boolean {
+  return typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
+}
+
+async function fetchImageAsBlob(url: string): Promise<Blob> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Image fetch failed: ${res.status}`);
+  return res.blob();
+}
+
+async function copyImageToClipboard(imageUrl: string): Promise<boolean> {
+  if (!supportsClipboardImage()) return false;
+  try {
+    const blob = await fetchImageAsBlob(imageUrl);
+    // Convert to PNG if needed (ClipboardItem requires image/png)
+    let pngBlob = blob;
+    if (blob.type !== 'image/png') {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const loaded = new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+      });
+      img.src = URL.createObjectURL(blob);
+      await loaded;
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(img.src);
+      pngBlob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('Canvas toBlob failed')), 'image/png'),
+      );
+    }
+    await navigator.clipboard.write([
+      new ClipboardItem({ 'image/png': pngBlob }),
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function copyBothToClipboard(imageUrl: string, caption: string): Promise<'full' | 'text-only' | 'failed'> {
+  if (!supportsClipboardImage()) {
+    try {
+      await navigator.clipboard.writeText(caption);
+      return 'text-only';
+    } catch {
+      return 'failed';
+    }
+  }
+  try {
+    const blob = await fetchImageAsBlob(imageUrl);
+    let pngBlob = blob;
+    if (blob.type !== 'image/png') {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const loaded = new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+      });
+      img.src = URL.createObjectURL(blob);
+      await loaded;
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(img.src);
+      pngBlob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/png'),
+      );
+    }
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'image/png': pngBlob,
+        'text/plain': new Blob([caption], { type: 'text/plain' }),
+      }),
+    ]);
+    return 'full';
+  } catch {
+    try {
+      await navigator.clipboard.writeText(caption);
+      return 'text-only';
+    } catch {
+      return 'failed';
+    }
+  }
+}
+
+function downloadImage(imageUrl: string, filename: string) {
+  const a = document.createElement('a');
+  a.href = imageUrl;
+  a.download = filename;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 function calcProductTotals(basePrice: number, fees: FeeSettings, productTitle?: string, categoryKey?: string | null): { markup: number; shipping: number; total: number } {
   const feeConfig: FeeConfig = {
     markupPercent: fees.markupPercent,

@@ -444,9 +444,11 @@ export default function HotProducts() {
 
     setLinkGenExtracting(true);
     try {
-      const { markup, shipping, total: calcTotal } = calcProductTotals(finalPrice, feeSettings, finalTitle);
+      const { markup: calcMarkup, shipping: calcShipping } = calcProductTotals(finalPrice, feeSettings, finalTitle);
+      const markup = linkGenManualMarkup ? parseFloat(linkGenManualMarkup) : calcMarkup;
+      const shipping = linkGenManualShipping ? parseFloat(linkGenManualShipping) : calcShipping;
       const finalOverride = linkGenFinalOverride ? parseFloat(linkGenFinalOverride) : 0;
-      const total = finalOverride > 0 ? finalOverride : calcTotal;
+      const total = finalOverride > 0 ? finalOverride : Math.ceil(finalPrice + markup + shipping);
       await supabase.auth.refreshSession();
       const { data: { user: currentUser } } = await supabase.auth.getUser();
       if (!currentUser) { toast.error('Session expired'); setLinkGenExtracting(false); return; }

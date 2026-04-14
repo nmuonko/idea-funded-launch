@@ -11,7 +11,7 @@ import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBa
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { allInclusivePrice, type FeeConfig } from '@/lib/allInclusivePrice';
 import type { ShippingCategoryRow } from '@/lib/shippingCategoryDetector';
-import { detectShippingCategory } from '@/lib/shippingCategoryDetector';
+
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';

@@ -486,6 +486,7 @@ export default function HotProducts() {
       setLinkGenFinalOverride('');
       setLinkGenManualMarkup('');
       setLinkGenManualShipping('');
+      navigator.clipboard.writeText(checkoutUrl);
       setCopiedLinkId(inserted.id);
       setTimeout(() => setCopiedLinkId(null), 3000);
       toast.success(t('Link generated & copied!', 'Lien généré et copié !'));

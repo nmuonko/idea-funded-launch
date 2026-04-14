@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency } from '@/lib/formatCurrency';
 import { Loader2, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ProductImageViewer } from '@/components/shop/ProductImageViewer';
 
 interface ShareProduct {
   id: string;
@@ -24,7 +25,7 @@ export default function HotProductShare() {
   const [product, setProduct] = useState<ShareProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeImage, setActiveImage] = useState(0);
-
+  const [viewerOpen, setViewerOpen] = useState(false);
   useEffect(() => {
     if (!id) return;
     (async () => {
@@ -84,7 +85,7 @@ export default function HotProductShare() {
           {/* Main Image with navigation */}
           {uniqueImages.length > 0 && (
             <div className="space-y-3">
-              <div className="relative bg-white rounded-2xl overflow-hidden">
+              <div className="relative bg-white rounded-2xl overflow-hidden cursor-pointer" onClick={() => setViewerOpen(true)}>
                 <img
                   src={uniqueImages[activeImage]}
                   alt={product.title}
@@ -160,6 +161,15 @@ export default function HotProductShare() {
           </p>
         </div>
       </div>
+
+      {viewerOpen && uniqueImages.length > 0 && (
+        <ProductImageViewer
+          images={uniqueImages}
+          currentIndex={activeImage}
+          onClose={() => setViewerOpen(false)}
+          onIndexChange={setActiveImage}
+        />
+      )}
     </>
   );
 }

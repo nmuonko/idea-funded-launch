@@ -18,7 +18,7 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import {
   Package, Plus, Trash2, Copy, Share2, CalendarIcon, Search,
-  Loader2, ExternalLink, Link as LinkIcon, ShoppingCart, X
+  Loader2, ExternalLink, Link as LinkIcon, ShoppingCart, X, Sparkles
 } from 'lucide-react';
 
 interface BundleItem {
@@ -73,6 +73,30 @@ export default function BundleLinks() {
   // Create form state
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState('');
+  const [suggestedTitles, setSuggestedTitles] = useState<string[]>([]);
+  const [suggestingTitle, setSuggestingTitle] = useState(false);
+
+  const handleSuggestTitle = async () => {
+    if (!selectedItems.length) return;
+    setSuggestingTitle(true);
+    setSuggestedTitles([]);
+    try {
+      const { data, error } = await supabase.functions.invoke('suggest-bundle-title', {
+        body: { products: selectedItems.map(i => ({ title: i.title, price_usd: i.price_usd })) },
+      });
+      if (error) throw error;
+      if (data?.titles?.length) {
+        setSuggestedTitles(data.titles.slice(0, 3));
+      } else {
+        toast.error(t('No suggestions available', 'Aucune suggestion disponible'));
+      }
+    } catch (e: any) {
+      console.error('suggest-bundle-title error:', e);
+      toast.error(t('Failed to get suggestions', 'Échec des suggestions'));
+    } finally {
+      setSuggestingTitle(false);
+    }
+  };
   const [description, setDescription] = useState('');
   const [expiresAt, setExpiresAt] = useState<Date | undefined>();
   const [selectedItems, setSelectedItems] = useState<BundleItem[]>([]);
@@ -293,7 +317,34 @@ export default function BundleLinks() {
           <div className="space-y-4">
             <div>
               <Label>{t('Bundle Title', 'Titre du Pack')}</Label>
-              <Input value={title} onChange={e => setTitle(e.target.value)} placeholder={t('e.g. Electronics Starter Pack', 'ex. Pack Électronique')} />
+              <div className="flex gap-2">
+                <Input value={title} onChange={e => setTitle(e.target.value)} placeholder={t('e.g. Electronics Starter Pack', 'ex. Pack Électronique')} className="flex-1" />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={selectedItems.length === 0 || suggestingTitle}
+                  onClick={handleSuggestTitle}
+                  className="gap-1 shrink-0"
+                >
+                  {suggestingTitle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  AI
+                </Button>
+              </div>
+              {suggestedTitles.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {suggestedTitles.map((s, i) => (
+                    <Badge
+                      key={i}
+                      variant="secondary"
+                      className="cursor-pointer hover:bg-primary hover:text-primary-foreground transition-colors"
+                      onClick={() => { setTitle(s); setSuggestedTitles([]); }}
+                    >
+                      {s}
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <Label>{t('Description (optional)', 'Description (optionnel)')}</Label>

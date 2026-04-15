@@ -244,7 +244,8 @@ export default function BundleLinks() {
         sort_order: idx,
       }));
 
-      await supabase.from('product_bundle_items').insert(itemsToInsert);
+      const { error: itemsError } = await supabase.from('product_bundle_items').insert(itemsToInsert);
+      if (itemsError) throw itemsError;
 
       const url = `${window.location.origin}/bundle/${bundle.id}`;
       await navigator.clipboard.writeText(url);
@@ -256,8 +257,9 @@ export default function BundleLinks() {
       setExpiresAt(undefined);
       setSelectedItems([]);
       loadBundles();
-    } catch (e) {
-      toast.error(t('Failed to create bundle', 'Échec de la création'));
+    } catch (e: any) {
+      console.error('createBundle error:', e);
+      toast.error(e?.message || t('Failed to create bundle', 'Échec de la création'));
     }
     setCreating(false);
   }

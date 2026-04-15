@@ -244,7 +244,8 @@ export default function BundleLinks() {
         sort_order: idx,
       }));
 
-      await supabase.from('product_bundle_items').insert(itemsToInsert);
+      const { error: itemsError } = await supabase.from('product_bundle_items').insert(itemsToInsert);
+      if (itemsError) throw itemsError;
 
       const url = `${window.location.origin}/bundle/${bundle.id}`;
       await navigator.clipboard.writeText(url);

@@ -81,9 +81,12 @@ export default function BundleLinks() {
     setSuggestingTitle(true);
     setSuggestedTitles([]);
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
       const { data, error } = await supabase.functions.invoke('suggest-bundle-title', {
         body: { products: selectedItems.map(i => ({ title: i.title, price_usd: i.price_usd })) },
       });
+      clearTimeout(timeout);
       if (error) throw error;
       if (data?.titles?.length) {
         setSuggestedTitles(data.titles.slice(0, 3));

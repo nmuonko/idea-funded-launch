@@ -93,14 +93,16 @@ export default function BundleShare() {
 
     setAddingToCart(true);
     try {
-      // Add each selected item to cart via edge function
+      // Add each selected item to cart via the standard cart flow
+      // Each item goes through weight-based shipping calculation in mobile-cart
       for (const item of selectedItems) {
         if (!item.product_url) continue;
-        await supabase.functions.invoke('cart-add', {
+        await supabase.functions.invoke('mobile-cart', {
           body: {
-            productUrl: item.product_url,
+            action: 'add_item',
+            product_url: item.product_url,
             title: item.title,
-            imageUrl: item.image_url,
+            image_url: item.image_url,
             quantity: 1,
           },
         });

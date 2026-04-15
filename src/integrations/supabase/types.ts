@@ -4327,6 +4327,86 @@ export type Database = {
           },
         ]
       }
+      product_bundle_items: {
+        Row: {
+          bundle_id: string
+          created_at: string
+          id: string
+          image_url: string | null
+          price_usd: number
+          product_url: string | null
+          sort_order: number
+          source_id: string | null
+          source_type: string
+          title: string
+        }
+        Insert: {
+          bundle_id: string
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          price_usd?: number
+          product_url?: string | null
+          sort_order?: number
+          source_id?: string | null
+          source_type?: string
+          title: string
+        }
+        Update: {
+          bundle_id?: string
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          price_usd?: number
+          product_url?: string | null
+          sort_order?: number
+          source_id?: string | null
+          source_type?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_bundle_items_bundle_id_fkey"
+            columns: ["bundle_id"]
+            isOneToOne: false
+            referencedRelation: "product_bundles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_bundles: {
+        Row: {
+          created_at: string
+          created_by: string
+          description: string | null
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       product_cache: {
         Row: {
           created_at: string | null

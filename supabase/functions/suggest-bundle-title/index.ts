@@ -58,11 +58,11 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: "You are a marketing assistant for AfriShop, an African e-commerce store shipping from the USA. Suggest 3 short, catchy bundle titles (max 6 words each) for a product bundle. Mix English and French suggestions. Be creative and sales-oriented.",
+            content: "Tu es un assistant marketing pour AfriShop, une boutique e-commerce africaine qui livre depuis les USA. Suggère 3 titres courts et accrocheurs (max 8 mots chacun) EN FRANÇAIS pour un pack de produits. Inclus le prix total du pack dans chaque titre. Sois créatif et orienté vente.",
           },
           {
             role: "user",
-            content: `Here are the products in this bundle:\n${productList}\n\nSuggest 3 catchy bundle titles.`,
+            content: `Voici les produits dans ce pack :\n${productList}\n\nPrix total : $${products.reduce((s: number, p: { price_usd: number }) => s + p.price_usd, 0).toFixed(0)}\n\nSuggère 3 titres accrocheurs en français avec le prix.`,
           },
         ],
       }),

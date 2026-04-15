@@ -60,6 +60,7 @@ const PaymentsSettings = lazy(() => import("./pages/admin/PaymentsSettings"));
 const ServiceZones = lazy(() => import("./pages/admin/ServiceZones"));
 const AdminDelivery = lazy(() => import("./pages/admin/Delivery"));
 const AdminHotProducts = lazy(() => import("./pages/admin/HotProducts"));
+const AdminBundleLinks = lazy(() => import("./pages/admin/BundleLinks"));
 
 // Lazy-loaded secondary pages
 const Cars = lazy(() => import("./pages/Cars"));
@@ -111,6 +112,7 @@ import ShopPaymentSuccess from "./pages/shop/PaymentSuccess";
 import HotProducts from "./pages/shop/HotProducts";
 import HotProductBuy from "./pages/shop/HotProductBuy";
 const HotProductShare = lazy(() => import("./pages/share/HotProductShare"));
+const BundleShare = lazy(() => import("./pages/share/BundleShare"));
 
 // Suspense fallback for lazy-loaded routes
 function LazyFallback() {
@@ -188,6 +190,7 @@ const App = () => {
             <Route path="/hot-products" element={<HotProducts />} />
             <Route path="/hot-products/:id" element={<HotProductBuy />} />
             <Route path="/share/hp/:id" element={<HotProductShare />} />
+            <Route path="/bundle/:bundleId" element={<BundleShare />} />
             <Route path="/saved" element={<SavedItems />} />
             <Route path="/my-orders" element={
               <ShopProtectedRoute>
@@ -405,6 +408,11 @@ const App = () => {
               <Route path="hot-products" element={
                 <AdminRouteGuard requiredPermission="can_view_marketing">
                   <AdminHotProducts />
+                </AdminRouteGuard>
+              } />
+              <Route path="bundle-links" element={
+                <AdminRouteGuard requiredPermission="can_view_marketing">
+                  <AdminBundleLinks />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

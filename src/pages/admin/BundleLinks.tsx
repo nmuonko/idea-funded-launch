@@ -18,7 +18,7 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import {
   Package, Plus, Trash2, Copy, Share2, CalendarIcon, Search,
-  Loader2, ExternalLink, Link as LinkIcon, ShoppingCart, X
+  Loader2, ExternalLink, Link as LinkIcon, ShoppingCart, X, Sparkles
 } from 'lucide-react';
 
 interface BundleItem {

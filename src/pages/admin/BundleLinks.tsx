@@ -256,8 +256,9 @@ export default function BundleLinks() {
       setExpiresAt(undefined);
       setSelectedItems([]);
       loadBundles();
-    } catch (e) {
-      toast.error(t('Failed to create bundle', 'Échec de la création'));
+    } catch (e: any) {
+      console.error('createBundle error:', e);
+      toast.error(e?.message || t('Failed to create bundle', 'Échec de la création'));
     }
     setCreating(false);
   }

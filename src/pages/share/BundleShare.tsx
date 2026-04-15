@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Loader2, Package, ArrowLeft, CreditCard, ShoppingBag } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { useShopCart } from '@/contexts/ShopCartContext';
 import { formatCurrency } from '@/lib/formatCurrency';
 
 interface BundleData {
@@ -32,6 +33,7 @@ export default function BundleShare() {
   const { bundleId } = useParams<{ bundleId: string }>();
   const navigate = useNavigate();
   const { user, signUp, signIn } = useAuth();
+  const { clearCart, addItem: addCartItem, syncCart } = useShopCart();
   const [bundle, setBundle] = useState<BundleData | null>(null);
   const [items, setItems] = useState<BundleItemData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,18 +102,27 @@ export default function BundleShare() {
   async function addItemsAndCheckout() {
     setSubmitting(true);
     try {
+      // Clear existing cart so checkout only shows bundle items
+      await clearCart();
+      
+      // Add each selected bundle item to cart via context
       for (const item of selectedItems) {
         if (!item.product_url) continue;
-        await supabase.functions.invoke('mobile-cart', {
-          body: {
-            action: 'add_item',
-            product_url: item.product_url,
-            title: item.title,
-            image_url: item.image_url,
-            quantity: 1,
-          },
+        await addCartItem({
+          productId: item.id,
+          provider: 'bundle',
+          title: item.title,
+          imageUrl: item.image_url || '',
+          priceUsd: item.price_usd,
+          quantity: 1,
+          productUrl: item.product_url,
+          isFixedPrice: true,
         });
       }
+      
+      // Sync to ensure server has latest
+      await syncCart();
+      
       navigate('/checkout');
     } catch {
       toast.error('Erreur lors de la préparation de la commande');

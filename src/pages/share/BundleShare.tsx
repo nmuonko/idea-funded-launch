@@ -102,18 +102,27 @@ export default function BundleShare() {
   async function addItemsAndCheckout() {
     setSubmitting(true);
     try {
+      // Clear existing cart so checkout only shows bundle items
+      await clearCart();
+      
+      // Add each selected bundle item to cart via context
       for (const item of selectedItems) {
         if (!item.product_url) continue;
-        await supabase.functions.invoke('mobile-cart', {
-          body: {
-            action: 'add_item',
-            product_url: item.product_url,
-            title: item.title,
-            image_url: item.image_url,
-            quantity: 1,
-          },
+        await addCartItem({
+          productId: item.id,
+          provider: 'bundle',
+          title: item.title,
+          imageUrl: item.image_url || '',
+          priceUsd: item.price_usd,
+          quantity: 1,
+          productUrl: item.product_url,
+          isFixedPrice: true,
         });
       }
+      
+      // Sync to ensure server has latest
+      await syncCart();
+      
       navigate('/checkout');
     } catch {
       toast.error('Erreur lors de la préparation de la commande');

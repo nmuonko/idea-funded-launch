@@ -33,7 +33,7 @@ export default function BundleShare() {
   const { bundleId } = useParams<{ bundleId: string }>();
   const navigate = useNavigate();
   const { user, signUp, signIn } = useAuth();
-  const [bundle, setBundle] = useState<BundleData | null>(null);
+  const { clearCart, addItem: addCartItem, syncCart } = useShopCart();
   const [items, setItems] = useState<BundleItemData[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());

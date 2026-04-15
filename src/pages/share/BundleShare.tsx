@@ -4,9 +4,12 @@ import { Helmet } from 'react-helmet-async';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, ShoppingCart, Package, ArrowLeft } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Loader2, Package, ArrowLeft, CreditCard, ShoppingBag } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { formatCurrency } from '@/lib/formatCurrency';
 
 interface BundleData {
   id: string;
@@ -28,12 +31,25 @@ interface BundleItemData {
 export default function BundleShare() {
   const { bundleId } = useParams<{ bundleId: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, signUp, signIn } = useAuth();
   const [bundle, setBundle] = useState<BundleData | null>(null);
   const [items, setItems] = useState<BundleItemData[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [addingToCart, setAddingToCart] = useState(false);
+
+  // Checkout form state
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [mode, setMode] = useState<'guest' | 'login'>('guest');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [country, setCountry] = useState('DR Congo');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!bundleId) return;
@@ -80,21 +96,10 @@ export default function BundleShare() {
   const selectedItems = items.filter(i => selected.has(i.id));
   const total = selectedItems.reduce((s, i) => s + i.price_usd, 0);
 
-  async function handleAddToCart() {
-    if (selectedItems.length === 0) {
-      toast.error('Sélectionnez au moins un produit');
-      return;
-    }
-
-    if (!user) {
-      navigate('/shop-auth?redirect=' + encodeURIComponent(window.location.pathname));
-      return;
-    }
-
-    setAddingToCart(true);
+  // If user is already logged in, skip guest form and go to checkout directly
+  async function addItemsAndCheckout() {
+    setSubmitting(true);
     try {
-      // Add each selected item to cart via the standard cart flow
-      // Each item goes through weight-based shipping calculation in mobile-cart
       for (const item of selectedItems) {
         if (!item.product_url) continue;
         await supabase.functions.invoke('mobile-cart', {
@@ -107,13 +112,89 @@ export default function BundleShare() {
           },
         });
       }
-      toast.success(`${selectedItems.length} produit(s) ajouté(s) au panier`);
-      navigate('/cart');
+      navigate('/checkout');
     } catch {
-      toast.error('Erreur lors de l\'ajout au panier');
+      toast.error('Erreur lors de la préparation de la commande');
     }
-    setAddingToCart(false);
+    setSubmitting(false);
   }
+
+  function handlePayClick() {
+    if (selectedItems.length === 0) {
+      toast.error('Sélectionnez au moins un produit');
+      return;
+    }
+    if (user) {
+      addItemsAndCheckout();
+    } else {
+      setShowCheckout(true);
+    }
+  }
+
+  const handleGuestCheckout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+
+    try {
+      const autoPassword = crypto.randomUUID().slice(0, 16) + 'Aa1!';
+      const result = await signUp(email.trim(), autoPassword, fullName.trim(), phone.trim(), {
+        country: country || 'DR Congo',
+        city: city.trim() || 'Not provided',
+        address_line1: address.trim() || 'Not provided',
+      });
+
+      if (result?.error) {
+        const msg = result.error.message || '';
+        const errorCode = (result.error as any)?.code || '';
+        if (
+          errorCode === 'USER_EXISTS' ||
+          msg.toLowerCase().includes('already registered') ||
+          msg.toLowerCase().includes('already exists') ||
+          msg.toLowerCase().includes('user already')
+        ) {
+          setError('Ce compte existe déjà. Connectez-vous ci-dessous.');
+          setLoginEmail(email.trim());
+          setMode('login');
+          setSubmitting(false);
+          return;
+        }
+        setError(msg || 'Échec de l\'inscription');
+        setSubmitting(false);
+        return;
+      }
+      // Registration succeeded → add items to cart and go to checkout
+      await addItemsAndCheckout();
+    } catch {
+      setError('Erreur de connexion');
+      setSubmitting(false);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+
+    try {
+      const { error: signInError } = await signIn(loginEmail.trim(), password, true);
+      if (signInError) {
+        const msg = signInError?.message || '';
+        if (msg.includes('Invalid login')) {
+          setError('Email ou mot de passe incorrect');
+        } else {
+          setError('Erreur de connexion. Réessayez.');
+        }
+        setSubmitting(false);
+        return;
+      }
+      // Login succeeded → add items and checkout
+      await addItemsAndCheckout();
+    } catch {
+      setError('Erreur de connexion');
+      setSubmitting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -144,6 +225,156 @@ export default function BundleShare() {
     );
   }
 
+  // ── Checkout form view ──
+  if (showCheckout) {
+    return (
+      <>
+        <Helmet>
+          <title>{bundle.title} - Paiement</title>
+        </Helmet>
+        <div className="min-h-screen bg-black">
+          {/* Header */}
+          <div className="sticky top-0 z-10 bg-black/95 backdrop-blur border-b border-white/10 px-4 py-3">
+            <div className="max-w-4xl mx-auto flex items-center justify-between">
+              <Button variant="ghost" size="sm" onClick={() => setShowCheckout(false)} className="gap-1 text-white/70 hover:text-white">
+                <ArrowLeft className="w-4 h-4" /> Retour
+              </Button>
+              <span className="text-sm font-medium text-white">{bundle.title}</span>
+              <div className="w-20" />
+            </div>
+          </div>
+
+          <div className="pt-8 px-4 max-w-4xl mx-auto pb-12">
+            <div className="flex flex-col lg:flex-row gap-8">
+              {/* Product summary */}
+              <div className="lg:w-1/2 space-y-4">
+                <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <ShoppingBag className="h-5 w-5 text-blue-400" />
+                  Votre commande
+                </h2>
+                <div className="space-y-3">
+                  {selectedItems.map((item) => (
+                    <div key={item.id} className="flex gap-4 rounded-xl bg-white/5 border border-white/10 p-3">
+                      {item.image_url ? (
+                        <img src={item.image_url} alt="" className="w-24 h-24 rounded-lg object-contain bg-white flex-shrink-0" loading="lazy" />
+                      ) : (
+                        <div className="w-24 h-24 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
+                          <Package className="w-6 h-6 text-white/30" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium line-clamp-2">{item.title}</p>
+                        <p className="text-xs text-white/50 mt-1">Quantité: 1</p>
+                        <p className="text-base font-bold text-blue-400 mt-2">
+                          {formatCurrency(item.price_usd, { currency: 'USD' })}
+                        </p>
+                        <span className="inline-block mt-1 text-[10px] text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">
+                          Livraison incluse
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between items-center pt-3 border-t border-white/10">
+                  <span className="text-white/60 text-sm">Total</span>
+                  <span className="text-white font-bold text-lg">
+                    {formatCurrency(total, { currency: 'USD' })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Checkout form */}
+              <div className="lg:w-1/2">
+                <div className="text-center mb-6">
+                  <ShoppingBag className="h-10 w-10 text-blue-400 mx-auto mb-3" />
+                  <h2 className="text-lg font-semibold text-white">
+                    {mode === 'guest' ? 'Finaliser votre commande' : 'Se connecter'}
+                  </h2>
+                  <p className="text-sm text-white/50 mt-1">
+                    {mode === 'guest' ? 'Entrez vos coordonnées pour continuer' : 'Connectez-vous à votre compte'}
+                  </p>
+                </div>
+
+                {mode === 'guest' ? (
+                  <form onSubmit={handleGuestCheckout} className="space-y-3">
+                    <div>
+                      <Label htmlFor="guest-name" className="text-white/70 text-sm">Nom complet *</Label>
+                      <Input id="guest-name" type="text" autoComplete="name" required value={fullName} onChange={(e) => setFullName(e.target.value)} className="bg-white/10 border-white/20 text-white placeholder:text-white/30" placeholder="Jean Mukendi" />
+                    </div>
+                    <div>
+                      <Label htmlFor="guest-email" className="text-white/70 text-sm">Email *</Label>
+                      <Input id="guest-email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="bg-white/10 border-white/20 text-white placeholder:text-white/30" placeholder="you@email.com" />
+                    </div>
+                    <div>
+                      <Label htmlFor="guest-phone" className="text-white/70 text-sm">Téléphone *</Label>
+                      <Input id="guest-phone" type="tel" autoComplete="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} className="bg-white/10 border-white/20 text-white placeholder:text-white/30" placeholder="+243 ..." />
+                    </div>
+                    <div>
+                      <Label htmlFor="guest-address" className="text-white/70 text-sm">Adresse *</Label>
+                      <Input id="guest-address" type="text" autoComplete="street-address" required value={address} onChange={(e) => setAddress(e.target.value)} className="bg-white/10 border-white/20 text-white placeholder:text-white/30" placeholder="Avenue, numéro, quartier" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label htmlFor="guest-city" className="text-white/70 text-sm">Ville *</Label>
+                        <Input id="guest-city" type="text" autoComplete="address-level2" required value={city} onChange={(e) => setCity(e.target.value)} className="bg-white/10 border-white/20 text-white placeholder:text-white/30" placeholder="Kinshasa" />
+                      </div>
+                      <div>
+                        <Label htmlFor="guest-country" className="text-white/70 text-sm">Pays</Label>
+                        <Input id="guest-country" type="text" autoComplete="country-name" value={country} onChange={(e) => setCountry(e.target.value)} className="bg-white/10 border-white/20 text-white placeholder:text-white/30" placeholder="DR Congo" />
+                      </div>
+                    </div>
+
+                    {error && <p className="text-sm text-red-400 text-center">{error}</p>}
+
+                    <Button type="submit" disabled={submitting || !email || !fullName || !phone || !address || !city} className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full disabled:opacity-50 mt-2">
+                      {submitting ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Traitement...</>
+                      ) : 'Continuer vers le paiement'}
+                    </Button>
+
+                    <p className="text-xs text-white/40 text-center mt-3">
+                      Vous avez déjà un compte ?{' '}
+                      <button type="button" onClick={() => { setMode('login'); setError(null); }} className="text-blue-400 underline">
+                        Se connecter
+                      </button>
+                    </p>
+                  </form>
+                ) : (
+                  <form onSubmit={handleLogin} className="space-y-4">
+                    <div>
+                      <Label htmlFor="login-email" className="text-white/70 text-sm">Email</Label>
+                      <Input id="login-email" type="email" autoComplete="email" required value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} className="bg-white/10 border-white/20 text-white placeholder:text-white/30" placeholder="you@email.com" />
+                    </div>
+                    <div>
+                      <Label htmlFor="login-password" className="text-white/70 text-sm">Mot de passe</Label>
+                      <Input id="login-password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} className="bg-white/10 border-white/20 text-white placeholder:text-white/30" placeholder="••••••••" />
+                    </div>
+
+                    {error && <p className="text-sm text-red-400 text-center">{error}</p>}
+
+                    <Button type="submit" disabled={submitting || !loginEmail || !password} className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full disabled:opacity-50">
+                      {submitting ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Connexion...</>
+                      ) : 'Se connecter et payer'}
+                    </Button>
+
+                    <p className="text-xs text-white/40 text-center mt-3">
+                      Pas de compte ?{' '}
+                      <button type="button" onClick={() => { setMode('guest'); setError(null); }} className="text-blue-400 underline">
+                        Commander en tant qu'invité
+                      </button>
+                    </p>
+                  </form>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // ── Product selection view ──
   return (
     <>
       <Helmet>
@@ -228,13 +459,13 @@ export default function BundleShare() {
               <p className="text-xl font-bold">${total.toFixed(2)}</p>
             </div>
             <Button
-              onClick={handleAddToCart}
-              disabled={addingToCart || selected.size === 0}
+              onClick={handlePayClick}
+              disabled={submitting || selected.size === 0}
               size="lg"
               className="gap-2"
             >
-              {addingToCart ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingCart className="w-4 h-4" />}
-              Ajouter au panier
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
+              Payer
             </Button>
           </div>
         </div>

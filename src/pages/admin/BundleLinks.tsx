@@ -73,6 +73,30 @@ export default function BundleLinks() {
   // Create form state
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState('');
+  const [suggestedTitles, setSuggestedTitles] = useState<string[]>([]);
+  const [suggestingTitle, setSuggestingTitle] = useState(false);
+
+  const handleSuggestTitle = async () => {
+    if (!selectedItems.length) return;
+    setSuggestingTitle(true);
+    setSuggestedTitles([]);
+    try {
+      const { data, error } = await supabase.functions.invoke('suggest-bundle-title', {
+        body: { products: selectedItems.map(i => ({ title: i.title, price_usd: i.price_usd })) },
+      });
+      if (error) throw error;
+      if (data?.titles?.length) {
+        setSuggestedTitles(data.titles.slice(0, 3));
+      } else {
+        toast.error(t('No suggestions available', 'Aucune suggestion disponible'));
+      }
+    } catch (e: any) {
+      console.error('suggest-bundle-title error:', e);
+      toast.error(t('Failed to get suggestions', 'Échec des suggestions'));
+    } finally {
+      setSuggestingTitle(false);
+    }
+  };
   const [description, setDescription] = useState('');
   const [expiresAt, setExpiresAt] = useState<Date | undefined>();
   const [selectedItems, setSelectedItems] = useState<BundleItem[]>([]);

@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Loader2, Package, ArrowLeft, CreditCard, ShoppingBag } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { useShopCart } from '@/contexts/ShopCartContext';
 import { formatCurrency } from '@/lib/formatCurrency';
 
 interface BundleData {

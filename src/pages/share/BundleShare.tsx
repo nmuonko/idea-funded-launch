@@ -34,6 +34,7 @@ export default function BundleShare() {
   const navigate = useNavigate();
   const { user, signUp, signIn } = useAuth();
   const { clearCart, addItem: addCartItem, syncCart } = useShopCart();
+  const [bundle, setBundle] = useState<BundleData | null>(null);
   const [items, setItems] = useState<BundleItemData[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());

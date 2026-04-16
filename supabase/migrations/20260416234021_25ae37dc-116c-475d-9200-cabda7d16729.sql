@@ -1,0 +1,1 @@
+UPDATE public.catalog_seed_queries SET enabled = false, updated_at = now() WHERE category NOT IN ('electronics', 'motors', 'refurbished');

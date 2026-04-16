@@ -30,102 +30,129 @@ interface SeedQuery {
 }
 
 const EBAY_SEEDS: SeedQuery[] = [
-  // Electronics (primary focus)
+  // ─── Electronics (primary focus) ──────────────────────────────────────────
   { category: "electronics", provider: "ebay", seed_key: "electronics_iphone", query: "iphone", ttl_minutes: 360 },
-  { category: "electronics", provider: "ebay", seed_key: "electronics_samsung", query: "samsung phone", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_iphone_15", query: "iphone 15", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_iphone_14", query: "iphone 14", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_samsung", query: "samsung galaxy phone", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_pixel", query: "google pixel phone", ttl_minutes: 360 },
   { category: "electronics", provider: "ebay", seed_key: "electronics_laptop", query: "laptop", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_macbook", query: "macbook", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_dell", query: "dell laptop", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_hp", query: "hp laptop", ttl_minutes: 360 },
   { category: "electronics", provider: "ebay", seed_key: "electronics_headphones", query: "headphones", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_airpods", query: "airpods", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_sony_headphones", query: "sony headphones", ttl_minutes: 360 },
   { category: "electronics", provider: "ebay", seed_key: "electronics_monitor", query: "monitor", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_tv", query: "smart tv", ttl_minutes: 360 },
   { category: "electronics", provider: "ebay", seed_key: "electronics_tablet", query: "tablet", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_ipad", query: "ipad", ttl_minutes: 360 },
   { category: "electronics", provider: "ebay", seed_key: "electronics_camera", query: "camera", ttl_minutes: 360 },
-  
-  // Home & Garden
-  { category: "home_garden", provider: "ebay", seed_key: "home_vacuum", query: "vacuum cleaner", ttl_minutes: 360 },
-  { category: "home_garden", provider: "ebay", seed_key: "home_blender", query: "blender", ttl_minutes: 360 },
-  { category: "home_garden", provider: "ebay", seed_key: "home_airfryer", query: "air fryer", ttl_minutes: 360 },
-  { category: "home_garden", provider: "ebay", seed_key: "home_toolset", query: "tool set", ttl_minutes: 360 },
-  
-  // Clothing
-  { category: "clothing", provider: "ebay", seed_key: "clothing_nike", query: "nike hoodie", ttl_minutes: 360 },
-  { category: "clothing", provider: "ebay", seed_key: "clothing_shoes", query: "men shoes", ttl_minutes: 360 },
-  { category: "clothing", provider: "ebay", seed_key: "clothing_dress", query: "women dress", ttl_minutes: 360 },
-  { category: "clothing", provider: "ebay", seed_key: "clothing_jacket", query: "jacket", ttl_minutes: 360 },
-  
-  // Toys
-  { category: "toys", provider: "ebay", seed_key: "toys_lego", query: "lego", ttl_minutes: 360 },
-  { category: "toys", provider: "ebay", seed_key: "toys_kids", query: "kids toy", ttl_minutes: 360 },
-  { category: "toys", provider: "ebay", seed_key: "toys_rc", query: "rc car", ttl_minutes: 360 },
-  
-  // Sporting Goods
-  { category: "sporting_goods", provider: "ebay", seed_key: "sports_dumbbells", query: "dumbbells", ttl_minutes: 360 },
-  { category: "sporting_goods", provider: "ebay", seed_key: "sports_soccer", query: "soccer shoes", ttl_minutes: 360 },
-  { category: "sporting_goods", provider: "ebay", seed_key: "sports_basketball", query: "basketball", ttl_minutes: 360 },
-  
-  // Business & Industrial
-  { category: "business_industrial", provider: "ebay", seed_key: "business_generator", query: "generator", ttl_minutes: 360 },
-  { category: "business_industrial", provider: "ebay", seed_key: "business_compressor", query: "compressor", ttl_minutes: 360 },
-  { category: "business_industrial", provider: "ebay", seed_key: "business_powertool", query: "power tool", ttl_minutes: 360 },
-  
-  // Jewelry & Watches
-  { category: "jewelry_watches", provider: "ebay", seed_key: "jewelry_watch", query: "watch", ttl_minutes: 360 },
-  { category: "jewelry_watches", provider: "ebay", seed_key: "jewelry_necklace", query: "necklace", ttl_minutes: 360 },
-  { category: "jewelry_watches", provider: "ebay", seed_key: "jewelry_ring", query: "ring", ttl_minutes: 360 },
-  
-  // Refurbished
+  { category: "electronics", provider: "ebay", seed_key: "electronics_dslr", query: "dslr camera", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_gopro", query: "gopro", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_console_ps5", query: "playstation 5", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_console_xbox", query: "xbox series x", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_nintendo", query: "nintendo switch", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_smartwatch", query: "smartwatch", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_apple_watch", query: "apple watch", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_drone", query: "drone", ttl_minutes: 360 },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_speaker", query: "bluetooth speaker", ttl_minutes: 360 },
+
+  // ─── Refurbished electronics ──────────────────────────────────────────────
   { category: "refurbished", provider: "ebay", seed_key: "refurb_iphone", query: "refurbished iphone", ttl_minutes: 360 },
   { category: "refurbished", provider: "ebay", seed_key: "refurb_laptop", query: "renewed laptop", ttl_minutes: 360 },
-  
-  // Motors - with special filters for Buy It Now and min price
+  { category: "refurbished", provider: "ebay", seed_key: "refurb_macbook", query: "refurbished macbook", ttl_minutes: 360 },
+  { category: "refurbished", provider: "ebay", seed_key: "refurb_samsung", query: "refurbished samsung phone", ttl_minutes: 360 },
+
+  // ─── Motors / Cars (Buy It Now, min $1500, no parts/salvage) ──────────────
   {
-    category: "motors",
-    provider: "ebay",
-    seed_key: "motors_usedcar",
-    query: "used car",
-    ebay_category_id: "6001", // eBay Motors: Cars & Trucks
-    filters: {
-      buyingOptions: ["FIXED_PRICE"],
-      minPriceUsd: 1500,
-      excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken", "for parts"],
-    },
-    ttl_minutes: 720, // 12 hours for motors
-  },
-  {
-    category: "motors",
-    provider: "ebay",
-    seed_key: "motors_toyota",
-    query: "toyota camry",
+    category: "motors", provider: "ebay", seed_key: "motors_usedcar", query: "used car",
     ebay_category_id: "6001",
-    filters: {
-      buyingOptions: ["FIXED_PRICE"],
-      minPriceUsd: 1500,
-      excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"],
-    },
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken", "for parts"] },
     ttl_minutes: 720,
   },
   {
-    category: "motors",
-    provider: "ebay",
-    seed_key: "motors_honda",
-    query: "honda civic",
+    category: "motors", provider: "ebay", seed_key: "motors_toyota", query: "toyota camry",
     ebay_category_id: "6001",
-    filters: {
-      buyingOptions: ["FIXED_PRICE"],
-      minPriceUsd: 1500,
-      excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"],
-    },
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
     ttl_minutes: 720,
   },
   {
-    category: "motors",
-    provider: "ebay",
-    seed_key: "motors_ford",
-    query: "ford f150",
+    category: "motors", provider: "ebay", seed_key: "motors_toyota_corolla", query: "toyota corolla",
     ebay_category_id: "6001",
-    filters: {
-      buyingOptions: ["FIXED_PRICE"],
-      minPriceUsd: 1500,
-      excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"],
-    },
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
+    ttl_minutes: 720,
+  },
+  {
+    category: "motors", provider: "ebay", seed_key: "motors_honda", query: "honda civic",
+    ebay_category_id: "6001",
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
+    ttl_minutes: 720,
+  },
+  {
+    category: "motors", provider: "ebay", seed_key: "motors_honda_accord", query: "honda accord",
+    ebay_category_id: "6001",
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
+    ttl_minutes: 720,
+  },
+  {
+    category: "motors", provider: "ebay", seed_key: "motors_ford", query: "ford f150",
+    ebay_category_id: "6001",
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
+    ttl_minutes: 720,
+  },
+  {
+    category: "motors", provider: "ebay", seed_key: "motors_ford_mustang", query: "ford mustang",
+    ebay_category_id: "6001",
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
+    ttl_minutes: 720,
+  },
+  {
+    category: "motors", provider: "ebay", seed_key: "motors_chevy", query: "chevrolet silverado",
+    ebay_category_id: "6001",
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
+    ttl_minutes: 720,
+  },
+  {
+    category: "motors", provider: "ebay", seed_key: "motors_nissan", query: "nissan altima",
+    ebay_category_id: "6001",
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
+    ttl_minutes: 720,
+  },
+  {
+    category: "motors", provider: "ebay", seed_key: "motors_bmw", query: "bmw 3 series",
+    ebay_category_id: "6001",
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
+    ttl_minutes: 720,
+  },
+  {
+    category: "motors", provider: "ebay", seed_key: "motors_mercedes", query: "mercedes benz",
+    ebay_category_id: "6001",
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
+    ttl_minutes: 720,
+  },
+  {
+    category: "motors", provider: "ebay", seed_key: "motors_jeep", query: "jeep wrangler",
+    ebay_category_id: "6001",
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
+    ttl_minutes: 720,
+  },
+  {
+    category: "motors", provider: "ebay", seed_key: "motors_tesla", query: "tesla model 3",
+    ebay_category_id: "6001",
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
+    ttl_minutes: 720,
+  },
+  {
+    category: "motors", provider: "ebay", seed_key: "motors_suv", query: "suv",
+    ebay_category_id: "6001",
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
+    ttl_minutes: 720,
+  },
+  {
+    category: "motors", provider: "ebay", seed_key: "motors_pickup", query: "pickup truck",
+    ebay_category_id: "6001",
+    filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["auction", "bid", "parts", "salvage", "repair", "broken"] },
     ttl_minutes: 720,
   },
 ];

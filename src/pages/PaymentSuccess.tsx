@@ -5,12 +5,44 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useSupportContact } from '@/hooks/useSupportContact';
 import { supabase } from "@/integrations/supabase/client";
+import { useLanguage } from "@/contexts/LanguageContext";
+
+const COPY = {
+  fr: {
+    verifying: "Vérification du paiement",
+    pleaseWait: "Veuillez patienter...",
+    success: "Paiement réussi !",
+    thanks: "Votre paiement a été confirmé. Merci pour votre commande !",
+    summary: "Récapitulatif de la commande",
+    orderId: "N° de commande",
+    amountUsd: "Montant (USD)",
+    amountCdf: "Montant (CDF)",
+    transaction: "Transaction",
+    processing: "Votre commande est en cours de traitement. Vous pouvez fermer cette fenêtre et retourner dans l'application en toute sécurité.",
+    close: "Fermer la fenêtre",
+  },
+  en: {
+    verifying: "Verifying Payment",
+    pleaseWait: "Please wait...",
+    success: "Payment Successful!",
+    thanks: "Your payment has been confirmed. Thank you for your order!",
+    summary: "Order Summary",
+    orderId: "Order ID",
+    amountUsd: "Amount (USD)",
+    amountCdf: "Amount (CDF)",
+    transaction: "Transaction",
+    processing: "Your order is being processed. You can safely close this window and return to the app.",
+    close: "Close Window",
+  },
+} as const;
 
 export default function PaymentSuccess() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const { whatsappUrl, emailUrl } = useSupportContact();
+  const { language } = useLanguage();
+  const t = COPY[language === "en" ? "en" : "fr"];
   const [orderData, setOrderData] = useState<{
     orderId?: string;
     totalUsd?: number;

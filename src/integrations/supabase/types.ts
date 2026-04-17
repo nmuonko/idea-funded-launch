@@ -2193,6 +2193,42 @@ export type Database = {
           },
         ]
       }
+      country_shipping_rates: {
+        Row: {
+          country: string
+          created_at: string
+          enabled: boolean
+          flag_emoji: string
+          label_en: string
+          label_fr: string
+          rate_per_kg_usd: number
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          country: string
+          created_at?: string
+          enabled?: boolean
+          flag_emoji: string
+          label_en: string
+          label_fr: string
+          rate_per_kg_usd?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          country?: string
+          created_at?: string
+          enabled?: boolean
+          flag_emoji?: string
+          label_en?: string
+          label_fr?: string
+          rate_per_kg_usd?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       customer_email_logs: {
         Row: {
           body: string
@@ -3033,6 +3069,62 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      international_products: {
+        Row: {
+          base_price_usd: number
+          country: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          est_weight_kg: number
+          id: string
+          image_url: string
+          is_active: boolean
+          product_url: string
+          sort_order: number
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          base_price_usd: number
+          country: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          est_weight_kg?: number
+          id?: string
+          image_url: string
+          is_active?: boolean
+          product_url: string
+          sort_order?: number
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          base_price_usd?: number
+          country?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          est_weight_kg?: number
+          id?: string
+          image_url?: string
+          is_active?: boolean
+          product_url?: string
+          sort_order?: number
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "international_products_country_fkey"
+            columns: ["country"]
+            isOneToOne: false
+            referencedRelation: "country_shipping_rates"
+            referencedColumns: ["country"]
+          },
+        ]
       }
       invitation_attempts: {
         Row: {

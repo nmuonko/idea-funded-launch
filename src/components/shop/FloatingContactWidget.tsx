@@ -228,7 +228,7 @@
      }
    };
  
-   if (isAdminRoute) return null;
+   if (isAdminRoute || isPaymentSuccessRoute) return null;
 
    return (
      <div className="fixed bottom-28 right-4 z-40 md:bottom-6 md:right-6">

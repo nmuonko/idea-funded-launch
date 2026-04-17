@@ -76,6 +76,9 @@
    const t = translations[language as keyof typeof translations] || translations.en;
 
    const isAdminRoute = location.pathname.startsWith('/admin');
+   const isPaymentSuccessRoute =
+     location.pathname === '/payment/success' ||
+     location.pathname === '/payment-success';
 
    const scrollToBottom = () => {
      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

@@ -76,6 +76,7 @@ export function AdminLayout() {
       title: language === 'fr' ? 'Marketing' : 'Marketing',
       items: [
         { to: '/admin/hot-products', icon: Flame, label: language === 'fr' ? 'Produits Vedettes' : 'Hot Products', permission: 'can_view_marketing' as const },
+        { to: '/admin/international-products', icon: Globe, label: language === 'fr' ? 'Produits Internationaux' : 'International Products', permission: 'can_view_marketing' as const },
         { to: '/admin/bundle-links', icon: Package, label: language === 'fr' ? 'Packs Produits' : 'Bundle Links', permission: 'can_view_marketing' as const },
         { to: '/admin/referrals', icon: Gift, label: language === 'fr' ? 'Parrainages' : 'Referrals', permission: 'can_view_marketing' as const },
       ]
@@ -92,6 +93,7 @@ export function AdminLayout() {
       title: language === 'fr' ? 'Paramètres' : 'Settings',
       items: [
         { to: '/admin/settings', icon: Settings, label: language === 'fr' ? 'Frais & Marges' : 'Fees & Markup', permission: 'can_view_settings' as const },
+        { to: '/admin/country-shipping', icon: Globe, label: language === 'fr' ? 'Tarifs par Pays' : 'Country Shipping', permission: 'can_view_settings' as const },
         { to: '/admin/service-zones', icon: Globe, label: language === 'fr' ? 'Zones' : 'Zones', permission: 'can_view_settings' as const },
         { to: '/admin/users', icon: Users, label: t.sidebar.staffManagement || 'Staff', permission: 'can_manage_users' as const },
         { to: '/admin/theme-settings', icon: Palette, label: language === 'fr' ? 'Thème' : 'Theme', permission: 'can_view_theme_settings' as const },

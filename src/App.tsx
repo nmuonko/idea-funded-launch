@@ -61,6 +61,9 @@ const ServiceZones = lazy(() => import("./pages/admin/ServiceZones"));
 const AdminDelivery = lazy(() => import("./pages/admin/Delivery"));
 const AdminHotProducts = lazy(() => import("./pages/admin/HotProducts"));
 const AdminBundleLinks = lazy(() => import("./pages/admin/BundleLinks"));
+const AdminInternationalProducts = lazy(() => import("./pages/admin/InternationalProducts"));
+const AdminCountryShippingRates = lazy(() => import("./pages/admin/CountryShippingRates"));
+const CountryShop = lazy(() => import("./pages/shop/CountryShop"));
 
 // Lazy-loaded secondary pages
 const Cars = lazy(() => import("./pages/Cars"));
@@ -217,6 +220,9 @@ const App = () => {
             <Route path="/shop/checkout" element={<Navigate to="/checkout" replace />} />
             <Route path="/shop/search" element={<Navigate to="/search" replace />} />
             <Route path="/shop/product/:provider/:id" element={<ShopProductRedirect />} />
+
+            {/* Country-specific shop pages (China, Dubai, Turkey) */}
+            <Route path="/shop/:country" element={<CountryShop />} />
             
             <Route path="/admin-login" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
@@ -413,6 +419,16 @@ const App = () => {
               <Route path="bundle-links" element={
                 <AdminRouteGuard requiredPermission="can_view_marketing">
                   <AdminBundleLinks />
+                </AdminRouteGuard>
+              } />
+              <Route path="international-products" element={
+                <AdminRouteGuard requiredPermission="can_view_marketing">
+                  <AdminInternationalProducts />
+                </AdminRouteGuard>
+              } />
+              <Route path="country-shipping" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <AdminCountryShippingRates />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

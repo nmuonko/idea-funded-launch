@@ -61,6 +61,9 @@ const ServiceZones = lazy(() => import("./pages/admin/ServiceZones"));
 const AdminDelivery = lazy(() => import("./pages/admin/Delivery"));
 const AdminHotProducts = lazy(() => import("./pages/admin/HotProducts"));
 const AdminBundleLinks = lazy(() => import("./pages/admin/BundleLinks"));
+const AdminInternationalProducts = lazy(() => import("./pages/admin/InternationalProducts"));
+const AdminCountryShippingRates = lazy(() => import("./pages/admin/CountryShippingRates"));
+const CountryShop = lazy(() => import("./pages/shop/CountryShop"));
 
 // Lazy-loaded secondary pages
 const Cars = lazy(() => import("./pages/Cars"));

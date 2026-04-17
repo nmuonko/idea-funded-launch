@@ -8,6 +8,7 @@ import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { SectionBlock } from '@/components/shop/SectionBlock';
 import { HeroBannerCarousel } from '@/components/shop/HeroBannerCarousel';
 import { CategoryIconsRow } from '@/components/shop/CategoryIconsRow';
+import { CountrySelector } from '@/components/shop/CountrySelector';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
 import { Product } from '@/components/shop/ProductCard';
@@ -1168,6 +1169,10 @@ export default function ShopHome() {
       <section className="mb-5">
         <HeroBannerCarousel />
       </section>
+
+      {/* 1.5) Country Selector — Shop by USA / China / Dubai / Turkey */}
+      <CountrySelector />
+      <div id="shop-categories-anchor" />
 
       <main className="pb-8">
         <div className="container mx-auto px-3 sm:px-4">

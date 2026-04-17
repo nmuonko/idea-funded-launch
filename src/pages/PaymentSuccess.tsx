@@ -108,8 +108,8 @@ export default function PaymentSuccess() {
         <Card className="w-full max-w-md">
           <CardContent className="pt-6 text-center">
             <Loader2 className="h-16 w-16 text-primary animate-spin mx-auto mb-4" />
-            <h1 className="text-2xl font-bold mb-2">Verifying Payment</h1>
-            <p className="text-muted-foreground">Please wait...</p>
+            <h1 className="text-2xl font-bold mb-2">{t.verifying}</h1>
+            <p className="text-muted-foreground">{t.pleaseWait}</p>
           </CardContent>
         </Card>
       </div>
@@ -121,41 +121,37 @@ export default function PaymentSuccess() {
       <Card className="w-full max-w-md">
         <CardContent className="pt-6 text-center">
           <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-2 text-green-600">Payment Successful!</h1>
-          <p className="text-muted-foreground mb-6">
-            Your payment has been confirmed. Thank you for your order!
-          </p>
+          <h1 className="text-2xl font-bold mb-2 text-green-600">{t.success}</h1>
+          <p className="text-muted-foreground mb-6">{t.thanks}</p>
           
           {(orderData.totalUsd || orderData.totalCdf) && (
             <div className="bg-muted p-4 rounded-lg mb-6 text-left">
-              <p className="text-sm font-semibold mb-2">Order Summary</p>
+              <p className="text-sm font-semibold mb-2">{t.summary}</p>
               {orderData.orderId && (
-                <p className="text-sm">Order ID: {orderData.orderId.substring(0, 8)}...</p>
+                <p className="text-sm">{t.orderId}: {orderData.orderId.substring(0, 8)}...</p>
               )}
               {orderData.totalUsd && (
-                <p className="text-sm">Amount (USD): ${orderData.totalUsd.toFixed(2)}</p>
+                <p className="text-sm">{t.amountUsd}: ${orderData.totalUsd.toFixed(2)}</p>
               )}
               {orderData.totalCdf && (
-                <p className="text-sm">Amount (CDF): {orderData.totalCdf.toLocaleString()} FC</p>
+                <p className="text-sm">{t.amountCdf}: {orderData.totalCdf.toLocaleString()} FC</p>
               )}
               {orderData.transactionId && (
                 <p className="text-sm text-xs mt-2 text-muted-foreground">
-                  Transaction: {orderData.transactionId}
+                  {t.transaction}: {orderData.transactionId}
                 </p>
               )}
             </div>
           )}
 
           <div className="flex flex-col gap-3">
-            <p className="text-sm text-muted-foreground">
-              Your order is being processed. You can safely close this window and return to the app.
-            </p>
+            <p className="text-sm text-muted-foreground">{t.processing}</p>
             <Button 
               onClick={() => window.close()}
               variant="outline" 
               className="w-full"
             >
-              Close Window
+              {t.close}
             </Button>
             <div className="flex gap-2 mt-2">
               <a href={whatsappUrl()} target="_blank" rel="noopener noreferrer" className="flex-1">

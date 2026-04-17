@@ -220,6 +220,9 @@ const App = () => {
             <Route path="/shop/checkout" element={<Navigate to="/checkout" replace />} />
             <Route path="/shop/search" element={<Navigate to="/search" replace />} />
             <Route path="/shop/product/:provider/:id" element={<ShopProductRedirect />} />
+
+            {/* Country-specific shop pages (China, Dubai, Turkey) */}
+            <Route path="/shop/:country" element={<CountryShop />} />
             
             <Route path="/admin-login" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
@@ -416,6 +419,16 @@ const App = () => {
               <Route path="bundle-links" element={
                 <AdminRouteGuard requiredPermission="can_view_marketing">
                   <AdminBundleLinks />
+                </AdminRouteGuard>
+              } />
+              <Route path="international-products" element={
+                <AdminRouteGuard requiredPermission="can_view_marketing">
+                  <AdminInternationalProducts />
+                </AdminRouteGuard>
+              } />
+              <Route path="country-shipping" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <AdminCountryShippingRates />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

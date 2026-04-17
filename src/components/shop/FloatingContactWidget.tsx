@@ -76,6 +76,9 @@
    const t = translations[language as keyof typeof translations] || translations.en;
 
    const isAdminRoute = location.pathname.startsWith('/admin');
+   const isPaymentSuccessRoute =
+     location.pathname === '/payment/success' ||
+     location.pathname === '/payment-success';
 
    const scrollToBottom = () => {
      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -225,7 +228,7 @@
      }
    };
  
-   if (isAdminRoute) return null;
+   if (isAdminRoute || isPaymentSuccessRoute) return null;
 
    return (
      <div className="fixed bottom-28 right-4 z-40 md:bottom-6 md:right-6">

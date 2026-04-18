@@ -193,7 +193,7 @@ export default function TelegramImport() {
       toast.success(t(`Published with ${images.length} image(s)!`, `Publié avec ${images.length} image(s) !`));
       setDrafts((ds) => ds.filter((d) => !selected.has(d.id)));
       setSelected(new Set());
-      setForm({ title: '', country: DEFAULT_COUNTRY, price: '', weight: DEFAULT_WEIGHT, measurements: '', description: '' });
+      setForm({ title: '', country: DEFAULT_COUNTRY, price: '', weight: DEFAULT_WEIGHT, measurements: '', sizes: '', description: '' });
     } catch (e: any) {
       toast.error(e?.message || t('Publish failed', 'Échec de la publication'));
     } finally {

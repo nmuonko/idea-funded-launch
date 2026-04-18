@@ -20,6 +20,9 @@ interface Draft {
   forwarded_from_chat_username: string | null;
   forwarded_by_username: string | null;
   suggested_title: string | null;
+  suggested_brand: string | null;
+  suggested_measurements: string | null;
+  detected_category: string | null;
   status: string;
   created_at: string;
 }

@@ -50,6 +50,13 @@ export default function IntlProductDetails() {
   const [adding, setAdding] = useState(false);
   const [qty, setQty] = useState(1);
   const [activeImg, setActiveImg] = useState(0);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
+
+  const sizes = useMemo(
+    () => (Array.isArray(product?.available_sizes) ? product!.available_sizes!.filter(Boolean) : []),
+    [product],
+  );
+  const requiresSize = sizes.length > 0;
 
   useEffect(() => {
     if (!ALLOWED.has(key)) {

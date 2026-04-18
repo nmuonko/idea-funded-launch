@@ -87,15 +87,19 @@ export default function TelegramImport() {
     [drafts, selected],
   );
 
-  // auto-fill title from first selected caption when nothing typed
+  // auto-fill title / measurements from first selected draft when fields are empty
   useEffect(() => {
-    if (selectedDrafts.length > 0 && !form.title) {
-      const first = selectedDrafts[0];
-      const guess = first.suggested_title || (first.caption || '').split('\n')[0]?.slice(0, 200) || '';
-      const cap = (first.caption || '').slice(0, 1000);
-      setForm((f) => ({ ...f, title: guess, description: f.description || cap }));
-    }
-  }, [selectedDrafts, form.title]);
+    if (selectedDrafts.length === 0) return;
+    const first = selectedDrafts[0];
+    const guessTitle = first.suggested_title || (first.caption || '').split('\n')[0]?.slice(0, 200) || '';
+    const cap = (first.caption || '').slice(0, 1000);
+    setForm((f) => ({
+      ...f,
+      title: f.title || guessTitle,
+      description: f.description || cap,
+      measurements: f.measurements || first.suggested_measurements || '',
+    }));
+  }, [selectedDrafts]);
 
   const toggle = (id: string) => {
     setSelected((s) => {

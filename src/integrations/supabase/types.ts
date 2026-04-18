@@ -6360,6 +6360,116 @@ export type Database = {
         }
         Relationships: []
       }
+      telegram_import_drafts: {
+        Row: {
+          caption: string | null
+          created_at: string
+          extra_image_urls: Json
+          forwarded_by_user_id: number | null
+          forwarded_by_username: string | null
+          forwarded_from_chat_title: string | null
+          forwarded_from_chat_username: string | null
+          forwarded_from_message_id: number | null
+          id: string
+          image_storage_path: string | null
+          image_url: string
+          published_product_id: string | null
+          rejection_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          suggested_country: string | null
+          suggested_price_usd: number | null
+          suggested_title: string | null
+          suggested_weight_kg: number | null
+          telegram_chat_id: number | null
+          telegram_message_id: number | null
+          updated_at: string
+        }
+        Insert: {
+          caption?: string | null
+          created_at?: string
+          extra_image_urls?: Json
+          forwarded_by_user_id?: number | null
+          forwarded_by_username?: string | null
+          forwarded_from_chat_title?: string | null
+          forwarded_from_chat_username?: string | null
+          forwarded_from_message_id?: number | null
+          id?: string
+          image_storage_path?: string | null
+          image_url: string
+          published_product_id?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          suggested_country?: string | null
+          suggested_price_usd?: number | null
+          suggested_title?: string | null
+          suggested_weight_kg?: number | null
+          telegram_chat_id?: number | null
+          telegram_message_id?: number | null
+          updated_at?: string
+        }
+        Update: {
+          caption?: string | null
+          created_at?: string
+          extra_image_urls?: Json
+          forwarded_by_user_id?: number | null
+          forwarded_by_username?: string | null
+          forwarded_from_chat_title?: string | null
+          forwarded_from_chat_username?: string | null
+          forwarded_from_message_id?: number | null
+          id?: string
+          image_storage_path?: string | null
+          image_url?: string
+          published_product_id?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          suggested_country?: string | null
+          suggested_price_usd?: number | null
+          suggested_title?: string | null
+          suggested_weight_kg?: number | null
+          telegram_chat_id?: number | null
+          telegram_message_id?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "telegram_import_drafts_published_product_id_fkey"
+            columns: ["published_product_id"]
+            isOneToOne: false
+            referencedRelation: "international_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      telegram_import_state: {
+        Row: {
+          id: number
+          last_error: string | null
+          last_polled_at: string | null
+          update_offset: number
+          updated_at: string
+        }
+        Insert: {
+          id: number
+          last_error?: string | null
+          last_polled_at?: string | null
+          update_offset?: number
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          last_error?: string | null
+          last_polled_at?: string | null
+          update_offset?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       thread_messages: {
         Row: {
           created_at: string

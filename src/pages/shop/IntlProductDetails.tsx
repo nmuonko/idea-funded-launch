@@ -250,6 +250,41 @@ export default function IntlProductDetails() {
                 </div>
               )}
 
+              {requiresSize && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      {isFr ? 'Sélectionnez votre taille' : 'Select your size'}
+                      <span className="text-destructive ml-1">*</span>
+                    </span>
+                    {selectedSize && (
+                      <span className="text-xs text-muted-foreground">
+                        {isFr ? 'Sélectionné' : 'Selected'}: <strong className="text-foreground">{selectedSize}</strong>
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {sizes.map((s) => {
+                      const isActive = selectedSize === s;
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setSelectedSize(s)}
+                          className={`min-w-[3rem] px-3 py-2 rounded-lg border-2 text-sm font-medium transition-colors ${
+                            isActive
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'border-border bg-card hover:border-primary/60 text-foreground'
+                          }`}
+                        >
+                          {s}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center gap-3">
                 <span className="text-sm font-medium">{isFr ? 'Quantité' : 'Quantity'}:</span>
                 <button

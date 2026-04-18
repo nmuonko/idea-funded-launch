@@ -23,10 +23,12 @@ interface IntlProduct {
   country: string;
   title: string;
   image_url: string;
+  images: string[] | null;
   product_url: string;
   base_price_usd: number;
   est_weight_kg: number;
   description: string | null;
+  measurements?: string | null;
 }
 
 const ALLOWED = new Set(['china', 'dubai', 'turkey', 'usa']);
@@ -150,16 +152,32 @@ export default function CountryShop() {
             {computedProducts.map((p) => {
               const cdf = p.totalUsd * (exchangeRate || 0);
               const isAdding = adding === p.id;
+              const gallery = (Array.isArray(p.images) && p.images.length > 0)
+                ? p.images
+                : [p.image_url];
               return (
                 <div key={p.id} className="rounded-2xl border border-border/40 bg-card overflow-hidden flex flex-col">
-                  <div className="aspect-square bg-muted overflow-hidden">
-                    <img
-                      src={p.image_url}
-                      alt={p.title}
-                      loading="lazy"
-                      className="w-full h-full object-cover"
-                      onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.3'; }}
-                    />
+                  <div className="relative aspect-square bg-muted overflow-hidden">
+                    <div
+                      className="flex h-full w-full overflow-x-auto snap-x snap-mandatory scrollbar-hide"
+                      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                    >
+                      {gallery.map((src, i) => (
+                        <img
+                          key={i}
+                          src={src}
+                          alt={`${p.title} ${i + 1}`}
+                          loading="lazy"
+                          className="w-full h-full object-cover flex-shrink-0 snap-center"
+                          onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.3'; }}
+                        />
+                      ))}
+                    </div>
+                    {gallery.length > 1 && (
+                      <div className="absolute bottom-1.5 right-1.5 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                        {gallery.length} 📷
+                      </div>
+                    )}
                   </div>
                   <div className="p-3 flex flex-col gap-2 flex-1">
                     <p className="text-sm font-medium text-foreground line-clamp-2 min-h-[2.5rem]">{p.title}</p>

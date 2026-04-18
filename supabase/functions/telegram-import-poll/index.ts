@@ -165,6 +165,9 @@ Deno.serve(async (req) => {
         const fwdChat = msg.forward_origin?.chat ?? msg.forward_from_chat ?? null;
         const fwdMsgId = msg.forward_origin?.message_id ?? msg.forward_from_message_id ?? null;
 
+        const captionRaw = msg.caption ?? msg.text ?? null;
+        const parsed = parseClothingCaption(captionRaw);
+
         const { error: insErr } = await supabase.from('telegram_import_drafts').insert({
           telegram_message_id: msg.message_id,
           telegram_chat_id: msg.chat.id,
@@ -173,10 +176,13 @@ Deno.serve(async (req) => {
           forwarded_from_message_id: fwdMsgId,
           forwarded_by_user_id: msg.from?.id ?? null,
           forwarded_by_username: msg.from?.username ?? null,
-          caption: msg.caption ?? msg.text ?? null,
+          caption: captionRaw,
           image_url: publicUrl,
           image_storage_path: storagePath,
-          suggested_title: (msg.caption ?? '').split('\n')[0]?.slice(0, 200) || null,
+          suggested_title: parsed.title,
+          suggested_brand: parsed.brand,
+          suggested_measurements: parsed.measurements,
+          detected_category: parsed.category,
         });
         if (insErr && !insErr.message.includes('duplicate')) {
           errors.push(`insert failed for msg ${msg.message_id}: ${insErr.message}`);

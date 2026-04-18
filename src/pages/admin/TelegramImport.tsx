@@ -107,7 +107,9 @@ export default function TelegramImport() {
   const handlePollNow = async () => {
     setPolling(true);
     try {
-      const { data, error } = await supabase.functions.invoke('telegram-import-poll');
+      const { data, error } = await supabase.functions.invoke('telegram-import-poll', {
+        body: { manual: true },
+      });
       if (error) throw error;
       toast.success(t(`Imported ${data?.processed ?? 0} new posts`, `${data?.processed ?? 0} nouveaux posts importés`));
       await load();

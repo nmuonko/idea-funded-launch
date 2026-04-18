@@ -48,6 +48,18 @@ Deno.serve(async (req) => {
 
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
+  // Manual invocations (admin "Check now" button) should return immediately
+  // instead of long-polling for up to 50s waiting for new messages.
+  let manual = false;
+  try {
+    if (req.method === 'POST') {
+      const body = await req.clone().json().catch(() => ({}));
+      manual = body?.manual === true;
+    }
+    const url = new URL(req.url);
+    if (url.searchParams.get('manual') === '1') manual = true;
+  } catch { /* ignore */ }
+
   // Read polling offset
   const { data: state, error: stateErr } = await supabase
     .from('telegram_import_state')
@@ -60,11 +72,15 @@ Deno.serve(async (req) => {
   let totalProcessed = 0;
   const errors: string[] = [];
 
+  let iterations = 0;
   while (true) {
+    // Manual mode: do at most one immediate-return poll, no long-polling.
+    if (manual && iterations >= 1) break;
     const remaining = MAX_RUNTIME_MS - (Date.now() - startTime);
     if (remaining < MIN_REMAINING_MS) break;
-    const timeout = Math.min(45, Math.floor(remaining / 1000) - 5);
-    if (timeout < 1) break;
+    const timeout = manual ? 0 : Math.min(45, Math.floor(remaining / 1000) - 5);
+    if (!manual && timeout < 1) break;
+    iterations += 1;
 
     let updates: TgUpdate[] = [];
     try {
@@ -88,7 +104,10 @@ Deno.serve(async (req) => {
       break;
     }
 
-    if (updates.length === 0) continue;
+    if (updates.length === 0) {
+      if (manual) break;
+      continue;
+    }
 
     for (const upd of updates) {
       const msg = upd.message ?? upd.channel_post;

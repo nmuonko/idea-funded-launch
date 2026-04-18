@@ -6370,6 +6370,7 @@ export type Database = {
         Row: {
           caption: string | null
           created_at: string
+          detected_category: string | null
           extra_image_urls: Json
           forwarded_by_user_id: number | null
           forwarded_by_username: string | null
@@ -6384,7 +6385,9 @@ export type Database = {
           reviewed_at: string | null
           reviewed_by: string | null
           status: string
+          suggested_brand: string | null
           suggested_country: string | null
+          suggested_measurements: string | null
           suggested_price_usd: number | null
           suggested_title: string | null
           suggested_weight_kg: number | null
@@ -6395,6 +6398,7 @@ export type Database = {
         Insert: {
           caption?: string | null
           created_at?: string
+          detected_category?: string | null
           extra_image_urls?: Json
           forwarded_by_user_id?: number | null
           forwarded_by_username?: string | null
@@ -6409,7 +6413,9 @@ export type Database = {
           reviewed_at?: string | null
           reviewed_by?: string | null
           status?: string
+          suggested_brand?: string | null
           suggested_country?: string | null
+          suggested_measurements?: string | null
           suggested_price_usd?: number | null
           suggested_title?: string | null
           suggested_weight_kg?: number | null
@@ -6420,6 +6426,7 @@ export type Database = {
         Update: {
           caption?: string | null
           created_at?: string
+          detected_category?: string | null
           extra_image_urls?: Json
           forwarded_by_user_id?: number | null
           forwarded_by_username?: string | null
@@ -6434,7 +6441,9 @@ export type Database = {
           reviewed_at?: string | null
           reviewed_by?: string | null
           status?: string
+          suggested_brand?: string | null
           suggested_country?: string | null
+          suggested_measurements?: string | null
           suggested_price_usd?: number | null
           suggested_title?: string | null
           suggested_weight_kg?: number | null

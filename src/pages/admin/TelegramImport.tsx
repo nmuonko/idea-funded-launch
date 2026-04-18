@@ -20,6 +20,9 @@ interface Draft {
   forwarded_from_chat_username: string | null;
   forwarded_by_username: string | null;
   suggested_title: string | null;
+  suggested_brand: string | null;
+  suggested_measurements: string | null;
+  detected_category: string | null;
   status: string;
   created_at: string;
 }
@@ -61,7 +64,7 @@ export default function TelegramImport() {
     const [{ data: ds }, { data: cs }] = await Promise.all([
       supabase
         .from('telegram_import_drafts')
-        .select('id, caption, image_url, forwarded_from_chat_title, forwarded_from_chat_username, forwarded_by_username, suggested_title, status, created_at')
+        .select('id, caption, image_url, forwarded_from_chat_title, forwarded_from_chat_username, forwarded_by_username, suggested_title, suggested_brand, suggested_measurements, detected_category, status, created_at')
         .eq('status', 'pending')
         .order('created_at', { ascending: false })
         .limit(200),
@@ -84,15 +87,19 @@ export default function TelegramImport() {
     [drafts, selected],
   );
 
-  // auto-fill title from first selected caption when nothing typed
+  // auto-fill title / measurements from first selected draft when fields are empty
   useEffect(() => {
-    if (selectedDrafts.length > 0 && !form.title) {
-      const first = selectedDrafts[0];
-      const guess = first.suggested_title || (first.caption || '').split('\n')[0]?.slice(0, 200) || '';
-      const cap = (first.caption || '').slice(0, 1000);
-      setForm((f) => ({ ...f, title: guess, description: f.description || cap }));
-    }
-  }, [selectedDrafts, form.title]);
+    if (selectedDrafts.length === 0) return;
+    const first = selectedDrafts[0];
+    const guessTitle = first.suggested_title || (first.caption || '').split('\n')[0]?.slice(0, 200) || '';
+    const cap = (first.caption || '').slice(0, 1000);
+    setForm((f) => ({
+      ...f,
+      title: f.title || guessTitle,
+      description: f.description || cap,
+      measurements: f.measurements || first.suggested_measurements || '',
+    }));
+  }, [selectedDrafts]);
 
   const toggle = (id: string) => {
     setSelected((s) => {
@@ -374,6 +381,11 @@ export default function TelegramImport() {
                     {d.forwarded_from_chat_title && (
                       <Badge className="absolute bottom-1.5 left-1.5 bg-background/90 text-foreground text-[10px] py-0 px-1 max-w-[90%] truncate">
                         {d.forwarded_from_chat_title}
+                      </Badge>
+                    )}
+                    {d.detected_category === 'suit' && (
+                      <Badge className="absolute top-1.5 right-1.5 bg-primary text-primary-foreground text-[10px] py-0 px-1.5">
+                        🤵 Suit
                       </Badge>
                     )}
                   </button>

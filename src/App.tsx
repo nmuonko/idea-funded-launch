@@ -62,6 +62,7 @@ const AdminDelivery = lazy(() => import("./pages/admin/Delivery"));
 const AdminHotProducts = lazy(() => import("./pages/admin/HotProducts"));
 const AdminBundleLinks = lazy(() => import("./pages/admin/BundleLinks"));
 const AdminInternationalProducts = lazy(() => import("./pages/admin/InternationalProducts"));
+const AdminTelegramImport = lazy(() => import("./pages/admin/TelegramImport"));
 const AdminCountryShippingRates = lazy(() => import("./pages/admin/CountryShippingRates"));
 const CountryShop = lazy(() => import("./pages/shop/CountryShop"));
 const CountryComingSoon = lazy(() => import("./pages/shop/CountryComingSoon"));
@@ -426,6 +427,11 @@ const App = () => {
               <Route path="international-products" element={
                 <AdminRouteGuard requiredPermission="can_view_marketing">
                   <AdminInternationalProducts />
+                </AdminRouteGuard>
+              } />
+              <Route path="telegram-import" element={
+                <AdminRouteGuard requiredPermission="can_view_marketing">
+                  <AdminTelegramImport />
                 </AdminRouteGuard>
               } />
               <Route path="country-shipping" element={

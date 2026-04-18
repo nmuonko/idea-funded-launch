@@ -230,8 +230,11 @@ export default function IntlProductDetails() {
                     <span className="text-green-500">{isFr ? 'Inclus' : 'Included'}</span>
                   </div>
                   <div className="border-t border-border/40 pt-2 flex justify-between items-center">
-                    <span className="font-semibold">{isFr ? 'Prix final' : 'Final Price'}</span>
-                    <div className="text-2xl font-bold text-primary">${totals.total}</div>
+                    <span className="font-semibold">
+                      {isFr ? 'Prix final' : 'Final Price'}
+                      {qty > 1 && <span className="text-xs text-muted-foreground ml-2">${totals.total} × {qty}</span>}
+                    </span>
+                    <div className="text-2xl font-bold text-primary">${(totals.total * qty).toFixed(2)}</div>
                   </div>
                 </div>
               )}

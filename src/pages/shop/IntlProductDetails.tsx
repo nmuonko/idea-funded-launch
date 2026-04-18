@@ -52,10 +52,18 @@ export default function IntlProductDetails() {
   const [activeImg, setActiveImg] = useState(0);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
 
-  const sizes = useMemo(
-    () => (Array.isArray(product?.available_sizes) ? product!.available_sizes!.filter(Boolean) : []),
-    [product],
-  );
+  const sizes = useMemo(() => {
+    const raw = Array.isArray(product?.available_sizes) ? product!.available_sizes! : [];
+    // Split each entry on common separators (":", ",", "/", "|", whitespace) so "46:48:50" becomes ["46","48","50"]
+    const all = raw.flatMap((s) =>
+      String(s)
+        .split(/[:,/|\s]+/)
+        .map((x) => x.trim())
+        .filter(Boolean),
+    );
+    // Dedupe while preserving order
+    return Array.from(new Set(all));
+  }, [product]);
   const requiresSize = sizes.length > 0;
 
   useEffect(() => {

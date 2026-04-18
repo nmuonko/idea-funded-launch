@@ -51,22 +51,20 @@ export function CountrySelector() {
   };
 
   return (
-    <section className="px-4 mb-4" aria-label={isFr ? 'Choisir un pays' : 'Choose a country'}>
-      <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-foreground/90">
-            {isFr ? 'Acheter par pays' : 'Shop by country'}
-          </h2>
-        </div>
-        <div className="grid grid-cols-4 gap-2">
+    <section className="px-4 mb-6" aria-label={isFr ? 'Choisir un pays' : 'Choose a country'}>
+      <div className="w-full">
+        <h2 className="text-base md:text-lg font-semibold text-foreground mb-3">
+          {isFr ? 'Acheter par pays' : 'Shop by country'}
+        </h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full">
           {countries.map((c) => (
             <button
               key={c.country}
               onClick={() => handleClick(c.country)}
-              className="group flex flex-row md:flex-col items-center justify-center gap-2 rounded-xl border border-border/40 bg-card hover:bg-card/80 hover:border-primary/50 transition-all px-3 py-2.5 md:py-3 active:scale-[0.98]"
+              className="group relative flex flex-col items-center justify-center gap-2 rounded-2xl border border-border/40 bg-card hover:bg-card/80 hover:border-primary/50 transition-all p-5 md:p-6 active:scale-[0.98] w-full"
             >
-              <span className="text-xl md:text-2xl leading-none" aria-hidden>{c.flag_emoji}</span>
-              <span className="text-xs md:text-sm font-medium text-foreground truncate">
+              <span className="text-4xl md:text-5xl leading-none" aria-hidden>{c.flag_emoji}</span>
+              <span className="text-sm md:text-base font-semibold text-foreground">
                 {isFr ? c.label_fr : c.label_en}
               </span>
             </button>

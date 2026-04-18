@@ -165,6 +165,7 @@ export default function TelegramImport() {
           image_url: images[0],
           images,
           measurements: form.measurements.trim() || null,
+          available_sizes: parseSizes(form.sizes),
           product_url: sourceUrl,
           base_price_usd: price,
           est_weight_kg: weight,

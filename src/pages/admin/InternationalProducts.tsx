@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Plus, Trash2, Save, Globe, RefreshCw, Upload } from 'lucide-react';
+import { Loader2, Plus, Trash2, Save, Globe, RefreshCw, Upload, Pencil } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useRef } from 'react';
 
@@ -245,14 +246,25 @@ export default function InternationalProducts() {
             <Plus className="h-5 w-5" />
             {t('Add new product', 'Ajouter un produit')}
           </CardTitle>
-          <CardDescription>
-            {t('Markup', 'Marge')}: <strong>{globalMarkupPercent}%</strong>
-            {' · '}
-            {countries.map((c) => (
-              <span key={c.country} className="mr-3">
-                {c.flag_emoji} ${Number(c.rate_per_kg_usd).toFixed(2)}/kg
-              </span>
-            ))}
+          <CardDescription className="space-y-2">
+            <div>
+              {t('Markup', 'Marge')}: <strong>{globalMarkupPercent}%</strong>
+              {' · '}
+              {countries.map((c) => (
+                <span key={c.country} className="mr-3">
+                  {c.flag_emoji} ${Number(c.rate_per_kg_usd).toFixed(2)}/kg
+                </span>
+              ))}
+            </div>
+            <div>
+              <Link
+                to="/admin/country-shipping"
+                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                <Pencil className="h-3 w-3" />
+                {t('Edit per-kg rates & countries', 'Modifier les tarifs par kg et pays')}
+              </Link>
+            </div>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -605,8 +605,12 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       return [...prev, newItem];
     });
 
+    // International products (intl_*) use telegram/non-retailer URLs that fail
+    // the server's retailer whitelist. Keep them as local-only cart items.
+    const isIntlProduct = (item.provider || '').startsWith('intl_');
+
     // If logged in, fire server add in background — don't block the UI
-    if (user && sessionRef.current) {
+    if (user && sessionRef.current && !isIntlProduct) {
       if (!resolvedUrl) {
         console.error('[CART] Cannot sync item without productUrl:', item);
         return;

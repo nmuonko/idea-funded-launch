@@ -29,6 +29,7 @@ interface IntlProduct {
   est_weight_kg: number;
   description: string | null;
   measurements?: string | null;
+  available_sizes?: string[] | null;
   is_active?: boolean;
 }
 

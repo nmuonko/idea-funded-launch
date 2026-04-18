@@ -53,10 +53,21 @@ export function CountrySelector() {
     return () => { cancelled = true; };
   }, []);
 
-  const handleClick = (country: string) => {
+  const handleClick = async (country: string) => {
     if (country === 'usa') {
       const el = document.getElementById('shop-categories-anchor');
       el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    // If the country has any active international products, go to the shop;
+    // otherwise show the "coming soon" page.
+    const { count } = await (supabase
+      .from('international_products' as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('country', country)
+      .eq('is_active', true) as any);
+    if ((count ?? 0) > 0) {
+      navigate(`/shop/${country}`);
     } else {
       navigate(`/shop/${country}/coming-soon`);
     }

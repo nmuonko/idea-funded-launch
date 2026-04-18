@@ -64,7 +64,7 @@ export default function TelegramImport() {
     const [{ data: ds }, { data: cs }] = await Promise.all([
       supabase
         .from('telegram_import_drafts')
-        .select('id, caption, image_url, forwarded_from_chat_title, forwarded_from_chat_username, forwarded_by_username, suggested_title, status, created_at')
+        .select('id, caption, image_url, forwarded_from_chat_title, forwarded_from_chat_username, forwarded_by_username, suggested_title, suggested_brand, suggested_measurements, detected_category, status, created_at')
         .eq('status', 'pending')
         .order('created_at', { ascending: false })
         .limit(200),

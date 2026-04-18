@@ -29,6 +29,7 @@ interface IntlProduct {
   est_weight_kg: number;
   description: string | null;
   measurements?: string | null;
+  available_sizes?: string[] | null;
   is_active?: boolean;
 }
 
@@ -49,6 +50,13 @@ export default function IntlProductDetails() {
   const [adding, setAdding] = useState(false);
   const [qty, setQty] = useState(1);
   const [activeImg, setActiveImg] = useState(0);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
+
+  const sizes = useMemo(
+    () => (Array.isArray(product?.available_sizes) ? product!.available_sizes!.filter(Boolean) : []),
+    [product],
+  );
+  const requiresSize = sizes.length > 0;
 
   useEffect(() => {
     if (!ALLOWED.has(key)) {
@@ -90,12 +98,19 @@ export default function IntlProductDetails() {
 
   const handleAdd = async (buyNow: boolean) => {
     if (!product || !totals) return;
+    if (requiresSize && !selectedSize) {
+      toast.error(isFr ? 'Veuillez sélectionner une taille' : 'Please select a size');
+      return;
+    }
     setAdding(true);
     try {
+      const titleWithSize = selectedSize
+        ? `${product.title} — ${isFr ? 'Taille' : 'Size'} ${selectedSize}`
+        : product.title;
       await addItem({
-        productId: `intl_${product.id}`,
+        productId: selectedSize ? `intl_${product.id}_${selectedSize}` : `intl_${product.id}`,
         provider: `intl_${product.country}`,
-        title: product.title,
+        title: titleWithSize,
         imageUrl: product.image_url,
         priceUsd: totals.total,
         quantity: qty,
@@ -232,6 +247,41 @@ export default function IntlProductDetails() {
               {product.description && (
                 <div className="text-sm text-muted-foreground whitespace-pre-line">
                   {product.description}
+                </div>
+              )}
+
+              {requiresSize && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      {isFr ? 'Sélectionnez votre taille' : 'Select your size'}
+                      <span className="text-destructive ml-1">*</span>
+                    </span>
+                    {selectedSize && (
+                      <span className="text-xs text-muted-foreground">
+                        {isFr ? 'Sélectionné' : 'Selected'}: <strong className="text-foreground">{selectedSize}</strong>
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {sizes.map((s) => {
+                      const isActive = selectedSize === s;
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setSelectedSize(s)}
+                          className={`min-w-[3rem] px-3 py-2 rounded-lg border-2 text-sm font-medium transition-colors ${
+                            isActive
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'border-border bg-card hover:border-primary/60 text-foreground'
+                          }`}
+                        >
+                          {s}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 

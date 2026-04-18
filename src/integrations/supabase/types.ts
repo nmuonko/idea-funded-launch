@@ -3072,6 +3072,7 @@ export type Database = {
       }
       international_products: {
         Row: {
+          available_sizes: string[]
           base_price_usd: number
           country: string
           created_at: string
@@ -3089,6 +3090,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          available_sizes?: string[]
           base_price_usd: number
           country: string
           created_at?: string
@@ -3106,6 +3108,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          available_sizes?: string[]
           base_price_usd?: number
           country?: string
           created_at?: string

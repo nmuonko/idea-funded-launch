@@ -56,8 +56,12 @@ export default function TelegramImport() {
     price: '',
     weight: DEFAULT_WEIGHT,
     measurements: '',
+    sizes: '', // comma/space-separated, e.g. "46, 48, 50"
     description: '',
   });
+
+  const parseSizes = (s: string): string[] =>
+    s.split(/[,\s/|]+/).map((x) => x.trim()).filter(Boolean).slice(0, 30);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -87,17 +91,21 @@ export default function TelegramImport() {
     [drafts, selected],
   );
 
-  // auto-fill title / measurements from first selected draft when fields are empty
+  // auto-fill title / measurements / sizes from first selected draft when fields are empty
   useEffect(() => {
     if (selectedDrafts.length === 0) return;
     const first = selectedDrafts[0];
     const guessTitle = first.suggested_title || (first.caption || '').split('\n')[0]?.slice(0, 200) || '';
     const cap = (first.caption || '').slice(0, 1000);
+    // Extract sizes from "Sizes: 46, 48, 50" pattern
+    const sizesMatch = (first.suggested_measurements || '').match(/(?:sizes?|tailles?)\s*[:\-]?\s*(.+)/i);
+    const sizesGuess = sizesMatch ? sizesMatch[1].trim() : '';
     setForm((f) => ({
       ...f,
       title: f.title || guessTitle,
       description: f.description || cap,
       measurements: f.measurements || first.suggested_measurements || '',
+      sizes: f.sizes || sizesGuess,
     }));
   }, [selectedDrafts]);
 
@@ -157,6 +165,7 @@ export default function TelegramImport() {
           image_url: images[0],
           images,
           measurements: form.measurements.trim() || null,
+          available_sizes: parseSizes(form.sizes),
           product_url: sourceUrl,
           base_price_usd: price,
           est_weight_kg: weight,
@@ -184,7 +193,7 @@ export default function TelegramImport() {
       toast.success(t(`Published with ${images.length} image(s)!`, `Publié avec ${images.length} image(s) !`));
       setDrafts((ds) => ds.filter((d) => !selected.has(d.id)));
       setSelected(new Set());
-      setForm({ title: '', country: DEFAULT_COUNTRY, price: '', weight: DEFAULT_WEIGHT, measurements: '', description: '' });
+      setForm({ title: '', country: DEFAULT_COUNTRY, price: '', weight: DEFAULT_WEIGHT, measurements: '', sizes: '', description: '' });
     } catch (e: any) {
       toast.error(e?.message || t('Publish failed', 'Échec de la publication'));
     } finally {
@@ -316,6 +325,23 @@ export default function TelegramImport() {
                   onChange={(e) => setForm((f) => ({ ...f, measurements: e.target.value }))}
                   placeholder={t('S: chest 96cm, length 70cm\nM: chest 100cm, length 72cm\nL: chest 104cm, length 74cm', 'S: poitrine 96cm, longueur 70cm\nM: poitrine 100cm, longueur 72cm\nL: poitrine 104cm, longueur 74cm')}
                 />
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-xs">
+                  {t('Available sizes (customer-selectable)', 'Tailles disponibles (sélectionnables par le client)')}
+                </Label>
+                <Input
+                  value={form.sizes}
+                  onChange={(e) => setForm((f) => ({ ...f, sizes: e.target.value }))}
+                  placeholder="46, 48, 50, 52, 54, 56, 58"
+                />
+                {form.sizes.trim() && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {parseSizes(form.sizes).map((s) => (
+                      <Badge key={s} variant="secondary" className="text-[10px]">{s}</Badge>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="md:col-span-2">
                 <Label className="text-xs">{t('Description (optional)', 'Description (optionnel)')}</Label>

@@ -57,18 +57,32 @@ export function CountrySelector() {
           {isFr ? 'Acheter par pays' : 'Shop by country'}
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full">
-          {countries.map((c) => (
-            <button
-              key={c.country}
-              onClick={() => handleClick(c.country)}
-              className="group relative flex flex-col items-center justify-center gap-2 rounded-2xl border border-border/40 bg-card hover:bg-card/80 hover:border-primary/50 transition-all p-5 md:p-6 active:scale-[0.98] w-full"
-            >
-              <span className="text-4xl md:text-5xl leading-none" aria-hidden>{c.flag_emoji}</span>
-              <span className="text-sm md:text-base font-semibold text-foreground">
-                {isFr ? c.label_fr : c.label_en}
-              </span>
-            </button>
-          ))}
+          {countries.map((c) => {
+            const isComingSoon = c.country !== 'usa';
+            return (
+              <button
+                key={c.country}
+                onClick={() => !isComingSoon && handleClick(c.country)}
+                disabled={isComingSoon}
+                aria-disabled={isComingSoon}
+                className={`group relative flex flex-col items-center justify-center gap-2 rounded-2xl border border-border/40 bg-card transition-all p-5 md:p-6 w-full ${
+                  isComingSoon
+                    ? 'opacity-60 cursor-not-allowed'
+                    : 'hover:bg-card/80 hover:border-primary/50 active:scale-[0.98]'
+                }`}
+              >
+                {isComingSoon && (
+                  <span className="absolute top-2 right-2 text-[10px] md:text-xs font-semibold uppercase tracking-wide bg-primary/90 text-primary-foreground px-2 py-0.5 rounded-full">
+                    {isFr ? 'Bientôt' : 'Soon'}
+                  </span>
+                )}
+                <span className={`text-4xl md:text-5xl leading-none ${isComingSoon ? 'grayscale' : ''}`} aria-hidden>{c.flag_emoji}</span>
+                <span className="text-sm md:text-base font-semibold text-foreground">
+                  {isFr ? c.label_fr : c.label_en}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </section>

@@ -3080,7 +3080,9 @@ export type Database = {
           est_weight_kg: number
           id: string
           image_url: string
+          images: Json
           is_active: boolean
+          measurements: string | null
           product_url: string
           sort_order: number
           title: string
@@ -3095,7 +3097,9 @@ export type Database = {
           est_weight_kg?: number
           id?: string
           image_url: string
+          images?: Json
           is_active?: boolean
+          measurements?: string | null
           product_url: string
           sort_order?: number
           title: string
@@ -3110,7 +3114,9 @@ export type Database = {
           est_weight_kg?: number
           id?: string
           image_url?: string
+          images?: Json
           is_active?: boolean
+          measurements?: string | null
           product_url?: string
           sort_order?: number
           title?: string

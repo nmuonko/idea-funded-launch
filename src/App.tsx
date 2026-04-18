@@ -225,6 +225,7 @@ const App = () => {
 
             {/* Country-specific shop pages (China, Dubai, Turkey) */}
             <Route path="/shop/:country/coming-soon" element={<CountryComingSoon />} />
+            <Route path="/shop/:country/product/:id" element={<IntlProductDetails />} />
             <Route path="/shop/:country" element={<CountryShop />} />
             
             <Route path="/admin-login" element={<Index />} />

@@ -98,12 +98,19 @@ export default function IntlProductDetails() {
 
   const handleAdd = async (buyNow: boolean) => {
     if (!product || !totals) return;
+    if (requiresSize && !selectedSize) {
+      toast.error(isFr ? 'Veuillez sélectionner une taille' : 'Please select a size');
+      return;
+    }
     setAdding(true);
     try {
+      const titleWithSize = selectedSize
+        ? `${product.title} — ${isFr ? 'Taille' : 'Size'} ${selectedSize}`
+        : product.title;
       await addItem({
-        productId: `intl_${product.id}`,
+        productId: selectedSize ? `intl_${product.id}_${selectedSize}` : `intl_${product.id}`,
         provider: `intl_${product.country}`,
-        title: product.title,
+        title: titleWithSize,
         imageUrl: product.image_url,
         priceUsd: totals.total,
         quantity: qty,

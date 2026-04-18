@@ -327,6 +327,23 @@ export default function TelegramImport() {
                 />
               </div>
               <div className="md:col-span-2">
+                <Label className="text-xs">
+                  {t('Available sizes (customer-selectable)', 'Tailles disponibles (sélectionnables par le client)')}
+                </Label>
+                <Input
+                  value={form.sizes}
+                  onChange={(e) => setForm((f) => ({ ...f, sizes: e.target.value }))}
+                  placeholder="46, 48, 50, 52, 54, 56, 58"
+                />
+                {form.sizes.trim() && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {parseSizes(form.sizes).map((s) => (
+                      <Badge key={s} variant="secondary" className="text-[10px]">{s}</Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="md:col-span-2">
                 <Label className="text-xs">{t('Description (optional)', 'Description (optionnel)')}</Label>
                 <Textarea
                   rows={2}

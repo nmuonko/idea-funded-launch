@@ -91,17 +91,21 @@ export default function TelegramImport() {
     [drafts, selected],
   );
 
-  // auto-fill title / measurements from first selected draft when fields are empty
+  // auto-fill title / measurements / sizes from first selected draft when fields are empty
   useEffect(() => {
     if (selectedDrafts.length === 0) return;
     const first = selectedDrafts[0];
     const guessTitle = first.suggested_title || (first.caption || '').split('\n')[0]?.slice(0, 200) || '';
     const cap = (first.caption || '').slice(0, 1000);
+    // Extract sizes from "Sizes: 46, 48, 50" pattern
+    const sizesMatch = (first.suggested_measurements || '').match(/(?:sizes?|tailles?)\s*[:\-]?\s*(.+)/i);
+    const sizesGuess = sizesMatch ? sizesMatch[1].trim() : '';
     setForm((f) => ({
       ...f,
       title: f.title || guessTitle,
       description: f.description || cap,
       measurements: f.measurements || first.suggested_measurements || '',
+      sizes: f.sizes || sizesGuess,
     }));
   }, [selectedDrafts]);
 

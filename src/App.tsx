@@ -64,6 +64,7 @@ const AdminBundleLinks = lazy(() => import("./pages/admin/BundleLinks"));
 const AdminInternationalProducts = lazy(() => import("./pages/admin/InternationalProducts"));
 const AdminCountryShippingRates = lazy(() => import("./pages/admin/CountryShippingRates"));
 const CountryShop = lazy(() => import("./pages/shop/CountryShop"));
+const CountryComingSoon = lazy(() => import("./pages/shop/CountryComingSoon"));
 
 // Lazy-loaded secondary pages
 const Cars = lazy(() => import("./pages/Cars"));
@@ -222,6 +223,7 @@ const App = () => {
             <Route path="/shop/product/:provider/:id" element={<ShopProductRedirect />} />
 
             {/* Country-specific shop pages (China, Dubai, Turkey) */}
+            <Route path="/shop/:country/coming-soon" element={<CountryComingSoon />} />
             <Route path="/shop/:country" element={<CountryShop />} />
             
             <Route path="/admin-login" element={<Index />} />

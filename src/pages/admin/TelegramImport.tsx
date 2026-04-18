@@ -256,9 +256,64 @@ export default function TelegramImport() {
         </CardContent>
       </Card>
 
-      {/* Sticky composer */}
+      <div className={`grid gap-6 ${selectedDrafts.length > 0 ? 'lg:grid-cols-[1fr_420px]' : 'grid-cols-1'}`}>
+        <Card className="order-1 lg:order-1">
+          <CardHeader>
+            <CardTitle>
+              {t('Available images', 'Images disponibles')}{' '}
+              <Badge variant="secondary" className="ml-2">{drafts.length}</Badge>
+            </CardTitle>
+            <CardDescription>
+              {t('Click images that belong to the same product to group them', 'Cliquez sur les images du même produit pour les grouper')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : drafts.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground text-sm">
+                {t('No pending images. Forward posts from Telegram to get started.', 'Aucune image. Transférez des posts depuis Telegram pour commencer.')}
+              </div>
+            ) : (
+              <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4">
+                {drafts.map((d) => {
+                  const isSel = selected.has(d.id);
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => toggle(d.id)}
+                      className={`group relative aspect-square overflow-hidden rounded-lg border-2 transition-all ${
+                        isSel ? 'border-primary ring-2 ring-primary/30 scale-[0.97]' : 'border-border hover:border-primary/50'
+                      }`}
+                    >
+                      <img src={d.image_url} alt="draft" className="w-full h-full object-cover" loading="lazy" />
+                      <div className="absolute top-1.5 left-1.5">
+                        <Checkbox checked={isSel} className="bg-background/90 border-background/90" />
+                      </div>
+                      {d.forwarded_from_chat_title && (
+                        <Badge className="absolute bottom-1.5 left-1.5 bg-background/90 text-foreground text-[10px] py-0 px-1 max-w-[90%] truncate">
+                          {d.forwarded_from_chat_title}
+                        </Badge>
+                      )}
+                      {d.detected_category === 'suit' && (
+                        <Badge className="absolute top-1.5 right-1.5 bg-primary text-primary-foreground text-[10px] py-0 px-1.5">
+                          🤵 Suit
+                        </Badge>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+      {/* Composer — side panel on lg+, top on mobile */}
       {selectedDrafts.length > 0 && (
-        <Card className="border-primary/40 sticky top-4 z-10 shadow-lg">
+        <Card className="border-primary/40 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto z-10 shadow-lg order-first lg:order-2">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <CardTitle className="flex items-center gap-2 text-base">
@@ -367,60 +422,7 @@ export default function TelegramImport() {
           </CardContent>
         </Card>
       )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {t('Available images', 'Images disponibles')}{' '}
-            <Badge variant="secondary" className="ml-2">{drafts.length}</Badge>
-          </CardTitle>
-          <CardDescription>
-            {t('Click images that belong to the same product to group them', 'Cliquez sur les images du même produit pour les grouper')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : drafts.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground text-sm">
-              {t('No pending images. Forward posts from Telegram to get started.', 'Aucune image. Transférez des posts depuis Telegram pour commencer.')}
-            </div>
-          ) : (
-            <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-              {drafts.map((d) => {
-                const isSel = selected.has(d.id);
-                return (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => toggle(d.id)}
-                    className={`group relative aspect-square overflow-hidden rounded-lg border-2 transition-all ${
-                      isSel ? 'border-primary ring-2 ring-primary/30 scale-[0.97]' : 'border-border hover:border-primary/50'
-                    }`}
-                  >
-                    <img src={d.image_url} alt="draft" className="w-full h-full object-cover" loading="lazy" />
-                    <div className="absolute top-1.5 left-1.5">
-                      <Checkbox checked={isSel} className="bg-background/90 border-background/90" />
-                    </div>
-                    {d.forwarded_from_chat_title && (
-                      <Badge className="absolute bottom-1.5 left-1.5 bg-background/90 text-foreground text-[10px] py-0 px-1 max-w-[90%] truncate">
-                        {d.forwarded_from_chat_title}
-                      </Badge>
-                    )}
-                    {d.detected_category === 'suit' && (
-                      <Badge className="absolute top-1.5 right-1.5 bg-primary text-primary-foreground text-[10px] py-0 px-1.5">
-                        🤵 Suit
-                      </Badge>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      </div>
     </div>
   );
 }

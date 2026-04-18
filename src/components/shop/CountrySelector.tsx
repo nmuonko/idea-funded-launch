@@ -12,6 +12,19 @@ interface CountryRow {
   sort_order: number;
 }
 
+// ISO country code per shop country key — used to render reliable flag SVGs
+const FLAG_ISO: Record<string, string> = {
+  usa: 'us',
+  china: 'cn',
+  dubai: 'ae',
+  turkey: 'tr',
+};
+
+const flagUrl = (key: string) => {
+  const iso = FLAG_ISO[key] ?? key.slice(0, 2);
+  return `https://flagcdn.com/w160/${iso}.png`;
+};
+
 const FALLBACK: CountryRow[] = [
   { country: 'usa',    label_en: 'USA',    label_fr: 'États-Unis', flag_emoji: '🇺🇸', enabled: true, sort_order: 1 },
   { country: 'china',  label_en: 'China',  label_fr: 'Chine',      flag_emoji: '🇨🇳', enabled: true, sort_order: 2 },
@@ -62,7 +75,13 @@ export function CountrySelector() {
               onClick={() => handleClick(c.country)}
               className="group relative flex flex-col items-center justify-center gap-2 rounded-2xl border border-border/40 bg-card hover:bg-card/80 hover:border-primary/50 transition-all p-5 md:p-6 active:scale-[0.98] w-full"
             >
-              <span className="text-4xl md:text-5xl leading-none" aria-hidden>{c.flag_emoji}</span>
+              <img
+                src={flagUrl(c.country)}
+                alt=""
+                aria-hidden
+                loading="lazy"
+                className="w-12 h-8 md:w-14 md:h-10 rounded-md object-cover shadow-sm ring-1 ring-border/40"
+              />
               <span className="text-sm md:text-base font-semibold text-foreground">
                 {isFr ? c.label_fr : c.label_en}
               </span>

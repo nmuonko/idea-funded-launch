@@ -32,6 +32,62 @@ type TgMessage = {
 };
 type TgUpdate = { update_id: number; message?: TgMessage; channel_post?: TgMessage };
 
+// --- Clothing caption parser ---
+// Detects suit listings (keywords: suit/wool/super/blazer/tuxedo) and extracts
+// brand, sizes (e.g. "SİZE:46:48:50:52") into structured suggestions.
+const SUIT_KEYWORDS = /\b(suit|suits|wool|super\s*\d+s?|blazer|tuxedo|tuxido|costume|veste|smoking|men'?s?\s*wear|mens\s*wear)\b/i;
+const SIZE_LINE_RE = /\b(s[ıi]ze|sizes?|tailles?|talla|размер)\b\s*[:\-–]?\s*([\d:,\s\-/x]+)/i;
+
+function parseClothingCaption(raw: string | null): {
+  title: string | null;
+  brand: string | null;
+  measurements: string | null;
+  category: string | null;
+} {
+  if (!raw || !raw.trim()) {
+    return { title: null, brand: null, measurements: null, category: null };
+  }
+  const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) {
+    return { title: null, brand: null, measurements: null, category: null };
+  }
+
+  const isSuit = SUIT_KEYWORDS.test(raw);
+  const category = isSuit ? 'suit' : null;
+
+  // Brand = first ALL-CAPS-ish line (usually the channel/brand header)
+  let brand: string | null = null;
+  for (const l of lines) {
+    const letters = l.replace(/[^a-zA-ZÇĞİÖŞÜçğıöşü]/g, '');
+    if (letters.length >= 3 && letters === letters.toUpperCase()) {
+      brand = l.slice(0, 120);
+      break;
+    }
+  }
+
+  // Sizes
+  let measurements: string | null = null;
+  const sizeMatch = raw.match(SIZE_LINE_RE);
+  if (sizeMatch) {
+    const nums = (sizeMatch[2].match(/\d{2,3}/g) || []).filter((n) => {
+      const v = parseInt(n, 10);
+      return v >= 28 && v <= 70; // realistic suit/clothing size range
+    });
+    if (nums.length > 0) {
+      measurements = `Sizes: ${nums.join(', ')}`;
+    }
+  }
+
+  // Title: brand + descriptor lines (skip pure size lines)
+  const descriptorLines = lines
+    .filter((l) => !SIZE_LINE_RE.test(l))
+    .slice(0, 3)
+    .join(' — ');
+  const title = (descriptorLines || lines[0]).slice(0, 200);
+
+  return { title, brand, measurements, category };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 

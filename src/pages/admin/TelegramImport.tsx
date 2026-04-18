@@ -383,6 +383,11 @@ export default function TelegramImport() {
                         {d.forwarded_from_chat_title}
                       </Badge>
                     )}
+                    {d.detected_category === 'suit' && (
+                      <Badge className="absolute top-1.5 right-1.5 bg-primary text-primary-foreground text-[10px] py-0 px-1.5">
+                        🤵 Suit
+                      </Badge>
+                    )}
                   </button>
                 );
               })}

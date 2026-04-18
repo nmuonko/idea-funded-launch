@@ -1176,46 +1176,51 @@ export default function ShopHome() {
 
       <main className="pb-8">
         <div className="container mx-auto px-3 sm:px-4">
-          {/* Filters Row */}
-          <div className="grid grid-cols-2 sm:flex sm:justify-end gap-2 mb-4">
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-full sm:w-[180px] bg-white/10 border border-white/20 text-white rounded-full h-11 px-4 text-sm">
-                <SelectValue placeholder={language === 'fr' ? 'Catégorie' : 'Category'} />
-              </SelectTrigger>
-              <SelectContent className="bg-black border border-white/20 z-[9999]">
-                {CATEGORY_FILTER_OPTIONS.map((opt) => (
+          {/* Filters Toolbar — compact, inline, professional */}
+          <div className="flex items-center justify-between gap-3 mb-5 pb-3 border-b border-white/10">
+            <h2 className="text-sm md:text-base font-semibold text-white/90 tracking-tight">
+              {language === 'fr' ? 'Parcourir les produits' : 'Browse products'}
+            </h2>
+            <div className="flex items-center gap-2">
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="w-[140px] sm:w-[170px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
+                  <SelectValue placeholder={language === 'fr' ? 'Catégorie' : 'Category'} />
+                </SelectTrigger>
+                <SelectContent className="bg-black border border-white/20 z-[9999]">
+                  {CATEGORY_FILTER_OPTIONS.map((opt) => (
+                    <SelectItem
+                      key={opt.value}
+                      value={opt.value}
+                      className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
+                    >
+                      {language === 'fr' ? opt.labelFr : opt.labelEn}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={providerFilter} onValueChange={setProviderFilter}>
+                <SelectTrigger className="w-[140px] sm:w-[180px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
+                  <SelectValue placeholder={language === 'fr' ? 'Boutique' : 'Store'} />
+                </SelectTrigger>
+                <SelectContent className="bg-black border border-white/20 z-[9999]">
                   <SelectItem
-                    key={opt.value}
-                    value={opt.value}
+                    value="all"
                     className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
                   >
-                    {language === 'fr' ? opt.labelFr : opt.labelEn}
+                    {language === 'fr' ? 'Tous les magasins' : 'All Stores'}
                   </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={providerFilter} onValueChange={setProviderFilter}>
-              <SelectTrigger className="w-full sm:w-[190px] bg-white/10 border border-white/20 text-white rounded-full h-11 px-4 text-sm">
-                <SelectValue placeholder={language === 'fr' ? 'Boutique' : 'Store'} />
-              </SelectTrigger>
-              <SelectContent className="bg-black border border-white/20 z-[9999]">
-                <SelectItem
-                  value="all"
-                  className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
-                >
-                  {language === 'fr' ? 'Tous les magasins' : 'All Stores'}
-                </SelectItem>
-                {dynamicStores.map((opt) => (
-                  <SelectItem
-                    key={opt.value}
-                    value={opt.value}
-                    className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
-                  >
-                    {opt.label} ({opt.count.toLocaleString()})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                  {dynamicStores.map((opt) => (
+                    <SelectItem
+                      key={opt.value}
+                      value={opt.value}
+                      className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
+                    >
+                      {opt.label} ({opt.count.toLocaleString()})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {providerFilter && providerFilter !== 'all' ? (

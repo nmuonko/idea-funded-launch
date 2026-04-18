@@ -66,6 +66,7 @@ const AdminTelegramImport = lazy(() => import("./pages/admin/TelegramImport"));
 const AdminCountryShippingRates = lazy(() => import("./pages/admin/CountryShippingRates"));
 const CountryShop = lazy(() => import("./pages/shop/CountryShop"));
 const CountryComingSoon = lazy(() => import("./pages/shop/CountryComingSoon"));
+const IntlProductDetails = lazy(() => import("./pages/shop/IntlProductDetails"));
 
 // Lazy-loaded secondary pages
 const Cars = lazy(() => import("./pages/Cars"));
@@ -225,6 +226,7 @@ const App = () => {
 
             {/* Country-specific shop pages (China, Dubai, Turkey) */}
             <Route path="/shop/:country/coming-soon" element={<CountryComingSoon />} />
+            <Route path="/shop/:country/product/:id" element={<IntlProductDetails />} />
             <Route path="/shop/:country" element={<CountryShop />} />
             
             <Route path="/admin-login" element={<Index />} />

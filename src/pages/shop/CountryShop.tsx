@@ -157,7 +157,10 @@ export default function CountryShop() {
                 : [p.image_url];
               return (
                 <div key={p.id} className="rounded-2xl border border-border/40 bg-card overflow-hidden flex flex-col">
-                  <div className="relative aspect-square bg-muted overflow-hidden">
+                  <div
+                    className="relative aspect-square bg-muted overflow-hidden cursor-pointer"
+                    onClick={() => navigate(`/shop/${key}/product/${p.id}`)}
+                  >
                     <div
                       className="flex h-full w-full overflow-x-auto snap-x snap-mandatory scrollbar-hide"
                       style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
@@ -180,7 +183,10 @@ export default function CountryShop() {
                     )}
                   </div>
                   <div className="p-3 flex flex-col gap-2 flex-1">
-                    <p className="text-sm font-medium text-foreground line-clamp-2 min-h-[2.5rem]">{p.title}</p>
+                    <p
+                      className="text-sm font-medium text-foreground line-clamp-2 min-h-[2.5rem] cursor-pointer hover:text-primary"
+                      onClick={() => navigate(`/shop/${key}/product/${p.id}`)}
+                    >{p.title}</p>
                     <div className="mt-auto">
                       <div className="text-base font-bold text-primary">${p.totalUsd}</div>
                       {exchangeRate > 0 && (
@@ -204,10 +210,10 @@ export default function CountryShop() {
                         size="sm"
                         className="flex-1 px-2 bg-primary hover:bg-primary/90"
                         disabled={isAdding}
-                        onClick={() => handleAdd(p, true)}
+                        onClick={() => navigate(`/shop/${key}/product/${p.id}`)}
                       >
                         <Zap className="h-3.5 w-3.5 mr-1" />
-                        {isFr ? 'Acheter' : 'Buy'}
+                        {isFr ? 'Voir' : 'View'}
                       </Button>
                     </div>
                   </div>

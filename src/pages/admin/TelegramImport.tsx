@@ -56,8 +56,12 @@ export default function TelegramImport() {
     price: '',
     weight: DEFAULT_WEIGHT,
     measurements: '',
+    sizes: '', // comma/space-separated, e.g. "46, 48, 50"
     description: '',
   });
+
+  const parseSizes = (s: string): string[] =>
+    s.split(/[,\s/|]+/).map((x) => x.trim()).filter(Boolean).slice(0, 30);
 
   const load = useCallback(async () => {
     setLoading(true);

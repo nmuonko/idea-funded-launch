@@ -12,7 +12,7 @@ import {
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, Home,
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
   Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe,
-  ChevronDown, Database, Store, Gift, Archive, Brain, MapPin, Flame, TrendingUp, Package
+  ChevronDown, Database, Store, Gift, Archive, Brain, MapPin, Flame, TrendingUp, Package, Send
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AdminNotificationsBell } from '@/components/admin/AdminNotificationsBell';

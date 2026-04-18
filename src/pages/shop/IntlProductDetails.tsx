@@ -214,10 +214,6 @@ export default function IntlProductDetails() {
               {totals && (
                 <div className="rounded-2xl border border-border/40 bg-card p-4 space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">{isFr ? 'Article' : 'Item'}</span>
-                    <span className="text-foreground">${product.base_price_usd.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">{isFr ? 'Frais de marge' : 'Markup Fee'}</span>
                     <span className="text-green-500">{isFr ? 'Inclus' : 'Included'}</span>
                   </div>
@@ -226,13 +222,8 @@ export default function IntlProductDetails() {
                     <span className="text-green-500">{isFr ? 'Inclus' : 'Included'}</span>
                   </div>
                   <div className="border-t border-border/40 pt-2 flex justify-between items-center">
-                    <span className="font-semibold">Total</span>
-                    <div className="text-right">
-                      <div className="text-2xl font-bold text-primary">${totals.total}</div>
-                      {cdf > 0 && (
-                        <div className="text-xs text-muted-foreground">≈ {cdf.toLocaleString()} CDF</div>
-                      )}
-                    </div>
+                    <span className="font-semibold">{isFr ? 'Prix final' : 'Final Price'}</span>
+                    <div className="text-2xl font-bold text-primary">${totals.total}</div>
                   </div>
                 </div>
               )}

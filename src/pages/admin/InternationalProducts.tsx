@@ -11,8 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Plus, Trash2, Save, Globe, RefreshCw } from 'lucide-react';
+import { Loader2, Plus, Trash2, Save, Globe, RefreshCw, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import { useRef } from 'react';
 
 interface CountryRow {
   country: string;
@@ -66,6 +67,34 @@ export default function InternationalProducts() {
   // Inline edit
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Partial<IntlProduct>>({});
+
+  // Image upload
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
+  const handleFileUpload = async (file: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error(t('Please select an image file', 'Veuillez sélectionner une image'));
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error(t('Image must be under 5MB', 'L\'image doit faire moins de 5 Mo'));
+      return;
+    }
+    setUploadingImage(true);
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const path = `international-products/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error } = await supabase.storage.from('product-images').upload(path, file);
+      if (error) { toast.error('Upload failed: ' + error.message); return; }
+      const { data: urlData } = supabase.storage.from('product-images').getPublicUrl(path);
+      setForm((f) => ({ ...f, image_url: urlData.publicUrl }));
+      toast.success(t('Image uploaded', 'Image téléchargée'));
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   const loadAll = async () => {
     setLoading(true);
@@ -242,12 +271,18 @@ export default function InternationalProducts() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>{t('Source URL', 'URL source')} *</Label>
+              <Label>{t('Product page link (where you found it)', 'Lien de la page produit (où vous l\'avez trouvé)')} *</Label>
               <Input
-                placeholder="https://..."
+                placeholder={t('e.g. https://www.alibaba.com/product/...', 'ex: https://www.alibaba.com/product/...')}
                 value={form.product_url}
                 onChange={(e) => setForm({ ...form, product_url: e.target.value })}
               />
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'The original listing URL on Alibaba, 1688, DHgate, Trendyol, etc. We use it as a reference to re-source or verify the product.',
+                  'L\'URL d\'origine sur Alibaba, 1688, DHgate, Trendyol, etc. Nous l\'utilisons comme référence pour re-sourcer ou vérifier le produit.',
+                )}
+              </p>
             </div>
           </div>
 
@@ -261,12 +296,39 @@ export default function InternationalProducts() {
           </div>
 
           <div className="space-y-2">
-            <Label>{t('Image URL', 'URL image')} *</Label>
-            <Input
-              placeholder="https://..."
-              value={form.image_url}
-              onChange={(e) => setForm({ ...form, image_url: e.target.value })}
-            />
+            <Label>{t('Product image', 'Image du produit')} *</Label>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                placeholder={t('Paste image URL or upload from computer →', 'Collez l\'URL de l\'image ou téléchargez →')}
+                value={form.image_url}
+                onChange={(e) => setForm({ ...form, image_url: e.target.value })}
+                className="flex-1"
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleFileUpload(f);
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingImage}
+              >
+                {uploadingImage ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4 mr-2" />
+                )}
+                {t('Upload from computer', 'Depuis l\'ordinateur')}
+              </Button>
+            </div>
             {form.image_url && (
               <img
                 src={form.image_url}

@@ -76,6 +76,21 @@ interface HomeFeedResponse {
 }
 
 const SLOW_CATEGORIES = new Set(ALL_HOMEPAGE_CATEGORIES);
+const HOMEPAGE_MAX_PRICE_USD = 200;
+const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set(['vehicles', 'cars']);
+const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_motors']);
+
+function isHomepagePriceAllowed(product: Product, categoryKey?: string): boolean {
+  if (categoryKey && HOMEPAGE_PRICE_EXEMPT_CATEGORIES.has(categoryKey)) return true;
+  const provider = (product.provider || '').toLowerCase();
+  if (HOMEPAGE_PRICE_EXEMPT_PROVIDERS.has(provider)) return true;
+  const price = Number(product.priceUsd || 0);
+  return price > 0 && price <= HOMEPAGE_MAX_PRICE_USD;
+}
+
+function filterHomepageProducts(products: Product[], categoryKey?: string): Product[] {
+  return products.filter(product => isHomepagePriceAllowed(product, categoryKey));
+}
 
 function getCachedCategoryResult(catKey: string): Product[] | null {
   try {
@@ -84,14 +99,15 @@ function getCachedCategoryResult(catKey: string): Product[] | null {
     const { items, ts } = JSON.parse(raw);
     if (Date.now() - ts > CURATED_CACHE_TTL_MS) return null;
     if (!Array.isArray(items) || items.length === 0) return null;
-    return items;
+    return filterHomepageProducts(items, catKey);
   } catch { return null; }
 }
 
 function setCachedCategoryResult(catKey: string, items: Product[]) {
   try {
-    if (items.length > 0) {
-      localStorage.setItem(`afrishop_curated_v2:${catKey}`, JSON.stringify({ items, ts: Date.now() }));
+    const filteredItems = filterHomepageProducts(items, catKey);
+    if (filteredItems.length > 0) {
+      localStorage.setItem(`afrishop_curated_v2:${catKey}`, JSON.stringify({ items: filteredItems, ts: Date.now() }));
     }
   } catch { /* quota exceeded, ignore */ }
 }
@@ -369,6 +385,8 @@ export default function ShopHome() {
         mapped = rawItems
           .map((item: any) => mapItemToProduct(item))
           .filter(isValidProduct);
+
+        mapped = filterHomepageProducts(mapped, catKey);
       } catch (endpointErr) {
         console.warn(`[ShopHome] catalog-category fetch for ${catKey} page ${page} failed:`, endpointErr);
       }
@@ -391,13 +409,13 @@ export default function ShopHome() {
           }
         }
 
-        mapped = deduplicateProducts(sortByLuxury(fallbackPool)).slice(0, PAGE_SIZE);
+        mapped = filterHomepageProducts(deduplicateProducts(sortByLuxury(fallbackPool)).slice(0, PAGE_SIZE), catKey);
         if (totalCount === 0) totalCount = mapped.length;
       }
 
       if (append) {
         setCategoryProducts(prev => {
-          const combined = deduplicateProducts([...prev, ...mapped]);
+          const combined = filterHomepageProducts(deduplicateProducts([...prev, ...mapped]), catKey);
           categoryProductsCacheRef.current[catKey] = { products: combined, count: Math.max(totalCount, combined.length) };
           return combined;
         });
@@ -492,7 +510,9 @@ export default function ShopHome() {
       }
 
       if (data?.sections?.length) {
-        const all = data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0);
+        const all = filterHomepageProducts(
+          data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0)
+        );
         setAccueilProducts(all);
       }
     } catch (err: any) {
@@ -908,8 +928,10 @@ export default function ShopHome() {
             items = filterForCategory(items, catKey);
           }
 
-          items = deduplicateProducts(sortByLuxury(items)).slice(0, 4);
+          items = filterHomepageProducts(deduplicateProducts(sortByLuxury(items)).slice(0, 4), catKey);
         }
+
+        items = filterHomepageProducts(items, catKey);
 
         if (SLOW_CATEGORIES.has(catKey)) {
           setCachedCategoryResult(catKey, items);
@@ -950,23 +972,23 @@ export default function ShopHome() {
 
     const allPinnedProducts: Product[] = [];
     for (const catKey of trendingCats) {
-      const pins = pinnedByCategory[catKey] || [];
+      const pins = filterHomepageProducts(pinnedByCategory[catKey] || [], catKey);
       allPinnedProducts.push(...pins);
     }
     const TRENDING_JUNK = ['for parts', 'for repair', 'cracked', 'as-is', 'as is', 'read description', 'broken', 'damaged'];
-    const combinedPool = [...allPinnedProducts, ...accueilProducts].filter(p => {
+    const combinedPool = filterHomepageProducts([...allPinnedProducts, ...accueilProducts]).filter(p => {
       const t = (p.title || '').toLowerCase();
       return !TRENDING_JUNK.some(kw => t.includes(kw));
     });
 
     for (const cat of trendingCats) {
-      if (trending.length >= 16) break; // Early termination
+      if (trending.length >= 16) break;
       const relevant = combinedPool.filter(p => isRelevantToCategory(p, cat));
       const amazonFirst = [
         ...relevant.filter(p => (p.provider || '').toLowerCase() === 'rainforest'),
         ...relevant.filter(p => (p.provider || '').toLowerCase() !== 'rainforest'),
       ];
-      const sorted = sortByLuxury(amazonFirst);
+      const sorted = filterHomepageProducts(sortByLuxury(amazonFirst), cat);
       let count = 0;
       for (const p of sorted) {
         if (count >= 2) break;
@@ -979,7 +1001,7 @@ export default function ShopHome() {
     }
 
     if (trending.length < 16) {
-      for (const p of sortByLuxury(combinedPool)) {
+      for (const p of filterHomepageProducts(sortByLuxury(combinedPool))) {
         if (trending.length >= 16) break;
         if (!dedup.has(p.id) && (p.priceUsd || 0) > 0) {
           trending.push(p);
@@ -988,7 +1010,6 @@ export default function ShopHome() {
       }
     }
 
-    // Provider diversity interleave
     const byProvider: Record<string, Product[]> = {};
     for (const p of trending) {
       const prov = (p.provider || 'ebay').toLowerCase();
@@ -1015,9 +1036,9 @@ export default function ShopHome() {
   }, [accueilProducts, pinnedByCategory]);
 
   // ====== MEMOIZED FILTERED RESULTS ======
-  const filteredTrending = useMemo(() => applyFilters(trendingFeed), [applyFilters, trendingFeed]);
-  const filteredRecentlyViewed = useMemo(() => applyFilters(recentlyViewed), [applyFilters, recentlyViewed]);
-  const filteredStoreProducts = useMemo(() => filterByCategory(storeProducts), [filterByCategory, storeProducts]);
+  const filteredTrending = useMemo(() => filterHomepageProducts(applyFilters(trendingFeed)), [applyFilters, trendingFeed]);
+  const filteredRecentlyViewed = useMemo(() => filterHomepageProducts(applyFilters(recentlyViewed)), [applyFilters, recentlyViewed]);
+  const filteredStoreProducts = useMemo(() => filterHomepageProducts(filterByCategory(storeProducts)), [filterByCategory, storeProducts]);
 
   // Memoize per-category display items
   const promoCategoryItems = useMemo(() => {
@@ -1083,6 +1104,9 @@ export default function ShopHome() {
         }
         // Resolve all pinned prices server-side in one batch
         await applyServerPrices(allPinned);
+        for (const [catKey, products] of Object.entries(grouped)) {
+          grouped[catKey] = filterHomepageProducts(products, catKey);
+        }
         setPinnedByCategory(grouped);
         const loadingUpdates: Record<string, boolean> = {};
         for (const catKey of ALL_HOMEPAGE_CATEGORIES) {
@@ -1110,7 +1134,9 @@ export default function ShopHome() {
             client: 'web',
           }, { skipCache: true });
           if (data?.sections?.length) {
-            const all = data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0);
+            const all = filterHomepageProducts(
+              data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0)
+            );
             setAccueilProducts(all);
           }
         } catch (err: any) {

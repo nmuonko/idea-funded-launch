@@ -926,8 +926,10 @@ export default function ShopHome() {
             items = filterForCategory(items, catKey);
           }
 
-          items = deduplicateProducts(sortByLuxury(items)).slice(0, 4);
+          items = filterHomepageProducts(deduplicateProducts(sortByLuxury(items)).slice(0, 4), catKey);
         }
+
+        items = filterHomepageProducts(items, catKey);
 
         if (SLOW_CATEGORIES.has(catKey)) {
           setCachedCategoryResult(catKey, items);

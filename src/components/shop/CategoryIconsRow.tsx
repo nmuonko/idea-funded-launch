@@ -2,25 +2,18 @@ import React, { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
+import { ALL_HOMEPAGE_CATEGORIES, CATEGORY_TITLE_MAP } from '@/lib/categoryConfig';
 
-const CATEGORIES = [
-  { key: 'phones', fr: 'Téléphones', en: 'Phones', image: 'https://images.unsplash.com/photo-1592899677977-9c10ca588bbd?w=160&h=160&fit=crop' },
-  { key: 'electronics', fr: 'Électronique', en: 'Electronics', image: 'https://images.unsplash.com/photo-1498049794561-7780e7231661?w=160&h=160&fit=crop' },
-  { key: 'gaming', fr: 'Jeux Vidéo', en: 'Gaming', image: 'https://images.unsplash.com/photo-1606144042614-b2417e99c4e3?w=160&h=160&fit=crop' },
-  { key: 'vehicles', fr: 'Véhicules', en: 'Vehicles', image: 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=160&h=160&fit=crop' },
-  { key: 'home_garden', fr: 'Cuisine & Salon', en: 'Home & Living', image: 'https://images.unsplash.com/photo-1556228453-efd6c1ff04f6?w=160&h=160&fit=crop' },
-  { key: 'toys', fr: 'Jouets', en: 'Toys', image: 'https://images.unsplash.com/photo-1558060370-d644479cb6f7?w=160&h=160&fit=crop' },
-  { key: 'jewelry_watches', fr: 'Montres', en: 'Watches', image: 'https://images.unsplash.com/photo-1524592094714-0f0654e20314?w=160&h=160&fit=crop' },
-  { key: 'clothing', fr: 'Mode', en: 'Fashion', image: 'https://images.unsplash.com/photo-1445205170230-053b83016050?w=160&h=160&fit=crop' },
-  { key: 'sporting_goods', fr: 'Sport', en: 'Sports', image: 'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=160&h=160&fit=crop' },
-  { key: 'parts_accessories', fr: 'Pièces Auto', en: 'Auto Parts', image: 'https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=160&h=160&fit=crop' },
-  { key: 'refurbished', fr: 'Reconditionné', en: 'Refurbished', image: 'https://images.unsplash.com/photo-1530893609608-32a9af3aa95c?w=160&h=160&fit=crop' },
-  { key: 'audio_music', fr: 'Audio', en: 'Audio', image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=160&h=160&fit=crop' },
-  { key: 'shoes_sneakers', fr: 'Chaussures', en: 'Shoes', image: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=160&h=160&fit=crop' },
-  { key: 'cameras_photo', fr: 'Caméras', en: 'Cameras', image: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=160&h=160&fit=crop' },
-  { key: 'beauty_health', fr: 'Beauté', en: 'Beauty', image: 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=160&h=160&fit=crop' },
-  { key: 'collectibles', fr: 'Collections', en: 'Collectibles', image: 'https://images.unsplash.com/photo-1618336753974-aae8e04506aa?w=160&h=160&fit=crop' },
-];
+const CATEGORY_IMAGES: Record<string, string> = {
+  phones: 'https://images.unsplash.com/photo-1592899677977-9c10ca588bbd?w=160&h=160&fit=crop',
+  electronics: 'https://images.unsplash.com/photo-1498049794561-7780e7231661?w=160&h=160&fit=crop',
+  audio_music: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=160&h=160&fit=crop',
+  gaming: 'https://images.unsplash.com/photo-1606144042614-b2417e99c4e3?w=160&h=160&fit=crop',
+  vehicles: 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=160&h=160&fit=crop',
+  jewelry_watches: 'https://images.unsplash.com/photo-1524592094714-0f0654e20314?w=160&h=160&fit=crop',
+  refurbished: 'https://images.unsplash.com/photo-1530893609608-32a9af3aa95c?w=160&h=160&fit=crop',
+  cameras_photo: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=160&h=160&fit=crop',
+};
 
 export const CategoryIconsRow = React.forwardRef<HTMLDivElement, Record<string, never>>(function CategoryIconsRow(_props, _ref) {
   const { language } = useLanguage();

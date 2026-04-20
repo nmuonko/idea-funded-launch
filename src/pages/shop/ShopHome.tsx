@@ -111,6 +111,15 @@ function filterHomepageProducts(products: Product[], categoryKey?: string): Prod
   return products.filter(product => isHomepagePriceAllowed(product, categoryKey));
 }
 
+function keepEnoughHomepageProducts(products: Product[], categoryKey?: string, minimum = 4): Product[] {
+  const capped = filterHomepageProducts(products, categoryKey);
+  if (capped.length >= minimum) return capped;
+
+  const cappedIds = new Set(capped.map(p => p.id));
+  const overCapBackfill = products.filter(p => !cappedIds.has(p.id));
+  return [...capped, ...overCapBackfill].slice(0, Math.min(minimum, products.length));
+}
+
 function getCachedCategoryResult(catKey: string): Product[] | null {
   try {
     const raw = localStorage.getItem(`afrishop_curated_v2:${catKey}`);
@@ -118,13 +127,13 @@ function getCachedCategoryResult(catKey: string): Product[] | null {
     const { items, ts } = JSON.parse(raw);
     if (Date.now() - ts > CURATED_CACHE_TTL_MS) return null;
     if (!Array.isArray(items) || items.length === 0) return null;
-    return filterHomepageProducts(items, catKey);
+    return keepEnoughHomepageProducts(items, catKey);
   } catch { return null; }
 }
 
 function setCachedCategoryResult(catKey: string, items: Product[]) {
   try {
-    const filteredItems = filterHomepageProducts(items, catKey);
+    const filteredItems = keepEnoughHomepageProducts(items, catKey);
     if (filteredItems.length > 0) {
       localStorage.setItem(`afrishop_curated_v2:${catKey}`, JSON.stringify({ items: filteredItems, ts: Date.now() }));
     }

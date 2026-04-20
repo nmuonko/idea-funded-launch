@@ -1,0 +1,1 @@
+DO $$ BEGIN RAISE NOTICE 'active_hot_products_over_200=%', (SELECT COUNT(*) FROM public.hot_products_showcase WHERE is_active = true AND COALESCE(total_price_usd,0) > 200 AND COALESCE(provider,'') NOT IN ('cargurus','carvana','ebay_motors')); END $$;

@@ -36,10 +36,30 @@ const EMAIL_TEMPLATES: Record<string, React.ComponentType<any>> = {
 }
 
 // Configuration
-const SITE_NAME = "idea-funded-launch"
+const SITE_NAME = "AfriShop USA"
 const SENDER_DOMAIN = "notify.afrishop-usa.com"
 const ROOT_DOMAIN = "afrishop-usa.com"
 const FROM_DOMAIN = "afrishop-usa.com" // Domain shown in From address (may be root or sender subdomain)
+
+function getFrontendBaseUrl(): string {
+  return (Deno.env.get('FRONTEND_BASE_URL') || `https://${ROOT_DOMAIN}`).replace(/\/$/, '')
+}
+
+function buildConfirmationUrl(emailType: string, payloadData: Record<string, any>): string {
+  const authBaseUrl = (Deno.env.get('SUPABASE_URL') || '').replace(/\/$/, '')
+  const frontendBaseUrl = getFrontendBaseUrl()
+  const redirectTo = payloadData.redirect_to || `${frontendBaseUrl}/auth/reset-password`
+
+  if (emailType === 'recovery' && authBaseUrl && payloadData.token_hash) {
+    const verifyUrl = new URL(`${authBaseUrl}/auth/v1/verify`)
+    verifyUrl.searchParams.set('token', payloadData.token_hash)
+    verifyUrl.searchParams.set('type', 'recovery')
+    verifyUrl.searchParams.set('redirect_to', redirectTo)
+    return verifyUrl.toString()
+  }
+
+  return payloadData.url || `${frontendBaseUrl}/auth/reset-password`
+}
 
 // Sample data for preview mode ONLY (not used in actual email sending).
 // URLs are baked in at scaffold time from the project's real data.
@@ -220,9 +240,9 @@ async function handleWebhook(req: Request): Promise<Response> {
   // Build template props from payload.data (HookData structure)
   const templateProps = {
     siteName: SITE_NAME,
-    siteUrl: `https://${ROOT_DOMAIN}`,
+    siteUrl: getFrontendBaseUrl(),
     recipient: payload.data.email,
-    confirmationUrl: payload.data.url,
+    confirmationUrl: buildConfirmationUrl(emailType, payload.data),
     token: payload.data.token,
     email: payload.data.email,
     newEmail: payload.data.new_email,

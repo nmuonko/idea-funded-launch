@@ -89,6 +89,11 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
   let hasMore = false;
   let total = 0;
 
+  if (categoryKey === "clothing" || categoryKey === "clothing_shoes_accessories" || categoryKey?.startsWith("clothing_")) {
+    console.log(`[EBAY_FETCH] requestId=${requestId} blocked eBay clothing category=${categoryKey}`);
+    return { items, hasMore, total };
+  }
+
   if (!effectiveMode.ebayActive || effectiveMode.mode === "amazon") {
     return { items, hasMore, total };
   }
@@ -184,6 +189,15 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
         });
         console.log(`[EBAY_FETCH] requestId=${requestId} HEAVY_EQUIPMENT light filter: ${rawCount} → ${filteredItems.length}`);
       }
+
+      filteredItems = filteredItems.filter(item => {
+        const { category } = mapCategoryAndSubcategory({
+          title: item.title,
+          provider: "ebay",
+          productUrl: item.product_url,
+        });
+        return category !== "clothing_shoes_accessories";
+      });
 
       const mappedCount = filteredItems.length;
 

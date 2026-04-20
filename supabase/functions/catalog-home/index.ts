@@ -51,6 +51,22 @@ const staticCorsHeaders = {
 // Keep backward compat: corsHeaders used throughout the file
 const corsHeaders = staticCorsHeaders;
 
+function isEbayClothingItem(item: Record<string, unknown>): boolean {
+  const provider = String(item.provider || "").toLowerCase();
+  if (provider !== "ebay") return false;
+
+  const category = String(item.unified_category || item.category || item.category_key || "").toLowerCase();
+  const segment = String(item.segment || item._recipeKey || "").toLowerCase();
+  const title = String(item.title || "").toLowerCase();
+
+  if (category.includes("clothing") || segment.includes("clothing") || segment === "fashion") return true;
+  return /\b(shirt|t-shirt|hoodie|jacket|coat|pants|jeans|dress|skirt|shoes|sneakers|boots|sandals)\b/i.test(title);
+}
+
+function withoutEbayClothing<T extends Record<string, unknown>>(items: T[]): T[] {
+  return items.filter(item => !isEbayClothingItem(item));
+}
+
 // ===== CLIENT DETECTION =====
 type ClientType = "mobile" | "web";
 
@@ -434,7 +450,8 @@ async function getCachedFeedWithStale(env: string, category: string): Promise<{ 
         const isCompatible = schemaVersion <= CACHE_SCHEMA_VERSION;
         console.log(`[CATALOG_HOME] cacheHit key=${cacheKey} schemaVersion=${schemaVersion} items=${data.items.length} compatible=${isCompatible}`);
         if (isCompatible) {
-          return { cache: data as CacheEntry, isStale: false };
+          data.items = withoutEbayClothing(data.items as Array<Record<string, unknown>>);
+          if (data.items.length > 0) return { cache: data as CacheEntry, isStale: false };
         }
         // Only reject if schema version is from future (greater than current)
         console.log(`[CATALOG_HOME] cache_schema_future_incompatible key=${cacheKey} cacheVersion=${schemaVersion} current=${CACHE_SCHEMA_VERSION}`);
@@ -461,7 +478,8 @@ async function getCachedFeedWithStale(env: string, category: string): Promise<{ 
         const isCompatible = schemaVersion <= CACHE_SCHEMA_VERSION;
         console.log(`[CATALOG_HOME] stale_cacheHit key=${cacheKey} schemaVersion=${schemaVersion} items=${data.items.length} compatible=${isCompatible}`);
         if (isCompatible) {
-          return { cache: data as CacheEntry, isStale: true };
+          data.items = withoutEbayClothing(data.items as Array<Record<string, unknown>>);
+          if (data.items.length > 0) return { cache: data as CacheEntry, isStale: true };
         }
         console.log(`[CATALOG_HOME] stale_cache_future_incompatible key=${cacheKey} cacheVersion=${schemaVersion} current=${CACHE_SCHEMA_VERSION}`);
       }
@@ -511,7 +529,7 @@ async function bootstrapFromDatabase(correlationId: string): Promise<CatalogItem
     
     console.log(`[CATALOG_HOME] bootstrap ok correlationId=${correlationId}`);
 
-    const rows = await res.json() as Array<Record<string, unknown>>;
+    const rows = withoutEbayClothing(await res.json() as Array<Record<string, unknown>>);
     
     if (!Array.isArray(rows) || rows.length === 0) {
       console.warn(`[CATALOG_HOME][BOOTSTRAP] No items found in catalog_items`);
@@ -743,7 +761,7 @@ async function fetchEbayItems(
     const rawItems = data.itemSummaries || [];
     const items = rawItems
       .map((i: Record<string, unknown>) => mapEbayItem(i, segment))
-      .filter((i: CatalogItem | null): i is CatalogItem => i !== null && !!i.title && !!i.image_url);
+      .filter((i: CatalogItem | null): i is CatalogItem => i !== null && !!i.title && !!i.image_url && !isEbayClothingItem(i as unknown as Record<string, unknown>));
     
     console.log(`[CATALOG_HOME][EBAY] correlationId=${correlationId} query="${query.substring(0,30)}" fetched=${rawItems.length} kept=${items.length} ms=${Date.now()-startMs}`);
     return items;
@@ -1265,7 +1283,7 @@ serve(async (req) => {
 
         if (webCache.hit && webCache.payload && webCache.schemaVersion === recipeSettings.web_schema_version) {
             const payload = webCache.payload as Record<string, unknown>;
-            const rawItems = payload.items as Array<Record<string, unknown>> || [];
+            const rawItems = withoutEbayClothing(payload.items as Array<Record<string, unknown>> || []);
             
             // Filter items by _recipeKey
             const allItems = rawItems.filter((item: Record<string, unknown>) => {

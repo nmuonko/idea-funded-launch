@@ -540,7 +540,12 @@ function mapAndFilter(rows: Array<Record<string, unknown>>, profile: SectionProf
     .map(row => {
       const image = bestProductImage(row.image_url as string | null, row.images as unknown);
       if (!image) return null;
-      const blocked = isDisallowedItem({ title: row.title as string, productUrl: row.product_url as string });
+      const blocked = isDisallowedItem({
+        title: row.title as string,
+        productUrl: row.product_url as string,
+        provider: row.provider as string,
+        category: row.unified_category as string,
+      });
       if (blocked.isDisallowed) return null;
       return {
         id: `${row.provider}_${row.provider_product_id}`,

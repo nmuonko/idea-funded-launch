@@ -762,12 +762,12 @@ export default function ShopHome() {
             'Tag Heuer watch', 'Breitling watch', 'Tudor watch',
             'luxury watch men', 'luxury watch women',
           ];
-          const watches = await searchValidItems(watchQueries, 4, seenIds);
+          const watches = await searchValidItems(watchQueries, 4, seenIds, { preserveOverCapIfNeeded: true });
           const ringQueries = [
             'diamond ring', 'gold ring luxury', 'Cartier ring',
             'Tiffany ring', 'engagement ring diamond',
           ];
-          const rings = await searchValidItems(ringQueries, 2, seenIds);
+          const rings = await searchValidItems(ringQueries, 2, seenIds, { preserveOverCapIfNeeded: true });
           const fillerQueries = [
             'Cartier bracelet', 'diamond bracelet',
             'luxury necklace', 'diamond necklace',
@@ -779,7 +779,7 @@ export default function ShopHome() {
           const leftover = [...watches.slice(2), ...rings.slice(1)];
           for (const p of leftover) { if (assembled.length < 4) assembled.push(p); }
           if (assembled.length < 4) {
-            const filler = await searchValidItems(fillerQueries, 4 - assembled.length, seenIds);
+            const filler = await searchValidItems(fillerQueries, 4 - assembled.length, seenIds, { preserveOverCapIfNeeded: true });
             assembled.push(...filler);
           }
           items = assembled.slice(0, 4);
@@ -956,10 +956,10 @@ export default function ShopHome() {
             items = filterForCategory(items, catKey);
           }
 
-          items = filterHomepageProducts(deduplicateProducts(sortByLuxury(items)).slice(0, 4), catKey);
+          items = keepEnoughHomepageProducts(deduplicateProducts(sortByLuxury(items)), catKey).slice(0, 4);
         }
 
-        items = filterHomepageProducts(items, catKey);
+        items = keepEnoughHomepageProducts(items, catKey);
 
         if (SLOW_CATEGORIES.has(catKey)) {
           setCachedCategoryResult(catKey, items);

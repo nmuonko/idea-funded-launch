@@ -179,16 +179,14 @@ export function smartRankItems(items: SectionItem[], sectionKey: string): Sectio
  * For other sections, just deprioritize them.
  */
 export function removeOldProducts(items: SectionItem[], sectionKey: string): SectionItem[] {
-  const strictSections = ["phones", "electronics", "refurbished"];
-  const isStrict = strictSections.includes(sectionKey);
-  
-  if (!isStrict) return items; // Only filter phone-related sections
-  
+  // Only the refurbished section strictly excludes very old generations.
+  // Phones/electronics keep older models so the section isn't empty when modern
+  // listings exceed the price cap.
+  if (sectionKey !== "refurbished") return items;
+
   return items.filter(item => {
     const title = item.title || "";
-    const isOld = OLD_PHONE_PATTERNS.some(p => p.test(title));
-    if (isOld && isStrict) return false; // Remove from strict sections
-    return true;
+    return !OLD_PHONE_PATTERNS.some(p => p.test(title));
   });
 }
 

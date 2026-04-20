@@ -508,7 +508,9 @@ export default function ShopHome() {
       }
 
       if (data?.sections?.length) {
-        const all = data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0);
+        const all = filterHomepageProducts(
+          data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0)
+        );
         setAccueilProducts(all);
       }
     } catch (err: any) {

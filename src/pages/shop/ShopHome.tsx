@@ -1101,6 +1101,9 @@ export default function ShopHome() {
         }
         // Resolve all pinned prices server-side in one batch
         await applyServerPrices(allPinned);
+        for (const [catKey, products] of Object.entries(grouped)) {
+          grouped[catKey] = filterHomepageProducts(products, catKey);
+        }
         setPinnedByCategory(grouped);
         const loadingUpdates: Record<string, boolean> = {};
         for (const catKey of ALL_HOMEPAGE_CATEGORIES) {

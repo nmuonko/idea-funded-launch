@@ -51,6 +51,22 @@ const staticCorsHeaders = {
 // Keep backward compat: corsHeaders used throughout the file
 const corsHeaders = staticCorsHeaders;
 
+function isEbayClothingItem(item: Record<string, unknown>): boolean {
+  const provider = String(item.provider || "").toLowerCase();
+  if (provider !== "ebay") return false;
+
+  const category = String(item.unified_category || item.category || item.category_key || "").toLowerCase();
+  const segment = String(item.segment || item._recipeKey || "").toLowerCase();
+  const title = String(item.title || "").toLowerCase();
+
+  if (category.includes("clothing") || segment.includes("clothing") || segment === "fashion") return true;
+  return /\b(shirt|t-shirt|hoodie|jacket|coat|pants|jeans|dress|skirt|shoes|sneakers|boots|sandals)\b/i.test(title);
+}
+
+function withoutEbayClothing<T extends Record<string, unknown>>(items: T[]): T[] {
+  return items.filter(item => !isEbayClothingItem(item));
+}
+
 // ===== CLIENT DETECTION =====
 type ClientType = "mobile" | "web";
 

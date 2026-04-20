@@ -1,7 +1,7 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { ALL_HOMEPAGE_CATEGORIES, CATEGORY_TITLE_MAP } from '@/lib/categoryConfig';
 
 const CATEGORY_IMAGES: Record<string, string> = {
@@ -25,11 +25,6 @@ const CATEGORIES = ALL_HOMEPAGE_CATEGORIES.map((key) => ({
 export const CategoryIconsRow = React.forwardRef<HTMLDivElement, Record<string, never>>(function CategoryIconsRow(_props, _ref) {
   const { language } = useLanguage();
   const navigate = useNavigate();
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  const scroll = (dir: 'left' | 'right') => {
-    scrollRef.current?.scrollBy({ left: dir === 'left' ? -200 : 200, behavior: 'smooth' });
-  };
 
   return (
     <div className="bg-card border border-border rounded-2xl p-4 sm:p-5 shadow-md">
@@ -46,30 +41,12 @@ export const CategoryIconsRow = React.forwardRef<HTMLDivElement, Record<string, 
         </button>
       </div>
 
-      <div className="relative group">
-        <button
-          onClick={() => scroll('left')}
-          className="absolute -left-2 top-1/2 -translate-y-1/2 z-20 bg-card/90 hover:bg-muted text-card-foreground rounded-full h-8 w-8 items-center justify-center border border-border hidden md:flex opacity-0 group-hover:opacity-100 transition-opacity"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        <button
-          onClick={() => scroll('right')}
-          className="absolute -right-2 top-1/2 -translate-y-1/2 z-20 bg-card/90 hover:bg-muted text-card-foreground rounded-full h-8 w-8 items-center justify-center border border-border hidden md:flex opacity-0 group-hover:opacity-100 transition-opacity"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
-
-        <div
-          ref={scrollRef}
-          className="flex gap-4 sm:gap-5 overflow-x-auto scrollbar-hide scroll-smooth py-1"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-        >
+      <div className="grid grid-cols-4 md:grid-cols-8 gap-3 sm:gap-4">
           {CATEGORIES.map(({ key, fr, en, image }) => (
             <button
               key={key}
               onClick={() => navigate(`/category/${key}`)}
-              className="flex flex-col items-center gap-2 min-w-[72px] sm:min-w-[80px] group/item"
+              className="flex flex-col items-center gap-2 min-w-0 group/item"
             >
               <div className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-full overflow-hidden border border-border group-hover/item:border-primary/40 transition-all">
                 <img
@@ -84,7 +61,6 @@ export const CategoryIconsRow = React.forwardRef<HTMLDivElement, Record<string, 
               </span>
             </button>
           ))}
-        </div>
       </div>
     </div>
   );

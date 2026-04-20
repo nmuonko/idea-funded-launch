@@ -90,6 +90,7 @@ const HOMEPAGE_CATEGORY_MAX_PRICE_USD: Record<string, number> = {
 };
 const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set(['vehicles', 'cars']);
 const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_motors']);
+const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v3';
 
 function getCategoryMaxPrice(categoryKey?: string): number {
   if (!categoryKey) return HOMEPAGE_DEFAULT_MAX_PRICE_USD;
@@ -122,7 +123,7 @@ function keepEnoughHomepageProducts(products: Product[], categoryKey?: string, m
 
 function getCachedCategoryResult(catKey: string): Product[] | null {
   try {
-    const raw = localStorage.getItem(`afrishop_curated_v2:${catKey}`);
+    const raw = localStorage.getItem(`${CURATED_CATEGORY_CACHE_PREFIX}:${catKey}`);
     if (!raw) return null;
     const { items, ts } = JSON.parse(raw);
     if (Date.now() - ts > CURATED_CACHE_TTL_MS) return null;
@@ -135,7 +136,7 @@ function setCachedCategoryResult(catKey: string, items: Product[]) {
   try {
     const filteredItems = keepEnoughHomepageProducts(items, catKey);
     if (filteredItems.length > 0) {
-      localStorage.setItem(`afrishop_curated_v2:${catKey}`, JSON.stringify({ items: filteredItems, ts: Date.now() }));
+      localStorage.setItem(`${CURATED_CATEGORY_CACHE_PREFIX}:${catKey}`, JSON.stringify({ items: filteredItems, ts: Date.now() }));
     }
   } catch { /* quota exceeded, ignore */ }
 }

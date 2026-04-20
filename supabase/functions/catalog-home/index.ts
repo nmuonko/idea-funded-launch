@@ -1283,7 +1283,7 @@ serve(async (req) => {
 
         if (webCache.hit && webCache.payload && webCache.schemaVersion === recipeSettings.web_schema_version) {
             const payload = webCache.payload as Record<string, unknown>;
-            const rawItems = payload.items as Array<Record<string, unknown>> || [];
+            const rawItems = withoutEbayClothing(payload.items as Array<Record<string, unknown>> || []);
             
             // Filter items by _recipeKey
             const allItems = rawItems.filter((item: Record<string, unknown>) => {

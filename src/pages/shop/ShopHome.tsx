@@ -76,19 +76,34 @@ interface HomeFeedResponse {
 }
 
 const SLOW_CATEGORIES = new Set(ALL_HOMEPAGE_CATEGORIES);
-const HOMEPAGE_MAX_PRICE_USD = 200;
+// Per-category price caps. Vehicles/cars exempt entirely.
+const HOMEPAGE_DEFAULT_MAX_PRICE_USD = 200;
+const HOMEPAGE_CATEGORY_MAX_PRICE_USD: Record<string, number> = {
+  phones: 300,
+  electronics: 800,
+  audio_music: 800,
+  gaming: 800,
+  cameras: 800,
+  cameras_photo: 800,
+  refurbished: 600,
+  jewelry_watches: 500,
+};
 const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set(['vehicles', 'cars']);
 const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_motors']);
+
+function getCategoryMaxPrice(categoryKey?: string): number {
+  if (!categoryKey) return HOMEPAGE_DEFAULT_MAX_PRICE_USD;
+  return HOMEPAGE_CATEGORY_MAX_PRICE_USD[categoryKey] ?? HOMEPAGE_DEFAULT_MAX_PRICE_USD;
+}
 
 function isHomepagePriceAllowed(product: Product, categoryKey?: string): boolean {
   if (categoryKey && HOMEPAGE_PRICE_EXEMPT_CATEGORIES.has(categoryKey)) return true;
   const provider = (product.provider || '').toLowerCase();
   if (HOMEPAGE_PRICE_EXEMPT_PROVIDERS.has(provider)) return true;
   const price = Number(product.priceUsd || 0);
-  // Only block items with a confirmed price above the cap.
-  // Items with unknown/zero price are allowed so categories aren't emptied
-  // by the homepage feed not returning prices.
-  if (price > 0 && price > HOMEPAGE_MAX_PRICE_USD) return false;
+  const cap = getCategoryMaxPrice(categoryKey);
+  // Unknown/zero price kept; only confirmed-over-cap items dropped.
+  if (price > 0 && price > cap) return false;
   return true;
 }
 

@@ -139,3 +139,5 @@ project_id = "ecqpqtirhpumfgbdtvhh"
     verify_jwt = false
   [functions.checkout-handoff-validate]
     verify_jwt = false
+  [functions.process-email-queue]
+    verify_jwt = true

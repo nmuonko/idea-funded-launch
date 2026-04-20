@@ -970,23 +970,23 @@ export default function ShopHome() {
 
     const allPinnedProducts: Product[] = [];
     for (const catKey of trendingCats) {
-      const pins = pinnedByCategory[catKey] || [];
+      const pins = filterHomepageProducts(pinnedByCategory[catKey] || [], catKey);
       allPinnedProducts.push(...pins);
     }
     const TRENDING_JUNK = ['for parts', 'for repair', 'cracked', 'as-is', 'as is', 'read description', 'broken', 'damaged'];
-    const combinedPool = [...allPinnedProducts, ...accueilProducts].filter(p => {
+    const combinedPool = filterHomepageProducts([...allPinnedProducts, ...accueilProducts]).filter(p => {
       const t = (p.title || '').toLowerCase();
       return !TRENDING_JUNK.some(kw => t.includes(kw));
     });
 
     for (const cat of trendingCats) {
-      if (trending.length >= 16) break; // Early termination
+      if (trending.length >= 16) break;
       const relevant = combinedPool.filter(p => isRelevantToCategory(p, cat));
       const amazonFirst = [
         ...relevant.filter(p => (p.provider || '').toLowerCase() === 'rainforest'),
         ...relevant.filter(p => (p.provider || '').toLowerCase() !== 'rainforest'),
       ];
-      const sorted = sortByLuxury(amazonFirst);
+      const sorted = filterHomepageProducts(sortByLuxury(amazonFirst), cat);
       let count = 0;
       for (const p of sorted) {
         if (count >= 2) break;
@@ -999,7 +999,7 @@ export default function ShopHome() {
     }
 
     if (trending.length < 16) {
-      for (const p of sortByLuxury(combinedPool)) {
+      for (const p of filterHomepageProducts(sortByLuxury(combinedPool))) {
         if (trending.length >= 16) break;
         if (!dedup.has(p.id) && (p.priceUsd || 0) > 0) {
           trending.push(p);
@@ -1008,7 +1008,6 @@ export default function ShopHome() {
       }
     }
 
-    // Provider diversity interleave
     const byProvider: Record<string, Product[]> = {};
     for (const p of trending) {
       const prov = (p.provider || 'ebay').toLowerCase();

@@ -274,28 +274,39 @@ export function filterRefurbishedQuality(items: SectionItem[]): SectionItem[] {
  * Apply all post-processing steps to a section's items.
  * Call this for each section after collection/backfill, before caching.
  */
-/** Maximum allowed display price (USD) for any homepage section item. */
+/** Default max display price (USD) for homepage section items. */
 export const HOMEPAGE_MAX_PRICE_USD = 200;
+
+/** Per-category caps. Sections not listed use the default. */
+const HOMEPAGE_CATEGORY_MAX_PRICE_USD: Record<string, number> = {
+  phones: 300,
+  electronics: 800,
+  audio_music: 800,
+  gaming: 800,
+  cameras: 800,
+  cameras_photo: 800,
+  refurbished: 600,
+  jewelry_watches: 500,
+};
 
 /** Sections exempt from the homepage price ceiling. */
 const PRICE_CEILING_EXEMPT_SECTIONS = new Set(["vehicles", "cars"]);
 
 /**
- * Remove items above the homepage price ceiling.
- * Items missing/zero price are DROPPED (we cannot verify they fit the cap).
- * Vehicles/cars section is exempt — cars naturally cost more than $200.
+ * Remove items above the per-section homepage price cap.
+ * Items missing/zero price are kept (unknown prices shouldn't empty sections).
+ * Vehicles/cars exempt.
  */
 export function enforceMaxPrice(
   items: SectionItem[],
   sectionKey: string,
-  maxPrice: number = HOMEPAGE_MAX_PRICE_USD,
+  maxPrice?: number,
 ): SectionItem[] {
   if (PRICE_CEILING_EXEMPT_SECTIONS.has(sectionKey)) return items;
+  const cap = maxPrice ?? HOMEPAGE_CATEGORY_MAX_PRICE_USD[sectionKey] ?? HOMEPAGE_MAX_PRICE_USD;
   return items.filter(item => {
     const price = item.price_usd ?? item.priceUsd;
-    // Only drop items with a confirmed price above the cap.
-    // Unknown / zero prices are kept so sections aren't emptied.
-    if (price != null && price > 0 && price > maxPrice) return false;
+    if (price != null && price > 0 && price > cap) return false;
     return true;
   });
 }

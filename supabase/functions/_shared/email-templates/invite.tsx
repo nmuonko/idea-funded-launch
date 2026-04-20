@@ -9,7 +9,6 @@ import {
   Head,
   Heading,
   Html,
-  Img,
   Link,
   Preview,
   Text,
@@ -26,34 +25,26 @@ export const InviteEmail = ({
   siteUrl,
   confirmationUrl,
 }: InviteEmailProps) => (
-  <Html lang="fr" dir="ltr">
+  <Html lang="en" dir="ltr">
     <Head />
-    <Preview>Vous êtes invité(e) à rejoindre AfriShop USA</Preview>
+    <Preview>You've been invited to join {siteName}</Preview>
     <Body style={main}>
       <Container style={container}>
-        <Img
-          src="https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo.png"
-          width="140"
-          height="auto"
-          alt="AfriShop USA"
-          style={logo}
-        />
-        <Heading style={h1}>Vous êtes invité(e)!</Heading>
+        <Heading style={h1}>You've been invited</Heading>
         <Text style={text}>
-          Vous avez été invité(e) à rejoindre{' '}
+          You've been invited to join{' '}
           <Link href={siteUrl} style={link}>
-            <strong>AfriShop USA</strong>
+            <strong>{siteName}</strong>
           </Link>
-          . Cliquez sur le bouton ci-dessous pour accepter l'invitation et créer votre compte.
+          . Click the button below to accept the invitation and create your
+          account.
         </Text>
         <Button style={button} href={confirmationUrl}>
-          Accepter l'invitation
+          Accept Invitation
         </Button>
-        <Text style={footerText}>
-          Si vous n'attendiez pas cette invitation, vous pouvez ignorer cet e-mail.
-        </Text>
-        <Text style={footerBrand}>
-          © AfriShop USA — Vos produits favoris, livrés en Afrique.
+        <Text style={footer}>
+          If you weren't expecting this invitation, you can safely ignore this
+          email.
         </Text>
       </Container>
     </Body>
@@ -62,32 +53,27 @@ export const InviteEmail = ({
 
 export default InviteEmail
 
-const main = { backgroundColor: '#ffffff', fontFamily: 'Inter, Arial, sans-serif' }
-const container = { padding: '32px 24px', maxWidth: '480px', margin: '0 auto' }
-const logo = { marginBottom: '24px' }
+const main = { backgroundColor: '#ffffff', fontFamily: 'Arial, sans-serif' }
+const container = { padding: '20px 25px' }
 const h1 = {
   fontSize: '22px',
   fontWeight: 'bold' as const,
-  color: '#111318',
-  margin: '0 0 16px',
-}
-const text = {
-  fontSize: '15px',
-  color: '#4b5563',
-  lineHeight: '1.6',
+  color: '#000000',
   margin: '0 0 20px',
 }
-const link = { color: '#3b82f6', textDecoration: 'underline' }
-const button = {
-  backgroundColor: '#3b82f6',
-  color: '#f8fafc',
-  fontSize: '15px',
-  fontWeight: '600' as const,
-  borderRadius: '8px',
-  padding: '14px 24px',
-  textDecoration: 'none',
-  display: 'inline-block' as const,
-  margin: '8px 0 24px',
+const text = {
+  fontSize: '14px',
+  color: '#55575d',
+  lineHeight: '1.5',
+  margin: '0 0 25px',
 }
-const footerText = { fontSize: '13px', color: '#9ca3af', margin: '24px 0 8px', lineHeight: '1.5' }
-const footerBrand = { fontSize: '12px', color: '#d1d5db', margin: '0', borderTop: '1px solid #e5e7eb', paddingTop: '16px' }
+const link = { color: 'inherit', textDecoration: 'underline' }
+const button = {
+  backgroundColor: '#000000',
+  color: '#ffffff',
+  fontSize: '14px',
+  borderRadius: '8px',
+  padding: '12px 20px',
+  textDecoration: 'none',
+}
+const footer = { fontSize: '12px', color: '#999999', margin: '30px 0 0' }

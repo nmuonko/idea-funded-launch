@@ -9,7 +9,6 @@ import {
   Head,
   Heading,
   Html,
-  Img,
   Link,
   Preview,
   Text,
@@ -28,41 +27,32 @@ export const EmailChangeEmail = ({
   newEmail,
   confirmationUrl,
 }: EmailChangeEmailProps) => (
-  <Html lang="fr" dir="ltr">
+  <Html lang="en" dir="ltr">
     <Head />
-    <Preview>Confirmez le changement de votre adresse e-mail AfriShop USA</Preview>
+    <Preview>Confirm your email change for {siteName}</Preview>
     <Body style={main}>
       <Container style={container}>
-        <Img
-          src="https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo.png"
-          width="140"
-          height="auto"
-          alt="AfriShop USA"
-          style={logo}
-        />
-        <Heading style={h1}>Changement d'adresse e-mail</Heading>
+        <Heading style={h1}>Confirm your email change</Heading>
         <Text style={text}>
-          Vous avez demandé à changer votre adresse e-mail AfriShop USA de{' '}
+          You requested to change your email address for {siteName} from{' '}
           <Link href={`mailto:${email}`} style={link}>
             {email}
           </Link>{' '}
-          vers{' '}
+          to{' '}
           <Link href={`mailto:${newEmail}`} style={link}>
             {newEmail}
           </Link>
           .
         </Text>
         <Text style={text}>
-          Cliquez sur le bouton ci-dessous pour confirmer ce changement :
+          Click the button below to confirm this change:
         </Text>
         <Button style={button} href={confirmationUrl}>
-          Confirmer le changement
+          Confirm Email Change
         </Button>
-        <Text style={footerText}>
-          Si vous n'avez pas demandé ce changement, veuillez sécuriser votre compte immédiatement.
-        </Text>
-        <Text style={footerBrand}>
-          © AfriShop USA — Vos produits favoris, livrés en Afrique.
+        <Text style={footer}>
+          If you didn't request this change, please secure your account
+          immediately.
         </Text>
       </Container>
     </Body>
@@ -71,32 +61,27 @@ export const EmailChangeEmail = ({
 
 export default EmailChangeEmail
 
-const main = { backgroundColor: '#ffffff', fontFamily: 'Inter, Arial, sans-serif' }
-const container = { padding: '32px 24px', maxWidth: '480px', margin: '0 auto' }
-const logo = { marginBottom: '24px' }
+const main = { backgroundColor: '#ffffff', fontFamily: 'Arial, sans-serif' }
+const container = { padding: '20px 25px' }
 const h1 = {
   fontSize: '22px',
   fontWeight: 'bold' as const,
-  color: '#111318',
-  margin: '0 0 16px',
-}
-const text = {
-  fontSize: '15px',
-  color: '#4b5563',
-  lineHeight: '1.6',
+  color: '#000000',
   margin: '0 0 20px',
 }
-const link = { color: '#3b82f6', textDecoration: 'underline' }
-const button = {
-  backgroundColor: '#3b82f6',
-  color: '#f8fafc',
-  fontSize: '15px',
-  fontWeight: '600' as const,
-  borderRadius: '8px',
-  padding: '14px 24px',
-  textDecoration: 'none',
-  display: 'inline-block' as const,
-  margin: '8px 0 24px',
+const text = {
+  fontSize: '14px',
+  color: '#55575d',
+  lineHeight: '1.5',
+  margin: '0 0 25px',
 }
-const footerText = { fontSize: '13px', color: '#9ca3af', margin: '24px 0 8px', lineHeight: '1.5' }
-const footerBrand = { fontSize: '12px', color: '#d1d5db', margin: '0', borderTop: '1px solid #e5e7eb', paddingTop: '16px' }
+const link = { color: 'inherit', textDecoration: 'underline' }
+const button = {
+  backgroundColor: '#000000',
+  color: '#ffffff',
+  fontSize: '14px',
+  borderRadius: '8px',
+  padding: '12px 20px',
+  textDecoration: 'none',
+}
+const footer = { fontSize: '12px', color: '#999999', margin: '30px 0 0' }

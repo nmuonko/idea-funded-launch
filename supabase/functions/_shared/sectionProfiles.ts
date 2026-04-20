@@ -272,7 +272,28 @@ export const SECTION_PROFILES: SectionProfile[] = [
   // The following sections are intentionally disabled and no longer fed to the
   // mobile/web homepage. Clothing will return later sourced from Turkey/China.
   // Removed: parts_accessories, clothing, home_garden, sporting_goods, toys
-  // (toys was never declared but is filtered defensively in frontend too)
+  {
+    key: "kitchen",
+    title: { en: "Kitchen Appliances", fr: "Électroménager Cuisine" },
+    includeAny: KITCHEN_WORDS,
+    excludeAny: VEHICLE_EXCLUDE.concat(PARTS_EXCLUDE, PHONE_EXCLUDE, GAMING_EXCLUDE, [
+      "phone case","laptop","tablet","console","controller",
+    ]),
+    preferProviders: ["amazon", "ebay"],
+    minItems: 15,
+    diversityQueries: [
+      "air fryer kitchen",
+      "coffee maker espresso machine",
+      "blender smoothie portable",
+      "rice cooker electric",
+      "pressure cooker instant pot",
+      "electric kettle stainless",
+      "toaster oven countertop",
+      "food processor kitchen",
+      "juicer machine electric",
+      "waffle maker breakfast",
+    ],
+  },
   {
     key: "gaming",
     title: { en: "Gaming", fr: "Jeux Vidéo" },

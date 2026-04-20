@@ -90,7 +90,7 @@ const HOMEPAGE_CATEGORY_MAX_PRICE_USD: Record<string, number> = {
 };
 const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set(['vehicles', 'cars']);
 const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_motors']);
-const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v3';
+const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v4';
 
 function getCategoryMaxPrice(categoryKey?: string): number {
   if (!categoryKey) return HOMEPAGE_DEFAULT_MAX_PRICE_USD;
@@ -754,6 +754,50 @@ export default function ShopHome() {
           }
 
           items = items.slice(0, 4);
+
+        // ===== SPECIAL PATH FOR "electronics" =====
+        } else if (catKey === 'electronics') {
+          const seenIds = new Set<string>();
+          const addUniqueElectronics = (p: Product, bucket: Product[]) => {
+            const key = p.id || `${p.title}|${p.productUrl}`;
+            if (!key || seenIds.has(key)) return false;
+            seenIds.add(key);
+            bucket.push(p);
+            return true;
+          };
+
+          const allElectronics: Product[] = [];
+          try {
+            const data = await cachedCatalogFetch<any>('catalog-category', {
+              category: 'electronics', page: 1, pageSize: 100, client: 'web', language,
+            });
+            const rawItems = (data?.items || data?.sections?.[0]?.items || [])
+              .map(mapSearchItemToProduct)
+              .filter(isValidProduct);
+            const relevant = filterForCategory(rawItems, 'electronics');
+            for (const p of [...relevant, ...rawItems]) {
+              if (allElectronics.length >= 8) break;
+              addUniqueElectronics(p, allElectronics);
+            }
+          } catch (e) { console.warn('[Electronics] catalog-category failed:', e); }
+
+          if (allElectronics.length < 4) {
+            const queries = CATEGORY_SEARCH_QUERIES.electronics || [];
+            for (const q of queries) {
+              if (allElectronics.length >= 8) break;
+              try {
+                const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 12, client: 'web' });
+                const raw = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct);
+                const relevant = filterForCategory(raw, 'electronics');
+                for (const p of [...relevant, ...raw]) {
+                  if (allElectronics.length >= 8) break;
+                  addUniqueElectronics(p, allElectronics);
+                }
+              } catch (e) { /* continue */ }
+            }
+          }
+
+          items = keepEnoughHomepageProducts(deduplicateProducts(sortByLuxury(allElectronics)), catKey).slice(0, 4);
 
         // ===== SPECIAL PATH FOR "jewelry_watches" =====
         } else if (catKey === 'jewelry_watches') {

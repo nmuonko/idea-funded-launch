@@ -529,7 +529,7 @@ async function bootstrapFromDatabase(correlationId: string): Promise<CatalogItem
     
     console.log(`[CATALOG_HOME] bootstrap ok correlationId=${correlationId}`);
 
-    const rows = await res.json() as Array<Record<string, unknown>>;
+    const rows = withoutEbayClothing(await res.json() as Array<Record<string, unknown>>);
     
     if (!Array.isArray(rows) || rows.length === 0) {
       console.warn(`[CATALOG_HOME][BOOTSTRAP] No items found in catalog_items`);
@@ -761,7 +761,7 @@ async function fetchEbayItems(
     const rawItems = data.itemSummaries || [];
     const items = rawItems
       .map((i: Record<string, unknown>) => mapEbayItem(i, segment))
-      .filter((i: CatalogItem | null): i is CatalogItem => i !== null && !!i.title && !!i.image_url);
+      .filter((i: CatalogItem | null): i is CatalogItem => i !== null && !!i.title && !!i.image_url && !isEbayClothingItem(i as unknown as Record<string, unknown>));
     
     console.log(`[CATALOG_HOME][EBAY] correlationId=${correlationId} query="${query.substring(0,30)}" fetched=${rawItems.length} kept=${items.length} ms=${Date.now()-startMs}`);
     return items;

@@ -1,6 +1,8 @@
 project_id = "ecqpqtirhpumfgbdtvhh"
 
 [functions]
+  [functions.shopify-products]
+    verify_jwt = false
   [functions.app-bootstrap]
     verify_jwt = false
   [functions.admin-service]

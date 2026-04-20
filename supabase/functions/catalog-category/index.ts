@@ -677,7 +677,12 @@ Deno.serve(async (req) => {
 
         // Filter disallowed content
         filteredItems = filteredItems.filter(item => {
-          const blocked = isDisallowedItem({ title: item.title, productUrl: item.product_url });
+          const blocked = isDisallowedItem({
+            title: item.title,
+            productUrl: item.product_url,
+            provider: "ebay",
+            category: parentTab,
+          });
           return !blocked.isDisallowed;
         });
 
@@ -771,6 +776,8 @@ Deno.serve(async (req) => {
         ...item,
         title: (item as CatalogProduct).title,
         productUrl: (item as CatalogProduct).productUrl,
+        provider: (item as CatalogProduct).provider,
+        category: (item as CatalogProduct).category,
       })),
       `[CATALOG] requestId=${requestId}`
     );

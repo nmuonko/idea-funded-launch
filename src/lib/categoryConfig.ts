@@ -170,11 +170,11 @@ export function sortByLuxury(items: Product[]): Product[] {
 }
 
 // All homepage categories in display order
+// REMOVED (per business decision): clothing, home_garden, toys, sporting_goods, parts_accessories
+// Clothing will return later sourced from Turkey/China.
 export const ALL_HOMEPAGE_CATEGORIES = [
   'phones', 'electronics', 'audio_music', 'gaming',
-  'vehicles', 'home_garden', 'toys', 'sporting_goods',
-  'jewelry_watches', 'parts_accessories', 'refurbished',
-  'clothing', 'cameras_photo',
+  'vehicles', 'jewelry_watches', 'refurbished', 'cameras_photo',
 ];
 export const PROMO_CATEGORIES = ALL_HOMEPAGE_CATEGORIES.slice(0, 4);
 

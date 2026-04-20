@@ -60,15 +60,21 @@ export default function CountryShop() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      const productsPromise = key === 'china'
+        ? supabase.functions.invoke('shopify-products', { body: {} })
+            .then((r: any) => ({ data: r?.data?.products ?? [] }))
+            .catch(() => ({ data: [] }))
+        : (supabase.from('international_products' as any)
+            .select('*')
+            .eq('country', key)
+            .eq('is_active', true)
+            .order('sort_order', { ascending: true })
+            .order('created_at', { ascending: false })) as any;
+
       const [metaRes, settingsRes, productsRes] = await Promise.all([
         (supabase.from('country_shipping_rates' as any).select('*').eq('country', key).maybeSingle()) as any,
         supabase.from('settings' as any).select('markup_percent').limit(1).single() as any,
-        (supabase.from('international_products' as any)
-          .select('*')
-          .eq('country', key)
-          .eq('is_active', true)
-          .order('sort_order', { ascending: true })
-          .order('created_at', { ascending: false })) as any,
+        productsPromise,
       ]);
       if (cancelled) return;
       if (metaRes.data) setMeta(metaRes.data as CountryMeta);

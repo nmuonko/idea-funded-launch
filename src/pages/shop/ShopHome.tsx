@@ -1112,23 +1112,29 @@ export default function ShopHome() {
   const filteredTrending = useMemo(() => filterHomepageProducts(applyFilters(trendingFeed)), [applyFilters, trendingFeed]);
   const filteredRecentlyViewed = useMemo(() => filterHomepageProducts(applyFilters(recentlyViewed)), [applyFilters, recentlyViewed]);
   const filteredStoreProducts = useMemo(() => filterHomepageProducts(filterByCategory(storeProducts)), [filterByCategory, storeProducts]);
+  const getHomepageCategoryItems = useCallback((catKey: string) => {
+    const pinnedItems = pinnedByCategory[catKey] || [];
+    const fetchedItems = categoryItems[catKey] || [];
+    const merged = deduplicateProducts([...pinnedItems, ...fetchedItems]);
+    return applyFilters(keepEnoughHomepageProducts(merged, catKey).slice(0, 4));
+  }, [applyFilters, pinnedByCategory, categoryItems]);
 
   // Memoize per-category display items
   const promoCategoryItems = useMemo(() => {
     return PROMO_CATEGORIES.map(catKey => ({
       catKey,
-      items: applyFilters(pinnedByCategory[catKey]?.length ? pinnedByCategory[catKey] : (categoryItems[catKey] ?? [])),
+      items: getHomepageCategoryItems(catKey),
       loading: categoryLoadingMap[catKey] === true,
     }));
-  }, [applyFilters, pinnedByCategory, categoryItems, categoryLoadingMap]);
+  }, [getHomepageCategoryItems, categoryLoadingMap]);
 
   const remainingCategoryItems = useMemo(() => {
     return ALL_HOMEPAGE_CATEGORIES.filter(k => !PROMO_CATEGORIES.includes(k)).map(catKey => ({
       catKey,
-      items: applyFilters(pinnedByCategory[catKey]?.length ? pinnedByCategory[catKey] : (categoryItems[catKey] ?? [])),
+      items: getHomepageCategoryItems(catKey),
       loading: categoryLoadingMap[catKey] === true,
     }));
-  }, [applyFilters, pinnedByCategory, categoryItems, categoryLoadingMap]);
+  }, [getHomepageCategoryItems, categoryLoadingMap]);
 
   // ====== EFFECTS ======
   const scheduleCategoryPrefetch = useCallback(() => {

@@ -450,7 +450,8 @@ async function getCachedFeedWithStale(env: string, category: string): Promise<{ 
         const isCompatible = schemaVersion <= CACHE_SCHEMA_VERSION;
         console.log(`[CATALOG_HOME] cacheHit key=${cacheKey} schemaVersion=${schemaVersion} items=${data.items.length} compatible=${isCompatible}`);
         if (isCompatible) {
-          return { cache: data as CacheEntry, isStale: false };
+          data.items = withoutEbayClothing(data.items as Array<Record<string, unknown>>);
+          if (data.items.length > 0) return { cache: data as CacheEntry, isStale: false };
         }
         // Only reject if schema version is from future (greater than current)
         console.log(`[CATALOG_HOME] cache_schema_future_incompatible key=${cacheKey} cacheVersion=${schemaVersion} current=${CACHE_SCHEMA_VERSION}`);
@@ -477,7 +478,8 @@ async function getCachedFeedWithStale(env: string, category: string): Promise<{ 
         const isCompatible = schemaVersion <= CACHE_SCHEMA_VERSION;
         console.log(`[CATALOG_HOME] stale_cacheHit key=${cacheKey} schemaVersion=${schemaVersion} items=${data.items.length} compatible=${isCompatible}`);
         if (isCompatible) {
-          return { cache: data as CacheEntry, isStale: true };
+          data.items = withoutEbayClothing(data.items as Array<Record<string, unknown>>);
+          if (data.items.length > 0) return { cache: data as CacheEntry, isStale: true };
         }
         console.log(`[CATALOG_HOME] stale_cache_future_incompatible key=${cacheKey} cacheVersion=${schemaVersion} current=${CACHE_SCHEMA_VERSION}`);
       }

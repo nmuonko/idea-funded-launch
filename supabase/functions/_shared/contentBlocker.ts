@@ -322,6 +322,12 @@ export interface DisallowedResult {
   matchedPattern: string | null;
 }
 
+function isClothingLike(title: string, category: string, categoryPath: string[]): boolean {
+  if (category.includes("clothing") || category.includes("fashion") || category.includes("shoes")) return true;
+  if (categoryPath.some(path => path.includes("clothing") || path.includes("fashion") || path.includes("shoes"))) return true;
+  return /\b(shirt|t-shirt|hoodie|jacket|coat|pants|jeans|dress|skirt|shoes|sneakers|boots|sandals)\b/i.test(title);
+}
+
 /**
  * Check if an item is disallowed (books, subscriptions, streaming, etc.)
  * Returns { isDisallowed: boolean, reason: string, matchedPattern: string }

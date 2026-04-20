@@ -1,0 +1,1 @@
+DELETE FROM public.catalog_home_mobile_sections_cache; DELETE FROM public.catalog_home_cache;

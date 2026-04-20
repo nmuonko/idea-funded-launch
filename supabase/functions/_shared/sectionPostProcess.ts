@@ -277,11 +277,23 @@ export function filterRefurbishedQuality(items: SectionItem[]): SectionItem[] {
 /** Maximum allowed display price (USD) for any homepage section item. */
 export const HOMEPAGE_MAX_PRICE_USD = 200;
 
-/** Remove items above the homepage price ceiling. Items missing a price are kept. */
-export function enforceMaxPrice(items: SectionItem[], maxPrice: number = HOMEPAGE_MAX_PRICE_USD): SectionItem[] {
+/** Sections exempt from the homepage price ceiling. */
+const PRICE_CEILING_EXEMPT_SECTIONS = new Set(["vehicles", "cars"]);
+
+/**
+ * Remove items above the homepage price ceiling.
+ * Items missing/zero price are DROPPED (we cannot verify they fit the cap).
+ * Vehicles/cars section is exempt — cars naturally cost more than $200.
+ */
+export function enforceMaxPrice(
+  items: SectionItem[],
+  sectionKey: string,
+  maxPrice: number = HOMEPAGE_MAX_PRICE_USD,
+): SectionItem[] {
+  if (PRICE_CEILING_EXEMPT_SECTIONS.has(sectionKey)) return items;
   return items.filter(item => {
     const price = item.price_usd ?? item.priceUsd;
-    if (price == null) return true; // keep unknown-price items rather than dropping silently
+    if (price == null || price <= 0) return false;
     return price <= maxPrice;
   });
 }
@@ -290,8 +302,8 @@ export function postProcessSection(items: SectionItem[], sectionKey: string): Se
   // 1. Remove old/outdated products
   let processed = removeOldProducts(items, sectionKey);
 
-  // 2. Enforce homepage price ceiling ($200 max)
-  processed = enforceMaxPrice(processed);
+  // 2. Enforce homepage price ceiling ($200 max, except vehicles/cars)
+  processed = enforceMaxPrice(processed, sectionKey);
 
   // 3. Deduplicate
   processed = deduplicateItems(processed);

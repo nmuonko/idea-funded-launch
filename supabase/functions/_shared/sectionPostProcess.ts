@@ -293,8 +293,10 @@ export function enforceMaxPrice(
   if (PRICE_CEILING_EXEMPT_SECTIONS.has(sectionKey)) return items;
   return items.filter(item => {
     const price = item.price_usd ?? item.priceUsd;
-    if (price == null || price <= 0) return false;
-    return price <= maxPrice;
+    // Only drop items with a confirmed price above the cap.
+    // Unknown / zero prices are kept so sections aren't emptied.
+    if (price != null && price > 0 && price > maxPrice) return false;
+    return true;
   });
 }
 

@@ -307,6 +307,7 @@ export const ELECTRONICS_REFILL_QUERIES = [
 export interface ContentFilterInput {
   title?: string | null;
   productUrl?: string | null;
+  provider?: string | null;
   categoryPath?: string[] | null;
   category?: string | null;
   tags?: string[] | null;
@@ -329,6 +330,7 @@ export function isDisallowedItem(input: ContentFilterInput): DisallowedResult {
   const {
     title = "",
     productUrl = "",
+    provider = "",
     categoryPath = [],
     category = "",
     tags = [],
@@ -338,10 +340,15 @@ export function isDisallowedItem(input: ContentFilterInput): DisallowedResult {
   // Normalize all strings to lowercase for comparison
   const titleLower = (title || "").toLowerCase();
   const urlLower = (productUrl || "").toLowerCase();
+  const providerLower = (provider || "").toLowerCase();
   const categoryLower = (category || "").toLowerCase();
   const descLower = (description || "").substring(0, 500).toLowerCase(); // Limit description check
   const tagsLower = (tags || []).map(t => (t || "").toLowerCase());
   const categoryPathLower = (categoryPath || []).map(c => (c || "").toLowerCase());
+
+  if (providerLower === "ebay" && isClothingLike(titleLower, categoryLower, categoryPathLower)) {
+    return { isDisallowed: true, reason: "ebay_clothing", matchedPattern: "ebay clothing" };
+  }
 
   // 1. Check keywords in title
   for (const keyword of BLOCKED_KEYWORDS) {

@@ -124,48 +124,50 @@ export function deduplicateItems(items: SectionItem[]): SectionItem[] {
 // ─── SMART RANKING ──────────────────────────────────────────────────────────
 
 /**
- * Score and rank items using:
- *   score = 0.5 * relevance + 0.3 * price_score + 0.2 * freshness
- * 
- * relevance: 1.0 for modern/boosted items, 0.0 for old/outdated
- * price_score: cheaper = higher (normalized to category)
- * freshness: modern products get 1.0, old get 0.0
+ * Score and rank items, BIASED TOWARD CHEAPEST RELEVANT FIRST.
+ *   score = 0.35 * relevance + 0.55 * price_score + 0.10 * freshness
+ *
+ * Phones section additionally rewards refurbished/renewed listings.
  */
 export function smartRankItems(items: SectionItem[], sectionKey: string): SectionItem[] {
   if (items.length === 0) return items;
-  
-  // Calculate category average price for normalization
+
   const prices = items
     .map(i => i.price_usd ?? i.priceUsd ?? 0)
     .filter(p => p > 0);
   const avgPrice = prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : 100;
   const maxPrice = Math.max(...prices, 1);
-  
+
+  const refurbRegex = /\b(renewed|refurbished|reconditioned|certified pre[- ]?owned|open box|pre[- ]?owned)\b/i;
+  const isPhonesSection = sectionKey === "phones";
+  const isElectronicsSection = sectionKey === "electronics";
+
   const scored = items.map(item => {
     const title = item.title || "";
     const price = item.price_usd ?? item.priceUsd ?? avgPrice;
-    
-    // Relevance: 1.0 base, boosted for modern, penalized for old
+
     let relevance = 0.5;
     if (MODERN_BOOST_PATTERNS.some(p => p.test(title))) relevance = 1.0;
     if (OLD_PHONE_PATTERNS.some(p => p.test(title))) relevance = 0.0;
-    
-    // Price score: cheaper = better (0-1 range)
+
     const priceScore = price > 0 ? Math.max(0, 1 - (price / maxPrice)) : 0.5;
-    
-    // Freshness: modern items = 1.0, old = 0.0, unknown = 0.5
+
     let freshness = 0.5;
     if (MODERN_BOOST_PATTERNS.some(p => p.test(title))) freshness = 1.0;
     if (OLD_PHONE_PATTERNS.some(p => p.test(title))) freshness = 0.0;
-    
-    const score = (0.5 * relevance) + (0.3 * priceScore) + (0.2 * freshness);
-    
+
+    // Cheaper-first weighting (price dominates)
+    let score = (0.35 * relevance) + (0.55 * priceScore) + (0.10 * freshness);
+
+    // Phones: strongly reward refurbished / renewed listings
+    if (isPhonesSection && refurbRegex.test(title)) score += 0.30;
+    // Electronics: extra bonus for very cheap items
+    if (isElectronicsSection && price > 0 && price < avgPrice * 0.6) score += 0.10;
+
     return { item, score };
   });
-  
-  // Sort by score descending
+
   scored.sort((a, b) => b.score - a.score);
-  
   return scored.map(s => s.item);
 }
 

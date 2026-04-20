@@ -76,6 +76,21 @@ interface HomeFeedResponse {
 }
 
 const SLOW_CATEGORIES = new Set(ALL_HOMEPAGE_CATEGORIES);
+const HOMEPAGE_MAX_PRICE_USD = 200;
+const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set(['vehicles', 'cars']);
+const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_motors']);
+
+function isHomepagePriceAllowed(product: Product, categoryKey?: string): boolean {
+  if (categoryKey && HOMEPAGE_PRICE_EXEMPT_CATEGORIES.has(categoryKey)) return true;
+  const provider = (product.provider || '').toLowerCase();
+  if (HOMEPAGE_PRICE_EXEMPT_PROVIDERS.has(provider)) return true;
+  const price = Number(product.priceUsd || 0);
+  return price > 0 && price <= HOMEPAGE_MAX_PRICE_USD;
+}
+
+function filterHomepageProducts(products: Product[], categoryKey?: string): Product[] {
+  return products.filter(product => isHomepagePriceAllowed(product, categoryKey));
+}
 
 function getCachedCategoryResult(catKey: string): Product[] | null {
   try {
@@ -84,14 +99,15 @@ function getCachedCategoryResult(catKey: string): Product[] | null {
     const { items, ts } = JSON.parse(raw);
     if (Date.now() - ts > CURATED_CACHE_TTL_MS) return null;
     if (!Array.isArray(items) || items.length === 0) return null;
-    return items;
+    return filterHomepageProducts(items, catKey);
   } catch { return null; }
 }
 
 function setCachedCategoryResult(catKey: string, items: Product[]) {
   try {
-    if (items.length > 0) {
-      localStorage.setItem(`afrishop_curated_v2:${catKey}`, JSON.stringify({ items, ts: Date.now() }));
+    const filteredItems = filterHomepageProducts(items, catKey);
+    if (filteredItems.length > 0) {
+      localStorage.setItem(`afrishop_curated_v2:${catKey}`, JSON.stringify({ items: filteredItems, ts: Date.now() }));
     }
   } catch { /* quota exceeded, ignore */ }
 }

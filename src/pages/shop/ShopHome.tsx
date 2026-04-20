@@ -85,7 +85,11 @@ function isHomepagePriceAllowed(product: Product, categoryKey?: string): boolean
   const provider = (product.provider || '').toLowerCase();
   if (HOMEPAGE_PRICE_EXEMPT_PROVIDERS.has(provider)) return true;
   const price = Number(product.priceUsd || 0);
-  return price > 0 && price <= HOMEPAGE_MAX_PRICE_USD;
+  // Only block items with a confirmed price above the cap.
+  // Items with unknown/zero price are allowed so categories aren't emptied
+  // by the homepage feed not returning prices.
+  if (price > 0 && price > HOMEPAGE_MAX_PRICE_USD) return false;
+  return true;
 }
 
 function filterHomepageProducts(products: Product[], categoryKey?: string): Product[] {
@@ -1421,20 +1425,7 @@ export default function ShopHome() {
                 ))}
               </div>
 
-              {/* 4) Recently Viewed */}
-              {filteredRecentlyViewed.length > 0 && (
-                <LazySection minHeight={180}>
-                  <div className="bg-[#1a1d23] border border-white/[0.08] rounded-2xl p-3 sm:p-4 shadow-md">
-                    <div className="flex items-center gap-2 mb-3 px-1">
-                      <Clock className="h-4 w-4 text-white/60" />
-                      <h2 className="text-lg font-semibold text-white/90">
-                        {language === 'fr' ? 'Vus récemment' : 'Recently Viewed'}
-                      </h2>
-                    </div>
-                    <HorizontalProductRow products={filteredRecentlyViewed} />
-                  </div>
-                </LazySection>
-              )}
+              {/* Recently Viewed section removed per product decision */}
 
               {/* 5) Remaining Category Grid Cards */}
               <LazySection minHeight={600}>

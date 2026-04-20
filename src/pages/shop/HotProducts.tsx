@@ -100,7 +100,15 @@ export default function HotProducts() {
           .limit(10);
 
         if (error) throw error;
-        if (data) setProducts(data as any);
+        if (data) {
+          const filtered = (data as any[]).filter((item) => {
+            const provider = String(item.provider || '').toLowerCase();
+            if (provider === 'cargurus' || provider === 'carvana' || provider === 'ebay_motors') return true;
+            const price = Number(item.total_price_usd || 0);
+            return price > 0 && price <= 200;
+          });
+          setProducts(filtered as any);
+        }
       } catch (err: any) {
         console.error('Failed to fetch hot products:', err);
       } finally {

@@ -385,6 +385,8 @@ export default function ShopHome() {
         mapped = rawItems
           .map((item: any) => mapItemToProduct(item))
           .filter(isValidProduct);
+
+        mapped = filterHomepageProducts(mapped, catKey);
       } catch (endpointErr) {
         console.warn(`[ShopHome] catalog-category fetch for ${catKey} page ${page} failed:`, endpointErr);
       }
@@ -407,13 +409,13 @@ export default function ShopHome() {
           }
         }
 
-        mapped = deduplicateProducts(sortByLuxury(fallbackPool)).slice(0, PAGE_SIZE);
+        mapped = filterHomepageProducts(deduplicateProducts(sortByLuxury(fallbackPool)).slice(0, PAGE_SIZE), catKey);
         if (totalCount === 0) totalCount = mapped.length;
       }
 
       if (append) {
         setCategoryProducts(prev => {
-          const combined = deduplicateProducts([...prev, ...mapped]);
+          const combined = filterHomepageProducts(deduplicateProducts([...prev, ...mapped]), catKey);
           categoryProductsCacheRef.current[catKey] = { products: combined, count: Math.max(totalCount, combined.length) };
           return combined;
         });
@@ -1034,9 +1036,9 @@ export default function ShopHome() {
   }, [accueilProducts, pinnedByCategory]);
 
   // ====== MEMOIZED FILTERED RESULTS ======
-  const filteredTrending = useMemo(() => applyFilters(trendingFeed), [applyFilters, trendingFeed]);
-  const filteredRecentlyViewed = useMemo(() => applyFilters(recentlyViewed), [applyFilters, recentlyViewed]);
-  const filteredStoreProducts = useMemo(() => filterByCategory(storeProducts), [filterByCategory, storeProducts]);
+  const filteredTrending = useMemo(() => filterHomepageProducts(applyFilters(trendingFeed)), [applyFilters, trendingFeed]);
+  const filteredRecentlyViewed = useMemo(() => filterHomepageProducts(applyFilters(recentlyViewed)), [applyFilters, recentlyViewed]);
+  const filteredStoreProducts = useMemo(() => filterHomepageProducts(filterByCategory(storeProducts)), [filterByCategory, storeProducts]);
 
   // Memoize per-category display items
   const promoCategoryItems = useMemo(() => {

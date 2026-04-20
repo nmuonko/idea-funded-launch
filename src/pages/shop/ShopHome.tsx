@@ -633,8 +633,9 @@ export default function ShopHome() {
   const fetchCategoryItems = useCallback(async (categories: string[], pinnedMap?: Record<string, Product[]>) => {
     const pinned = pinnedMap || pinnedByCategory;
     const tasks = categories.map((catKey) => async () => {
-      // OPTIMIZATION: Skip fetch entirely if pinned items exist for this category
-      if (pinned[catKey]?.length > 0) {
+      // Skip dynamic fetch only when pinned items already fill the homepage quota.
+      // If price filtering reduced pins below 4, we still need backfill results.
+      if ((pinned[catKey]?.length || 0) >= 4) {
         setCategoryLoadingMap(prev => ({ ...prev, [catKey]: false }));
         return;
       }
@@ -1189,7 +1190,7 @@ export default function ShopHome() {
         setPinnedByCategory(grouped);
         const loadingUpdates: Record<string, boolean> = {};
         for (const catKey of ALL_HOMEPAGE_CATEGORIES) {
-          if (grouped[catKey]?.length > 0) {
+          if ((grouped[catKey]?.length || 0) >= 4) {
             loadingUpdates[catKey] = false;
           }
         }
@@ -1201,7 +1202,7 @@ export default function ShopHome() {
       }
 
       // Phase 2: Fire accueil feed + category fetches in parallel
-      const catsToFetch = ALL_HOMEPAGE_CATEGORIES.filter(k => !(grouped[k]?.length > 0));
+      const catsToFetch = ALL_HOMEPAGE_CATEGORIES.filter(k => (grouped[k]?.length || 0) < 4);
 
       const accueilPromise = (async () => {
         setAccueilLoading(true);

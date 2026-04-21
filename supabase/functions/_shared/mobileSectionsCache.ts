@@ -17,7 +17,7 @@ import { postProcessSection } from "./sectionPostProcess.ts";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const MOBILE_SECTIONS_SCHEMA_VERSION = 23; // v23: replace toys with kitchen, expand electronics/gaming/parts categories
+export const MOBILE_SECTIONS_SCHEMA_VERSION = 24; // v24: stricter relevance + refreshed section backfill
 const DEFAULT_TTL_SECONDS = 1800; // 30 min default — overridden by admin settings
 const ITEMS_PER_SECTION_RESPONSE = 40; // returned to client
 const ITEMS_PER_SECTION_CACHE = 60; // stored in cache for stability
@@ -348,7 +348,7 @@ async function buildStrictSectionsFromPool(
   const backfillTasks: Array<{ key: string; promise: Promise<SectionItem[]> }> = [];
   for (const profile of SECTION_PROFILES) {
     const current = sectionBuckets[profile.key].length;
-    if (current < Math.min(profile.minItems, 5)) {
+    if (current < profile.minItems) {
       const needed = ITEMS_PER_SECTION_CACHE - current;
       backfillTasks.push({
         key: profile.key,

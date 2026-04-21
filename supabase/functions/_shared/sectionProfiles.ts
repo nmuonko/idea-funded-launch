@@ -129,7 +129,8 @@ const SPORTS_WORDS = [
 const ELECTRONICS_WORDS = [
   "laptop","notebook","macbook","desktop","monitor","tv","television",
   "camera","dslr","mirrorless","speaker","bluetooth speaker","router","ssd","gpu",
-  "tablet","bluetooth",
+  "tablet","ipad","headphones","earbuds","airpods","soundbar","projector","printer",
+  "webcam","drone","smartwatch","smart watch","apple watch","galaxy watch","bluetooth",
 ];
 
 const REFURB_WORDS = [
@@ -212,7 +213,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
       "camera","webcam","drone","projector","smart home","printer",
       "smart watch","smartwatch","headset","soundbar",
     ]),
-    excludeAny: VEHICLE_CORE.concat(PARTS_WORDS, GAMING_WORDS, PHONE_WORDS, [
+    excludeAny: VEHICLE_CORE.concat(PARTS_WORDS, GAMING_WORDS, [
       "phone holder","car mount","phone stand","fm transmitter",
       "car adapter","seat cover","floor mat","car charger",
       "car phone","phone grip","phone cradle",

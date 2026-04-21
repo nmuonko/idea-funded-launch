@@ -190,6 +190,35 @@ const mapSearchItemToProduct = (item: any): Product => {
 
 const isValidProduct = (p: Product) => p.id && p.priceUsd > 0 && (p.imageUrl ? isRenderableImageUrl(p.imageUrl) : true);
 
+async function searchCategoryRescue(catKey: string, currentItems: Product[], minimum = 4): Promise<Product[]> {
+  const seenIds = new Set(currentItems.map(product => product.id));
+  const rescued = [...currentItems];
+  const queries = CATEGORY_SEARCH_QUERIES[catKey] || [catKey.replace('_', ' ')];
+
+  for (const q of queries) {
+    if (rescued.length >= Math.max(minimum, 8)) break;
+
+    try {
+      const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 16, client: 'web' });
+      const candidates = (data?.items || [])
+        .map(mapSearchItemToProduct)
+        .filter(isValidProduct);
+
+      const relevant = filterForCategory(candidates, catKey);
+      for (const product of relevant) {
+        if (rescued.length >= Math.max(minimum, 8)) break;
+        if (seenIds.has(product.id)) continue;
+        seenIds.add(product.id);
+        rescued.push(product);
+      }
+    } catch {
+      // Keep trying the next fallback query
+    }
+  }
+
+  return keepEnoughHomepageProducts(deduplicateProducts(sortByLuxury(rescued)), catKey);
+}
+
 const extractFirstImageFromJson = (images: any): string | null => {
   const readCandidates = (obj: any): string[] => {
     if (!obj || typeof obj !== 'object') return [];
@@ -1006,6 +1035,10 @@ export default function ShopHome() {
         }
 
         items = keepEnoughHomepageProducts(items, catKey);
+        if (items.length < 4) {
+          items = await searchCategoryRescue(catKey, items, 4);
+        }
+        items = keepEnoughHomepageProducts(deduplicateProducts(sortByLuxury(items)), catKey).slice(0, 4);
 
         if (SLOW_CATEGORIES.has(catKey)) {
           setCachedCategoryResult(catKey, items);
@@ -1114,12 +1147,33 @@ export default function ShopHome() {
   const filteredTrending = useMemo(() => filterHomepageProducts(applyFilters(trendingFeed)), [applyFilters, trendingFeed]);
   const filteredRecentlyViewed = useMemo(() => filterHomepageProducts(applyFilters(recentlyViewed)), [applyFilters, recentlyViewed]);
   const filteredStoreProducts = useMemo(() => filterHomepageProducts(filterByCategory(storeProducts)), [filterByCategory, storeProducts]);
+  const homepageFallbackPool = useMemo(() => {
+    const pooled = ALL_HOMEPAGE_CATEGORIES.flatMap(catKey => [
+      ...(pinnedByCategory[catKey] || []),
+      ...(categoryItems[catKey] || []),
+    ]);
+
+    return deduplicateProducts(sortByLuxury(filterHomepageProducts([...pooled, ...accueilProducts])));
+  }, [accueilProducts, categoryItems, pinnedByCategory]);
+
   const getHomepageCategoryItems = useCallback((catKey: string) => {
     const pinnedItems = pinnedByCategory[catKey] || [];
     const fetchedItems = categoryItems[catKey] || [];
-    const merged = filterForCategory(deduplicateProducts([...pinnedItems, ...fetchedItems]), catKey);
+    const primary = filterForCategory(deduplicateProducts([...pinnedItems, ...fetchedItems]), catKey);
+
+    if (primary.length >= 4) {
+      return applyFilters(keepEnoughHomepageProducts(sortByLuxury(primary), catKey).slice(0, 4));
+    }
+
+    const existingIds = new Set(primary.map(product => product.id));
+    const fallback = filterForCategory(
+      homepageFallbackPool.filter(product => !existingIds.has(product.id)),
+      catKey,
+    );
+
+    const merged = deduplicateProducts(sortByLuxury([...primary, ...fallback]));
     return applyFilters(keepEnoughHomepageProducts(merged, catKey).slice(0, 4));
-  }, [applyFilters, pinnedByCategory, categoryItems]);
+  }, [applyFilters, pinnedByCategory, categoryItems, homepageFallbackPool]);
 
   // Memoize per-category display items
   const promoCategoryItems = useMemo(() => {

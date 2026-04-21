@@ -3,26 +3,62 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const STORE_DOMAIN = Deno.env.get("SHOPIFY_STORE_DOMAIN");
+// New Lovable-managed Shopify connection secrets
+const STOREFRONT_DOMAIN =
+  Deno.env.get("SHOPIFY_STORE_PERMANENT_DOMAIN") ||
+  Deno.env.get("SHOPIFY_STORE_DOMAIN");
+const STOREFRONT_TOKEN =
+  Deno.env.get("SHOPIFY_STOREFRONT_ACCESS_TOKEN") ||
+  Deno.env.get("SHOPIFY_STOREFRONT_TOKEN");
+// Fallback: legacy admin token
 const ADMIN_TOKEN = Deno.env.get("SHOPIFY_ADMIN_ACCESS_TOKEN");
-const API_VERSION = "2024-10";
 
-interface ShopifyImage { src: string }
-interface ShopifyVariant {
-  id: number;
-  price: string;
-  grams: number;
-  inventory_quantity?: number;
+const API_VERSION = "2025-07";
+
+const STOREFRONT_QUERY = `
+  query GetProducts($first: Int!) {
+    products(first: $first, sortKey: UPDATED_AT, reverse: true) {
+      edges {
+        node {
+          id
+          title
+          description
+          handle
+          onlineStoreUrl
+          images(first: 10) {
+            edges { node { url altText } }
+          }
+          variants(first: 1) {
+            edges {
+              node {
+                id
+                price { amount currencyCode }
+                weight
+                weightUnit
+                availableForSale
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+function gidToNumeric(gid: string): string {
+  const m = gid.match(/(\d+)$/);
+  return m ? m[1] : gid;
 }
-interface ShopifyProduct {
-  id: number;
-  title: string;
-  body_html: string | null;
-  handle: string;
-  status: string;
-  images: ShopifyImage[];
-  image: ShopifyImage | null;
-  variants: ShopifyVariant[];
+
+function weightToKg(weight: number, unit: string): number {
+  if (!weight || weight <= 0) return 0.5;
+  switch ((unit || "").toUpperCase()) {
+    case "KILOGRAMS": return weight;
+    case "GRAMS": return weight / 1000;
+    case "POUNDS": return weight * 0.453592;
+    case "OUNCES": return weight * 0.0283495;
+    default: return weight;
+  }
 }
 
 Deno.serve(async (req) => {
@@ -30,7 +66,7 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  if (!STORE_DOMAIN || !ADMIN_TOKEN) {
+  if (!STOREFRONT_DOMAIN || (!STOREFRONT_TOKEN && !ADMIN_TOKEN)) {
     return new Response(JSON.stringify({
       error: "Shopify credentials not configured",
       products: [],
@@ -40,20 +76,86 @@ Deno.serve(async (req) => {
   try {
     const url = new URL(req.url);
     const limit = Math.min(Number(url.searchParams.get("limit") || 50), 250);
+    const domain = STOREFRONT_DOMAIN.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
-    const domain = STORE_DOMAIN.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-    const apiUrl = `https://${domain}/admin/api/${API_VERSION}/products.json?limit=${limit}&status=active`;
+    // Prefer Storefront API (works with new Lovable-managed connection)
+    if (STOREFRONT_TOKEN) {
+      const apiUrl = `https://${domain}/api/${API_VERSION}/graphql.json`;
+      const res = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Storefront-Access-Token": STOREFRONT_TOKEN,
+        },
+        body: JSON.stringify({ query: STOREFRONT_QUERY, variables: { first: limit } }),
+      });
 
+      if (!res.ok) {
+        const body = await res.text();
+        console.error("[shopify-products] Storefront error", res.status, body.slice(0, 300));
+        return new Response(JSON.stringify({
+          error: `Shopify Storefront error ${res.status}`,
+          details: body.slice(0, 500),
+          products: [],
+        }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const json = await res.json();
+      if (json.errors) {
+        console.error("[shopify-products] GraphQL errors", JSON.stringify(json.errors).slice(0, 300));
+        return new Response(JSON.stringify({
+          error: "GraphQL errors",
+          details: json.errors,
+          products: [],
+        }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const edges = json?.data?.products?.edges || [];
+      const products = edges
+        .map((e: any) => e.node)
+        .filter((p: any) => p?.variants?.edges?.length > 0)
+        .map((p: any) => {
+          const v = p.variants.edges[0].node;
+          const basePrice = Number(v?.price?.amount) || 0;
+          const weightKg = weightToKg(Number(v?.weight) || 0, v?.weightUnit);
+          const images = (p.images?.edges || []).map((i: any) => i.node?.url).filter(Boolean);
+          const imageUrl = images[0] || "";
+          const numericId = gidToNumeric(p.id);
+          const productUrl =
+            p.onlineStoreUrl || `https://${domain}/products/${p.handle}`;
+          return {
+            id: String(numericId),
+            country: "china",
+            title: p.title,
+            image_url: imageUrl,
+            images,
+            product_url: productUrl,
+            base_price_usd: basePrice,
+            est_weight_kg: weightKg,
+            description: p.description ? String(p.description).trim() : null,
+            measurements: null,
+            in_stock: !!v?.availableForSale,
+          };
+        });
+
+      return new Response(JSON.stringify({ products, count: products.length }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Legacy fallback: Admin REST API
+    const apiUrl = `https://${domain}/admin/api/2024-10/products.json?limit=${limit}&status=active`;
     const res = await fetch(apiUrl, {
       headers: {
-        "X-Shopify-Access-Token": ADMIN_TOKEN,
+        "X-Shopify-Access-Token": ADMIN_TOKEN!,
         "Content-Type": "application/json",
       },
     });
 
     if (!res.ok) {
       const body = await res.text();
-      console.error("[shopify-products] API error", res.status, body);
+      console.error("[shopify-products] Admin API error", res.status, body.slice(0, 300));
       return new Response(JSON.stringify({
         error: `Shopify API error ${res.status}`,
         details: body.slice(0, 500),
@@ -61,16 +163,15 @@ Deno.serve(async (req) => {
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const data = await res.json() as { products: ShopifyProduct[] };
-
+    const data = await res.json();
     const products = (data.products || [])
-      .filter((p) => p.variants && p.variants.length > 0)
-      .map((p) => {
+      .filter((p: any) => p.variants && p.variants.length > 0)
+      .map((p: any) => {
         const v = p.variants[0];
         const basePrice = Number(v.price) || 0;
         const grams = Number(v.grams) || 0;
-        const weightKg = grams > 0 ? grams / 1000 : 0.5; // default 500g if missing
-        const images = (p.images || []).map((i) => i.src).filter(Boolean);
+        const weightKg = grams > 0 ? grams / 1000 : 0.5;
+        const images = (p.images || []).map((i: any) => i.src).filter(Boolean);
         const imageUrl = p.image?.src || images[0] || "";
         return {
           id: String(p.id),

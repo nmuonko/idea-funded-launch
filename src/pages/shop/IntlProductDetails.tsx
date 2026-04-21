@@ -74,10 +74,20 @@ export default function IntlProductDetails() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      const productPromise: Promise<{ data: IntlProduct | null }> = key === 'china'
+        ? supabase.functions.invoke('shopify-products', { body: {} })
+            .then((r: any) => {
+              const list: IntlProduct[] = r?.data?.products ?? [];
+              const found = list.find((p) => String(p.id) === String(id)) || null;
+              return { data: found };
+            })
+            .catch(() => ({ data: null }))
+        : ((supabase.from('international_products' as any).select('*').eq('id', id).maybeSingle()) as any);
+
       const [metaRes, settingsRes, prodRes] = await Promise.all([
         (supabase.from('country_shipping_rates' as any).select('*').eq('country', key).maybeSingle()) as any,
         supabase.from('settings' as any).select('markup_percent').limit(1).single() as any,
-        (supabase.from('international_products' as any).select('*').eq('id', id).maybeSingle()) as any,
+        productPromise,
       ]);
       if (cancelled) return;
       if (metaRes.data) setMeta(metaRes.data as CountryMeta);

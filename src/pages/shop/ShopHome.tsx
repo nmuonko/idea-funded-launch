@@ -1214,6 +1214,42 @@ export default function ShopHome() {
     }));
   }, [getHomepageCategoryItems, categoryLoadingMap]);
 
+  // Phones row (premium phones), then a dedicated Phone Accessories row.
+  const PHONE_ACCESSORY_KEYWORDS = [
+    'case', 'cover', 'protector', 'tempered glass', 'charger', 'cable',
+    'usb-c', 'lightning', 'magsafe', 'airpods', 'earbud', 'earphone',
+    'power bank', 'holder', 'mount', 'stand', 'adapter', 'wireless charger',
+  ];
+  const phonesRowItems = useMemo(() => {
+    const all = filterForCategory(
+      deduplicateProducts([
+        ...(pinnedByCategory['phones'] || []),
+        ...(categoryItems['phones'] || []),
+      ]),
+      'phones',
+    );
+    const handsets = all.filter(p => {
+      const tt = (p.title || '').toLowerCase();
+      return !PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
+    });
+    return filterHomepageProducts(sortByLuxury(handsets), 'phones').slice(0, 12);
+  }, [pinnedByCategory, categoryItems]);
+
+  const phoneAccessoryItems = useMemo(() => {
+    const all = deduplicateProducts([
+      ...(pinnedByCategory['phones'] || []),
+      ...(categoryItems['phones'] || []),
+      ...accueilProducts,
+    ]);
+    const accessories = all.filter(p => {
+      const tt = (p.title || '').toLowerCase();
+      return PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
+    });
+    return filterHomepageProducts(sortByLuxury(accessories), 'phones').slice(0, 12);
+  }, [pinnedByCategory, categoryItems, accueilProducts]);
+
+  const [showMoreCategories, setShowMoreCategories] = useState(false);
+
   // Auto-rescue sparse categories: if displayed < 4 after loading, search-rescue and merge
   const rescueAttemptedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -1368,12 +1404,8 @@ export default function ShopHome() {
       <ShopHeader />
       <div className="pt-16 md:pt-20" />
 
-      {/* 1) Hero Banner Carousel */}
-      <section className="mb-5">
-        <HeroBannerCarousel />
-      </section>
-
-      {/* 1.5) Country Selector — Shop by USA / China / Dubai / Turkey */}
+      {/* 1) Country Selector — leads the page; cleaner than the hero. */}
+      <div className="pt-2" />
       <CountrySelector />
       <div id="shop-categories-anchor" />
 
@@ -1545,36 +1577,43 @@ export default function ShopHome() {
                     <div className="flex-shrink-0 flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary/20 border border-primary/30 group-hover:bg-primary/30 transition-colors">
                       <Link2 className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
                     </div>
-
                     <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-1">
-                        <p className="text-sm sm:text-lg font-bold text-white leading-tight">
-                          {language === 'fr' ? "Collez le lien. On calcule le prix." : "Paste the link. We get the price."}
-                        </p>
-                      </div>
+                      <p className="text-sm sm:text-lg font-bold text-white leading-tight mb-1">
+                        {language === 'fr' ? "Collez le lien. On calcule le prix." : "Paste the link. We get the price."}
+                      </p>
                       <p className="text-xs sm:text-sm text-white/65 leading-snug">
                         {language === 'fr' ? "Introuvable en catalogue ? Collez le lien du produit." : "Can't find it in catalog? Paste the product link."}
                       </p>
                     </div>
-
                     <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 text-primary flex-shrink-0 mt-1 group-hover:translate-x-1 transition-transform" />
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                    <div className="h-10 sm:h-11 rounded-lg border border-white/10 bg-white/5 flex items-center justify-center">
-                      <img src="/images/logos/amazon.svg" alt="Amazon" className="h-4 sm:h-5 w-auto max-w-[72px] sm:max-w-[95px] object-contain opacity-90" />
-                    </div>
-                    <div className="h-10 sm:h-11 rounded-lg border border-white/10 bg-white/5 flex items-center justify-center">
-                      <img src="/images/logos/shein-white.svg" alt="SHEIN" className="h-3.5 sm:h-4.5 w-auto object-contain opacity-90" />
-                    </div>
-                    <div className="h-10 sm:h-11 rounded-lg border border-white/10 bg-white/5 flex items-center justify-center">
-                      <img src="/images/logos/tesla-official.png" alt="Tesla" className="h-5 sm:h-6 w-auto object-contain opacity-90" />
-                    </div>
                   </div>
                 </div>
               </Link>
 
-              {/* 2) Trending Grid - capped to 8 to fit one row on desktop */}
+              {/* PHONES — main featured row */}
+              {phonesRowItems.length > 0 && (
+                <SectionBlock
+                  title={language === 'fr' ? 'Téléphones' : 'Phones'}
+                  items={phonesRowItems}
+                  mode="static-grid"
+                  seeAllLink="/category/phones"
+                  maxItems={8}
+                  categoryKey="phones"
+                />
+              )}
+
+              {/* PHONE ACCESSORIES — second featured row */}
+              {phoneAccessoryItems.length > 0 && (
+                <SectionBlock
+                  title={language === 'fr' ? 'Accessoires de téléphone' : 'Phone Accessories'}
+                  items={phoneAccessoryItems}
+                  mode="static-grid"
+                  seeAllLink="/search?q=phone+accessories"
+                  maxItems={8}
+                />
+              )}
+
+              {/* Trending — kept but moved below phones */}
               {filteredTrending.length > 0 && (
                 <SectionBlock
                   title={language === 'fr' ? 'Tendances' : 'Trending Now'}
@@ -1585,39 +1624,51 @@ export default function ShopHome() {
                 />
               )}
 
-              {/* 3) Promo Tiles — 2 cols on mobile for a denser, premium look */}
-              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
-                {promoCategoryItems.map(({ catKey, items, loading }) => (
-                  <SectionBlock
-                    key={catKey}
-                    title={getCategoryTitle(catKey, language)}
-                    items={items}
-                    loading={loading}
-                    mode="grid"
-                    categoryKey={catKey}
-                  />
-                ))}
+              {/* More categories — collapsed by default for a cleaner page */}
+              <div className="pt-2">
+                {!showMoreCategories ? (
+                  <button
+                    onClick={() => setShowMoreCategories(true)}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] text-white/80 hover:text-white text-sm font-medium transition-colors"
+                  >
+                    {language === 'fr' ? 'Voir plus de catégories' : 'Show more categories'}
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <LazySection minHeight={400}>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+                        {promoCategoryItems
+                          .filter(({ catKey }) => catKey !== 'phones')
+                          .map(({ catKey, items, loading }) => (
+                            <SectionBlock
+                              key={catKey}
+                              title={getCategoryTitle(catKey, language)}
+                              items={items}
+                              loading={loading}
+                              mode="grid"
+                              categoryKey={catKey}
+                            />
+                          ))}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3">
+                        {remainingCategoryItems.map(({ catKey, items, loading }) => (
+                          <SectionBlock
+                            key={catKey}
+                            title={getCategoryTitle(catKey, language)}
+                            items={items}
+                            loading={loading}
+                            mode="grid"
+                            categoryKey={catKey}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </LazySection>
+                )}
               </div>
 
-              {/* Recently Viewed section removed per product decision */}
-
-              {/* 5) Remaining Category Grid Cards — denser on mobile */}
-              <LazySection minHeight={600}>
-                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3">
-                  {remainingCategoryItems.map(({ catKey, items, loading }) => (
-                    <SectionBlock
-                      key={catKey}
-                      title={getCategoryTitle(catKey, language)}
-                      items={items}
-                      loading={loading}
-                      mode="grid"
-                      categoryKey={catKey}
-                    />
-                  ))}
-                </div>
-              </LazySection>
-
-              {/* 6) Category Icons Row */}
+              {/* Category Icons Row */}
               <LazySection minHeight={80}>
                 <CategoryIconsRow />
               </LazySection>

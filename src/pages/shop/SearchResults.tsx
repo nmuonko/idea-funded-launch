@@ -97,6 +97,36 @@ export default function SearchResults() {
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ===== AI search intent (USA→China→… by default; fashion → China + Turkey only) =====
+  type SearchIntent = {
+    category: string;
+    is_fashion: boolean;
+    country_priority: string[];
+    provider_priority: string[];
+  };
+  const [intent, setIntent] = useState<SearchIntent | null>(null);
+  useEffect(() => {
+    if (!query?.trim()) { setIntent(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${SUPABASE_URL}/functions/v1/search-intent`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({ q: query }),
+        });
+        if (!r.ok) return;
+        const data = (await r.json()) as SearchIntent;
+        if (!cancelled) setIntent(data);
+      } catch { /* silent — fallback to default routing */ }
+    })();
+    return () => { cancelled = true; };
+  }, [query]);
+
   // Derived: client-side provider filtering for instant results
   const products = useMemo(() => {
     if (!providerFilter || providerFilter === 'all') return allProducts;
@@ -638,7 +668,30 @@ export default function SearchResults() {
 
           {/* Price filter removed - sort dropdown above handles ordering */}
 
-
+          {/* Fashion intent banner — clothing/shoes/beauty come from China + Turkey */}
+          {intent?.is_fashion && (
+            <div className="mb-4 rounded-xl border border-primary/30 bg-primary/10 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <p className="text-sm text-white/80 flex-1">
+                {language === 'fr'
+                  ? 'Pour la mode, la beauté et les chaussures, nous recommandons nos boutiques Chine et Turquie.'
+                  : 'For fashion, beauty and shoes we recommend our China and Turkey stores.'}
+              </p>
+              <div className="flex gap-2">
+                <Link
+                  to="/shop/china"
+                  className="inline-flex items-center justify-center gap-1 rounded-lg bg-primary text-primary-foreground px-3 py-1.5 text-sm font-medium hover:opacity-90"
+                >
+                  🇨🇳 {language === 'fr' ? 'Chine' : 'China'}
+                </Link>
+                <Link
+                  to="/shop/turkey"
+                  className="inline-flex items-center justify-center gap-1 rounded-lg border border-white/20 text-white/90 hover:bg-white/10 px-3 py-1.5 text-sm font-medium"
+                >
+                  🇹🇷 {language === 'fr' ? 'Turquie' : 'Turkey'}
+                </Link>
+              </div>
+            </div>
+          )}
 
           {/* Products */}
           <ProductGrid products={products} loading={loading} skeletonCount={24} dense />

@@ -92,7 +92,7 @@ const HOMEPAGE_CATEGORY_MAX_PRICE_USD: Record<string, number> = {
 };
 const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set<string>([]);
 const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_motors']);
-const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v4';
+const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v6';
 
 function getCategoryMaxPrice(categoryKey?: string): number {
   if (!categoryKey) return HOMEPAGE_DEFAULT_MAX_PRICE_USD;
@@ -1193,6 +1193,26 @@ export default function ShopHome() {
       loading: categoryLoadingMap[catKey] === true,
     }));
   }, [getHomepageCategoryItems, categoryLoadingMap]);
+
+  // Auto-rescue sparse categories: if displayed < 4 after loading, search-rescue and merge
+  const rescueAttemptedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    ALL_HOMEPAGE_CATEGORIES.forEach(async (catKey) => {
+      if (categoryLoadingMap[catKey]) return;
+      if (rescueAttemptedRef.current.has(catKey)) return;
+      const current = getHomepageCategoryItems(catKey);
+      if (current.length >= 4) return;
+      rescueAttemptedRef.current.add(catKey);
+      try {
+        const existing = [...(pinnedByCategory[catKey] || []), ...(categoryItems[catKey] || [])];
+        const rescued = await searchCategoryRescue(catKey, existing, 4);
+        if (rescued.length > existing.length) {
+          setCategoryItems(prev => ({ ...prev, [catKey]: rescued }));
+        }
+      } catch { /* noop */ }
+    });
+  }, [categoryLoadingMap, categoryItems, pinnedByCategory, getHomepageCategoryItems]);
+
 
   // ====== EFFECTS ======
   const scheduleCategoryPrefetch = useCallback(() => {

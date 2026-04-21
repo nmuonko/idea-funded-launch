@@ -25,17 +25,21 @@ const STOREFRONT_QUERY = `
           description
           handle
           onlineStoreUrl
+          options { name values }
           images(first: 10) {
             edges { node { url altText } }
           }
-          variants(first: 1) {
+          variants(first: 100) {
             edges {
               node {
                 id
+                title
                 price { amount currencyCode }
                 weight
                 weightUnit
                 availableForSale
+                selectedOptions { name value }
+                image { url }
               }
             }
           }

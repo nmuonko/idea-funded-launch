@@ -213,7 +213,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
       "camera","webcam","drone","projector","smart home","printer",
       "smart watch","smartwatch","headset","soundbar",
     ]),
-    excludeAny: VEHICLE_CORE.concat(PARTS_WORDS, GAMING_WORDS, PHONE_WORDS, [
+    excludeAny: VEHICLE_CORE.concat(PARTS_WORDS, GAMING_WORDS, [
       "phone holder","car mount","phone stand","fm transmitter",
       "car adapter","seat cover","floor mat","car charger",
       "car phone","phone grip","phone cradle",

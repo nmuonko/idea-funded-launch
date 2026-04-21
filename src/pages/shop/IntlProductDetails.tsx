@@ -18,6 +18,16 @@ interface CountryMeta {
   rate_per_kg_usd: number;
 }
 
+interface ShopifyVariant {
+  id: string;
+  gid: string;
+  title: string;
+  price_usd: number;
+  available: boolean;
+  selected_options: { name: string; value: string }[];
+  image_url: string | null;
+}
+
 interface IntlProduct {
   id: string;
   country: string;
@@ -31,6 +41,8 @@ interface IntlProduct {
   measurements?: string | null;
   available_sizes?: string[] | null;
   is_active?: boolean;
+  options?: { name: string; values: string[] }[];
+  variants?: ShopifyVariant[];
 }
 
 const ALLOWED = new Set(['china', 'dubai', 'turkey']);

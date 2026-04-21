@@ -63,20 +63,36 @@ export default function IntlProductDetails() {
   const [qty, setQty] = useState(1);
   const [activeImg, setActiveImg] = useState(0);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  // Shopify multi-option selection: { "Size": "M", "Color": "Navy [Bear]" }
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
 
   const sizes = useMemo(() => {
     const raw = Array.isArray(product?.available_sizes) ? product!.available_sizes! : [];
-    // Split each entry on common separators (":", ",", "/", "|", whitespace) so "46:48:50" becomes ["46","48","50"]
     const all = raw.flatMap((s) =>
       String(s)
         .split(/[:,/|\s]+/)
         .map((x) => x.trim())
         .filter(Boolean),
     );
-    // Dedupe while preserving order
     return Array.from(new Set(all));
   }, [product]);
   const requiresSize = sizes.length > 0;
+
+  // Shopify product options (Size, Color, ...) — China path only
+  const shopifyOptions = useMemo(
+    () => (Array.isArray(product?.options) ? product!.options! : []),
+    [product],
+  );
+  const hasShopifyOptions = shopifyOptions.length > 0;
+
+  const matchedVariant = useMemo(() => {
+    if (!product?.variants?.length || !hasShopifyOptions) return null;
+    return (
+      product.variants.find((v) =>
+        v.selected_options.every((o) => selectedOptions[o.name] === o.value),
+      ) || null
+    );
+  }, [product, selectedOptions, hasShopifyOptions]);
 
   useEffect(() => {
     if (!ALLOWED.has(key)) {

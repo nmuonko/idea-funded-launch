@@ -848,10 +848,14 @@ Deno.serve(async (req) => {
           .range(filteredFinalItems.length, filteredFinalItems.length + postMixNeeded * 2);
 
         if (!postMixErr && postMixItems && postMixItems.length > 0) {
-          const postMapped = postMixItems
+          let postMapped = postMixItems
             .map((item: Record<string, unknown>) => normalizeDbItem(item, parentTab, resolvedSub2))
-            .filter((i: any) => !postMixIds.has(i.id))
-            .slice(0, postMixNeeded);
+            .filter((i: any) => !postMixIds.has(i.id));
+          const postMixProfile = sectionProfile || getSectionProfile(effectiveSectionKey);
+          if (postMixProfile) {
+            postMapped = filterItemsForProfile(postMapped as unknown as SectionItem[], postMixProfile) as unknown as CatalogProduct[];
+          }
+          postMapped = postMapped.slice(0, postMixNeeded);
           filteredFinalItems = [...filteredFinalItems, ...postMapped];
           console.log(`[CATALOG] requestId=${requestId} post-mixer backfill added ${postMapped.length} items (total=${filteredFinalItems.length})`);
         }

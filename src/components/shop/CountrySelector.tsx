@@ -59,8 +59,12 @@ export function CountrySelector() {
       el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
-    // If the country has any active international products, go to the shop;
-    // otherwise show the "coming soon" page.
+    // China is powered by Shopify (live), so always open the shop.
+    if (country === 'china') {
+      navigate(`/shop/${country}`);
+      return;
+    }
+    // Other countries: check if any active international products exist.
     const { count } = await (supabase
       .from('international_products' as any)
       .select('id', { count: 'exact', head: true })

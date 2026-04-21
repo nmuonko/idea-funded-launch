@@ -123,7 +123,9 @@ Deno.serve(async (req) => {
           const v = variantNodes[0];
           const basePrice = Number(v?.price?.amount) || 0;
           const weightKg = weightToKg(Number(v?.weight) || 0, v?.weightUnit);
-          const images = (p.images?.edges || []).map((i: any) => i.node?.url).filter(Boolean);
+          const productImages = (p.images?.edges || []).map((i: any) => i.node?.url).filter(Boolean);
+          const variantImages = variantNodes.map((vn: any) => vn?.image?.url).filter(Boolean);
+          const images = Array.from(new Set([...productImages, ...variantImages]));
           const imageUrl = images[0] || "";
           const numericId = gidToNumeric(p.id);
           const productUrl =
@@ -152,7 +154,8 @@ Deno.serve(async (req) => {
             options: (p.options || []).map((o: any) => ({ name: o.name, values: o.values })),
             variants,
           };
-        });
+        })
+        .filter((p: any) => p.image_url && p.images.length > 0);
 
       return new Response(JSON.stringify({ products, count: products.length }), {
         status: 200,
@@ -202,7 +205,8 @@ Deno.serve(async (req) => {
           measurements: null,
           in_stock: (v.inventory_quantity ?? 1) > 0,
         };
-      });
+      })
+      .filter((p: any) => p.image_url && p.images.length > 0);
 
     return new Response(JSON.stringify({ products, count: products.length }), {
       status: 200,

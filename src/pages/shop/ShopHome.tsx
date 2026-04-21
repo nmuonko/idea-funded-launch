@@ -1218,7 +1218,7 @@ export default function ShopHome() {
       try {
         const existing = [...(pinnedByCategory[catKey] || []), ...(categoryItems[catKey] || [])];
         const rescued = await searchCategoryRescue(catKey, existing, 4);
-        if (rescued.length > existing.length) {
+        if (rescued.length > 0) {
           setCategoryItems(prev => ({ ...prev, [catKey]: rescued }));
         }
       } catch { /* noop */ }

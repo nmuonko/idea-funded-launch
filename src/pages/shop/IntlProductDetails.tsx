@@ -148,16 +148,34 @@ export default function IntlProductDetails() {
       toast.error(isFr ? 'Veuillez sélectionner une taille' : 'Please select a size');
       return;
     }
+    if (hasShopifyOptions) {
+      const missing = shopifyOptions.find((o) => !selectedOptions[o.name]);
+      if (missing) {
+        toast.error(isFr ? `Veuillez choisir : ${missing.name}` : `Please select: ${missing.name}`);
+        return;
+      }
+      if (!matchedVariant) {
+        toast.error(isFr ? 'Combinaison indisponible' : 'Selected combination unavailable');
+        return;
+      }
+      if (!matchedVariant.available) {
+        toast.error(isFr ? 'Variante en rupture de stock' : 'Variant out of stock');
+        return;
+      }
+    }
     setAdding(true);
     try {
-      const titleWithSize = selectedSize
-        ? `${product.title} — ${isFr ? 'Taille' : 'Size'} ${selectedSize}`
-        : product.title;
+      const optionSuffix = hasShopifyOptions
+        ? ' — ' + shopifyOptions.map((o) => `${o.name}: ${selectedOptions[o.name]}`).join(' / ')
+        : selectedSize ? ` — ${isFr ? 'Taille' : 'Size'} ${selectedSize}` : '';
+      const idSuffix = hasShopifyOptions && matchedVariant
+        ? `_v${matchedVariant.id}`
+        : selectedSize ? `_${selectedSize}` : '';
       await addItem({
-        productId: selectedSize ? `intl_${product.id}_${selectedSize}` : `intl_${product.id}`,
+        productId: `intl_${product.id}${idSuffix}`,
         provider: `intl_${product.country}`,
-        title: titleWithSize,
-        imageUrl: product.image_url,
+        title: `${product.title}${optionSuffix}`,
+        imageUrl: matchedVariant?.image_url || product.image_url,
         priceUsd: totals.total,
         quantity: qty,
         productUrl: product.product_url,

@@ -17,7 +17,7 @@ import { postProcessSection } from "./sectionPostProcess.ts";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const MOBILE_SECTIONS_SCHEMA_VERSION = 24; // v24: stricter relevance + refreshed section backfill
+export const MOBILE_SECTIONS_SCHEMA_VERSION = 25; // v25: audio_music => speakers under $150
 const DEFAULT_TTL_SECONDS = 1800; // 30 min default — overridden by admin settings
 const ITEMS_PER_SECTION_RESPONSE = 40; // returned to client
 const ITEMS_PER_SECTION_CACHE = 60; // stored in cache for stability

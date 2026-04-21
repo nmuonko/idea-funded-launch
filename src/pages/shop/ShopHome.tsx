@@ -1041,16 +1041,17 @@ export default function ShopHome() {
   // ====== TRENDING FEED (memoized) ======
   const trendingFeed = useMemo(() => {
     const dedup = new Set<string>();
-    const trendingCats = ['phones', 'cameras_photo', 'vehicles', 'clothing', 'electronics', 'jewelry_watches', 'gaming', 'audio_music', 'home_garden', 'sporting_goods', 'toys', 'parts_accessories', 'refurbished'];
+    const trendingCats = ALL_HOMEPAGE_CATEGORIES;
     const trending: Product[] = [];
 
-    const allPinnedProducts: Product[] = [];
+    const categoryPoolProducts: Product[] = [];
     for (const catKey of trendingCats) {
       const pins = filterHomepageProducts(pinnedByCategory[catKey] || [], catKey);
-      allPinnedProducts.push(...pins);
+      const fetched = filterHomepageProducts(categoryItems[catKey] || [], catKey);
+      categoryPoolProducts.push(...filterForCategory([...pins, ...fetched], catKey));
     }
     const TRENDING_JUNK = ['for parts', 'for repair', 'cracked', 'as-is', 'as is', 'read description', 'broken', 'damaged'];
-    const combinedPool = filterHomepageProducts([...allPinnedProducts, ...accueilProducts]).filter(p => {
+    const combinedPool = filterHomepageProducts([...categoryPoolProducts, ...accueilProducts]).filter(p => {
       const t = (p.title || '').toLowerCase();
       return !TRENDING_JUNK.some(kw => t.includes(kw));
     });
@@ -1107,7 +1108,7 @@ export default function ShopHome() {
     }
 
     return interleaved.slice(0, 16);
-  }, [accueilProducts, pinnedByCategory]);
+  }, [accueilProducts, categoryItems, pinnedByCategory]);
 
   // ====== MEMOIZED FILTERED RESULTS ======
   const filteredTrending = useMemo(() => filterHomepageProducts(applyFilters(trendingFeed)), [applyFilters, trendingFeed]);
@@ -1116,7 +1117,7 @@ export default function ShopHome() {
   const getHomepageCategoryItems = useCallback((catKey: string) => {
     const pinnedItems = pinnedByCategory[catKey] || [];
     const fetchedItems = categoryItems[catKey] || [];
-    const merged = deduplicateProducts([...pinnedItems, ...fetchedItems]);
+    const merged = filterForCategory(deduplicateProducts([...pinnedItems, ...fetchedItems]), catKey);
     return applyFilters(keepEnoughHomepageProducts(merged, catKey).slice(0, 4));
   }, [applyFilters, pinnedByCategory, categoryItems]);
 

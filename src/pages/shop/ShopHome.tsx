@@ -1585,8 +1585,8 @@ export default function ShopHome() {
                 />
               )}
 
-              {/* 3) Promo Tiles */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* 3) Promo Tiles — 2 cols on mobile for a denser, premium look */}
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
                 {promoCategoryItems.map(({ catKey, items, loading }) => (
                   <SectionBlock
                     key={catKey}
@@ -1601,9 +1601,9 @@ export default function ShopHome() {
 
               {/* Recently Viewed section removed per product decision */}
 
-              {/* 5) Remaining Category Grid Cards */}
+              {/* 5) Remaining Category Grid Cards — denser on mobile */}
               <LazySection minHeight={600}>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3">
                   {remainingCategoryItems.map(({ catKey, items, loading }) => (
                     <SectionBlock
                       key={catKey}

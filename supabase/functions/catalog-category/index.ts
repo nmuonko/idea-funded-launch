@@ -722,7 +722,6 @@ Deno.serve(async (req) => {
         let dbBackfillQ = supabase.from("catalog_items").select("*")
           .or(backfillCatOr)
           .or("is_disallowed.is.null,is_disallowed.eq.false")
-          .filter("image_url", "not.is", null)
           .gt("price_usd", 0);
         if (resolvedSub) {
           dbBackfillQ = dbBackfillQ.eq("unified_subcategory", resolvedSub);
@@ -837,7 +836,6 @@ Deno.serve(async (req) => {
         let postMixQ = supabase.from("catalog_items").select("*")
           .or(postMixCatOr)
           .or("is_disallowed.is.null,is_disallowed.eq.false")
-          .filter("image_url", "not.is", null)
           .gt("price_usd", 0);
         if (resolvedSub2) {
           postMixQ = postMixQ.eq("unified_subcategory", resolvedSub2);

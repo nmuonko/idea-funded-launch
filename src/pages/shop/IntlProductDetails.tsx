@@ -18,6 +18,16 @@ interface CountryMeta {
   rate_per_kg_usd: number;
 }
 
+interface ShopifyVariant {
+  id: string;
+  gid: string;
+  title: string;
+  price_usd: number;
+  available: boolean;
+  selected_options: { name: string; value: string }[];
+  image_url: string | null;
+}
+
 interface IntlProduct {
   id: string;
   country: string;
@@ -31,6 +41,8 @@ interface IntlProduct {
   measurements?: string | null;
   available_sizes?: string[] | null;
   is_active?: boolean;
+  options?: { name: string; values: string[] }[];
+  variants?: ShopifyVariant[];
 }
 
 const ALLOWED = new Set(['china', 'dubai', 'turkey']);
@@ -51,20 +63,36 @@ export default function IntlProductDetails() {
   const [qty, setQty] = useState(1);
   const [activeImg, setActiveImg] = useState(0);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  // Shopify multi-option selection: { "Size": "M", "Color": "Navy [Bear]" }
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
 
   const sizes = useMemo(() => {
     const raw = Array.isArray(product?.available_sizes) ? product!.available_sizes! : [];
-    // Split each entry on common separators (":", ",", "/", "|", whitespace) so "46:48:50" becomes ["46","48","50"]
     const all = raw.flatMap((s) =>
       String(s)
         .split(/[:,/|\s]+/)
         .map((x) => x.trim())
         .filter(Boolean),
     );
-    // Dedupe while preserving order
     return Array.from(new Set(all));
   }, [product]);
   const requiresSize = sizes.length > 0;
+
+  // Shopify product options (Size, Color, ...) — China path only
+  const shopifyOptions = useMemo(
+    () => (Array.isArray(product?.options) ? product!.options! : []),
+    [product],
+  );
+  const hasShopifyOptions = shopifyOptions.length > 0;
+
+  const matchedVariant = useMemo(() => {
+    if (!product?.variants?.length || !hasShopifyOptions) return null;
+    return (
+      product.variants.find((v) =>
+        v.selected_options.every((o) => selectedOptions[o.name] === o.value),
+      ) || null
+    );
+  }, [product, selectedOptions, hasShopifyOptions]);
 
   useEffect(() => {
     if (!ALLOWED.has(key)) {
@@ -120,16 +148,34 @@ export default function IntlProductDetails() {
       toast.error(isFr ? 'Veuillez sélectionner une taille' : 'Please select a size');
       return;
     }
+    if (hasShopifyOptions) {
+      const missing = shopifyOptions.find((o) => !selectedOptions[o.name]);
+      if (missing) {
+        toast.error(isFr ? `Veuillez choisir : ${missing.name}` : `Please select: ${missing.name}`);
+        return;
+      }
+      if (!matchedVariant) {
+        toast.error(isFr ? 'Combinaison indisponible' : 'Selected combination unavailable');
+        return;
+      }
+      if (!matchedVariant.available) {
+        toast.error(isFr ? 'Variante en rupture de stock' : 'Variant out of stock');
+        return;
+      }
+    }
     setAdding(true);
     try {
-      const titleWithSize = selectedSize
-        ? `${product.title} — ${isFr ? 'Taille' : 'Size'} ${selectedSize}`
-        : product.title;
+      const optionSuffix = hasShopifyOptions
+        ? ' — ' + shopifyOptions.map((o) => `${o.name}: ${selectedOptions[o.name]}`).join(' / ')
+        : selectedSize ? ` — ${isFr ? 'Taille' : 'Size'} ${selectedSize}` : '';
+      const idSuffix = hasShopifyOptions && matchedVariant
+        ? `_v${matchedVariant.id}`
+        : selectedSize ? `_${selectedSize}` : '';
       await addItem({
-        productId: selectedSize ? `intl_${product.id}_${selectedSize}` : `intl_${product.id}`,
+        productId: `intl_${product.id}${idSuffix}`,
         provider: `intl_${product.country}`,
-        title: titleWithSize,
-        imageUrl: product.image_url,
+        title: `${product.title}${optionSuffix}`,
+        imageUrl: matchedVariant?.image_url || product.image_url,
         priceUsd: totals.total,
         quantity: qty,
         productUrl: product.product_url,
@@ -261,6 +307,46 @@ export default function IntlProductDetails() {
                   {product.description}
                 </div>
               )}
+
+              {hasShopifyOptions && shopifyOptions.map((opt) => (
+                <div key={opt.name} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      {opt.name}
+                      <span className="text-destructive ml-1">*</span>
+                    </span>
+                    {selectedOptions[opt.name] && (
+                      <span className="text-xs text-muted-foreground">
+                        {isFr ? 'Sélectionné' : 'Selected'}: <strong className="text-foreground">{selectedOptions[opt.name]}</strong>
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {opt.values.map((val) => {
+                      const isActive = selectedOptions[opt.name] === val;
+                      const otherSel = { ...selectedOptions, [opt.name]: val };
+                      const hasAvail = (product?.variants || []).some((v) =>
+                        v.available && v.selected_options.every((o) => otherSel[o.name] === o.value),
+                      );
+                      return (
+                        <button
+                          key={val}
+                          type="button"
+                          disabled={!hasAvail}
+                          onClick={() => setSelectedOptions((prev) => ({ ...prev, [opt.name]: val }))}
+                          className={`min-w-[3rem] px-3 py-2 rounded-lg border-2 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                            isActive
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'border-border bg-card hover:border-primary/60 text-foreground'
+                          }`}
+                        >
+                          {val}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
 
               {requiresSize && (
                 <div className="space-y-2">

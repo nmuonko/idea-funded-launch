@@ -25,17 +25,21 @@ const STOREFRONT_QUERY = `
           description
           handle
           onlineStoreUrl
+          options { name values }
           images(first: 10) {
             edges { node { url altText } }
           }
-          variants(first: 1) {
+          variants(first: 100) {
             edges {
               node {
                 id
+                title
                 price { amount currencyCode }
                 weight
                 weightUnit
                 availableForSale
+                selectedOptions { name value }
+                image { url }
               }
             }
           }
@@ -115,7 +119,8 @@ Deno.serve(async (req) => {
         .map((e: any) => e.node)
         .filter((p: any) => p?.variants?.edges?.length > 0)
         .map((p: any) => {
-          const v = p.variants.edges[0].node;
+          const variantNodes = (p.variants?.edges || []).map((e: any) => e.node);
+          const v = variantNodes[0];
           const basePrice = Number(v?.price?.amount) || 0;
           const weightKg = weightToKg(Number(v?.weight) || 0, v?.weightUnit);
           const images = (p.images?.edges || []).map((i: any) => i.node?.url).filter(Boolean);
@@ -123,6 +128,15 @@ Deno.serve(async (req) => {
           const numericId = gidToNumeric(p.id);
           const productUrl =
             p.onlineStoreUrl || `https://${domain}/products/${p.handle}`;
+          const variants = variantNodes.map((vn: any) => ({
+            id: gidToNumeric(vn.id),
+            gid: vn.id,
+            title: vn.title,
+            price_usd: Number(vn?.price?.amount) || 0,
+            available: !!vn?.availableForSale,
+            selected_options: (vn.selectedOptions || []).map((o: any) => ({ name: o.name, value: o.value })),
+            image_url: vn?.image?.url || null,
+          }));
           return {
             id: String(numericId),
             country: "china",
@@ -135,6 +149,8 @@ Deno.serve(async (req) => {
             description: p.description ? String(p.description).trim() : null,
             measurements: null,
             in_stock: !!v?.availableForSale,
+            options: (p.options || []).map((o: any) => ({ name: o.name, values: o.values })),
+            variants,
           };
         });
 

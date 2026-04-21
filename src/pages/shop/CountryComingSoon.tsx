@@ -1,4 +1,5 @@
-import { useNavigate, useParams } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { Button } from '@/components/ui/button';
@@ -10,13 +11,24 @@ const COUNTRY_META: Record<string, { en: string; fr: string; flag: string }> = {
   turkey: { en: 'Turkey', fr: 'Turquie',  flag: '🇹🇷' },
 };
 
+// Countries that are now LIVE (backed by Shopify or other real catalogs)
+// and should bypass the "coming soon" page entirely.
+const LIVE_COUNTRIES = new Set(['china']);
+
 export default function CountryComingSoon() {
   const navigate = useNavigate();
   const { country = '' } = useParams();
   const { language } = useLanguage();
   const isFr = language === 'fr' || language === 'ln';
 
-  const meta = COUNTRY_META[country.toLowerCase()] ?? { en: country, fr: country, flag: '🌍' };
+  const key = country.toLowerCase();
+
+  // China is powered by Shopify — always redirect to the live shop.
+  if (LIVE_COUNTRIES.has(key)) {
+    return <Navigate to={`/shop/${key}`} replace />;
+  }
+
+  const meta = COUNTRY_META[key] ?? { en: country, fr: country, flag: '🌍' };
   const name = isFr ? meta.fr : meta.en;
 
   return (

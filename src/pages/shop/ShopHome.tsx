@@ -1404,12 +1404,8 @@ export default function ShopHome() {
       <ShopHeader />
       <div className="pt-16 md:pt-20" />
 
-      {/* 1) Hero Banner Carousel */}
-      <section className="mb-5">
-        <HeroBannerCarousel />
-      </section>
-
-      {/* 1.5) Country Selector — Shop by USA / China / Dubai / Turkey */}
+      {/* 1) Country Selector — leads the page; cleaner than the hero. */}
+      <div className="pt-2" />
       <CountrySelector />
       <div id="shop-categories-anchor" />
 

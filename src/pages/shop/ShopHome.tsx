@@ -87,8 +87,10 @@ const HOMEPAGE_CATEGORY_MAX_PRICE_USD: Record<string, number> = {
   cameras_photo: 800,
   refurbished: 600,
   jewelry_watches: 500,
+  vehicles: 8000,
+  cars: 8000,
 };
-const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set(['vehicles', 'cars']);
+const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set<string>([]);
 const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_motors']);
 const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v4';
 

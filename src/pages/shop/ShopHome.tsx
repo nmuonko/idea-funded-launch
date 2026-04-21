@@ -197,15 +197,12 @@ async function searchCategoryRescue(catKey: string, currentItems: Product[], min
   const rescued = [...currentItems];
   const queries = CATEGORY_SEARCH_QUERIES[catKey] || [catKey.replace('_', ' ')];
 
+  // First pass: strict — must match category keywords/excludes
   for (const q of queries) {
     if (rescued.length >= Math.max(minimum, 8)) break;
-
     try {
-      const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 16, client: 'web' });
-      const candidates = (data?.items || [])
-        .map(mapSearchItemToProduct)
-        .filter(isValidProduct);
-
+      const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 24, client: 'web' });
+      const candidates = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct);
       const relevant = filterForCategory(candidates, catKey);
       for (const product of relevant) {
         if (rescued.length >= Math.max(minimum, 8)) break;
@@ -213,8 +210,23 @@ async function searchCategoryRescue(catKey: string, currentItems: Product[], min
         seenIds.add(product.id);
         rescued.push(product);
       }
-    } catch {
-      // Keep trying the next fallback query
+    } catch { /* try next */ }
+  }
+
+  // Second pass (relaxed): if still short, accept search results as-is from seed queries
+  if (rescued.length < minimum) {
+    for (const q of queries) {
+      if (rescued.length >= minimum) break;
+      try {
+        const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 16, client: 'web' });
+        const candidates = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct);
+        for (const product of candidates) {
+          if (rescued.length >= minimum) break;
+          if (seenIds.has(product.id)) continue;
+          seenIds.add(product.id);
+          rescued.push(product);
+        }
+      } catch { /* try next */ }
     }
   }
 
@@ -1206,7 +1218,7 @@ export default function ShopHome() {
       try {
         const existing = [...(pinnedByCategory[catKey] || []), ...(categoryItems[catKey] || [])];
         const rescued = await searchCategoryRescue(catKey, existing, 4);
-        if (rescued.length > existing.length) {
+        if (rescued.length > 0) {
           setCategoryItems(prev => ({ ...prev, [catKey]: rescued }));
         }
       } catch { /* noop */ }

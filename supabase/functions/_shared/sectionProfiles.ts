@@ -129,7 +129,8 @@ const SPORTS_WORDS = [
 const ELECTRONICS_WORDS = [
   "laptop","notebook","macbook","desktop","monitor","tv","television",
   "camera","dslr","mirrorless","speaker","bluetooth speaker","router","ssd","gpu",
-  "tablet","bluetooth",
+  "tablet","ipad","headphones","earbuds","airpods","soundbar","projector","printer",
+  "webcam","drone","smartwatch","smart watch","apple watch","galaxy watch","bluetooth",
 ];
 
 const REFURB_WORDS = [

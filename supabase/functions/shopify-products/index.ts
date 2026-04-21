@@ -205,7 +205,8 @@ Deno.serve(async (req) => {
           measurements: null,
           in_stock: (v.inventory_quantity ?? 1) > 0,
         };
-      });
+      })
+      .filter((p: any) => p.image_url && p.images.length > 0);
 
     return new Response(JSON.stringify({ products, count: products.length }), {
       status: 200,

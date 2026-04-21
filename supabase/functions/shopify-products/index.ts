@@ -154,7 +154,8 @@ Deno.serve(async (req) => {
             options: (p.options || []).map((o: any) => ({ name: o.name, values: o.values })),
             variants,
           };
-        });
+        })
+        .filter((p: any) => p.image_url && p.images.length > 0);
 
       return new Response(JSON.stringify({ products, count: products.length }), {
         status: 200,

@@ -1173,17 +1173,18 @@ export default function ShopHome() {
   const getHomepageCategoryItems = useCallback((catKey: string) => {
     const pinnedItems = pinnedByCategory[catKey] || [];
     const fetchedItems = categoryItems[catKey] || [];
-    const primary = filterForCategory(deduplicateProducts([...pinnedItems, ...fetchedItems]), catKey);
+    const withImages = (arr: Product[]) => arr.filter(p => !!p.imageUrl && isRenderableImageUrl(p.imageUrl));
+    const primary = withImages(filterForCategory(deduplicateProducts([...pinnedItems, ...fetchedItems]), catKey));
 
     if (primary.length >= 4) {
       return applyFilters(keepEnoughHomepageProducts(sortByLuxury(primary), catKey).slice(0, 4));
     }
 
     const existingIds = new Set(primary.map(product => product.id));
-    const fallback = filterForCategory(
+    const fallback = withImages(filterForCategory(
       homepageFallbackPool.filter(product => !existingIds.has(product.id)),
       catKey,
-    );
+    ));
 
     const merged = deduplicateProducts(sortByLuxury([...primary, ...fallback]));
     return applyFilters(keepEnoughHomepageProducts(merged, catKey).slice(0, 4));

@@ -81,7 +81,7 @@ const HOMEPAGE_DEFAULT_MAX_PRICE_USD = 200;
 const HOMEPAGE_CATEGORY_MAX_PRICE_USD: Record<string, number> = {
   phones: 300,
   electronics: 800,
-  audio_music: 800,
+  audio_music: 150,
   gaming: 800,
   cameras: 800,
   cameras_photo: 800,

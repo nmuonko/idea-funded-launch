@@ -190,7 +190,7 @@ const mapSearchItemToProduct = (item: any): Product => {
   };
 };
 
-const isValidProduct = (p: Product) => p.id && p.priceUsd > 0 && (p.imageUrl ? isRenderableImageUrl(p.imageUrl) : true);
+const isValidProduct = (p: Product) => !!p.id && p.priceUsd > 0 && !!p.imageUrl && isRenderableImageUrl(p.imageUrl);
 
 async function searchCategoryRescue(catKey: string, currentItems: Product[], minimum = 4): Promise<Product[]> {
   const seenIds = new Set(currentItems.map(product => product.id));

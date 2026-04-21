@@ -92,7 +92,7 @@ const HOMEPAGE_CATEGORY_MAX_PRICE_USD: Record<string, number> = {
 };
 const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set<string>([]);
 const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_motors']);
-const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v4';
+const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v6';
 
 function getCategoryMaxPrice(categoryKey?: string): number {
   if (!categoryKey) return HOMEPAGE_DEFAULT_MAX_PRICE_USD;

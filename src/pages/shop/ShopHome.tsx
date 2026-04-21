@@ -1194,6 +1194,26 @@ export default function ShopHome() {
     }));
   }, [getHomepageCategoryItems, categoryLoadingMap]);
 
+  // Auto-rescue sparse categories: if displayed < 4 after loading, search-rescue and merge
+  const rescueAttemptedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    ALL_HOMEPAGE_CATEGORIES.forEach(async (catKey) => {
+      if (categoryLoadingMap[catKey]) return;
+      if (rescueAttemptedRef.current.has(catKey)) return;
+      const current = getHomepageCategoryItems(catKey);
+      if (current.length >= 4) return;
+      rescueAttemptedRef.current.add(catKey);
+      try {
+        const existing = [...(pinnedByCategory[catKey] || []), ...(categoryItems[catKey] || [])];
+        const rescued = await searchCategoryRescue(catKey, existing, 4);
+        if (rescued.length > existing.length) {
+          setCategoryItems(prev => ({ ...prev, [catKey]: rescued }));
+        }
+      } catch { /* noop */ }
+    });
+  }, [categoryLoadingMap, categoryItems, pinnedByCategory, getHomepageCategoryItems]);
+
+
   // ====== EFFECTS ======
   const scheduleCategoryPrefetch = useCallback(() => {
     const schedule = typeof requestIdleCallback === 'function'

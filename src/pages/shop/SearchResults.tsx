@@ -97,6 +97,36 @@ export default function SearchResults() {
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ===== AI search intent (USA→China→… by default; fashion → China + Turkey only) =====
+  type SearchIntent = {
+    category: string;
+    is_fashion: boolean;
+    country_priority: string[];
+    provider_priority: string[];
+  };
+  const [intent, setIntent] = useState<SearchIntent | null>(null);
+  useEffect(() => {
+    if (!query?.trim()) { setIntent(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${SUPABASE_URL}/functions/v1/search-intent`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({ q: query }),
+        });
+        if (!r.ok) return;
+        const data = (await r.json()) as SearchIntent;
+        if (!cancelled) setIntent(data);
+      } catch { /* silent — fallback to default routing */ }
+    })();
+    return () => { cancelled = true; };
+  }, [query]);
+
   // Derived: client-side provider filtering for instant results
   const products = useMemo(() => {
     if (!providerFilter || providerFilter === 'all') return allProducts;

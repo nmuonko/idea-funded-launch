@@ -1214,6 +1214,42 @@ export default function ShopHome() {
     }));
   }, [getHomepageCategoryItems, categoryLoadingMap]);
 
+  // Phones row (premium phones), then a dedicated Phone Accessories row.
+  const PHONE_ACCESSORY_KEYWORDS = [
+    'case', 'cover', 'protector', 'tempered glass', 'charger', 'cable',
+    'usb-c', 'lightning', 'magsafe', 'airpods', 'earbud', 'earphone',
+    'power bank', 'holder', 'mount', 'stand', 'adapter', 'wireless charger',
+  ];
+  const phonesRowItems = useMemo(() => {
+    const all = filterForCategory(
+      deduplicateProducts([
+        ...(pinnedByCategory['phones'] || []),
+        ...(categoryItems['phones'] || []),
+      ]),
+      'phones',
+    );
+    const handsets = all.filter(p => {
+      const tt = (p.title || '').toLowerCase();
+      return !PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
+    });
+    return filterHomepageProducts(sortByLuxury(handsets), 'phones').slice(0, 12);
+  }, [pinnedByCategory, categoryItems]);
+
+  const phoneAccessoryItems = useMemo(() => {
+    const all = deduplicateProducts([
+      ...(pinnedByCategory['phones'] || []),
+      ...(categoryItems['phones'] || []),
+      ...accueilProducts,
+    ]);
+    const accessories = all.filter(p => {
+      const tt = (p.title || '').toLowerCase();
+      return PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
+    });
+    return filterHomepageProducts(sortByLuxury(accessories), 'phones').slice(0, 12);
+  }, [pinnedByCategory, categoryItems, accueilProducts]);
+
+  const [showMoreCategories, setShowMoreCategories] = useState(false);
+
   // Auto-rescue sparse categories: if displayed < 4 after loading, search-rescue and merge
   const rescueAttemptedRef = useRef<Set<string>>(new Set());
   useEffect(() => {

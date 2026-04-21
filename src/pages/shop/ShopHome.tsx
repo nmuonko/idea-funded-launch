@@ -76,22 +76,26 @@ interface HomeFeedResponse {
 }
 
 const SLOW_CATEGORIES = new Set(ALL_HOMEPAGE_CATEGORIES);
-// Per-category price caps. Vehicles/cars exempt entirely.
-const HOMEPAGE_DEFAULT_MAX_PRICE_USD = 200;
+// Homepage cap: nothing over $500 (business decision — affordable, clean look).
+// Vehicles/cars are exempt because they have their own dedicated section/pricing.
+const HOMEPAGE_DEFAULT_MAX_PRICE_USD = 150;
 const HOMEPAGE_CATEGORY_MAX_PRICE_USD: Record<string, number> = {
   phones: 300,
-  electronics: 800,
-  audio_music: 150,
-  gaming: 800,
-  cameras: 800,
-  cameras_photo: 800,
-  refurbished: 600,
-  jewelry_watches: 500,
+  electronics: 250,
+  audio_music: 120,
+  gaming: 300,
+  cameras: 400,
+  cameras_photo: 400,
+  refurbished: 350,
+  jewelry_watches: 200,
   vehicles: 8000,
   cars: 8000,
 };
-const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set<string>([]);
+// Categories exempt from the $500 ceiling (vehicles only).
+const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set<string>(['vehicles', 'cars']);
 const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_motors']);
+// Hard ceiling enforced for non-exempt categories.
+const HOMEPAGE_HARD_PRICE_CEILING_USD = 500;
 const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v6';
 
 function getCategoryMaxPrice(categoryKey?: string): number {
@@ -100,10 +104,13 @@ function getCategoryMaxPrice(categoryKey?: string): number {
 }
 
 function isHomepagePriceAllowed(product: Product, categoryKey?: string): boolean {
-  if (categoryKey && HOMEPAGE_PRICE_EXEMPT_CATEGORIES.has(categoryKey)) return true;
   const provider = (product.provider || '').toLowerCase();
-  if (HOMEPAGE_PRICE_EXEMPT_PROVIDERS.has(provider)) return true;
   const price = Number(product.priceUsd || 0);
+  // Vehicles / car providers are exempt from the $500 hard ceiling.
+  if (categoryKey && HOMEPAGE_PRICE_EXEMPT_CATEGORIES.has(categoryKey)) return true;
+  if (HOMEPAGE_PRICE_EXEMPT_PROVIDERS.has(provider)) return true;
+  // Hard global ceiling — homepage never shows items over $500.
+  if (price > 0 && price > HOMEPAGE_HARD_PRICE_CEILING_USD) return false;
   const cap = getCategoryMaxPrice(categoryKey);
   // Unknown/zero price kept; only confirmed-over-cap items dropped.
   if (price > 0 && price > cap) return false;

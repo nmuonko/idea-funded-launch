@@ -172,9 +172,11 @@ export function sortByLuxury(items: Product[]): Product[] {
 // All homepage categories in display order
 // REMOVED (per business decision): clothing, home_garden, toys, sporting_goods, parts_accessories
 // Clothing will return later sourced from Turkey/China.
+// Phones first (with accessories), then everyday affordable categories.
+// Vehicles moved to the back since they don't fit the "cheap & clean" homepage feel.
 export const ALL_HOMEPAGE_CATEGORIES = [
   'phones', 'electronics', 'audio_music', 'gaming',
-  'vehicles', 'jewelry_watches', 'refurbished', 'cameras_photo',
+  'cameras_photo', 'jewelry_watches', 'refurbished', 'vehicles',
 ];
 export const PROMO_CATEGORIES = ALL_HOMEPAGE_CATEGORIES.slice(0, 4);
 

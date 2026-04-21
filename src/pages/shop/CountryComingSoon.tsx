@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';

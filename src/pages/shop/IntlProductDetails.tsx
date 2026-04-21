@@ -308,6 +308,46 @@ export default function IntlProductDetails() {
                 </div>
               )}
 
+              {hasShopifyOptions && shopifyOptions.map((opt) => (
+                <div key={opt.name} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      {opt.name}
+                      <span className="text-destructive ml-1">*</span>
+                    </span>
+                    {selectedOptions[opt.name] && (
+                      <span className="text-xs text-muted-foreground">
+                        {isFr ? 'Sélectionné' : 'Selected'}: <strong className="text-foreground">{selectedOptions[opt.name]}</strong>
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {opt.values.map((val) => {
+                      const isActive = selectedOptions[opt.name] === val;
+                      const otherSel = { ...selectedOptions, [opt.name]: val };
+                      const hasAvail = (product?.variants || []).some((v) =>
+                        v.available && v.selected_options.every((o) => otherSel[o.name] === o.value),
+                      );
+                      return (
+                        <button
+                          key={val}
+                          type="button"
+                          disabled={!hasAvail}
+                          onClick={() => setSelectedOptions((prev) => ({ ...prev, [opt.name]: val }))}
+                          className={`min-w-[3rem] px-3 py-2 rounded-lg border-2 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                            isActive
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'border-border bg-card hover:border-primary/60 text-foreground'
+                          }`}
+                        >
+                          {val}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+
               {requiresSize && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">

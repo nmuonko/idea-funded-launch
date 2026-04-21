@@ -1532,13 +1532,14 @@ export default function ShopHome() {
                 </div>
               </Link>
 
-              {/* 2) Trending Grid */}
+              {/* 2) Trending Grid - capped to 8 to fit one row on desktop */}
               {filteredTrending.length > 0 && (
                 <SectionBlock
                   title={language === 'fr' ? 'Tendances' : 'Trending Now'}
                   items={filteredTrending}
                   mode="static-grid"
                   seeAllLink="/category/all"
+                  maxItems={8}
                 />
               )}
 

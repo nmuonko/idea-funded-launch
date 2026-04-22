@@ -1481,6 +1481,11 @@ export default function ShopHome() {
                 </SelectContent>
               </Select>
             </div>
+            <span className="text-sm text-white/60 font-normal whitespace-nowrap">
+              {sortedPhones.length > 0
+                ? `${sortedPhones.length.toLocaleString()} ${language === 'fr' ? 'produits' : 'products'}`
+                : ''}
+            </span>
           </div>
 
           {providerFilter && providerFilter !== 'all' ? (

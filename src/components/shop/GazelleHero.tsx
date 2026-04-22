@@ -82,7 +82,7 @@ export function GazelleHero() {
           <div aria-hidden className="absolute -top-16 -left-16 w-64 h-64 rounded-full bg-white/10 blur-3xl" />
           <div aria-hidden className="absolute -bottom-16 -right-16 w-72 h-72 rounded-full bg-cyan-300/10 blur-3xl" />
 
-          <div className="relative flex items-center justify-center min-h-[160px] sm:min-h-[210px] md:min-h-[240px] px-4 sm:px-10 md:px-16 py-5 sm:py-6">
+          <div className="relative flex items-center justify-center min-h-[120px] sm:min-h-[150px] md:min-h-[170px] px-4 sm:px-10 md:px-16 py-3 sm:py-4">
             {/* Left half of phone-pair image (crossfading) */}
             <div className="hidden sm:block absolute left-0 top-0 bottom-0 w-[34%] md:w-[30%] lg:w-[28%] pointer-events-none">
               {SLIDES.map((s, i) => (
@@ -119,19 +119,16 @@ export function GazelleHero() {
 
             {/* Centered text */}
             <div className="relative text-center max-w-xl mx-auto z-10">
-              <span className="inline-block text-[10px] sm:text-[11px] uppercase tracking-[0.28em] text-white/85 font-semibold mb-1.5">
+              <span className="inline-block text-[9px] sm:text-[10px] uppercase tracking-[0.28em] text-white/85 font-semibold mb-1">
                 AfriShop
               </span>
-              <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-[1.05] transition-opacity duration-500">
+              <h1 className="text-lg sm:text-2xl md:text-3xl font-extrabold text-white tracking-tight leading-[1.05] transition-opacity duration-500">
                 {slide.brand}
               </h1>
-              <p className="mt-1.5 text-xs sm:text-sm md:text-base text-white/90 font-medium leading-snug transition-opacity duration-500">
+              <p className="mt-1 text-[11px] sm:text-xs md:text-sm text-white/90 font-medium leading-snug transition-opacity duration-500">
                 {isFr ? slide.titleFr : slide.titleEn}
               </p>
-              <p className="text-[11px] sm:text-xs md:text-sm text-white/75 font-normal leading-snug">
-                {isFr ? slide.subFr : slide.subEn}
-              </p>
-              <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
                 <a
                   href="#phones-grid"
                   className="inline-flex items-center justify-center rounded-full bg-white text-blue-700 hover:bg-white/95 font-semibold text-xs sm:text-sm px-4 py-1.5 shadow-sm transition"

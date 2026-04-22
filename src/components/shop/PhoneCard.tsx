@@ -73,13 +73,13 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
       to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}
       state={{ product: { id: product.id, provider: product.provider, title: product.title, imageUrl: product.imageUrl, priceUsd: product.priceUsd, rating: product.rating, productUrl: product.productUrl } }}
       className={cn(
-        'group block bg-white rounded-lg overflow-hidden border border-black/5 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5',
+        'group block bg-white rounded-md overflow-hidden ring-1 ring-black/[0.04] transition-all duration-200 hover:shadow-[0_4px_14px_-6px_rgba(0,0,0,0.12)] hover:-translate-y-0.5',
         className,
       )}
     >
-      {/* Image panel — softer warm neutral, easier on the eyes */}
+      {/* Image panel — soft warm neutral, calm & premium */}
       <div
-        className="relative w-full aspect-square flex items-center justify-center bg-[#1f304c]"
+        className="relative w-full aspect-square flex items-center justify-center bg-[#F3EEE7]"
       >
         {showImage ? (
           <img
@@ -88,20 +88,20 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
             loading="lazy"
             onLoad={handleImgLoad}
             onError={tryNextImage}
-            className="max-w-[82%] max-h-[82%] object-contain transition-transform duration-300 group-hover:scale-[1.03] drop-shadow-[0_2px_4px_rgba(0,0,0,0.06)]"
+            className="max-w-[72%] max-h-[72%] object-contain transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
           <div className="text-neutral-400 text-xs">No image</div>
         )}
       </div>
 
-      {/* Text area — clean, retail-catalog style */}
-      <div className="px-2.5 py-2 bg-white">
-        <h3 className="text-[12px] sm:text-[13px] font-medium text-neutral-800 leading-snug line-clamp-2 min-h-[2.2rem]">
+      {/* Text area — tight, catalog-style */}
+      <div className="px-2 pt-1.5 pb-2 bg-white">
+        <h3 className="text-[11px] sm:text-[12px] font-medium text-neutral-700 leading-tight line-clamp-2 min-h-[1.9rem]">
           {product.title}
         </h3>
-        <div className="mt-1">
-          <span className="text-sm sm:text-base font-bold text-neutral-900">
+        <div className="mt-0.5">
+          <span className="text-[13px] sm:text-sm font-bold text-neutral-900 tracking-tight">
             {priceLabel}
           </span>
         </div>

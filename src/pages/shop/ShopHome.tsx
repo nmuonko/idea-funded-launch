@@ -457,7 +457,7 @@ export default function ShopHome() {
     // Prefetch next page in background so the next click is instant
     const nextPage = bulkPhonesPage + 1;
     if (!bulkPhonesPageCacheRef.current[nextPage]) {
-      const t = setTimeout(() => fetchBulkPhones(nextPage), 600);
+      const t = setTimeout(() => fetchBulkPhones(nextPage, true), 600);
       return () => clearTimeout(t);
     }
   }, [bulkPhonesPage, fetchBulkPhones]);

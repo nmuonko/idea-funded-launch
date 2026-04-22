@@ -406,6 +406,7 @@ export default function ShopHome() {
         .eq('is_disallowed', false)
         .gte('price_usd', 80)
         .lte('price_usd', 1800)
+        .in('provider', ['amazon', 'rainforest'])
         .or(phoneOr)
         .order('updated_at', { ascending: false, nullsFirst: false })
         .range(from, from + PHONES_PAGE_SIZE - 1);

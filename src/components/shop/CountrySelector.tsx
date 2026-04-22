@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight, Package, Truck, ShieldCheck, Headphones } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -82,44 +82,78 @@ export function CountrySelector() {
     }
   };
 
+  const trustBadges = [
+    { Icon: Package,     en: 'Free 30-Day Returns',  fr: 'Retours 30 jours' },
+    { Icon: Truck,       en: 'Worldwide Shipping',   fr: 'Livraison mondiale' },
+    { Icon: ShieldCheck, en: 'Quality Inspected',    fr: 'Qualité contrôlée' },
+    { Icon: Headphones,  en: '7-Day Customer Care',  fr: 'Service 7j/7' },
+  ];
+
   return (
     <section
-      className="px-4 sm:px-6 mb-6"
-      aria-label={isFr ? 'Choisir un pays' : 'Choose a country'}
+      className="px-3 sm:px-6 mb-6"
+      aria-label={isFr ? 'Marché mondial' : 'Global Marketplace'}
     >
       <div className="max-w-6xl mx-auto">
-        {/* Compact hero — single tight line, no wrap weirdness */}
-        <div className="text-center pt-4 pb-5 sm:pb-6">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 mb-3">
-            <Sparkles className="h-3 w-3 text-primary" />
-            <span className="text-[10px] sm:text-[11px] uppercase tracking-[0.15em] text-primary font-semibold">
-              {isFr ? 'Marché Mondial' : 'Global Marketplace'}
+        {/* ===== HERO BANNER — bold blue, Gazelle-inspired ===== */}
+        <div
+          className="relative overflow-hidden rounded-2xl sm:rounded-3xl mb-5 sm:mb-6"
+          style={{
+            background:
+              'linear-gradient(135deg, hsl(217 91% 38%) 0%, hsl(217 91% 50%) 50%, hsl(210 85% 45%) 100%)',
+          }}
+        >
+          {/* Subtle wave pattern */}
+          <div
+            aria-hidden
+            className="absolute inset-0 opacity-[0.12] pointer-events-none"
+            style={{
+              backgroundImage:
+                'repeating-linear-gradient(135deg, rgba(255,255,255,0.6) 0 1px, transparent 1px 22px), repeating-linear-gradient(45deg, rgba(255,255,255,0.4) 0 1px, transparent 1px 22px)',
+            }}
+          />
+          {/* Glow blobs */}
+          <div aria-hidden className="absolute -top-20 -left-16 w-72 h-72 rounded-full bg-white/10 blur-3xl" />
+          <div aria-hidden className="absolute -bottom-24 -right-20 w-80 h-80 rounded-full bg-cyan-300/20 blur-3xl" />
+
+          <div className="relative px-6 sm:px-10 py-10 sm:py-16 md:py-20 text-center">
+            <span className="inline-block text-[10px] sm:text-xs uppercase tracking-[0.25em] text-white/80 font-semibold mb-3">
+              {isFr ? 'AfriShop' : 'AfriShop'}
             </span>
+            <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold text-white tracking-tight leading-[1.05]">
+              {isFr ? 'Achetez Mondialement.' : 'Shop Globally.'}
+            </h1>
+            <p className="mt-2 sm:mt-3 text-xl sm:text-3xl md:text-4xl font-light text-white/95 tracking-tight leading-tight">
+              {isFr ? 'Livré à votre porte.' : 'Delivered to your door.'}
+            </p>
           </div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white tracking-tight leading-[1.15] max-w-2xl mx-auto">
-            {isFr ? (
-              <>Achetez à l'étranger,<br className="sm:hidden" />{' '}
-                <span className="text-primary">livré chez vous</span>
-              </>
-            ) : (
-              <>Shop globally,<br className="sm:hidden" />{' '}
-                <span className="text-primary">delivered locally</span>
-              </>
-            )}
-          </h1>
         </div>
 
-        {/* Country label */}
+        {/* ===== TRUST BADGES ROW ===== */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-7 sm:mb-8">
+          {trustBadges.map(({ Icon, en, fr }) => (
+            <div
+              key={en}
+              className="flex items-center gap-2 sm:gap-2.5 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 sm:py-3"
+            >
+              <Icon className="h-4 w-4 sm:h-5 sm:w-5 text-primary flex-shrink-0" />
+              <span className="text-[11px] sm:text-[13px] font-medium text-white/85 leading-tight">
+                {isFr ? fr : en}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* ===== COUNTRY SECTION ===== */}
         <div className="flex items-baseline justify-between mb-3">
-          <h2 className="text-sm sm:text-base font-semibold text-white tracking-tight">
+          <h2 className="text-base sm:text-lg font-semibold text-white tracking-tight">
             {isFr ? 'Choisissez un pays' : 'Choose a country'}
           </h2>
-          <span className="text-[11px] text-white/40">
+          <span className="text-[11px] sm:text-xs text-white/40">
             {countries.length} {isFr ? 'destinations' : 'destinations'}
           </span>
         </div>
 
-        {/* Country tiles — denser, more product-feeling */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
           {countries.map((c) => {
             const tag = COUNTRY_TAGLINE[c.country];

@@ -304,6 +304,13 @@ export default function ShopHome() {
   const fetchedRef = useRef(false);
   const [dynamicStores, setDynamicStores] = useState<{ value: string; label: string; count: number }[]>([]);
 
+  // Dedicated bulk phones fetch (independent from curated category items)
+  const [bulkPhones, setBulkPhones] = useState<Product[]>([]);
+  const [bulkPhonesLoading, setBulkPhonesLoading] = useState(false);
+  const [bulkPhonesPage, setBulkPhonesPage] = useState(0);
+  const [bulkPhonesTotal, setBulkPhonesTotal] = useState(0);
+  const bulkPhonesFetchedRef = useRef(false);
+
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
   const [storeProductsLoading, setStoreProductsLoading] = useState(false);
   const [storeTotalCount, setStoreTotalCount] = useState(0);

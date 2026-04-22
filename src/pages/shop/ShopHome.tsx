@@ -449,6 +449,12 @@ export default function ShopHome() {
       el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
     bulkPhonesFetchedRef.current = true;
+    // Prefetch next page in background so the next click is instant
+    const nextPage = bulkPhonesPage + 1;
+    if (!bulkPhonesPageCacheRef.current[nextPage]) {
+      const t = setTimeout(() => fetchBulkPhones(nextPage), 600);
+      return () => clearTimeout(t);
+    }
   }, [bulkPhonesPage, fetchBulkPhones]);
 
   // Fetch products for a specific store from the DB (paginated)

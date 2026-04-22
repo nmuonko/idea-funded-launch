@@ -1,15 +1,63 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
-import heroIphoneLeft from '@/assets/hero-iphone-left.png';
-import heroPixelRight from '@/assets/hero-pixel-right.png';
+import heroIphone from '@/assets/hero-phone-iphone.png';
+import heroPixel from '@/assets/hero-phone-pixel.png';
+import heroSamsung from '@/assets/hero-phone-samsung.png';
+
+type Slide = {
+  src: string;
+  brand: string;
+  titleEn: string;
+  titleFr: string;
+  subEn: string;
+  subFr: string;
+};
+
+const SLIDES: Slide[] = [
+  {
+    src: heroIphone,
+    brand: 'iPhone',
+    titleEn: 'Quality meets Affordability.',
+    titleFr: 'Qualité et accessibilité.',
+    subEn: 'Refurbished, tested and reliable.',
+    subFr: 'Reconditionnés, testés et fiables.',
+  },
+  {
+    src: heroPixel,
+    brand: 'Google Pixel 10',
+    titleEn: 'Pure Android. Pure power.',
+    titleFr: 'Android pur. Puissance pure.',
+    subEn: 'The smartest camera in your pocket.',
+    subFr: "L'appareil photo le plus intelligent.",
+  },
+  {
+    src: heroSamsung,
+    brand: 'Samsung Galaxy',
+    titleEn: 'Brilliant. Bold. Yours.',
+    titleFr: 'Brillant. Audacieux. À vous.',
+    subEn: 'Flagship features, flagship value.',
+    subFr: 'Performances haut de gamme, prix juste.',
+  },
+];
 
 /**
- * Gazelle-style hero: short, wide dark-blue banner.
- * Compact desktop height (~230px), minimal radius, edge-to-edge feel.
+ * Gazelle-style hero: short, wide blue banner with rotating phone showcases.
+ * Each slide shows a phone-pair image split across left/right and crossfades every ~4.5s.
  */
 export function GazelleHero() {
   const { language } = useLanguage();
   const isFr = language === 'fr' || language === 'ln';
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setIndex((i) => (i + 1) % SLIDES.length);
+    }, 4500);
+    return () => clearInterval(id);
+  }, []);
+
+  const slide = SLIDES[index];
 
   return (
     <section className="px-2 sm:px-4 mb-4" aria-label={isFr ? 'Bienvenue' : 'Welcome'}>
@@ -18,60 +66,77 @@ export function GazelleHero() {
           className="relative overflow-hidden rounded-md"
           style={{
             background:
-              'linear-gradient(135deg, hsl(222 60% 12%) 0%, hsl(222 55% 18%) 45%, hsl(220 50% 24%) 100%)',
+              'linear-gradient(135deg, hsl(230 70% 30%) 0%, hsl(230 75% 38%) 50%, hsl(230 70% 32%) 100%)',
           }}
         >
-          {/* subtle stripe texture */}
+          {/* subtle wavy stripe texture */}
           <div
             aria-hidden
-            className="absolute inset-0 opacity-[0.10] pointer-events-none"
+            className="absolute inset-0 opacity-[0.18] pointer-events-none"
             style={{
               backgroundImage:
-                'repeating-linear-gradient(115deg, rgba(255,255,255,0.55) 0 1px, transparent 1px 22px)',
+                'repeating-linear-gradient(115deg, rgba(255,255,255,0.55) 0 2px, transparent 2px 26px)',
               mixBlendMode: 'overlay',
             }}
           />
           <div aria-hidden className="absolute -top-16 -left-16 w-64 h-64 rounded-full bg-white/10 blur-3xl" />
-          <div aria-hidden className="absolute -bottom-16 -right-16 w-72 h-72 rounded-full bg-cyan-300/15 blur-3xl" />
+          <div aria-hidden className="absolute -bottom-16 -right-16 w-72 h-72 rounded-full bg-cyan-300/10 blur-3xl" />
 
-          {/* Compact banner: ~150px mobile, ~230px desktop */}
-          <div className="relative flex items-center justify-center min-h-[150px] sm:min-h-[200px] md:min-h-[230px] px-4 sm:px-10 md:px-16 py-5 sm:py-6">
-            {/* Left phone */}
-            <img
-              src={heroIphoneLeft}
-              alt=""
-              aria-hidden
-              draggable={false}
-              className="hidden sm:block absolute left-2 md:left-6 lg:left-12 top-1/2 -translate-y-1/2 -rotate-[14deg] w-[140px] md:w-[180px] lg:w-[210px] h-auto object-contain drop-shadow-[0_18px_22px_rgba(0,0,0,0.45)] select-none"
-            />
-            {/* Right phone */}
-            <img
-              src={heroPixelRight}
-              alt=""
-              aria-hidden
-              draggable={false}
-              className="hidden sm:block absolute right-2 md:right-6 lg:right-12 top-1/2 -translate-y-1/2 rotate-[14deg] w-[140px] md:w-[180px] lg:w-[210px] h-auto object-contain drop-shadow-[0_18px_22px_rgba(0,0,0,0.45)] select-none"
-            />
+          <div className="relative flex items-center justify-center min-h-[160px] sm:min-h-[210px] md:min-h-[240px] px-4 sm:px-10 md:px-16 py-5 sm:py-6">
+            {/* Left half of phone-pair image (crossfading) */}
+            <div className="hidden sm:block absolute left-0 top-0 bottom-0 w-[34%] md:w-[30%] lg:w-[28%] pointer-events-none">
+              {SLIDES.map((s, i) => (
+                <img
+                  key={`L-${s.brand}`}
+                  src={s.src}
+                  alt=""
+                  aria-hidden
+                  draggable={false}
+                  className={`absolute inset-0 w-full h-full object-cover object-right transition-opacity duration-700 ease-out ${
+                    i === index ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  style={{ objectPosition: '70% center' }}
+                />
+              ))}
+            </div>
+
+            {/* Right half of phone-pair image (crossfading) */}
+            <div className="hidden sm:block absolute right-0 top-0 bottom-0 w-[34%] md:w-[30%] lg:w-[28%] pointer-events-none">
+              {SLIDES.map((s, i) => (
+                <img
+                  key={`R-${s.brand}`}
+                  src={s.src}
+                  alt=""
+                  aria-hidden
+                  draggable={false}
+                  className={`absolute inset-0 w-full h-full object-cover object-left transition-opacity duration-700 ease-out ${
+                    i === index ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  style={{ objectPosition: '30% center' }}
+                />
+              ))}
+            </div>
 
             {/* Centered text */}
-            <div className="relative text-center max-w-xl mx-auto">
+            <div className="relative text-center max-w-xl mx-auto z-10">
               <span className="inline-block text-[10px] sm:text-[11px] uppercase tracking-[0.28em] text-white/85 font-semibold mb-1.5">
                 AfriShop
               </span>
-              <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-[1.05]">
-                {isFr ? 'iPhone — Qualité et accessibilité.' : 'iPhone — Quality meets affordability.'}
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-[1.05] transition-opacity duration-500">
+                {slide.brand}
               </h1>
-              <p className="mt-1.5 text-xs sm:text-sm md:text-base text-white/85 font-normal leading-snug">
-                {isFr
-                  ? 'Reconditionnés, testés et fiables.'
-                  : 'Refurbished, tested and reliable.'}
+              <p className="mt-1.5 text-xs sm:text-sm md:text-base text-white/90 font-medium leading-snug transition-opacity duration-500">
+                {isFr ? slide.titleFr : slide.titleEn}
+              </p>
+              <p className="text-[11px] sm:text-xs md:text-sm text-white/75 font-normal leading-snug">
+                {isFr ? slide.subFr : slide.subEn}
               </p>
               <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
                 <a
                   href="#phones-grid"
                   className="inline-flex items-center justify-center rounded-full bg-white text-blue-700 hover:bg-white/95 font-semibold text-xs sm:text-sm px-4 py-1.5 shadow-sm transition"
                 >
-                  {isFr ? 'Voir les iPhones' : 'Shop iPhones'}
+                  {isFr ? 'Voir les téléphones' : 'Shop phones'}
                 </a>
                 <Link
                   to="/category/phones"
@@ -79,6 +144,21 @@ export function GazelleHero() {
                 >
                   {isFr ? 'Tout parcourir' : 'Browse all'}
                 </Link>
+              </div>
+
+              {/* Slide indicator dots */}
+              <div className="mt-2.5 flex items-center justify-center gap-1.5">
+                {SLIDES.map((s, i) => (
+                  <button
+                    key={s.brand}
+                    type="button"
+                    onClick={() => setIndex(i)}
+                    aria-label={`Show ${s.brand}`}
+                    className={`h-1.5 rounded-full transition-all duration-300 ${
+                      i === index ? 'w-5 bg-white' : 'w-1.5 bg-white/40 hover:bg-white/60'
+                    }`}
+                  />
+                ))}
               </div>
             </div>
           </div>

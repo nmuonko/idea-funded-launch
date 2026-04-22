@@ -360,17 +360,27 @@ export default function ShopHome() {
     const from = page * PHONES_PAGE_SIZE;
     setBulkPhonesLoading(true);
     try {
+      // Match real handsets only — model-number patterns avoid "iphone case", "for iphone", etc.
       const phoneOr = [
-        'title.ilike.%iphone%',
-        'title.ilike.%samsung galaxy%',
-        'title.ilike.%galaxy s2%',
-        'title.ilike.%galaxy s3%',
-        'title.ilike.%pixel %',
-        'title.ilike.%google pixel%',
-        'title.ilike.%oneplus%',
-        'title.ilike.%xiaomi%',
-        'title.ilike.%motorola%',
-        'title.ilike.%unlocked phone%',
+        'title.ilike.%iphone 11%',
+        'title.ilike.%iphone 12%',
+        'title.ilike.%iphone 13%',
+        'title.ilike.%iphone 14%',
+        'title.ilike.%iphone 15%',
+        'title.ilike.%iphone 16%',
+        'title.ilike.%iphone se%',
+        'title.ilike.%galaxy s21%',
+        'title.ilike.%galaxy s22%',
+        'title.ilike.%galaxy s23%',
+        'title.ilike.%galaxy s24%',
+        'title.ilike.%galaxy s25%',
+        'title.ilike.%galaxy note%',
+        'title.ilike.%galaxy z fold%',
+        'title.ilike.%galaxy z flip%',
+        'title.ilike.%pixel 7%',
+        'title.ilike.%pixel 8%',
+        'title.ilike.%pixel 9%',
+        'title.ilike.%oneplus %',
       ].join(',');
 
       const { data, error, count } = await supabase
@@ -381,21 +391,21 @@ export default function ShopHome() {
         )
         .eq('is_active', true)
         .eq('is_disallowed', false)
-        .gt('price_usd', 0)
-        .lte('price_usd', 1500)
+        .gte('price_usd', 80) // floor to drop accessories priced like cables
+        .lte('price_usd', 1800)
         .or(phoneOr)
         .order('price_usd', { ascending: true })
         .range(from, from + PHONES_PAGE_SIZE - 1);
       if (error) throw error;
 
-      const PHONE_ACCESSORY_KEYWORDS = ['case', 'cover', 'protector', 'tempered glass', 'charger', 'cable', 'usb-c', 'lightning', 'magsafe', 'airpods', 'earbud', 'earphone', 'power bank', 'holder', 'mount', 'stand', 'adapter', 'wireless charger'];
+      const ACCESSORY_RE = /\b(case|cover|protector|tempered glass|charger|cable|usb-?c|lightning|magsafe|airpods|earbud|earphone|power bank|holder|mount|stand|adapter|wireless charger|screen|skin|wrap|sleeve|pouch|wallet|lanyard|strap|grip|popsocket|stylus|lens|tripod|selfie|car mount|otterbox|spigen|for iphone|for samsung|for galaxy|for pixel|replacement|repair|battery|sim |sim-|sim card|tray|button|speaker only|microphone|housing|frame|bezel|backplate|back plate|back glass|lcd|digitizer|oem part|verre|protection|étui|coque)\b/i;
       const mapped = (data || [])
         .map((item: any): Product | null => {
           const fallback = extractFirstImageFromJson(item.images);
           const preferred = isRenderableImageUrl(item.image_url) ? item.image_url : fallback;
           if (!preferred || !isRenderableImageUrl(preferred)) return null;
           const tt = (item.title || '').toLowerCase();
-          if (PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw))) return null;
+          if (ACCESSORY_RE.test(tt)) return null;
           return {
             id: item.provider_product_id || item.id,
             provider: item.provider || 'amazon',

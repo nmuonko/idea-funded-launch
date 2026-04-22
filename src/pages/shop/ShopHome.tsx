@@ -1232,7 +1232,7 @@ export default function ShopHome() {
       const tt = (p.title || '').toLowerCase();
       return !PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
     });
-    return filterHomepageProducts(sortByLuxury(handsets), 'phones').slice(0, 12);
+    return filterHomepageProducts(sortByLuxury(handsets), 'phones').slice(0, 24);
   }, [pinnedByCategory, categoryItems]);
 
   const phoneAccessoryItems = useMemo(() => {
@@ -1564,113 +1564,19 @@ export default function ShopHome() {
             </div>
           ) : (
             <div className="space-y-6">
-
-              {/* Paste-Link CTA Banner */}
-              <Link
-                to="/paste-link"
-                className="group relative block overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent p-4 sm:p-5 transition-all hover:border-primary/50 hover:shadow-[0_0_30px_-5px_hsl(var(--primary)/0.3)]"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="relative space-y-3 sm:space-y-3.5">
-                  <div className="flex items-start gap-3 sm:gap-4">
-                    <div className="flex-shrink-0 flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary/20 border border-primary/30 group-hover:bg-primary/30 transition-colors">
-                      <Link2 className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm sm:text-lg font-bold text-white leading-tight mb-1">
-                        {language === 'fr' ? "Collez le lien. On calcule le prix." : "Paste the link. We get the price."}
-                      </p>
-                      <p className="text-xs sm:text-sm text-white/65 leading-snug">
-                        {language === 'fr' ? "Introuvable en catalogue ? Collez le lien du produit." : "Can't find it in catalog? Paste the product link."}
-                      </p>
-                    </div>
-                    <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 text-primary flex-shrink-0 mt-1 group-hover:translate-x-1 transition-transform" />
-                  </div>
-                </div>
-              </Link>
-
-              {/* PHONES — main featured row */}
-              {phonesRowItems.length > 0 && (
+              {/* PHONES — single hero grid, Gazelle-style */}
+              {phonesRowItems.length > 0 ? (
                 <SectionBlock
                   title={language === 'fr' ? 'Téléphones' : 'Phones'}
                   items={phonesRowItems}
                   mode="static-grid"
                   seeAllLink="/category/phones"
-                  maxItems={8}
+                  maxItems={24}
                   categoryKey="phones"
                 />
+              ) : (
+                <SectionBlock items={[]} loading mode="grid" />
               )}
-
-              {/* PHONE ACCESSORIES — second featured row */}
-              {phoneAccessoryItems.length > 0 && (
-                <SectionBlock
-                  title={language === 'fr' ? 'Accessoires de téléphone' : 'Phone Accessories'}
-                  items={phoneAccessoryItems}
-                  mode="static-grid"
-                  seeAllLink="/search?q=phone+accessories"
-                  maxItems={8}
-                />
-              )}
-
-              {/* Trending — kept but moved below phones */}
-              {filteredTrending.length > 0 && (
-                <SectionBlock
-                  title={language === 'fr' ? 'Tendances' : 'Trending Now'}
-                  items={filteredTrending}
-                  mode="static-grid"
-                  seeAllLink="/category/all"
-                  maxItems={8}
-                />
-              )}
-
-              {/* More categories — collapsed by default for a cleaner page */}
-              <div className="pt-2">
-                {!showMoreCategories ? (
-                  <button
-                    onClick={() => setShowMoreCategories(true)}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] text-white/80 hover:text-white text-sm font-medium transition-colors"
-                  >
-                    {language === 'fr' ? 'Voir plus de catégories' : 'Show more categories'}
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
-                ) : (
-                  <LazySection minHeight={400}>
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
-                        {promoCategoryItems
-                          .filter(({ catKey }) => catKey !== 'phones')
-                          .map(({ catKey, items, loading }) => (
-                            <SectionBlock
-                              key={catKey}
-                              title={getCategoryTitle(catKey, language)}
-                              items={items}
-                              loading={loading}
-                              mode="grid"
-                              categoryKey={catKey}
-                            />
-                          ))}
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3">
-                        {remainingCategoryItems.map(({ catKey, items, loading }) => (
-                          <SectionBlock
-                            key={catKey}
-                            title={getCategoryTitle(catKey, language)}
-                            items={items}
-                            loading={loading}
-                            mode="grid"
-                            categoryKey={catKey}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </LazySection>
-                )}
-              </div>
-
-              {/* Category Icons Row */}
-              <LazySection minHeight={80}>
-                <CategoryIconsRow />
-              </LazySection>
             </div>
           )}
         </div>

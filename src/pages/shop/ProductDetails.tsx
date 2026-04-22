@@ -244,12 +244,19 @@ export default function ProductDetailsPage() {
     }));
   }, [product?.variants]);
 
-  // Price source of truth: the API already returns the all-inclusive display price
-  // (markup + shipping included, fees_included=true). Do NOT re-apply markup here —
-  // that would double-charge. We just mirror the API price as the display price.
+  // Price source of truth: use the same shared RPC-backed pricing utility as the
+  // homepage cards so PDP and catalog can never drift.
   useEffect(() => {
     const raw = product?.priceUsd ?? 0;
-    setResolvedDisplayPrice(raw > 0 ? raw : null);
+    let cancelled = false;
+    if (!raw || raw <= 0) {
+      setResolvedDisplayPrice(null);
+      return;
+    }
+    resolveDisplayPrice(raw).then((resolved) => {
+      if (!cancelled) setResolvedDisplayPrice(resolved > 0 ? resolved : raw);
+    });
+    return () => { cancelled = true; };
   }, [product?.priceUsd]);
 
   // Reset state when route params change
@@ -632,19 +639,20 @@ export default function ProductDetailsPage() {
     if (!product) return;
     setAdding(true);
     try {
+      const finalPrice = isFixedPrice ? hotProductPrice! : (resolvedDisplayPrice ?? product.priceUsd);
       await addItem({
         productId: product.id,
         provider: product.provider,
         title: product.title,
         imageUrl: safeImages[0] || '',
-        priceUsd: isFixedPrice ? hotProductPrice! : product.priceUsd,
+        priceUsd: finalPrice,
         quantity,
         productUrl: product.productUrl,
         ...(isFixedPrice ? { isFixedPrice: true } : {}),
       });
       // TikTok Pixel + Server: AddToCart
       trackAddToCart(
-        { id: product.id, title: product.title, price: isFixedPrice ? hotProductPrice! : product.priceUsd },
+        { id: product.id, title: product.title, price: finalPrice },
         { email: user?.email ?? undefined, userId: user?.id ?? undefined },
       );
       setAdded(true);

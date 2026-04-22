@@ -1712,9 +1712,9 @@ export default function ShopHome() {
           ) : (
             <div className="space-y-6" id="phones-grid">
               {bulkPhonesLoading && bulkPhones.length === 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                  {Array.from({ length: 12 }).map((_, i) => (
-                    <div key={i} className="aspect-[3/4] rounded-xl bg-white/[0.04] animate-pulse" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+                  {Array.from({ length: 15 }).map((_, i) => (
+                    <div key={i} className="aspect-[3/4] rounded-lg bg-neutral-200 animate-pulse" />
                   ))}
                 </div>
               ) : sortedPhones.length > 0 ? (

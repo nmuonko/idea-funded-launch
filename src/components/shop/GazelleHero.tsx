@@ -31,7 +31,7 @@ export function GazelleHero() {
           <div aria-hidden className="absolute -top-24 -left-20 w-80 h-80 rounded-full bg-white/10 blur-3xl" />
           <div aria-hidden className="absolute -bottom-24 -right-20 w-96 h-96 rounded-full bg-cyan-300/20 blur-3xl" />
 
-          <div className="relative grid grid-cols-1 md:grid-cols-[1fr_auto] items-center gap-6 px-6 sm:px-10 py-10 sm:py-14">
+          <div className="relative grid grid-cols-1 md:grid-cols-[1.1fr_1fr] items-center gap-4 md:gap-8 px-6 sm:px-10 md:px-14 pt-10 sm:pt-14 pb-8 sm:pb-10 md:py-16">
             <div className="text-center md:text-left">
               <span className="inline-block text-[10px] sm:text-xs uppercase tracking-[0.25em] text-white/85 font-semibold mb-3">
                 AfriShop
@@ -61,13 +61,13 @@ export function GazelleHero() {
               </div>
             </div>
 
-            <div aria-hidden className="hidden md:flex items-center justify-end pr-2">
+            <div aria-hidden className="flex items-end justify-center md:justify-end mt-2 md:mt-0">
               <img
                 src={heroIphones}
                 alt="iPhones"
-                width={520}
-                height={520}
-                className="w-[360px] lg:w-[460px] h-auto object-contain drop-shadow-2xl select-none"
+                width={640}
+                height={640}
+                className="w-[260px] sm:w-[320px] md:w-[420px] lg:w-[520px] xl:w-[580px] h-auto object-contain select-none -mb-6 sm:-mb-10 md:-mb-14 drop-shadow-[0_30px_40px_rgba(0,0,0,0.45)]"
                 draggable={false}
               />
             </div>

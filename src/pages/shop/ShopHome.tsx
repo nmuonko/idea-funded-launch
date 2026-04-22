@@ -11,7 +11,7 @@ import { CategoryIconsRow } from '@/components/shop/CategoryIconsRow';
 import { GazelleHero } from '@/components/shop/GazelleHero';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
-import { Product } from '@/components/shop/ProductCard';
+import { Product, ProductCard } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
@@ -1589,19 +1589,25 @@ export default function ShopHome() {
               </Button>
             </div>
           ) : (
-            <div className="space-y-6" id="phones-grid">
-              {/* PHONES — single hero grid, Gazelle-style */}
+            <div className="space-y-4" id="phones-grid">
+              <h2 className="text-lg sm:text-xl font-semibold text-white tracking-tight">
+                {language === 'fr' ? 'Téléphones' : 'Phones'}
+                <span className="ml-2 text-xs sm:text-sm font-normal text-white/40">
+                  {sortedPhones.length > 0 ? `(${sortedPhones.length})` : ''}
+                </span>
+              </h2>
               {sortedPhones.length > 0 ? (
-                <SectionBlock
-                  title={language === 'fr' ? 'Téléphones' : 'Phones'}
-                  items={sortedPhones}
-                  mode="static-grid"
-                  seeAllLink="/category/phones"
-                  maxItems={sortedPhones.length}
-                  categoryKey="phones"
-                />
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                  {sortedPhones.map((p, i) => (
+                    <ProductCard key={`${p.id}-${i}`} product={p} />
+                  ))}
+                </div>
               ) : (
-                <SectionBlock items={[]} loading mode="grid" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="aspect-[3/4] rounded-xl bg-white/[0.04] animate-pulse" />
+                  ))}
+                </div>
               )}
             </div>
           )}

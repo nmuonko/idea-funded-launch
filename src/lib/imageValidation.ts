@@ -257,48 +257,6 @@ export function pickBestImage(images: string[], currentUrl?: string): string {
 }
 
 /**
- * Score an image URL for "studio cleanliness" — higher = more catalog-like.
- * Used to surface clean white-background hero shots over busy lifestyle photos.
- */
-function cleanImageScore(url: string): number {
-  if (!url) return -1;
-  const u = url.toLowerCase();
-  let s = 0;
-  // Amazon main hero shots typically use _AC_ tokens with white backgrounds.
-  if (u.includes('media-amazon.com') || u.includes('images-amazon.com') || u.includes('ssl-images-amazon.com')) {
-    s += 5;
-    if (/_ac_(sl|sx|sy|ul|us)/i.test(u)) s += 3;
-    if (/_sl1500|_ac_sl1500/i.test(u)) s += 1;
-  }
-  // eBay high-res s-l1600 is the studio version.
-  if (u.includes('ebayimg.com')) {
-    s += 3;
-    if (/s-l1600/i.test(u)) s += 2;
-  }
-  // Penalize obvious lifestyle/secondary tokens.
-  if (/lifestyle|hand|model|wearing|in[-_]use|installed/.test(u)) s -= 4;
-  if (/_pt\d|_v1_/i.test(u)) s -= 2;
-  return s;
-}
-
-/**
- * Pick the cleanest, most catalog-like image from a list.
- * Falls back to pickBestImage logic when no clear winner exists.
- */
-export function pickCleanestImage(images: string[], currentUrl?: string): string {
-  const valid = (images || []).filter(isRenderableImageUrl);
-  if (currentUrl && isRenderableImageUrl(currentUrl)) valid.unshift(currentUrl);
-  if (valid.length === 0) return '/placeholder.svg';
-  let best = valid[0];
-  let bestScore = cleanImageScore(best);
-  for (let i = 1; i < valid.length; i++) {
-    const sc = cleanImageScore(valid[i]);
-    if (sc > bestScore) { best = valid[i]; bestScore = sc; }
-  }
-  return upgradeToHighRes(best);
-}
-
-/**
  * Returns the URL if it's a valid product image, otherwise returns fallback.
  * Use in cart/checkout to block ad banners inline.
  */

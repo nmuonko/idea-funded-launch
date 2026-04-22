@@ -223,12 +223,12 @@ export function ProductCard({ product, className, compact = false, coverImage = 
         )}
       </div>
 
-      {/* Content */}
-      <div className={cn("space-y-1.5", compact ? "p-1.5 sm:p-2" : "p-2.5 sm:p-3")}>
-        {/* Title — always 2-line clamp */}
+      {/* Content — Gazelle-style typography */}
+      <div className={cn("space-y-1", compact ? "p-2" : "p-3")}>
+        {/* Title — bold, tight tracking, 2-line clamp, like Gazelle */}
         <h3 className={cn(
-          "font-medium text-white/90 line-clamp-2",
-          compact ? "text-xs min-h-[2rem]" : "text-xs sm:text-sm min-h-[2rem] sm:min-h-[2.5rem]"
+          "font-semibold text-white leading-snug tracking-tight line-clamp-2",
+          compact ? "text-[13px] min-h-[2.4rem]" : "text-sm sm:text-[15px] min-h-[2.6rem]"
         )}>
           {product.title}
         </h3>
@@ -236,22 +236,25 @@ export function ProductCard({ product, className, compact = false, coverImage = 
         {/* Rating */}
         {product.rating && (
           <div className="flex items-center gap-1">
-            <span className={cn("text-yellow-400", compact ? "text-xs" : "")}>★</span>
-            <span className={cn("text-white/60", compact ? "text-[10px]" : "text-xs")}>{product.rating.toFixed(1)}</span>
+            <span className="text-yellow-400 text-xs">★</span>
+            <span className="text-white/60 text-xs">{product.rating.toFixed(1)}</span>
           </div>
         )}
 
         {/* Price & Add to Cart */}
-        <div className="flex items-center justify-between gap-2">
-          <div>
+        <div className="flex items-end justify-between gap-2 pt-1">
+          <div className="flex flex-col">
             {(() => {
               const displayPrice = product.priceUsd;
               return (
                 <>
-                  <span className={cn("font-bold text-white", compact ? "text-sm" : "text-base sm:text-lg")}>
-                    ${displayPrice.toFixed(2)}
+                  <span className={cn(
+                    "font-bold text-orange-500 leading-none",
+                    compact ? "text-base" : "text-lg sm:text-xl"
+                  )}>
+                    ${displayPrice.toFixed(0)}
                   </span>
-                  <span className={cn("text-white/50 block", compact ? "text-[10px]" : "text-xs")}>
+                  <span className={cn("text-white/40 mt-1", compact ? "text-[10px]" : "text-[11px]")}>
                     ≈ CDF {(displayPrice * exchangeRate).toLocaleString()}
                   </span>
                 </>

@@ -79,10 +79,10 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
         className,
       )}
     >
-      {/* Image panel — soft warm neutral, like a studio backdrop */}
+      {/* Image panel — softer warm neutral, easier on the eyes */}
       <div
         className="relative w-full aspect-square flex items-center justify-center"
-        style={{ backgroundColor: '#f5f2ed' }}
+        style={{ backgroundColor: '#ECE6DC' }}
       >
         {showImage ? (
           <img
@@ -103,12 +103,9 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
         <h3 className="text-[12px] sm:text-[13px] font-medium text-neutral-800 leading-snug line-clamp-2 min-h-[2.2rem]">
           {product.title}
         </h3>
-        <div className="mt-1 flex items-baseline gap-1.5">
+        <div className="mt-1">
           <span className="text-sm sm:text-base font-bold text-neutral-900">
             ${price.toFixed(0)}
-          </span>
-          <span className="text-[10px] text-neutral-500">
-            ≈ CDF {(price * exchangeRate).toLocaleString()}
           </span>
         </div>
       </div>

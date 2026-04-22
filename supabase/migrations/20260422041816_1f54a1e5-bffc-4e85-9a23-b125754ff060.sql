@@ -1,0 +1,1 @@
+UPDATE public.catalog_items SET price_usd = 200, price_updated_at = now(), updated_at = now() WHERE provider_product_id = 'v1|397706886239|0' AND provider = 'ebay';

@@ -9,20 +9,7 @@ import type { Product } from './ProductCard';
 interface PhoneCardProps {
   product: Product;
   className?: string;
-  /** Optional index for subtle background palette rotation across the grid */
-  index?: number;
 }
-
-// Curated palette — very soft, neutral, studio-catalog feel.
-// Rotates subtly across cards so the grid stays calm but not monotone.
-const STUDIO_BACKGROUNDS = [
-  '#F7F4EF', // warm off-white
-  '#F5F1EB', // soft ivory
-  '#EFE7DC', // light beige
-  '#EEEAE4', // very light greige
-  '#F3EEE7', // muted cream
-  '#E7E2DB', // soft warm gray
-];
 
 /**
  * Gazelle-style clean catalog card.
@@ -31,7 +18,7 @@ const STUDIO_BACKGROUNDS = [
  * - Compact title + bold price below
  * - Minimal chrome — the device is the hero
  */
-export function PhoneCard({ product, className, index = 0 }: PhoneCardProps) {
+export function PhoneCard({ product, className }: PhoneCardProps) {
   const { exchangeRate } = useShopCart();
 
   const galleryImages = [...new Set([
@@ -92,10 +79,10 @@ export function PhoneCard({ product, className, index = 0 }: PhoneCardProps) {
         className,
       )}
     >
-      {/* Image panel — soft neutral studio backdrop, rotated subtly across cards */}
+      {/* Image panel — soft warm neutral, like a studio backdrop */}
       <div
         className="relative w-full aspect-square flex items-center justify-center"
-        style={{ backgroundColor: STUDIO_BACKGROUNDS[index % STUDIO_BACKGROUNDS.length] }}
+        style={{ backgroundColor: '#f5f2ed' }}
       >
         {showImage ? (
           <img
@@ -104,7 +91,7 @@ export function PhoneCard({ product, className, index = 0 }: PhoneCardProps) {
             loading="lazy"
             onLoad={handleImgLoad}
             onError={tryNextImage}
-            className="max-w-[88%] max-h-[78%] object-contain transition-transform duration-300 group-hover:scale-[1.03] drop-shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+            className="max-w-[82%] max-h-[82%] object-contain transition-transform duration-300 group-hover:scale-[1.03] drop-shadow-[0_2px_4px_rgba(0,0,0,0.06)]"
           />
         ) : (
           <div className="text-neutral-400 text-xs">No image</div>

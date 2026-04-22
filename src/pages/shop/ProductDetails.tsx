@@ -351,14 +351,24 @@ export default function ProductDetailsPage() {
         const item = data.item;
 
         setProduct(prev => {
+          const isEbay = (item.provider || provider || prev?.provider || '').toLowerCase() === 'ebay';
           const newImages: string[] = item.images || item.imageUrls || (item.image_url ? [item.image_url] : []);
           let mergedImages: string[];
 
-          if (newImages.length > 0) {
-            // Fetched gallery is source of truth — don't pin old nav thumbnail first
+          if (isEbay && prev?.images?.length) {
+            // For eBay, keep the canonical DB/gallery images from navigation/DB state.
+            // Live fetches can drift to a different listing variant and show wrong photos.
+            const seen = new Set(prev.images);
+            mergedImages = [...prev.images];
+            for (const img of newImages) {
+              if (img && img !== '/placeholder.svg' && !seen.has(img)) {
+                mergedImages.push(img);
+                seen.add(img);
+              }
+            }
+          } else if (newImages.length > 0) {
             const seen = new Set(newImages);
             mergedImages = [...newImages];
-            // Append any previous images not already present (deduped)
             if (prev?.images) {
               for (const img of prev.images) {
                 if (img && img !== '/placeholder.svg' && !seen.has(img)) {
@@ -374,16 +384,16 @@ export default function ProductDetailsPage() {
           }
 
           return {
-            id: item.provider_product_id || item.id || prev?.id || '',
+            id: prev?.id || item.provider_product_id || item.id || '',
             provider: item.provider || provider || prev?.provider || '',
-            title: item.title || prev?.title || 'Product',
+            title: prev?.title || item.title || 'Product',
             description: item.description || prev?.description,
             images: mergedImages,
-            priceUsd: item.price_usd || item.priceUsd || prev?.priceUsd || 0,
+            priceUsd: prev?.priceUsd || item.price_usd || item.priceUsd || 0,
             rating: item.rating ?? prev?.rating,
             reviewCount: item.review_count || item.reviewCount || prev?.reviewCount,
             inStock: item.in_stock !== false,
-            productUrl: item.product_url || item.productUrl || prev?.productUrl,
+            productUrl: prev?.productUrl || item.product_url || item.productUrl,
             brand: item.brand || prev?.brand,
             categoryKey: item.categoryKey || prev?.categoryKey || null,
             vehiclesSubkey: item.vehiclesSubkey || prev?.vehiclesSubkey || null,
@@ -393,7 +403,8 @@ export default function ProductDetailsPage() {
 
         // Force image index to 0 (best API image) when gallery arrives, unless user interacted
         const finalImages: string[] = item.images || item.imageUrls || [];
-        if (finalImages.length > 0 && !userInteractedRef.current) {
+        const shouldResetToFetchedGallery = normalizedProvider !== 'ebay';
+        if (shouldResetToFetchedGallery && finalImages.length > 0 && !userInteractedRef.current) {
           setCurrentImageIndex(0);
           didAutoSelectRef.current = true;
         }
@@ -447,16 +458,16 @@ export default function ProductDetailsPage() {
                 const item = retryData.item;
                 const newImages: string[] = item.images || item.imageUrls || (item.image_url ? [item.image_url] : []);
                 setProduct(prev => ({
-                  id: item.provider_product_id || item.id || prev?.id || '',
+                  id: prev?.id || item.provider_product_id || item.id || '',
                   provider: item.provider || provider || prev?.provider || '',
-                  title: item.title || prev?.title || 'Product',
+                  title: prev?.title || item.title || 'Product',
                   description: item.description || prev?.description,
-                  images: newImages.length > 0 ? newImages : (prev?.images || ['/placeholder.svg']),
-                  priceUsd: item.price_usd || item.priceUsd || prev?.priceUsd || 0,
+                  images: prev?.images?.length ? prev.images : (newImages.length > 0 ? newImages : ['/placeholder.svg']),
+                  priceUsd: prev?.priceUsd || item.price_usd || item.priceUsd || 0,
                   rating: item.rating ?? prev?.rating,
                   reviewCount: item.review_count || item.reviewCount || prev?.reviewCount,
                   inStock: item.in_stock !== false,
-                  productUrl: item.product_url || item.productUrl || prev?.productUrl,
+                  productUrl: prev?.productUrl || item.product_url || item.productUrl,
                   brand: item.brand || prev?.brand,
                   categoryKey: item.categoryKey || prev?.categoryKey || null,
                   vehiclesSubkey: item.vehiclesSubkey || prev?.vehiclesSubkey || null,

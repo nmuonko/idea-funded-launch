@@ -1426,6 +1426,22 @@ export default function ShopHome() {
               {language === 'fr' ? 'Parcourir les produits' : 'Browse products'}
             </h2>
             <div className="flex items-center gap-2">
+              <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+                <SelectTrigger className="w-[140px] sm:w-[170px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
+                  <SelectValue placeholder={language === 'fr' ? 'Trier par' : 'Sort by'} />
+                </SelectTrigger>
+                <SelectContent className="bg-black border border-white/20 z-[9999]">
+                  <SelectItem value="cheapest" className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer">
+                    {language === 'fr' ? 'Moins cher d\'abord' : 'Cheapest first'}
+                  </SelectItem>
+                  <SelectItem value="newest" className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer">
+                    {language === 'fr' ? 'Nouveautés' : 'Newest'}
+                  </SelectItem>
+                  <SelectItem value="priciest" className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer">
+                    {language === 'fr' ? 'Plus cher d\'abord' : 'Priciest first'}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                 <SelectTrigger className="w-[140px] sm:w-[170px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
                   <SelectValue placeholder={language === 'fr' ? 'Catégorie' : 'Category'} />
@@ -1443,7 +1459,7 @@ export default function ShopHome() {
                 </SelectContent>
               </Select>
               <Select value={providerFilter} onValueChange={setProviderFilter}>
-                <SelectTrigger className="w-[140px] sm:w-[180px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
+                <SelectTrigger className="hidden sm:flex w-[140px] sm:w-[180px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
                   <SelectValue placeholder={language === 'fr' ? 'Boutique' : 'Store'} />
                 </SelectTrigger>
                 <SelectContent className="bg-black border border-white/20 z-[9999]">

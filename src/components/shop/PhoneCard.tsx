@@ -74,6 +74,10 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
   const showImage = imgSrc !== '/placeholder.svg';
   const priceLabel = formatDisplayPriceUsd(product.priceUsd);
 
+  // If no valid product image is available (only banners/promos), hide the card
+  // entirely instead of showing an "ad-looking" tile on the homepage.
+  if (!showImage) return null;
+
   return (
     <Link
       to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}

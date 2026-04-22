@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { useShopCart } from '@/contexts/ShopCartContext';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { isRenderableImageUrl, pickBestImage } from '@/lib/imageValidation';
 import type { Product } from './ProductCard';
@@ -19,8 +18,6 @@ interface PhoneCardProps {
  * - Minimal chrome — the device is the hero
  */
 export function PhoneCard({ product, className }: PhoneCardProps) {
-  const { exchangeRate } = useShopCart();
-
   const galleryImages = [...new Set([
     product.imageUrl,
     ...(product.images || []),

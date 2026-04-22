@@ -8,7 +8,7 @@ import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { SectionBlock } from '@/components/shop/SectionBlock';
 import { HeroBannerCarousel } from '@/components/shop/HeroBannerCarousel';
 import { CategoryIconsRow } from '@/components/shop/CategoryIconsRow';
-import { CountrySelector } from '@/components/shop/CountrySelector';
+import { GazelleHero } from '@/components/shop/GazelleHero';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
 import { Product } from '@/components/shop/ProductCard';
@@ -300,6 +300,7 @@ export default function ShopHome() {
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
   const [providerFilter, setProviderFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [sortBy, setSortBy] = useState<'cheapest' | 'newest' | 'priciest'>('cheapest');
   const fetchedRef = useRef(false);
   const [dynamicStores, setDynamicStores] = useState<{ value: string; label: string; count: number }[]>([]);
 
@@ -1232,8 +1233,17 @@ export default function ShopHome() {
       const tt = (p.title || '').toLowerCase();
       return !PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
     });
-    return filterHomepageProducts(sortByLuxury(handsets), 'phones').slice(0, 24);
+    return filterHomepageProducts(sortByLuxury(handsets), 'phones').slice(0, 60);
   }, [pinnedByCategory, categoryItems]);
+
+  // Apply user-selected sort on top of the curated phones list
+  const sortedPhones = useMemo(() => {
+    const list = [...phonesRowItems];
+    if (sortBy === 'cheapest') list.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
+    else if (sortBy === 'priciest') list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
+    // 'newest' = keep curated order (most recently fetched/luxury first)
+    return list;
+  }, [phonesRowItems, sortBy]);
 
   const phoneAccessoryItems = useMemo(() => {
     const all = deduplicateProducts([
@@ -1404,8 +1414,8 @@ export default function ShopHome() {
       <ShopHeader />
       <div className="pt-16 md:pt-20" />
 
-      {/* 1) Country Selector — leads the page; cleaner than the hero. */}
-      <CountrySelector />
+      {/* 1) Gazelle-style hero + trust bar */}
+      <GazelleHero />
       <div id="shop-categories-anchor" />
 
       <main className="pb-8">
@@ -1416,6 +1426,22 @@ export default function ShopHome() {
               {language === 'fr' ? 'Parcourir les produits' : 'Browse products'}
             </h2>
             <div className="flex items-center gap-2">
+              <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+                <SelectTrigger className="w-[140px] sm:w-[170px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
+                  <SelectValue placeholder={language === 'fr' ? 'Trier par' : 'Sort by'} />
+                </SelectTrigger>
+                <SelectContent className="bg-black border border-white/20 z-[9999]">
+                  <SelectItem value="cheapest" className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer">
+                    {language === 'fr' ? 'Moins cher d\'abord' : 'Cheapest first'}
+                  </SelectItem>
+                  <SelectItem value="newest" className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer">
+                    {language === 'fr' ? 'Nouveautés' : 'Newest'}
+                  </SelectItem>
+                  <SelectItem value="priciest" className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer">
+                    {language === 'fr' ? 'Plus cher d\'abord' : 'Priciest first'}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                 <SelectTrigger className="w-[140px] sm:w-[170px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
                   <SelectValue placeholder={language === 'fr' ? 'Catégorie' : 'Category'} />
@@ -1433,7 +1459,7 @@ export default function ShopHome() {
                 </SelectContent>
               </Select>
               <Select value={providerFilter} onValueChange={setProviderFilter}>
-                <SelectTrigger className="w-[140px] sm:w-[180px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
+                <SelectTrigger className="hidden sm:flex w-[140px] sm:w-[180px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
                   <SelectValue placeholder={language === 'fr' ? 'Boutique' : 'Store'} />
                 </SelectTrigger>
                 <SelectContent className="bg-black border border-white/20 z-[9999]">
@@ -1563,15 +1589,15 @@ export default function ShopHome() {
               </Button>
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-6" id="phones-grid">
               {/* PHONES — single hero grid, Gazelle-style */}
-              {phonesRowItems.length > 0 ? (
+              {sortedPhones.length > 0 ? (
                 <SectionBlock
                   title={language === 'fr' ? 'Téléphones' : 'Phones'}
-                  items={phonesRowItems}
+                  items={sortedPhones}
                   mode="static-grid"
                   seeAllLink="/category/phones"
-                  maxItems={24}
+                  maxItems={sortedPhones.length}
                   categoryKey="phones"
                 />
               ) : (

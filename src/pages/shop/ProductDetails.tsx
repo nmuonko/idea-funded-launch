@@ -28,6 +28,7 @@ import { resizeImageUrl, imageQualityScore, IMAGE_SIZE_HERO, IMAGE_SIZE_THUMB } 
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { buildAmazonProductDetailUrl, normalizeAmazonProductUrl } from '@/lib/amazonProductLinks';
+import { resolveDisplayPrice } from '@/lib/serverPricing';
 
 /**
  * Determine if a product is a vehicle listing.

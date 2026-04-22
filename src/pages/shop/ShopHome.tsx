@@ -1595,12 +1595,6 @@ export default function ShopHome() {
             </div>
           ) : (
             <div className="space-y-4" id="phones-grid">
-              <h2 className="text-lg sm:text-xl font-semibold text-white tracking-tight">
-                {language === 'fr' ? 'Téléphones' : 'Phones'}
-                <span className="ml-2 text-xs sm:text-sm font-normal text-white/40">
-                  {sortedPhones.length > 0 ? `(${sortedPhones.length})` : ''}
-                </span>
-              </h2>
               {sortedPhones.length > 0 ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                   {sortedPhones.map((p, i) => (

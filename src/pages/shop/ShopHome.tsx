@@ -9,6 +9,7 @@ import { SectionBlock } from '@/components/shop/SectionBlock';
 import { HeroBannerCarousel } from '@/components/shop/HeroBannerCarousel';
 import { CategoryIconsRow } from '@/components/shop/CategoryIconsRow';
 import { GazelleHero } from '@/components/shop/GazelleHero';
+import { AvailableInRow } from '@/components/shop/AvailableInRow';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
 import { Product, ProductCard } from '@/components/shop/ProductCard';
@@ -1544,12 +1545,13 @@ export default function ShopHome() {
 
       {/* 1) Gazelle-style hero + trust bar */}
       <GazelleHero />
+      <AvailableInRow />
       <div id="shop-categories-anchor" />
 
       <main className="pb-8">
         <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
-          {/* Filters Toolbar — Gazelle-style: "Sort by: Featured ▾    323 products" */}
-          <div className="flex items-center justify-end gap-4 mb-5 pb-3 border-b border-white/10">
+          {/* Filters Toolbar — "Sort by: Featured ▾                                  323 products" */}
+          <div className="flex items-center justify-between gap-4 mb-5 pb-3 border-b border-white/10">
             <div className="flex items-center gap-2">
               <span className="text-sm text-white/60 font-normal">
                 {language === 'fr' ? 'Trier par :' : 'Sort by:'}
@@ -1731,10 +1733,7 @@ export default function ShopHome() {
                 </div>
               ) : sortedPhones.length > 0 ? (
                 <>
-                  <div
-                    className="grid gap-x-2.5 gap-y-3.5 sm:gap-x-3 sm:gap-y-4 max-w-[1200px] mx-auto"
-                    style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}
-                  >
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 max-w-[1200px] mx-auto">
                     {sortedPhones.map((p, i) => (
                       <PhoneCard key={`${p.id}-${i}`} product={p} />
                     ))}

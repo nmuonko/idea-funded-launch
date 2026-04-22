@@ -1420,15 +1420,15 @@ export default function ShopHome() {
 
       <main className="pb-8">
         <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
-          {/* Filters Toolbar — compact, inline, professional */}
-          <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-white/10">
-            <h2 className="text-sm md:text-base font-semibold text-white tracking-tight">
-              {language === 'fr' ? 'Parcourir les produits' : 'Browse products'}
-            </h2>
+          {/* Filters Toolbar — Gazelle-style: "Sort by: Featured ▾    323 products" */}
+          <div className="flex items-center justify-end gap-4 mb-5 pb-3 border-b border-white/10">
             <div className="flex items-center gap-2">
+              <span className="text-sm text-white/60 font-normal">
+                {language === 'fr' ? 'Trier par :' : 'Sort by:'}
+              </span>
               <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
-                <SelectTrigger className="w-[140px] sm:w-[170px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
-                  <SelectValue placeholder={language === 'fr' ? 'Trier par' : 'Sort by'} />
+                <SelectTrigger className="w-auto min-w-[140px] bg-transparent border-0 text-white font-semibold hover:bg-white/5 rounded-md h-9 px-2 text-sm shadow-none focus:ring-0">
+                  <SelectValue placeholder={language === 'fr' ? 'En vedette' : 'Featured'} />
                 </SelectTrigger>
                 <SelectContent className="bg-black border border-white/20 z-[9999]">
                   <SelectItem value="cheapest" className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer">
@@ -1481,6 +1481,11 @@ export default function ShopHome() {
                 </SelectContent>
               </Select>
             </div>
+            <span className="text-sm text-white/60 font-normal whitespace-nowrap">
+              {sortedPhones.length > 0
+                ? `${sortedPhones.length.toLocaleString()} ${language === 'fr' ? 'produits' : 'products'}`
+                : ''}
+            </span>
           </div>
 
           {providerFilter && providerFilter !== 'all' ? (
@@ -1590,12 +1595,6 @@ export default function ShopHome() {
             </div>
           ) : (
             <div className="space-y-4" id="phones-grid">
-              <h2 className="text-lg sm:text-xl font-semibold text-white tracking-tight">
-                {language === 'fr' ? 'Téléphones' : 'Phones'}
-                <span className="ml-2 text-xs sm:text-sm font-normal text-white/40">
-                  {sortedPhones.length > 0 ? `(${sortedPhones.length})` : ''}
-                </span>
-              </h2>
               {sortedPhones.length > 0 ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                   {sortedPhones.map((p, i) => (

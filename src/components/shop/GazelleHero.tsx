@@ -35,10 +35,10 @@ export function GazelleHero() {
               <span className="inline-block text-[10px] sm:text-xs uppercase tracking-[0.25em] text-white/85 font-semibold mb-3">
                 AfriShop
               </span>
-              <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold text-white tracking-tight leading-[1.05]">
+              <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white tracking-tight leading-[1.02]">
                 {isFr ? 'iPhone — Qualité et accessibilité.' : 'iPhone — Quality meets affordability.'}
               </h1>
-              <p className="mt-3 text-sm sm:text-base md:text-lg text-white/90 max-w-xl mx-auto md:mx-0">
+              <p className="mt-4 text-base sm:text-lg md:text-xl text-white/90 font-normal max-w-xl mx-auto md:mx-0 leading-relaxed">
                 {isFr
                   ? 'Reconditionnés, testés et fiables. Livrés directement chez vous.'
                   : 'Refurbished, tested and reliable. Delivered straight to your door.'}

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
@@ -29,6 +29,11 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
     pickBestImage(galleryImages, product.imageUrl)
   );
   const [fallbackIdx, setFallbackIdx] = useState(0);
+
+  useEffect(() => {
+    setImgSrc(pickBestImage(galleryImages, product.imageUrl));
+    setFallbackIdx(0);
+  }, [product.id, product.imageUrl, galleryImages]);
 
   const tryNextImage = useCallback(() => {
     for (let i = fallbackIdx + 1; i < galleryImages.length; i++) {

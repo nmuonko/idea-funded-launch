@@ -87,6 +87,8 @@ interface ProductData {
   description?: string;
   images: string[];
   priceUsd: number;
+  basePriceUsd?: number | null;
+  feesIncluded?: boolean;
   rating?: number;
   reviewCount?: number;
   inStock: boolean;
@@ -244,13 +246,24 @@ export default function ProductDetailsPage() {
     }));
   }, [product?.variants]);
 
-  // Price source of truth: the API already returns the all-inclusive display price
-  // (markup + shipping included, fees_included=true). Do NOT re-apply markup here —
-  // that would double-charge. We just mirror the API price as the display price.
+  // Price source of truth: use the same shared pricing utility as the homepage.
+  // If the backend returns base_price_usd, resolve from that raw base value.
+  // Otherwise keep the already-displayed price from navigation state.
   useEffect(() => {
-    const raw = product?.priceUsd ?? 0;
-    setResolvedDisplayPrice(raw > 0 ? raw : null);
-  }, [product?.priceUsd]);
+    const base = product?.basePriceUsd ?? null;
+    const display = product?.priceUsd ?? 0;
+    let cancelled = false;
+
+    if (base && base > 0) {
+      resolveDisplayPrice(base).then((resolved) => {
+        if (!cancelled) setResolvedDisplayPrice(resolved > 0 ? resolved : display);
+      });
+      return () => { cancelled = true; };
+    }
+
+    setResolvedDisplayPrice(display > 0 ? display : null);
+    return () => { cancelled = true; };
+  }, [product?.basePriceUsd, product?.priceUsd]);
 
   // Reset state when route params change
   useEffect(() => {
@@ -263,6 +276,8 @@ export default function ProductDetailsPage() {
       description: undefined,
       images: nav.imageUrl ? [nav.imageUrl] : ['/placeholder.svg'],
       priceUsd: nav.priceUsd || 0,
+      basePriceUsd: null,
+      feesIncluded: true,
       rating: nav.rating,
       reviewCount: undefined,
       inStock: true,
@@ -351,14 +366,24 @@ export default function ProductDetailsPage() {
         const item = data.item;
 
         setProduct(prev => {
+          const isEbay = (item.provider || provider || prev?.provider || '').toLowerCase() === 'ebay';
           const newImages: string[] = item.images || item.imageUrls || (item.image_url ? [item.image_url] : []);
           let mergedImages: string[];
 
-          if (newImages.length > 0) {
-            // Fetched gallery is source of truth — don't pin old nav thumbnail first
+          if (isEbay && prev?.images?.length) {
+            // For eBay, keep the canonical DB/gallery images from navigation/DB state.
+            // Live fetches can drift to a different listing variant and show wrong photos.
+            const seen = new Set(prev.images);
+            mergedImages = [...prev.images];
+            for (const img of newImages) {
+              if (img && img !== '/placeholder.svg' && !seen.has(img)) {
+                mergedImages.push(img);
+                seen.add(img);
+              }
+            }
+          } else if (newImages.length > 0) {
             const seen = new Set(newImages);
             mergedImages = [...newImages];
-            // Append any previous images not already present (deduped)
             if (prev?.images) {
               for (const img of prev.images) {
                 if (img && img !== '/placeholder.svg' && !seen.has(img)) {
@@ -374,16 +399,18 @@ export default function ProductDetailsPage() {
           }
 
           return {
-            id: item.provider_product_id || item.id || prev?.id || '',
+            id: prev?.id || item.provider_product_id || item.id || '',
             provider: item.provider || provider || prev?.provider || '',
-            title: item.title || prev?.title || 'Product',
+            title: prev?.title || item.title || 'Product',
             description: item.description || prev?.description,
             images: mergedImages,
-            priceUsd: item.price_usd || item.priceUsd || prev?.priceUsd || 0,
+            priceUsd: prev?.priceUsd || item.price_usd || item.priceUsd || 0,
+            basePriceUsd: item.base_price_usd || item.basePriceUsd || prev?.basePriceUsd || null,
+            feesIncluded: item.fees_included === true || prev?.feesIncluded === true,
             rating: item.rating ?? prev?.rating,
             reviewCount: item.review_count || item.reviewCount || prev?.reviewCount,
             inStock: item.in_stock !== false,
-            productUrl: item.product_url || item.productUrl || prev?.productUrl,
+            productUrl: prev?.productUrl || item.product_url || item.productUrl,
             brand: item.brand || prev?.brand,
             categoryKey: item.categoryKey || prev?.categoryKey || null,
             vehiclesSubkey: item.vehiclesSubkey || prev?.vehiclesSubkey || null,
@@ -393,7 +420,8 @@ export default function ProductDetailsPage() {
 
         // Force image index to 0 (best API image) when gallery arrives, unless user interacted
         const finalImages: string[] = item.images || item.imageUrls || [];
-        if (finalImages.length > 0 && !userInteractedRef.current) {
+        const shouldResetToFetchedGallery = normalizedProvider !== 'ebay';
+        if (shouldResetToFetchedGallery && finalImages.length > 0 && !userInteractedRef.current) {
           setCurrentImageIndex(0);
           didAutoSelectRef.current = true;
         }
@@ -447,16 +475,18 @@ export default function ProductDetailsPage() {
                 const item = retryData.item;
                 const newImages: string[] = item.images || item.imageUrls || (item.image_url ? [item.image_url] : []);
                 setProduct(prev => ({
-                  id: item.provider_product_id || item.id || prev?.id || '',
+                  id: prev?.id || item.provider_product_id || item.id || '',
                   provider: item.provider || provider || prev?.provider || '',
-                  title: item.title || prev?.title || 'Product',
+                  title: prev?.title || item.title || 'Product',
                   description: item.description || prev?.description,
-                  images: newImages.length > 0 ? newImages : (prev?.images || ['/placeholder.svg']),
-                  priceUsd: item.price_usd || item.priceUsd || prev?.priceUsd || 0,
+                  images: prev?.images?.length ? prev.images : (newImages.length > 0 ? newImages : ['/placeholder.svg']),
+                  priceUsd: prev?.priceUsd || item.price_usd || item.priceUsd || 0,
+                  basePriceUsd: item.base_price_usd || item.basePriceUsd || prev?.basePriceUsd || null,
+                  feesIncluded: item.fees_included === true || prev?.feesIncluded === true,
                   rating: item.rating ?? prev?.rating,
                   reviewCount: item.review_count || item.reviewCount || prev?.reviewCount,
                   inStock: item.in_stock !== false,
-                  productUrl: item.product_url || item.productUrl || prev?.productUrl,
+                  productUrl: prev?.productUrl || item.product_url || item.productUrl,
                   brand: item.brand || prev?.brand,
                   categoryKey: item.categoryKey || prev?.categoryKey || null,
                   vehiclesSubkey: item.vehiclesSubkey || prev?.vehiclesSubkey || null,
@@ -492,12 +522,12 @@ export default function ProductDetailsPage() {
         provider: product.provider,
         title: product.title,
         imageUrl: product.images?.[0] || '',
-        priceUsd: product.priceUsd,
+        priceUsd: resolvedDisplayPrice ?? product.priceUsd,
         productUrl: product.productUrl,
       },
       user?.id
     );
-  }, [product?.id, product?.provider]);
+  }, [product?.id, product?.provider, resolvedDisplayPrice]);
 
    // Fetch similar products
   useEffect(() => {
@@ -621,19 +651,20 @@ export default function ProductDetailsPage() {
     if (!product) return;
     setAdding(true);
     try {
+      const finalPrice = isFixedPrice ? hotProductPrice! : (resolvedDisplayPrice ?? product.priceUsd);
       await addItem({
         productId: product.id,
         provider: product.provider,
         title: product.title,
         imageUrl: safeImages[0] || '',
-        priceUsd: isFixedPrice ? hotProductPrice! : product.priceUsd,
+        priceUsd: finalPrice,
         quantity,
         productUrl: product.productUrl,
         ...(isFixedPrice ? { isFixedPrice: true } : {}),
       });
       // TikTok Pixel + Server: AddToCart
       trackAddToCart(
-        { id: product.id, title: product.title, price: isFixedPrice ? hotProductPrice! : product.priceUsd },
+        { id: product.id, title: product.title, price: finalPrice },
         { email: user?.email ?? undefined, userId: user?.id ?? undefined },
       );
       setAdded(true);
@@ -810,7 +841,7 @@ export default function ProductDetailsPage() {
           description={`Buy ${product.title} from AfriShop - delivered to DR Congo`}
           image={product.images?.[0]}
           type="product"
-          price={product.priceUsd}
+          price={displayPrice}
           availability={product.inStock ? 'in stock' : 'out of stock'}
         />
       )}

@@ -9,10 +9,10 @@ type Country = {
 };
 
 const COUNTRIES: Country[] = [
+  { key: 'us', flag: '🇺🇸', nameEn: 'USA', nameFr: 'USA' },
+  { key: 'tr', flag: '🇹🇷', nameEn: 'Turkey', nameFr: 'Turquie' },
+  { key: 'cn', flag: '🇨🇳', nameEn: 'China', nameFr: 'Chine' },
   { key: 'cd', flag: '🇨🇩', nameEn: 'DR Congo', nameFr: 'RD Congo' },
-  { key: 'rw', flag: '🇷🇼', nameEn: 'Rwanda', nameFr: 'Rwanda' },
-  { key: 'ke', flag: '🇰🇪', nameEn: 'Kenya', nameFr: 'Kenya' },
-  { key: 'ug', flag: '🇺🇬', nameEn: 'Uganda', nameFr: 'Ouganda' },
 ];
 
 /**

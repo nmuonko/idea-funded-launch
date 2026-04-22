@@ -1533,10 +1533,11 @@ export default function ShopHome() {
       <GazelleHero />
       <div id="shop-categories-anchor" />
 
-      <main className="pb-8">
-        <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
+      <main className="pb-8 bg-[#fafaf7]">
+        <div className="container mx-auto px-4 sm:px-6 max-w-6xl pt-6">
           {/* Filters Toolbar — Gazelle-style: "Sort by: Featured ▾    323 products" */}
-          <div className="flex items-center justify-end gap-4 mb-5 pb-3 border-b border-white/10">
+          <div className="flex items-center justify-end gap-4 mb-5 pb-3 border-b border-neutral-200">
+
             <div className="flex items-center gap-2">
               <span className="text-sm text-white/60 font-normal">
                 {language === 'fr' ? 'Trier par :' : 'Sort by:'}

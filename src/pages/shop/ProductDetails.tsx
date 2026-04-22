@@ -244,6 +244,16 @@ export default function ProductDetailsPage() {
     }));
   }, [product?.variants]);
 
+  // Resolve all-inclusive display price (markup + shipping) from backend whenever raw price changes.
+  // Keeps Product Detail consistent with the homepage card price.
+  useEffect(() => {
+    let cancelled = false;
+    const raw = product?.priceUsd ?? 0;
+    if (!raw || raw <= 0) { setResolvedDisplayPrice(null); return; }
+    resolveDisplayPrice(raw).then(p => { if (!cancelled) setResolvedDisplayPrice(p); });
+    return () => { cancelled = true; };
+  }, [product?.priceUsd]);
+
   // Reset state when route params change
   useEffect(() => {
     const nav = (location.state as any)?.product;

@@ -12,6 +12,7 @@ import { GazelleHero } from '@/components/shop/GazelleHero';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
 import { Product, ProductCard } from '@/components/shop/ProductCard';
+import { PhoneCard } from '@/components/shop/PhoneCard';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
@@ -1696,9 +1697,9 @@ export default function ShopHome() {
                 </div>
               ) : sortedPhones.length > 0 ? (
                 <>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
                     {sortedPhones.map((p, i) => (
-                      <ProductCard key={`${p.id}-${i}`} product={p} />
+                      <PhoneCard key={`${p.id}-${i}`} product={p} />
                     ))}
                   </div>
 

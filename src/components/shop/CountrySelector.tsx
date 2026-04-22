@@ -114,7 +114,7 @@ export function CountrySelector() {
           />
           {/* Glow blobs */}
           <div aria-hidden className="absolute -top-20 -left-16 w-72 h-72 rounded-full bg-white/10 blur-3xl" />
-          <div aria-hidden className="absolute -bottom-24 -right-20 w-80 h-80 rounded-full bg-cyan-300/20 blur-3xl" />
+          <div aria-hidden className="absolute -bottom-24 -right-20 w-80 h-80 rounded-full bg-primary/30 blur-3xl" />
 
           <div className="relative px-6 sm:px-10 py-10 sm:py-16 md:py-20 text-center">
             <span className="inline-block text-[10px] sm:text-xs uppercase tracking-[0.25em] text-white/80 font-semibold mb-3">

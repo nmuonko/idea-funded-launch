@@ -360,20 +360,30 @@ export default function ShopHome() {
     const from = page * PHONES_PAGE_SIZE;
     setBulkPhonesLoading(true);
     try {
+      // Match real handsets only — model-specific patterns avoid generic "for iPhone" accessory titles
       const phoneOr = [
-        'title.ilike.%iphone%',
-        'title.ilike.%samsung galaxy%',
-        'title.ilike.%galaxy s2%',
-        'title.ilike.%galaxy s3%',
-        'title.ilike.%pixel %',
-        'title.ilike.%google pixel%',
-        'title.ilike.%oneplus%',
-        'title.ilike.%xiaomi%',
-        'title.ilike.%motorola%',
-        'title.ilike.%unlocked phone%',
+        'title.ilike.%iphone 1_%',           // iPhone 10/11/12/13/14/15/16/17
+        'title.ilike.%iphone x%',
+        'title.ilike.%iphone se%',
+        'title.ilike.%galaxy s2_%',          // S20-S29
+        'title.ilike.%galaxy s1_%',          // S10-S19
+        'title.ilike.%galaxy note%',
+        'title.ilike.%galaxy z fold%',
+        'title.ilike.%galaxy z flip%',
+        'title.ilike.%google pixel _%',
+        'title.ilike.%pixel 6%',
+        'title.ilike.%pixel 7%',
+        'title.ilike.%pixel 8%',
+        'title.ilike.%pixel 9%',
+        'title.ilike.%oneplus %',
+        'title.ilike.%xiaomi %',
+        'title.ilike.%redmi note%',
+        'title.ilike.%unlocked smartphone%',
+        'title.ilike.%unlocked cell phone%',
       ].join(',');
 
-      const { data, error, count } = await supabase
+      // Hard exclude obvious accessory/non-phone titles at the DB level
+      let q = supabase
         .from('catalog_items')
         .select(
           'id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock',
@@ -381,21 +391,31 @@ export default function ShopHome() {
         )
         .eq('is_active', true)
         .eq('is_disallowed', false)
-        .gt('price_usd', 0)
-        .lte('price_usd', 1500)
-        .or(phoneOr)
-        .order('price_usd', { ascending: true })
+        .gte('price_usd', 80)        // real handsets only — accessories drop out
+        .lte('price_usd', 1800)
+        .or(phoneOr);
+
+      const accessoryWords = [
+        'case', 'cover', 'protector', 'tempered glass', 'screen guard',
+        'charger', 'cable', 'usb-c', 'lightning cable', 'magsafe',
+        'airpods', 'earbud', 'earphone', 'headphone', 'power bank',
+        'holder', 'mount', 'stand', 'adapter', 'wireless charger',
+        'sticker', 'skin', 'wrap', 'lanyard', 'strap', 'pouch', 'sleeve',
+        'lens', 'tripod', 'selfie stick', 'cleaning', 'wipe',
+        'replacement battery', 'replacement screen', 'lcd assembly', 'digitizer',
+      ];
+      for (const w of accessoryWords) q = q.not('title', 'ilike', `%${w}%`);
+
+      const { data, error, count } = await q
+        .order('price_usd', { ascending: false })  // premium first — Gazelle-like
         .range(from, from + PHONES_PAGE_SIZE - 1);
       if (error) throw error;
 
-      const PHONE_ACCESSORY_KEYWORDS = ['case', 'cover', 'protector', 'tempered glass', 'charger', 'cable', 'usb-c', 'lightning', 'magsafe', 'airpods', 'earbud', 'earphone', 'power bank', 'holder', 'mount', 'stand', 'adapter', 'wireless charger'];
       const mapped = (data || [])
         .map((item: any): Product | null => {
           const fallback = extractFirstImageFromJson(item.images);
           const preferred = isRenderableImageUrl(item.image_url) ? item.image_url : fallback;
           if (!preferred || !isRenderableImageUrl(preferred)) return null;
-          const tt = (item.title || '').toLowerCase();
-          if (PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw))) return null;
           return {
             id: item.provider_product_id || item.id,
             provider: item.provider || 'amazon',
@@ -417,6 +437,7 @@ export default function ShopHome() {
       setBulkPhonesLoading(false);
     }
   }, []);
+
 
   useEffect(() => {
     fetchBulkPhones(bulkPhonesPage);
@@ -1512,16 +1533,17 @@ export default function ShopHome() {
       <GazelleHero />
       <div id="shop-categories-anchor" />
 
-      <main className="pb-8">
-        <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
+      <main className="pb-8 bg-[#fafaf7]">
+        <div className="container mx-auto px-4 sm:px-6 max-w-6xl pt-6">
           {/* Filters Toolbar — Gazelle-style: "Sort by: Featured ▾    323 products" */}
-          <div className="flex items-center justify-end gap-4 mb-5 pb-3 border-b border-white/10">
+          <div className="flex items-center justify-end gap-4 mb-5 pb-3 border-b border-neutral-200">
+
             <div className="flex items-center gap-2">
-              <span className="text-sm text-white/60 font-normal">
+              <span className="text-sm text-neutral-500 font-normal">
                 {language === 'fr' ? 'Trier par :' : 'Sort by:'}
               </span>
               <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
-                <SelectTrigger className="w-auto min-w-[140px] bg-transparent border-0 text-white font-semibold hover:bg-white/5 rounded-md h-9 px-2 text-sm shadow-none focus:ring-0">
+                <SelectTrigger className="w-auto min-w-[140px] bg-transparent border-0 text-neutral-900 font-semibold hover:bg-neutral-100 rounded-md h-9 px-2 text-sm shadow-none focus:ring-0">
                   <SelectValue placeholder={language === 'fr' ? 'En vedette' : 'Featured'} />
                 </SelectTrigger>
                 <SelectContent className="bg-black border border-white/20 z-[9999]">
@@ -1575,7 +1597,7 @@ export default function ShopHome() {
                 </SelectContent>
               </Select>
             </div>
-            <span className="text-sm text-white/60 font-normal whitespace-nowrap">
+            <span className="text-sm text-neutral-500 font-normal whitespace-nowrap">
               {bulkPhonesTotal > 0
                 ? `${bulkPhonesTotal.toLocaleString()} ${language === 'fr' ? 'produits' : 'products'}`
                 : ''}
@@ -1690,9 +1712,9 @@ export default function ShopHome() {
           ) : (
             <div className="space-y-6" id="phones-grid">
               {bulkPhonesLoading && bulkPhones.length === 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                  {Array.from({ length: 12 }).map((_, i) => (
-                    <div key={i} className="aspect-[3/4] rounded-xl bg-white/[0.04] animate-pulse" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+                  {Array.from({ length: 15 }).map((_, i) => (
+                    <div key={i} className="aspect-[3/4] rounded-lg bg-neutral-200 animate-pulse" />
                   ))}
                 </div>
               ) : sortedPhones.length > 0 ? (
@@ -1714,7 +1736,7 @@ export default function ShopHome() {
                   )}
                 </>
               ) : (
-                <div className="text-center py-16 text-white/50">
+                <div className="text-center py-16 text-neutral-500">
                   {language === 'fr' ? 'Aucun téléphone trouvé.' : 'No phones found.'}
                 </div>
               )}
@@ -1752,8 +1774,8 @@ function PhonePagination({
   if (cur + 2 < last - 1) pages.push('ellipsis');
   if (last > 0) add(last);
 
-  const baseBtn = 'min-w-[40px] h-10 px-3 rounded-md text-sm font-medium border border-white/15 text-white/85 hover:bg-white/10 transition disabled:opacity-40 disabled:cursor-not-allowed';
-  const activeBtn = 'min-w-[40px] h-10 px-3 rounded-md text-sm font-semibold bg-white text-blue-700 border border-white shadow-sm';
+  const baseBtn = 'min-w-[40px] h-10 px-3 rounded-md text-sm font-medium border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100 transition disabled:opacity-40 disabled:cursor-not-allowed';
+  const activeBtn = 'min-w-[40px] h-10 px-3 rounded-md text-sm font-semibold bg-neutral-900 text-white border border-neutral-900 shadow-sm';
 
   return (
     <nav className="flex items-center justify-center gap-2 pt-6 flex-wrap" aria-label="Pagination">
@@ -1767,7 +1789,7 @@ function PhonePagination({
       </button>
       {pages.map((p, i) =>
         p === 'ellipsis' ? (
-          <span key={`e-${i}`} className="px-2 text-white/40 select-none">…</span>
+          <span key={`e-${i}`} className="px-2 text-neutral-400 select-none">…</span>
         ) : (
           <button
             key={p}

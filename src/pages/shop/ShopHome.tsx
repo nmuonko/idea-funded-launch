@@ -1404,8 +1404,8 @@ export default function ShopHome() {
       <ShopHeader />
       <div className="pt-16 md:pt-20" />
 
-      {/* 1) Country Selector — leads the page; cleaner than the hero. */}
-      <CountrySelector />
+      {/* 1) Gazelle-style hero + trust bar */}
+      <GazelleHero />
       <div id="shop-categories-anchor" />
 
       <main className="pb-8">

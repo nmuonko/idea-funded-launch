@@ -1061,6 +1061,7 @@ Deno.serve(async (req: Request) => {
         .then(() => {})
         .catch(() => {});
       const item = mapDbItemToResponse(dbItem);
+      let liveEbayDetail: Awaited<ReturnType<typeof getEbayItem>> | null = null;
       
       // ========== PRICE FRESHNESS CHECK (Amazon only) ==========
       // If the cached price is stale (>12h), scrape Amazon page for current price.
@@ -1101,6 +1102,42 @@ Deno.serve(async (req: Request) => {
           // However, if the scrape is fast enough, we update item.priceUsd above for THIS response too.
         }
       }
+
+      // ========== PRICE FRESHNESS CHECK (eBay) ==========
+      // eBay listings can drift after ingest; when stale, fetch the live listing detail
+      // and update the cached base price before applying all-inclusive pricing.
+      if (dbItem.provider === "ebay" && dbItem.price_usd > 0) {
+        const priceAge = dbItem.price_updated_at
+          ? (Date.now() - new Date(dbItem.price_updated_at).getTime()) / (1000 * 60 * 60)
+          : Infinity;
+
+        if (priceAge > PRICE_STALENESS_HOURS) {
+          try {
+            liveEbayDetail = await getEbayItem(db, productId!);
+            const liveItem = liveEbayDetail?.item;
+            const liveBasePrice = liveItem?.priceUsd ?? null;
+
+            if (liveBasePrice && liveBasePrice > 0) {
+              const dbRowId = dbItem.id || fullProductId;
+              if (Math.abs(liveBasePrice - dbItem.price_usd) > 0.01) {
+                await db.from("catalog_items").update({
+                  price_usd: liveBasePrice,
+                  price_updated_at: new Date().toISOString(),
+                }).eq("id", dbRowId);
+                item.priceUsd = liveBasePrice;
+                console.log(`[PRICE_REFRESH][EBAY] ${productId}: $${dbItem.price_usd} → $${liveBasePrice} (was ${priceAge.toFixed(1)}h stale)`);
+              } else {
+                await db.from("catalog_items").update({
+                  price_updated_at: new Date().toISOString(),
+                }).eq("id", dbRowId);
+                console.log(`[PRICE_REFRESH][EBAY] ${productId}: $${dbItem.price_usd} unchanged, timestamp refreshed`);
+              }
+            }
+          } catch (e) {
+            console.warn(`[PRICE_REFRESH][EBAY] ${productId}: live refresh failed: ${(e as Error).message}`);
+          }
+        }
+      }
       
       // Merge media gallery images: always prefer media gallery when it has more/equal images
       const mediaData = mediaResult?.data;
@@ -1135,7 +1172,7 @@ Deno.serve(async (req: Request) => {
         
         try {
           console.log(`[GALLERY_ENRICH] eBay item ${productId} has ${item.images?.length ?? 0} images, trying API...`);
-          const liveResult = await getEbayItem(db, productId!);
+            const liveResult = liveEbayDetail ?? await getEbayItem(db, productId!);
           const liveItem = liveResult?.item;
           const wasRateLimited = liveResult?.debug?.httpStatus === 429;
           

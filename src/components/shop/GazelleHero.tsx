@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
+import heroIphones from '@/assets/hero-iphones.png';
 
 /**
  * Gazelle-style hero: bold blue banner with iPhone messaging.

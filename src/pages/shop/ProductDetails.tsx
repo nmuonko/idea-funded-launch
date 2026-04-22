@@ -244,14 +244,12 @@ export default function ProductDetailsPage() {
     }));
   }, [product?.variants]);
 
-  // Resolve all-inclusive display price (markup + shipping) from backend whenever raw price changes.
-  // Keeps Product Detail consistent with the homepage card price.
+  // Price source of truth: the API already returns the all-inclusive display price
+  // (markup + shipping included, fees_included=true). Do NOT re-apply markup here —
+  // that would double-charge. We just mirror the API price as the display price.
   useEffect(() => {
-    let cancelled = false;
     const raw = product?.priceUsd ?? 0;
-    if (!raw || raw <= 0) { setResolvedDisplayPrice(null); return; }
-    resolveDisplayPrice(raw).then(p => { if (!cancelled) setResolvedDisplayPrice(p); });
-    return () => { cancelled = true; };
+    setResolvedDisplayPrice(raw > 0 ? raw : null);
   }, [product?.priceUsd]);
 
   // Reset state when route params change

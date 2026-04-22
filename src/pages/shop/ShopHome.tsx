@@ -1226,6 +1226,7 @@ export default function ShopHome() {
       deduplicateProducts([
         ...(pinnedByCategory['phones'] || []),
         ...(categoryItems['phones'] || []),
+        ...accueilProducts,
       ]),
       'phones',
     );
@@ -1233,8 +1234,8 @@ export default function ShopHome() {
       const tt = (p.title || '').toLowerCase();
       return !PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
     });
-    return filterHomepageProducts(sortByLuxury(handsets), 'phones').slice(0, 60);
-  }, [pinnedByCategory, categoryItems]);
+    return filterHomepageProducts(sortByLuxury(handsets), 'phones').slice(0, 200);
+  }, [pinnedByCategory, categoryItems, accueilProducts]);
 
   // Apply user-selected sort on top of the curated phones list
   const sortedPhones = useMemo(() => {

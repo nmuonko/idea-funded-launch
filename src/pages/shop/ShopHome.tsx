@@ -1405,15 +1405,14 @@ export default function ShopHome() {
       <div className="pt-16 md:pt-20" />
 
       {/* 1) Country Selector — leads the page; cleaner than the hero. */}
-      <div className="pt-2" />
       <CountrySelector />
       <div id="shop-categories-anchor" />
 
       <main className="pb-8">
-        <div className="container mx-auto px-3 sm:px-4">
+        <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
           {/* Filters Toolbar — compact, inline, professional */}
-          <div className="flex items-center justify-between gap-3 mb-5 pb-3 border-b border-white/10">
-            <h2 className="text-sm md:text-base font-semibold text-white/90 tracking-tight">
+          <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-white/10">
+            <h2 className="text-sm md:text-base font-semibold text-white tracking-tight">
               {language === 'fr' ? 'Parcourir les produits' : 'Browse products'}
             </h2>
             <div className="flex items-center gap-2">

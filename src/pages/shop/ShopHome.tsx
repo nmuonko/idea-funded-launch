@@ -1727,3 +1727,66 @@ export default function ShopHome() {
     </div>
   );
 }
+
+// ===== Numeric pagination — Gazelle-style: « 1 2 3 … N » =====
+function PhonePagination({
+  currentPage,
+  totalPages,
+  onChange,
+  loading,
+}: {
+  currentPage: number;
+  totalPages: number;
+  onChange: (page: number) => void;
+  loading?: boolean;
+}) {
+  const pages: (number | 'ellipsis')[] = [];
+  const cur = currentPage;
+  const last = totalPages - 1;
+  const add = (n: number) => { if (!pages.includes(n)) pages.push(n); };
+
+  add(0);
+  if (cur - 2 > 1) pages.push('ellipsis');
+  for (let i = Math.max(1, cur - 1); i <= Math.min(last - 1, cur + 1); i++) add(i);
+  if (cur + 2 < last - 1) pages.push('ellipsis');
+  if (last > 0) add(last);
+
+  const baseBtn = 'min-w-[40px] h-10 px-3 rounded-md text-sm font-medium border border-white/15 text-white/85 hover:bg-white/10 transition disabled:opacity-40 disabled:cursor-not-allowed';
+  const activeBtn = 'min-w-[40px] h-10 px-3 rounded-md text-sm font-semibold bg-white text-blue-700 border border-white shadow-sm';
+
+  return (
+    <nav className="flex items-center justify-center gap-2 pt-6 flex-wrap" aria-label="Pagination">
+      <button
+        onClick={() => onChange(Math.max(0, cur - 1))}
+        disabled={loading || cur === 0}
+        className={baseBtn}
+        aria-label="Previous page"
+      >
+        ‹
+      </button>
+      {pages.map((p, i) =>
+        p === 'ellipsis' ? (
+          <span key={`e-${i}`} className="px-2 text-white/40 select-none">…</span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onChange(p)}
+            disabled={loading}
+            className={p === cur ? activeBtn : baseBtn}
+            aria-current={p === cur ? 'page' : undefined}
+          >
+            {p + 1}
+          </button>
+        )
+      )}
+      <button
+        onClick={() => onChange(Math.min(last, cur + 1))}
+        disabled={loading || cur >= last}
+        className={baseBtn}
+        aria-label="Next page"
+      >
+        ›
+      </button>
+    </nav>
+  );
+}

@@ -1597,7 +1597,7 @@ export default function ShopHome() {
                 </SelectContent>
               </Select>
             </div>
-            <span className="text-sm text-white/60 font-normal whitespace-nowrap">
+            <span className="text-sm text-neutral-500 font-normal whitespace-nowrap">
               {bulkPhonesTotal > 0
                 ? `${bulkPhonesTotal.toLocaleString()} ${language === 'fr' ? 'produits' : 'products'}`
                 : ''}

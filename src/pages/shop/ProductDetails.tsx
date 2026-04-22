@@ -287,6 +287,7 @@ export default function ProductDetailsPage() {
     setLoading(!nav);
     setError(null);
     setLightboxOpen(false);
+    setResolvedDisplayPrice(null);
   }, [provider, id]);
 
   // Fetch product by route param — always, regardless of nav state

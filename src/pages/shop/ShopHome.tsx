@@ -353,9 +353,10 @@ export default function ShopHome() {
   }, []);
 
   // Bulk phones fetch — pulls real phone listings directly from DB
-  const fetchBulkPhones = useCallback(async (page: number, append: boolean) => {
-    const PAGE_SIZE = 60;
-    const from = page * PAGE_SIZE;
+  // Numeric pagination: 50 per page, replaces (no append) so users navigate via page numbers.
+  const PHONES_PAGE_SIZE = 50;
+  const fetchBulkPhones = useCallback(async (page: number) => {
+    const from = page * PHONES_PAGE_SIZE;
     setBulkPhonesLoading(true);
     try {
       const phoneOr = [
@@ -383,7 +384,7 @@ export default function ShopHome() {
         .lte('price_usd', 1500)
         .or(phoneOr)
         .order('price_usd', { ascending: true })
-        .range(from, from + PAGE_SIZE - 1);
+        .range(from, from + PHONES_PAGE_SIZE - 1);
       if (error) throw error;
 
       const PHONE_ACCESSORY_KEYWORDS = ['case', 'cover', 'protector', 'tempered glass', 'charger', 'cable', 'usb-c', 'lightning', 'magsafe', 'airpods', 'earbud', 'earphone', 'power bank', 'holder', 'mount', 'stand', 'adapter', 'wireless charger'];
@@ -408,7 +409,7 @@ export default function ShopHome() {
         .filter((p): p is Product => p !== null);
       await applyServerPrices(mapped);
       setBulkPhonesTotal(count || 0);
-      setBulkPhones(prev => append ? [...prev, ...mapped] : mapped);
+      setBulkPhones(mapped);
     } catch (e) {
       console.warn('[ShopHome] bulk phones fetch failed:', e);
     } finally {
@@ -417,10 +418,14 @@ export default function ShopHome() {
   }, []);
 
   useEffect(() => {
-    if (bulkPhonesFetchedRef.current) return;
+    fetchBulkPhones(bulkPhonesPage);
+    if (bulkPhonesFetchedRef.current) {
+      // Scroll to grid on page change (skip on initial mount)
+      const el = document.getElementById('phones-grid');
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     bulkPhonesFetchedRef.current = true;
-    fetchBulkPhones(0, false);
-  }, [fetchBulkPhones]);
+  }, [bulkPhonesPage, fetchBulkPhones]);
 
   // Fetch products for a specific store from the DB (paginated)
   const fetchStorePage = useCallback(async (provider: string, page: number, append: boolean) => {

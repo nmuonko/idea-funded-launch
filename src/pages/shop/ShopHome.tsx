@@ -1774,8 +1774,8 @@ function PhonePagination({
   if (cur + 2 < last - 1) pages.push('ellipsis');
   if (last > 0) add(last);
 
-  const baseBtn = 'min-w-[40px] h-10 px-3 rounded-md text-sm font-medium border border-white/15 text-white/85 hover:bg-white/10 transition disabled:opacity-40 disabled:cursor-not-allowed';
-  const activeBtn = 'min-w-[40px] h-10 px-3 rounded-md text-sm font-semibold bg-white text-blue-700 border border-white shadow-sm';
+  const baseBtn = 'min-w-[40px] h-10 px-3 rounded-md text-sm font-medium border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100 transition disabled:opacity-40 disabled:cursor-not-allowed';
+  const activeBtn = 'min-w-[40px] h-10 px-3 rounded-md text-sm font-semibold bg-neutral-900 text-white border border-neutral-900 shadow-sm';
 
   return (
     <nav className="flex items-center justify-center gap-2 pt-6 flex-wrap" aria-label="Pagination">
@@ -1789,7 +1789,7 @@ function PhonePagination({
       </button>
       {pages.map((p, i) =>
         p === 'ellipsis' ? (
-          <span key={`e-${i}`} className="px-2 text-white/40 select-none">…</span>
+          <span key={`e-${i}`} className="px-2 text-neutral-400 select-none">…</span>
         ) : (
           <button
             key={p}

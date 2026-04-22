@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
+import heroIphones from '@/assets/hero-iphones.png';
 
 /**
  * Gazelle-style hero: bold blue banner with iPhone messaging.
@@ -60,24 +61,19 @@ export function GazelleHero() {
               </div>
             </div>
 
-            <div aria-hidden className="hidden md:flex items-center justify-end gap-4 pr-2">
-              <PhoneMock tilt="-rotate-6" />
-              <PhoneMock tilt="rotate-6" />
+            <div aria-hidden className="hidden md:flex items-center justify-end pr-2">
+              <img
+                src={heroIphones}
+                alt="iPhones"
+                width={520}
+                height={520}
+                className="w-[360px] lg:w-[460px] h-auto object-contain drop-shadow-2xl select-none"
+                draggable={false}
+              />
             </div>
           </div>
         </div>
       </div>
     </section>
-  );
-}
-
-function PhoneMock({ tilt }: { tilt: string }) {
-  return (
-    <div
-      className={`relative w-[120px] h-[230px] lg:w-[140px] lg:h-[270px] rounded-[28px] bg-gradient-to-b from-slate-800 to-slate-950 shadow-2xl ring-1 ring-white/10 ${tilt}`}
-    >
-      <div className="absolute inset-1.5 rounded-[22px] bg-gradient-to-br from-blue-500/40 via-cyan-300/20 to-blue-700/40" />
-      <div className="absolute top-2 left-1/2 -translate-x-1/2 h-4 w-16 rounded-full bg-black/60" />
-    </div>
   );
 }

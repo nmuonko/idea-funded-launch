@@ -311,6 +311,8 @@ export default function ShopHome() {
   const [bulkPhonesPage, setBulkPhonesPage] = useState(0);
   const [bulkPhonesTotal, setBulkPhonesTotal] = useState(0);
   const bulkPhonesFetchedRef = useRef(false);
+  // Cache fetched pages so navigating back to a previously viewed page is instant
+  const bulkPhonesPageCacheRef = useRef<Record<number, { items: Product[]; total: number }>>({});
 
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
   const [storeProductsLoading, setStoreProductsLoading] = useState(false);
@@ -356,11 +358,19 @@ export default function ShopHome() {
   // Bulk phones fetch — pulls real phone listings directly from DB
   // Numeric pagination: 50 per page, replaces (no append) so users navigate via page numbers.
   const PHONES_PAGE_SIZE = 50;
-  const fetchBulkPhones = useCallback(async (page: number) => {
+  const fetchBulkPhones = useCallback(async (page: number, background = false) => {
+    // Instant return from cache — no spinner, no refetch
+    const cached = bulkPhonesPageCacheRef.current[page];
+    if (cached) {
+      if (!background) {
+        setBulkPhones(cached.items);
+        setBulkPhonesTotal(cached.total);
+      }
+      return;
+    }
     const from = page * PHONES_PAGE_SIZE;
-    setBulkPhonesLoading(true);
+    if (!background) setBulkPhonesLoading(true);
     try {
-      // Match real handsets only — model-number patterns avoid "iphone case", "for iphone", etc.
       const phoneOr = [
         'title.ilike.%iphone 11%',
         'title.ilike.%iphone 12%',
@@ -383,15 +393,17 @@ export default function ShopHome() {
         'title.ilike.%oneplus %',
       ].join(',');
 
+      // Skip the expensive count after the first page — it's the slow part of pagination.
+      const wantCount = bulkPhonesTotal === 0;
       const { data, error, count } = await supabase
         .from('catalog_items')
         .select(
           'id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock',
-          { count: 'exact' }
+          wantCount ? { count: 'exact' } : {}
         )
         .eq('is_active', true)
         .eq('is_disallowed', false)
-        .gte('price_usd', 80) // floor to drop accessories priced like cables
+        .gte('price_usd', 80)
         .lte('price_usd', 1800)
         .or(phoneOr)
         .order('price_usd', { ascending: true })
@@ -419,14 +431,20 @@ export default function ShopHome() {
         })
         .filter((p): p is Product => p !== null);
       await applyServerPrices(mapped);
-      setBulkPhonesTotal(count || 0);
-      setBulkPhones(mapped);
+      const totalForState = wantCount ? (count || 0) : bulkPhonesTotal;
+      bulkPhonesPageCacheRef.current[page] = { items: mapped, total: totalForState };
+      if (!background) {
+        if (wantCount) setBulkPhonesTotal(count || 0);
+        setBulkPhones(mapped);
+      } else if (wantCount) {
+        setBulkPhonesTotal(count || 0);
+      }
     } catch (e) {
       console.warn('[ShopHome] bulk phones fetch failed:', e);
     } finally {
-      setBulkPhonesLoading(false);
+      if (!background) setBulkPhonesLoading(false);
     }
-  }, []);
+  }, [bulkPhonesTotal]);
 
   useEffect(() => {
     fetchBulkPhones(bulkPhonesPage);
@@ -436,6 +454,12 @@ export default function ShopHome() {
       el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
     bulkPhonesFetchedRef.current = true;
+    // Prefetch next page in background so the next click is instant
+    const nextPage = bulkPhonesPage + 1;
+    if (!bulkPhonesPageCacheRef.current[nextPage]) {
+      const t = setTimeout(() => fetchBulkPhones(nextPage, true), 600);
+      return () => clearTimeout(t);
+    }
   }, [bulkPhonesPage, fetchBulkPhones]);
 
   // Fetch products for a specific store from the DB (paginated)

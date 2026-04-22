@@ -28,6 +28,7 @@ import { resizeImageUrl, imageQualityScore, IMAGE_SIZE_HERO, IMAGE_SIZE_THUMB } 
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { buildAmazonProductDetailUrl, normalizeAmazonProductUrl } from '@/lib/amazonProductLinks';
+import { resolveDisplayPrice } from '@/lib/serverPricing';
 
 /**
  * Determine if a product is a vehicle listing.
@@ -143,6 +144,7 @@ export default function ProductDetailsPage() {
       : null
   );
   const [hotPriceLookupDone, setHotPriceLookupDone] = useState(!isHotParam);
+  const [resolvedDisplayPrice, setResolvedDisplayPrice] = useState<number | null>(null);
   const navProductRef = useRef<ProductData | null>(null);
   const didAutoSelectRef = useRef(false);
   const userInteractedRef = useRef(false);
@@ -242,6 +244,16 @@ export default function ProductDetailsPage() {
     }));
   }, [product?.variants]);
 
+  // Resolve all-inclusive display price (markup + shipping) from backend whenever raw price changes.
+  // Keeps Product Detail consistent with the homepage card price.
+  useEffect(() => {
+    let cancelled = false;
+    const raw = product?.priceUsd ?? 0;
+    if (!raw || raw <= 0) { setResolvedDisplayPrice(null); return; }
+    resolveDisplayPrice(raw).then(p => { if (!cancelled) setResolvedDisplayPrice(p); });
+    return () => { cancelled = true; };
+  }, [product?.priceUsd]);
+
   // Reset state when route params change
   useEffect(() => {
     const nav = (location.state as any)?.product;
@@ -275,6 +287,7 @@ export default function ProductDetailsPage() {
     setLoading(!nav);
     setError(null);
     setLightboxOpen(false);
+    setResolvedDisplayPrice(null);
   }, [provider, id]);
 
   // Fetch product by route param — always, regardless of nav state
@@ -786,7 +799,7 @@ export default function ProductDetailsPage() {
     ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
     : 'bg-blue-500/20 text-blue-400 border-blue-500/30';
 
-  const displayPrice = product.priceUsd;
+  const displayPrice = resolvedDisplayPrice ?? product.priceUsd;
   const safeRating = typeof product.rating === 'number' ? product.rating : null;
 
   return (

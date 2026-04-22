@@ -1707,7 +1707,7 @@ export default function ShopHome() {
                 </div>
               ) : sortedPhones.length > 0 ? (
                 <>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-3 gap-y-5 sm:gap-x-4 sm:gap-y-6">
                     {sortedPhones.map((p, i) => (
                       <PhoneCard key={`${p.id}-${i}`} product={p} />
                     ))}

@@ -144,6 +144,7 @@ export default function ProductDetailsPage() {
       : null
   );
   const [hotPriceLookupDone, setHotPriceLookupDone] = useState(!isHotParam);
+  const [resolvedDisplayPrice, setResolvedDisplayPrice] = useState<number | null>(null);
   const navProductRef = useRef<ProductData | null>(null);
   const didAutoSelectRef = useRef(false);
   const userInteractedRef = useRef(false);
@@ -787,7 +788,7 @@ export default function ProductDetailsPage() {
     ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
     : 'bg-blue-500/20 text-blue-400 border-blue-500/30';
 
-  const displayPrice = product.priceUsd;
+  const displayPrice = resolvedDisplayPrice ?? product.priceUsd;
   const safeRating = typeof product.rating === 'number' ? product.rating : null;
 
   return (

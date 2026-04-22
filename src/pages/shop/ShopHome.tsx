@@ -358,18 +358,19 @@ export default function ShopHome() {
   // Bulk phones fetch — pulls real phone listings directly from DB
   // Numeric pagination: 50 per page, replaces (no append) so users navigate via page numbers.
   const PHONES_PAGE_SIZE = 50;
-  const fetchBulkPhones = useCallback(async (page: number) => {
+  const fetchBulkPhones = useCallback(async (page: number, background = false) => {
     // Instant return from cache — no spinner, no refetch
     const cached = bulkPhonesPageCacheRef.current[page];
     if (cached) {
-      setBulkPhones(cached.items);
-      setBulkPhonesTotal(cached.total);
+      if (!background) {
+        setBulkPhones(cached.items);
+        setBulkPhonesTotal(cached.total);
+      }
       return;
     }
     const from = page * PHONES_PAGE_SIZE;
-    setBulkPhonesLoading(true);
+    if (!background) setBulkPhonesLoading(true);
     try {
-      // Match real handsets only — model-number patterns avoid "iphone case", "for iphone", etc.
       const phoneOr = [
         'title.ilike.%iphone 11%',
         'title.ilike.%iphone 12%',
@@ -402,7 +403,7 @@ export default function ShopHome() {
         )
         .eq('is_active', true)
         .eq('is_disallowed', false)
-        .gte('price_usd', 80) // floor to drop accessories priced like cables
+        .gte('price_usd', 80)
         .lte('price_usd', 1800)
         .or(phoneOr)
         .order('price_usd', { ascending: true })
@@ -432,12 +433,16 @@ export default function ShopHome() {
       await applyServerPrices(mapped);
       const totalForState = wantCount ? (count || 0) : bulkPhonesTotal;
       bulkPhonesPageCacheRef.current[page] = { items: mapped, total: totalForState };
-      if (wantCount) setBulkPhonesTotal(count || 0);
-      setBulkPhones(mapped);
+      if (!background) {
+        if (wantCount) setBulkPhonesTotal(count || 0);
+        setBulkPhones(mapped);
+      } else if (wantCount) {
+        setBulkPhonesTotal(count || 0);
+      }
     } catch (e) {
       console.warn('[ShopHome] bulk phones fetch failed:', e);
     } finally {
-      setBulkPhonesLoading(false);
+      if (!background) setBulkPhonesLoading(false);
     }
   }, [bulkPhonesTotal]);
 

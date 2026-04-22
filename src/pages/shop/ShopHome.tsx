@@ -1303,13 +1303,21 @@ export default function ShopHome() {
     'usb-c', 'lightning', 'magsafe', 'airpods', 'earbud', 'earphone',
     'power bank', 'holder', 'mount', 'stand', 'adapter', 'wireless charger',
   ];
+  // Bulk phones IS the source of truth for the homepage phone catalog (paginated).
+  // We only fall back to curated/pinned items if the bulk fetch hasn't returned yet,
+  // so the user never sees an empty grid on first paint.
   const phonesRowItems = useMemo(() => {
+    if (bulkPhones.length > 0) {
+      // Already filtered/mapped at fetch time; just drop accessories defensively.
+      return bulkPhones.filter(p => {
+        const tt = (p.title || '').toLowerCase();
+        return !PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
+      });
+    }
     const all = filterForCategory(
       deduplicateProducts([
         ...(pinnedByCategory['phones'] || []),
         ...(categoryItems['phones'] || []),
-        ...accueilProducts,
-        ...bulkPhones,
       ]),
       'phones',
     );
@@ -1318,16 +1326,17 @@ export default function ShopHome() {
       return !PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
     });
     return filterHomepageProducts(sortByLuxury(handsets), 'phones');
-  }, [pinnedByCategory, categoryItems, accueilProducts, bulkPhones]);
+  }, [pinnedByCategory, categoryItems, bulkPhones]);
 
   // Apply user-selected sort on top of the curated phones list
   const sortedPhones = useMemo(() => {
     const list = [...phonesRowItems];
     if (sortBy === 'cheapest') list.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
     else if (sortBy === 'priciest') list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
-    // 'newest' = keep curated order (most recently fetched/luxury first)
     return list;
   }, [phonesRowItems, sortBy]);
+
+  const totalPhonePages = Math.max(1, Math.ceil(bulkPhonesTotal / PHONES_PAGE_SIZE));
 
   const phoneAccessoryItems = useMemo(() => {
     const all = deduplicateProducts([

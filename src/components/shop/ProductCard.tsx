@@ -173,7 +173,7 @@ export function ProductCard({ product, className, compact = false, coverImage = 
           <img
             src={imgSrc}
             alt={product.title}
-            className="w-full h-full object-contain p-4 sm:p-6 transition-transform duration-300 group-hover:scale-[1.04]"
+            className="w-full h-full object-contain p-2 sm:p-3 transition-transform duration-300 group-hover:scale-[1.04]"
             loading="lazy"
             onLoad={handleImgLoad}
             onError={handleImgError}

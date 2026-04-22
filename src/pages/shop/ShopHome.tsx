@@ -300,6 +300,7 @@ export default function ShopHome() {
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
   const [providerFilter, setProviderFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [sortBy, setSortBy] = useState<'cheapest' | 'newest' | 'priciest'>('cheapest');
   const fetchedRef = useRef(false);
   const [dynamicStores, setDynamicStores] = useState<{ value: string; label: string; count: number }[]>([]);
 
@@ -1232,8 +1233,17 @@ export default function ShopHome() {
       const tt = (p.title || '').toLowerCase();
       return !PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
     });
-    return filterHomepageProducts(sortByLuxury(handsets), 'phones').slice(0, 24);
+    return filterHomepageProducts(sortByLuxury(handsets), 'phones').slice(0, 60);
   }, [pinnedByCategory, categoryItems]);
+
+  // Apply user-selected sort on top of the curated phones list
+  const sortedPhones = useMemo(() => {
+    const list = [...phonesRowItems];
+    if (sortBy === 'cheapest') list.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
+    else if (sortBy === 'priciest') list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
+    // 'newest' = keep curated order (most recently fetched/luxury first)
+    return list;
+  }, [phonesRowItems, sortBy]);
 
   const phoneAccessoryItems = useMemo(() => {
     const all = deduplicateProducts([

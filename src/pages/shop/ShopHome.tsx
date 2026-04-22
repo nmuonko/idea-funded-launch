@@ -1539,11 +1539,11 @@ export default function ShopHome() {
           <div className="flex items-center justify-end gap-4 mb-5 pb-3 border-b border-neutral-200">
 
             <div className="flex items-center gap-2">
-              <span className="text-sm text-white/60 font-normal">
+              <span className="text-sm text-neutral-500 font-normal">
                 {language === 'fr' ? 'Trier par :' : 'Sort by:'}
               </span>
               <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
-                <SelectTrigger className="w-auto min-w-[140px] bg-transparent border-0 text-white font-semibold hover:bg-white/5 rounded-md h-9 px-2 text-sm shadow-none focus:ring-0">
+                <SelectTrigger className="w-auto min-w-[140px] bg-transparent border-0 text-neutral-900 font-semibold hover:bg-neutral-100 rounded-md h-9 px-2 text-sm shadow-none focus:ring-0">
                   <SelectValue placeholder={language === 'fr' ? 'En vedette' : 'Featured'} />
                 </SelectTrigger>
                 <SelectContent className="bg-black border border-white/20 z-[9999]">

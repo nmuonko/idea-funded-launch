@@ -79,8 +79,7 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
     >
       {/* Image panel — softer warm neutral, easier on the eyes */}
       <div
-        className="relative w-full aspect-square flex items-center justify-center"
-        style={{ backgroundColor: '#ECE6DC' }}
+        className="relative w-full aspect-square flex items-center justify-center bg-[#1f304c]"
       >
         {showImage ? (
           <img

@@ -99,15 +99,15 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
       </div>
 
       {/* Text area — clean, retail-catalog style */}
-      <div className="px-3 py-3 bg-white">
-        <h3 className="text-[13px] sm:text-sm font-medium text-neutral-800 leading-snug line-clamp-2 min-h-[2.5rem]">
+      <div className="px-2.5 py-2 bg-white">
+        <h3 className="text-[12px] sm:text-[13px] font-medium text-neutral-800 leading-snug line-clamp-2 min-h-[2.2rem]">
           {product.title}
         </h3>
-        <div className="mt-2 flex items-baseline gap-2">
-          <span className="text-base sm:text-lg font-bold text-neutral-900">
+        <div className="mt-1 flex items-baseline gap-1.5">
+          <span className="text-sm sm:text-base font-bold text-neutral-900">
             ${price.toFixed(0)}
           </span>
-          <span className="text-[11px] text-neutral-500">
+          <span className="text-[10px] text-neutral-500">
             ≈ CDF {(price * exchangeRate).toLocaleString()}
           </span>
         </div>

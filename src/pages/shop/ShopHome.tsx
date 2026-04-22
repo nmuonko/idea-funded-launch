@@ -311,6 +311,8 @@ export default function ShopHome() {
   const [bulkPhonesPage, setBulkPhonesPage] = useState(0);
   const [bulkPhonesTotal, setBulkPhonesTotal] = useState(0);
   const bulkPhonesFetchedRef = useRef(false);
+  // Cache fetched pages so navigating back to a previously viewed page is instant
+  const bulkPhonesPageCacheRef = useRef<Record<number, { items: Product[]; total: number }>>({});
 
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
   const [storeProductsLoading, setStoreProductsLoading] = useState(false);
@@ -357,6 +359,13 @@ export default function ShopHome() {
   // Numeric pagination: 50 per page, replaces (no append) so users navigate via page numbers.
   const PHONES_PAGE_SIZE = 50;
   const fetchBulkPhones = useCallback(async (page: number) => {
+    // Instant return from cache — no spinner, no refetch
+    const cached = bulkPhonesPageCacheRef.current[page];
+    if (cached) {
+      setBulkPhones(cached.items);
+      setBulkPhonesTotal(cached.total);
+      return;
+    }
     const from = page * PHONES_PAGE_SIZE;
     setBulkPhonesLoading(true);
     try {
@@ -383,11 +392,13 @@ export default function ShopHome() {
         'title.ilike.%oneplus %',
       ].join(',');
 
+      // Skip the expensive count after the first page — it's the slow part of pagination.
+      const wantCount = bulkPhonesTotal === 0;
       const { data, error, count } = await supabase
         .from('catalog_items')
         .select(
           'id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock',
-          { count: 'exact' }
+          wantCount ? { count: 'exact' } : {}
         )
         .eq('is_active', true)
         .eq('is_disallowed', false)
@@ -419,14 +430,16 @@ export default function ShopHome() {
         })
         .filter((p): p is Product => p !== null);
       await applyServerPrices(mapped);
-      setBulkPhonesTotal(count || 0);
+      const totalForState = wantCount ? (count || 0) : bulkPhonesTotal;
+      bulkPhonesPageCacheRef.current[page] = { items: mapped, total: totalForState };
+      if (wantCount) setBulkPhonesTotal(count || 0);
       setBulkPhones(mapped);
     } catch (e) {
       console.warn('[ShopHome] bulk phones fetch failed:', e);
     } finally {
       setBulkPhonesLoading(false);
     }
-  }, []);
+  }, [bulkPhonesTotal]);
 
   useEffect(() => {
     fetchBulkPhones(bulkPhonesPage);

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Sparkles } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -26,10 +26,10 @@ const flagUrl = (key: string) => {
 };
 
 const COUNTRY_TAGLINE: Record<string, { en: string; fr: string }> = {
-  usa:    { en: 'Phones, electronics & more', fr: 'Téléphones, électronique & plus' },
-  china:  { en: 'Fashion, gadgets, value',    fr: 'Mode, gadgets, bonnes affaires' },
-  dubai:  { en: 'Luxury & premium goods',     fr: 'Luxe & produits premium' },
-  turkey: { en: 'Apparel, leather, beauty',   fr: 'Vêtements, cuir, beauté' },
+  usa:    { en: 'Phones & electronics',  fr: 'Téléphones & électronique' },
+  china:  { en: 'Fashion & gadgets',     fr: 'Mode & gadgets' },
+  dubai:  { en: 'Luxury & premium',      fr: 'Luxe & premium' },
+  turkey: { en: 'Apparel & beauty',      fr: 'Vêtements & beauté' },
 };
 
 const FALLBACK: CountryRow[] = [
@@ -84,63 +84,69 @@ export function CountrySelector() {
 
   return (
     <section
-      className="px-4 sm:px-6 mb-8 mt-2"
+      className="px-4 sm:px-6 mb-6"
       aria-label={isFr ? 'Choisir un pays' : 'Choose a country'}
     >
       <div className="max-w-6xl mx-auto">
-        {/* Hero header — clean, premium, Gazelle-inspired */}
-        <div className="text-center mb-6 sm:mb-8">
-          <p className="text-[11px] sm:text-xs uppercase tracking-[0.2em] text-primary/80 font-semibold mb-2">
-            {isFr ? 'Boutique mondiale' : 'Global Marketplace'}
-          </p>
-          <h1 className="text-2xl sm:text-4xl md:text-5xl font-bold text-white tracking-tight leading-tight">
+        {/* Compact hero — single tight line, no wrap weirdness */}
+        <div className="text-center pt-4 pb-5 sm:pb-6">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 mb-3">
+            <Sparkles className="h-3 w-3 text-primary" />
+            <span className="text-[10px] sm:text-[11px] uppercase tracking-[0.15em] text-primary font-semibold">
+              {isFr ? 'Marché Mondial' : 'Global Marketplace'}
+            </span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white tracking-tight leading-[1.15] max-w-2xl mx-auto">
             {isFr ? (
-              <>Achetez partout dans le monde,<br className="hidden sm:block" /> <span className="text-primary">livré chez vous</span>.</>
+              <>Achetez à l'étranger,<br className="sm:hidden" />{' '}
+                <span className="text-primary">livré chez vous</span>
+              </>
             ) : (
-              <>Shop the world,<br className="hidden sm:block" /> <span className="text-primary">delivered to your door</span>.</>
+              <>Shop globally,<br className="sm:hidden" />{' '}
+                <span className="text-primary">delivered locally</span>
+              </>
             )}
           </h1>
-          <p className="text-sm sm:text-base text-white/60 mt-3 max-w-xl mx-auto">
-            {isFr
-              ? 'Choisissez un pays pour découvrir des produits authentiques.'
-              : 'Pick a country to discover authentic products.'}
-          </p>
         </div>
 
-        {/* Country tiles — clean card grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* Country label */}
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="text-sm sm:text-base font-semibold text-white tracking-tight">
+            {isFr ? 'Choisissez un pays' : 'Choose a country'}
+          </h2>
+          <span className="text-[11px] text-white/40">
+            {countries.length} {isFr ? 'destinations' : 'destinations'}
+          </span>
+        </div>
+
+        {/* Country tiles — denser, more product-feeling */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
           {countries.map((c) => {
             const tag = COUNTRY_TAGLINE[c.country];
             return (
               <button
                 key={c.country}
                 onClick={() => handleClick(c.country)}
-                className="group relative flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.04] to-white/[0.01] hover:from-primary/10 hover:to-white/[0.02] hover:border-primary/40 transition-all p-4 sm:p-5 active:scale-[0.98] text-left overflow-hidden"
+                className="group relative flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-primary/[0.08] hover:border-primary/40 transition-all p-3 sm:p-3.5 active:scale-[0.98] text-left overflow-hidden"
               >
-                {/* Subtle blue glow on hover */}
-                <div className="absolute inset-0 bg-gradient-to-br from-primary/0 via-primary/0 to-primary/0 group-hover:from-primary/5 group-hover:to-transparent transition-all pointer-events-none" />
-
-                <div className="relative flex items-center justify-between w-full">
-                  <img
-                    src={flagUrl(c.country)}
-                    alt=""
-                    aria-hidden
-                    loading="lazy"
-                    className="w-12 h-8 sm:w-14 sm:h-10 rounded-md object-cover shadow-md ring-1 ring-white/10"
-                  />
-                  <ArrowRight className="h-4 w-4 text-white/30 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
-                </div>
-
-                <div className="relative w-full">
-                  <h3 className="text-base sm:text-lg font-semibold text-white tracking-tight">
+                <img
+                  src={flagUrl(c.country)}
+                  alt=""
+                  aria-hidden
+                  loading="lazy"
+                  className="w-10 h-7 sm:w-11 sm:h-8 rounded-md object-cover shadow-sm ring-1 ring-white/10 flex-shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm sm:text-[15px] font-semibold text-white tracking-tight leading-tight">
                     {isFr ? c.label_fr : c.label_en}
                   </h3>
                   {tag && (
-                    <p className="text-[11px] sm:text-xs text-white/50 mt-0.5 leading-snug line-clamp-1">
+                    <p className="text-[10px] sm:text-[11px] text-white/45 leading-tight mt-0.5 truncate">
                       {isFr ? tag.fr : tag.en}
                     </p>
                   )}
                 </div>
+                <ArrowRight className="h-4 w-4 text-white/25 group-hover:text-primary group-hover:translate-x-0.5 transition-all flex-shrink-0" />
               </button>
             );
           })}

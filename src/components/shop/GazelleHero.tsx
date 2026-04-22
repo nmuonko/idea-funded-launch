@@ -82,9 +82,9 @@ export function GazelleHero() {
           <div aria-hidden className="absolute -top-16 -left-16 w-64 h-64 rounded-full bg-white/10 blur-3xl" />
           <div aria-hidden className="absolute -bottom-16 -right-16 w-72 h-72 rounded-full bg-cyan-300/10 blur-3xl" />
 
-          <div className="relative flex items-center justify-center min-h-[120px] sm:min-h-[150px] md:min-h-[170px] px-4 sm:px-10 md:px-16 py-3 sm:py-4">
+          <div className="relative flex items-center justify-center min-h-[180px] sm:min-h-[220px] md:min-h-[260px] px-4 sm:px-10 md:px-16 py-6 sm:py-8">
             {/* Left half of phone-pair image (crossfading) */}
-            <div className="hidden sm:block absolute left-0 top-0 bottom-0 w-[34%] md:w-[30%] lg:w-[28%] pointer-events-none">
+            <div className="hidden sm:block absolute left-0 top-0 bottom-0 w-[28%] md:w-[26%] lg:w-[24%] pointer-events-none">
               {SLIDES.map((s, i) => (
                 <img
                   key={`L-${s.brand}`}
@@ -101,7 +101,7 @@ export function GazelleHero() {
             </div>
 
             {/* Right half of phone-pair image (crossfading) */}
-            <div className="hidden sm:block absolute right-0 top-0 bottom-0 w-[34%] md:w-[30%] lg:w-[28%] pointer-events-none">
+            <div className="hidden sm:block absolute right-0 top-0 bottom-0 w-[28%] md:w-[26%] lg:w-[24%] pointer-events-none">
               {SLIDES.map((s, i) => (
                 <img
                   key={`R-${s.brand}`}
@@ -118,33 +118,31 @@ export function GazelleHero() {
             </div>
 
             {/* Centered text */}
-            <div className="relative text-center max-w-xl mx-auto z-10">
-              <span className="inline-block text-[9px] sm:text-[10px] uppercase tracking-[0.28em] text-white/85 font-semibold mb-1">
-                AfriShop
-              </span>
-              <h1 className="text-lg sm:text-2xl md:text-3xl font-extrabold text-white tracking-tight leading-[1.05] transition-opacity duration-500">
-                {slide.brand}
+            <div className="relative text-center max-w-2xl mx-auto z-10">
+              <h1 className="text-2xl sm:text-4xl md:text-5xl font-extrabold text-white tracking-tight leading-[1.05] transition-opacity duration-500">
+                <span className="block sm:inline">{slide.brand} —</span>{' '}
+                <span className="block sm:inline">{isFr ? slide.titleFr : slide.titleEn}</span>
               </h1>
-              <p className="mt-1 text-[11px] sm:text-xs md:text-sm text-white/90 font-medium leading-snug transition-opacity duration-500">
-                {isFr ? slide.titleFr : slide.titleEn}
+              <p className="mt-3 text-sm sm:text-base text-white/85 font-medium leading-snug transition-opacity duration-500">
+                {isFr ? slide.subFr : slide.subEn}
               </p>
-              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
                 <a
                   href="#phones-grid"
-                  className="inline-flex items-center justify-center rounded-full bg-white text-blue-700 hover:bg-white/95 font-semibold text-xs sm:text-sm px-4 py-1.5 shadow-sm transition"
+                  className="inline-flex items-center justify-center rounded-full bg-white text-blue-700 hover:bg-white/95 font-semibold text-sm sm:text-base px-6 py-2.5 shadow-sm transition"
                 >
                   {isFr ? 'Voir les téléphones' : 'Shop phones'}
                 </a>
                 <Link
                   to="/category/phones"
-                  className="inline-flex items-center justify-center rounded-full border border-white/30 text-white hover:bg-white/10 font-medium text-xs sm:text-sm px-4 py-1.5 transition"
+                  className="inline-flex items-center justify-center rounded-full border border-white/35 text-white hover:bg-white/10 font-medium text-sm sm:text-base px-6 py-2.5 transition"
                 >
                   {isFr ? 'Tout parcourir' : 'Browse all'}
                 </Link>
               </div>
 
               {/* Slide indicator dots */}
-              <div className="mt-2.5 flex items-center justify-center gap-1.5">
+              <div className="mt-4 flex items-center justify-center gap-1.5">
                 {SLIDES.map((s, i) => (
                   <button
                     key={s.brand}

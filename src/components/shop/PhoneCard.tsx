@@ -84,7 +84,7 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
     >
       {/* Image panel — soft warm neutral, calm & premium */}
       <div
-        className="relative w-full aspect-square flex items-center justify-center bg-[#F3EEE7]"
+        className="relative w-full aspect-square flex items-center justify-center bg-[#F0EBE3]"
       >
         {showImage ? (
           <img
@@ -93,20 +93,20 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
             loading="lazy"
             onLoad={handleImgLoad}
             onError={tryNextImage}
-            className="max-w-[72%] max-h-[72%] object-contain transition-transform duration-300 group-hover:scale-[1.03]"
+            className="max-w-[68%] max-h-[78%] object-contain transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
           <div className="text-neutral-400 text-xs">No image</div>
         )}
       </div>
 
-      {/* Text area — tight, catalog-style */}
-      <div className="px-2 pt-1.5 pb-2 bg-white">
-        <h3 className="text-[11px] sm:text-[12px] font-medium text-neutral-700 leading-tight line-clamp-2 min-h-[1.9rem]">
+      {/* Text area — clean, catalog-style */}
+      <div className="px-3.5 pt-3 pb-3.5 bg-white">
+        <h3 className="text-[13px] sm:text-sm font-medium text-neutral-800 leading-snug line-clamp-2 min-h-[2.4rem]">
           {product.title}
         </h3>
-        <div className="mt-0.5">
-          <span className="text-[13px] sm:text-sm font-bold text-neutral-900 tracking-tight">
+        <div className="mt-2">
+          <span className="text-base sm:text-lg font-bold text-neutral-900 tracking-tight">
             {priceLabel}
           </span>
         </div>

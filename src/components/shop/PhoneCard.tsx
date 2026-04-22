@@ -75,14 +75,14 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
       to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}
       state={{ product: { id: product.id, provider: product.provider, title: product.title, imageUrl: product.imageUrl, priceUsd: product.priceUsd, rating: product.rating, productUrl: product.productUrl } }}
       className={cn(
-        'group block bg-white rounded-lg overflow-hidden border border-black/5 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5',
+        'group block bg-transparent transition-opacity duration-200 hover:opacity-95',
         className,
       )}
     >
-      {/* Image panel — soft warm neutral, like a studio backdrop */}
+      {/* Image panel — Gazelle style: landscape ~4:3, soft warm neutral, no border */}
       <div
-        className="relative w-full aspect-square flex items-center justify-center"
-        style={{ backgroundColor: '#f5f2ed' }}
+        className="relative w-full aspect-[4/3] flex items-center justify-center overflow-hidden"
+        style={{ backgroundColor: '#efe9e1' }}
       >
         {showImage ? (
           <img
@@ -91,23 +91,23 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
             loading="lazy"
             onLoad={handleImgLoad}
             onError={tryNextImage}
-            className="max-w-[82%] max-h-[82%] object-contain transition-transform duration-300 group-hover:scale-[1.03] drop-shadow-[0_2px_4px_rgba(0,0,0,0.06)]"
+            className="max-w-[88%] max-h-[88%] object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.10)]"
           />
         ) : (
           <div className="text-neutral-400 text-xs">No image</div>
         )}
       </div>
 
-      {/* Text area — clean, retail-catalog style */}
-      <div className="px-2.5 py-2 bg-white">
-        <h3 className="text-[12px] sm:text-[13px] font-medium text-neutral-800 leading-snug line-clamp-2 min-h-[2.2rem]">
+      {/* Text area — Gazelle style: tight, bold title, price below */}
+      <div className="pt-2 pb-1">
+        <h3 className="text-[14px] font-semibold text-neutral-900 leading-tight line-clamp-2 min-h-[2.5rem]">
           {product.title}
         </h3>
         <div className="mt-1 flex items-baseline gap-1.5">
-          <span className="text-sm sm:text-base font-bold text-neutral-900">
+          <span className="text-[15px] font-bold text-orange-600">
             ${price.toFixed(0)}
           </span>
-          <span className="text-[10px] text-neutral-500">
+          <span className="text-[11px] text-neutral-500">
             ≈ CDF {(price * exchangeRate).toLocaleString()}
           </span>
         </div>

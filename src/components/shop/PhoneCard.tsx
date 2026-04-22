@@ -52,8 +52,9 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
     const { naturalWidth: w, naturalHeight: h } = img;
     if (w > 0 && h > 0) {
       const ratio = w / h;
-      // Reject banner-like or tiny images
-      if (ratio > 2.2 || ratio < 0.45 || Math.min(w, h) < 70) tryNextImage();
+      // Reject banner-like, strip-like, or tiny images.
+      // Phone product photos are tall (ratio ~0.5-0.9). Banners are wide (>1.4).
+      if (ratio > 1.5 || ratio < 0.4 || Math.min(w, h) < 80) tryNextImage();
     }
   }, [tryNextImage]);
 
@@ -72,6 +73,10 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
 
   const showImage = imgSrc !== '/placeholder.svg';
   const priceLabel = formatDisplayPriceUsd(product.priceUsd);
+
+  // If no valid product image is available (only banners/promos), hide the card
+  // entirely instead of showing an "ad-looking" tile on the homepage.
+  if (!showImage) return null;
 
   return (
     <Link

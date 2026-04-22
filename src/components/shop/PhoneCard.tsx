@@ -79,7 +79,7 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
         className,
       )}
     >
-      {/* Image panel — Gazelle style: landscape ~4:3, soft warm neutral, no border */}
+      {/* Image panel — Gazelle style: landscape ~4:3, image fills full card width */}
       <div
         className="relative w-full aspect-[4/3] flex items-center justify-center overflow-hidden"
         style={{ backgroundColor: '#efe9e1' }}
@@ -91,24 +91,21 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
             loading="lazy"
             onLoad={handleImgLoad}
             onError={tryNextImage}
-            className="max-w-[88%] max-h-[88%] object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.10)]"
+            className="w-full h-full object-cover"
           />
         ) : (
           <div className="text-neutral-400 text-xs">No image</div>
         )}
       </div>
 
-      {/* Text area — Gazelle style: tight, bold title, price below */}
+      {/* Text area — Gazelle style: title fully visible, USD only */}
       <div className="pt-2 pb-1">
-        <h3 className="text-[14px] font-semibold text-neutral-900 leading-tight line-clamp-2 min-h-[2.5rem]">
+        <h3 className="text-[14px] font-semibold text-neutral-900 leading-tight line-clamp-3">
           {product.title}
         </h3>
-        <div className="mt-1 flex items-baseline gap-1.5">
+        <div className="mt-1.5">
           <span className="text-[15px] font-bold text-orange-600">
             ${price.toFixed(0)}
-          </span>
-          <span className="text-[11px] text-neutral-500">
-            ≈ CDF {(price * exchangeRate).toLocaleString()}
           </span>
         </div>
       </div>

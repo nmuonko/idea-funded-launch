@@ -87,6 +87,8 @@ interface ProductData {
   description?: string;
   images: string[];
   priceUsd: number;
+  basePriceUsd?: number | null;
+  feesIncluded?: boolean;
   rating?: number;
   reviewCount?: number;
   inStock: boolean;
@@ -244,20 +246,24 @@ export default function ProductDetailsPage() {
     }));
   }, [product?.variants]);
 
-  // Price source of truth: use the same shared RPC-backed pricing utility as the
-  // homepage cards so PDP and catalog can never drift.
+  // Price source of truth: use the same shared pricing utility as the homepage.
+  // If the backend returns base_price_usd, resolve from that raw base value.
+  // Otherwise keep the already-displayed price from navigation state.
   useEffect(() => {
-    const raw = product?.priceUsd ?? 0;
+    const base = product?.basePriceUsd ?? null;
+    const display = product?.priceUsd ?? 0;
     let cancelled = false;
-    if (!raw || raw <= 0) {
-      setResolvedDisplayPrice(null);
-      return;
+
+    if (base && base > 0) {
+      resolveDisplayPrice(base).then((resolved) => {
+        if (!cancelled) setResolvedDisplayPrice(resolved > 0 ? resolved : display);
+      });
+      return () => { cancelled = true; };
     }
-    resolveDisplayPrice(raw).then((resolved) => {
-      if (!cancelled) setResolvedDisplayPrice(resolved > 0 ? resolved : raw);
-    });
+
+    setResolvedDisplayPrice(display > 0 ? display : null);
     return () => { cancelled = true; };
-  }, [product?.priceUsd]);
+  }, [product?.basePriceUsd, product?.priceUsd]);
 
   // Reset state when route params change
   useEffect(() => {
@@ -270,6 +276,8 @@ export default function ProductDetailsPage() {
       description: undefined,
       images: nav.imageUrl ? [nav.imageUrl] : ['/placeholder.svg'],
       priceUsd: nav.priceUsd || 0,
+      basePriceUsd: null,
+      feesIncluded: true,
       rating: nav.rating,
       reviewCount: undefined,
       inStock: true,
@@ -397,6 +405,8 @@ export default function ProductDetailsPage() {
             description: item.description || prev?.description,
             images: mergedImages,
             priceUsd: prev?.priceUsd || item.price_usd || item.priceUsd || 0,
+            basePriceUsd: item.base_price_usd || item.basePriceUsd || prev?.basePriceUsd || null,
+            feesIncluded: item.fees_included === true || prev?.feesIncluded === true,
             rating: item.rating ?? prev?.rating,
             reviewCount: item.review_count || item.reviewCount || prev?.reviewCount,
             inStock: item.in_stock !== false,
@@ -471,6 +481,8 @@ export default function ProductDetailsPage() {
                   description: item.description || prev?.description,
                   images: prev?.images?.length ? prev.images : (newImages.length > 0 ? newImages : ['/placeholder.svg']),
                   priceUsd: prev?.priceUsd || item.price_usd || item.priceUsd || 0,
+                  basePriceUsd: item.base_price_usd || item.basePriceUsd || prev?.basePriceUsd || null,
+                  feesIncluded: item.fees_included === true || prev?.feesIncluded === true,
                   rating: item.rating ?? prev?.rating,
                   reviewCount: item.review_count || item.reviewCount || prev?.reviewCount,
                   inStock: item.in_stock !== false,
@@ -510,12 +522,12 @@ export default function ProductDetailsPage() {
         provider: product.provider,
         title: product.title,
         imageUrl: product.images?.[0] || '',
-        priceUsd: product.priceUsd,
+        priceUsd: resolvedDisplayPrice ?? product.priceUsd,
         productUrl: product.productUrl,
       },
       user?.id
     );
-  }, [product?.id, product?.provider]);
+  }, [product?.id, product?.provider, resolvedDisplayPrice]);
 
    // Fetch similar products
   useEffect(() => {
@@ -829,7 +841,7 @@ export default function ProductDetailsPage() {
           description={`Buy ${product.title} from AfriShop - delivered to DR Congo`}
           image={product.images?.[0]}
           type="product"
-          price={product.priceUsd}
+          price={displayPrice}
           availability={product.inStock ? 'in stock' : 'out of stock'}
         />
       )}

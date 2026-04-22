@@ -17,7 +17,7 @@ export function GazelleHero() {
           className="relative overflow-hidden rounded-2xl sm:rounded-3xl"
           style={{
             background:
-              'linear-gradient(135deg, hsl(217 91% 36%) 0%, hsl(217 91% 48%) 55%, hsl(210 90% 42%) 100%)',
+              'linear-gradient(135deg, hsl(222 60% 12%) 0%, hsl(222 55% 18%) 40%, hsl(220 50% 24%) 100%)',
           }}
         >
           <div

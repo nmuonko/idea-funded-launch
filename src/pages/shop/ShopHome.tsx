@@ -1673,16 +1673,38 @@ export default function ShopHome() {
               </Button>
             </div>
           ) : (
-            <div className="space-y-4" id="phones-grid">
+            <div className="space-y-6" id="phones-grid">
               {sortedPhones.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                  {sortedPhones.map((p, i) => (
-                    <ProductCard key={`${p.id}-${i}`} product={p} />
-                  ))}
-                </div>
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                    {sortedPhones.map((p, i) => (
+                      <ProductCard key={`${p.id}-${i}`} product={p} />
+                    ))}
+                  </div>
+                  {bulkPhones.length < bulkPhonesTotal && (
+                    <div className="flex justify-center pt-4">
+                      <Button
+                        onClick={() => {
+                          const next = bulkPhonesPage + 1;
+                          setBulkPhonesPage(next);
+                          fetchBulkPhones(next, true);
+                        }}
+                        disabled={bulkPhonesLoading}
+                        variant="outline"
+                        className="border-white/20 text-white/90 hover:bg-white/10 rounded-full px-8 h-11"
+                      >
+                        {bulkPhonesLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          language === 'fr' ? 'Charger plus' : 'Load more'
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                  {Array.from({ length: 8 }).map((_, i) => (
+                  {Array.from({ length: 12 }).map((_, i) => (
                     <div key={i} className="aspect-[3/4] rounded-xl bg-white/[0.04] animate-pulse" />
                   ))}
                 </div>

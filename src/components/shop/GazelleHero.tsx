@@ -53,7 +53,7 @@ export function GazelleHero() {
   useEffect(() => {
     const id = setInterval(() => {
       setIndex((i) => (i + 1) % SLIDES.length);
-    }, 4500);
+    }, 15000);
     return () => clearInterval(id);
   }, []);
 

@@ -304,6 +304,13 @@ export default function ShopHome() {
   const fetchedRef = useRef(false);
   const [dynamicStores, setDynamicStores] = useState<{ value: string; label: string; count: number }[]>([]);
 
+  // Dedicated bulk phones fetch (independent from curated category items)
+  const [bulkPhones, setBulkPhones] = useState<Product[]>([]);
+  const [bulkPhonesLoading, setBulkPhonesLoading] = useState(false);
+  const [bulkPhonesPage, setBulkPhonesPage] = useState(0);
+  const [bulkPhonesTotal, setBulkPhonesTotal] = useState(0);
+  const bulkPhonesFetchedRef = useRef(false);
+
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
   const [storeProductsLoading, setStoreProductsLoading] = useState(false);
   const [storeTotalCount, setStoreTotalCount] = useState(0);
@@ -344,6 +351,76 @@ export default function ShopHome() {
       } catch (e) { console.warn('[ShopHome] Failed to fetch providers:', e); }
     })();
   }, []);
+
+  // Bulk phones fetch — pulls real phone listings directly from DB
+  const fetchBulkPhones = useCallback(async (page: number, append: boolean) => {
+    const PAGE_SIZE = 60;
+    const from = page * PAGE_SIZE;
+    setBulkPhonesLoading(true);
+    try {
+      const phoneOr = [
+        'title.ilike.%iphone%',
+        'title.ilike.%samsung galaxy%',
+        'title.ilike.%galaxy s2%',
+        'title.ilike.%galaxy s3%',
+        'title.ilike.%pixel %',
+        'title.ilike.%google pixel%',
+        'title.ilike.%oneplus%',
+        'title.ilike.%xiaomi%',
+        'title.ilike.%motorola%',
+        'title.ilike.%unlocked phone%',
+      ].join(',');
+
+      const { data, error, count } = await supabase
+        .from('catalog_items')
+        .select(
+          'id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock',
+          { count: 'exact' }
+        )
+        .eq('is_active', true)
+        .eq('is_disallowed', false)
+        .gt('price_usd', 0)
+        .lte('price_usd', 1500)
+        .or(phoneOr)
+        .order('price_usd', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+
+      const PHONE_ACCESSORY_KEYWORDS = ['case', 'cover', 'protector', 'tempered glass', 'charger', 'cable', 'usb-c', 'lightning', 'magsafe', 'airpods', 'earbud', 'earphone', 'power bank', 'holder', 'mount', 'stand', 'adapter', 'wireless charger'];
+      const mapped = (data || [])
+        .map((item: any): Product | null => {
+          const fallback = extractFirstImageFromJson(item.images);
+          const preferred = isRenderableImageUrl(item.image_url) ? item.image_url : fallback;
+          if (!preferred || !isRenderableImageUrl(preferred)) return null;
+          const tt = (item.title || '').toLowerCase();
+          if (PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw))) return null;
+          return {
+            id: item.provider_product_id || item.id,
+            provider: item.provider || 'amazon',
+            title: item.title || 'Phone',
+            imageUrl: preferred,
+            priceUsd: item.price_usd || 0,
+            rating: item.rating,
+            inStock: item.in_stock !== false,
+            productUrl: item.product_url,
+          };
+        })
+        .filter((p): p is Product => p !== null);
+      await applyServerPrices(mapped);
+      setBulkPhonesTotal(count || 0);
+      setBulkPhones(prev => append ? [...prev, ...mapped] : mapped);
+    } catch (e) {
+      console.warn('[ShopHome] bulk phones fetch failed:', e);
+    } finally {
+      setBulkPhonesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (bulkPhonesFetchedRef.current) return;
+    bulkPhonesFetchedRef.current = true;
+    fetchBulkPhones(0, false);
+  }, [fetchBulkPhones]);
 
   // Fetch products for a specific store from the DB (paginated)
   const fetchStorePage = useCallback(async (provider: string, page: number, append: boolean) => {
@@ -1227,6 +1304,7 @@ export default function ShopHome() {
         ...(pinnedByCategory['phones'] || []),
         ...(categoryItems['phones'] || []),
         ...accueilProducts,
+        ...bulkPhones,
       ]),
       'phones',
     );
@@ -1234,8 +1312,8 @@ export default function ShopHome() {
       const tt = (p.title || '').toLowerCase();
       return !PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
     });
-    return filterHomepageProducts(sortByLuxury(handsets), 'phones').slice(0, 200);
-  }, [pinnedByCategory, categoryItems, accueilProducts]);
+    return filterHomepageProducts(sortByLuxury(handsets), 'phones');
+  }, [pinnedByCategory, categoryItems, accueilProducts, bulkPhones]);
 
   // Apply user-selected sort on top of the curated phones list
   const sortedPhones = useMemo(() => {
@@ -1595,16 +1673,38 @@ export default function ShopHome() {
               </Button>
             </div>
           ) : (
-            <div className="space-y-4" id="phones-grid">
+            <div className="space-y-6" id="phones-grid">
               {sortedPhones.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                  {sortedPhones.map((p, i) => (
-                    <ProductCard key={`${p.id}-${i}`} product={p} />
-                  ))}
-                </div>
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                    {sortedPhones.map((p, i) => (
+                      <ProductCard key={`${p.id}-${i}`} product={p} />
+                    ))}
+                  </div>
+                  {bulkPhones.length < bulkPhonesTotal && (
+                    <div className="flex justify-center pt-4">
+                      <Button
+                        onClick={() => {
+                          const next = bulkPhonesPage + 1;
+                          setBulkPhonesPage(next);
+                          fetchBulkPhones(next, true);
+                        }}
+                        disabled={bulkPhonesLoading}
+                        variant="outline"
+                        className="border-white/20 text-white/90 hover:bg-white/10 rounded-full px-8 h-11"
+                      >
+                        {bulkPhonesLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          language === 'fr' ? 'Charger plus' : 'Load more'
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                  {Array.from({ length: 8 }).map((_, i) => (
+                  {Array.from({ length: 12 }).map((_, i) => (
                     <div key={i} className="aspect-[3/4] rounded-xl bg-white/[0.04] animate-pulse" />
                   ))}
                 </div>

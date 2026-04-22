@@ -164,19 +164,16 @@ export function ProductCard({ product, className, compact = false, coverImage = 
         className
       )}
     >
-      {/* Image Container — white bg, uniform height, eBay-like */}
+      {/* Image Container — clean white, generous space, Gazelle-style framing */}
       <div className={cn(
-        "relative overflow-hidden bg-white rounded-t-xl",
+        "relative overflow-hidden bg-white",
         compact ? "aspect-square" : "aspect-square"
       )}>
         {showImage && (
           <img
             src={imgSrc}
             alt={product.title}
-            className={cn(
-              "w-full h-full object-contain transition-transform duration-200 group-hover:scale-105",
-              compact ? "p-1.5" : "p-2 sm:p-3"
-            )}
+            className="w-full h-full object-contain p-4 sm:p-6 transition-transform duration-300 group-hover:scale-[1.04]"
             loading="lazy"
             onLoad={handleImgLoad}
             onError={handleImgError}

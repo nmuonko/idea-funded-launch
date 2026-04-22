@@ -353,9 +353,10 @@ export default function ShopHome() {
   }, []);
 
   // Bulk phones fetch — pulls real phone listings directly from DB
-  const fetchBulkPhones = useCallback(async (page: number, append: boolean) => {
-    const PAGE_SIZE = 60;
-    const from = page * PAGE_SIZE;
+  // Numeric pagination: 50 per page, replaces (no append) so users navigate via page numbers.
+  const PHONES_PAGE_SIZE = 50;
+  const fetchBulkPhones = useCallback(async (page: number) => {
+    const from = page * PHONES_PAGE_SIZE;
     setBulkPhonesLoading(true);
     try {
       const phoneOr = [
@@ -383,7 +384,7 @@ export default function ShopHome() {
         .lte('price_usd', 1500)
         .or(phoneOr)
         .order('price_usd', { ascending: true })
-        .range(from, from + PAGE_SIZE - 1);
+        .range(from, from + PHONES_PAGE_SIZE - 1);
       if (error) throw error;
 
       const PHONE_ACCESSORY_KEYWORDS = ['case', 'cover', 'protector', 'tempered glass', 'charger', 'cable', 'usb-c', 'lightning', 'magsafe', 'airpods', 'earbud', 'earphone', 'power bank', 'holder', 'mount', 'stand', 'adapter', 'wireless charger'];
@@ -408,7 +409,7 @@ export default function ShopHome() {
         .filter((p): p is Product => p !== null);
       await applyServerPrices(mapped);
       setBulkPhonesTotal(count || 0);
-      setBulkPhones(prev => append ? [...prev, ...mapped] : mapped);
+      setBulkPhones(mapped);
     } catch (e) {
       console.warn('[ShopHome] bulk phones fetch failed:', e);
     } finally {
@@ -417,10 +418,14 @@ export default function ShopHome() {
   }, []);
 
   useEffect(() => {
-    if (bulkPhonesFetchedRef.current) return;
+    fetchBulkPhones(bulkPhonesPage);
+    if (bulkPhonesFetchedRef.current) {
+      // Scroll to grid on page change (skip on initial mount)
+      const el = document.getElementById('phones-grid');
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     bulkPhonesFetchedRef.current = true;
-    fetchBulkPhones(0, false);
-  }, [fetchBulkPhones]);
+  }, [bulkPhonesPage, fetchBulkPhones]);
 
   // Fetch products for a specific store from the DB (paginated)
   const fetchStorePage = useCallback(async (provider: string, page: number, append: boolean) => {
@@ -1298,13 +1303,21 @@ export default function ShopHome() {
     'usb-c', 'lightning', 'magsafe', 'airpods', 'earbud', 'earphone',
     'power bank', 'holder', 'mount', 'stand', 'adapter', 'wireless charger',
   ];
+  // Bulk phones IS the source of truth for the homepage phone catalog (paginated).
+  // We only fall back to curated/pinned items if the bulk fetch hasn't returned yet,
+  // so the user never sees an empty grid on first paint.
   const phonesRowItems = useMemo(() => {
+    if (bulkPhones.length > 0) {
+      // Already filtered/mapped at fetch time; just drop accessories defensively.
+      return bulkPhones.filter(p => {
+        const tt = (p.title || '').toLowerCase();
+        return !PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
+      });
+    }
     const all = filterForCategory(
       deduplicateProducts([
         ...(pinnedByCategory['phones'] || []),
         ...(categoryItems['phones'] || []),
-        ...accueilProducts,
-        ...bulkPhones,
       ]),
       'phones',
     );
@@ -1313,16 +1326,17 @@ export default function ShopHome() {
       return !PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
     });
     return filterHomepageProducts(sortByLuxury(handsets), 'phones');
-  }, [pinnedByCategory, categoryItems, accueilProducts, bulkPhones]);
+  }, [pinnedByCategory, categoryItems, bulkPhones]);
 
   // Apply user-selected sort on top of the curated phones list
   const sortedPhones = useMemo(() => {
     const list = [...phonesRowItems];
     if (sortBy === 'cheapest') list.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
     else if (sortBy === 'priciest') list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
-    // 'newest' = keep curated order (most recently fetched/luxury first)
     return list;
   }, [phonesRowItems, sortBy]);
+
+  const totalPhonePages = Math.max(1, Math.ceil(bulkPhonesTotal / PHONES_PAGE_SIZE));
 
   const phoneAccessoryItems = useMemo(() => {
     const all = deduplicateProducts([
@@ -1561,8 +1575,8 @@ export default function ShopHome() {
               </Select>
             </div>
             <span className="text-sm text-white/60 font-normal whitespace-nowrap">
-              {sortedPhones.length > 0
-                ? `${sortedPhones.length.toLocaleString()} ${language === 'fr' ? 'produits' : 'products'}`
+              {bulkPhonesTotal > 0
+                ? `${bulkPhonesTotal.toLocaleString()} ${language === 'fr' ? 'produits' : 'products'}`
                 : ''}
             </span>
           </div>
@@ -1674,39 +1688,33 @@ export default function ShopHome() {
             </div>
           ) : (
             <div className="space-y-6" id="phones-grid">
-              {sortedPhones.length > 0 ? (
+              {bulkPhonesLoading && bulkPhones.length === 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                  {Array.from({ length: 12 }).map((_, i) => (
+                    <div key={i} className="aspect-[3/4] rounded-xl bg-white/[0.04] animate-pulse" />
+                  ))}
+                </div>
+              ) : sortedPhones.length > 0 ? (
                 <>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                     {sortedPhones.map((p, i) => (
                       <ProductCard key={`${p.id}-${i}`} product={p} />
                     ))}
                   </div>
-                  {bulkPhones.length < bulkPhonesTotal && (
-                    <div className="flex justify-center pt-4">
-                      <Button
-                        onClick={() => {
-                          const next = bulkPhonesPage + 1;
-                          setBulkPhonesPage(next);
-                          fetchBulkPhones(next, true);
-                        }}
-                        disabled={bulkPhonesLoading}
-                        variant="outline"
-                        className="border-white/20 text-white/90 hover:bg-white/10 rounded-full px-8 h-11"
-                      >
-                        {bulkPhonesLoading ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          language === 'fr' ? 'Charger plus' : 'Load more'
-                        )}
-                      </Button>
-                    </div>
+
+                  {/* Numeric pagination — Gazelle-style */}
+                  {totalPhonePages > 1 && (
+                    <PhonePagination
+                      currentPage={bulkPhonesPage}
+                      totalPages={totalPhonePages}
+                      onChange={(p) => setBulkPhonesPage(p)}
+                      loading={bulkPhonesLoading}
+                    />
                   )}
                 </>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                  {Array.from({ length: 12 }).map((_, i) => (
-                    <div key={i} className="aspect-[3/4] rounded-xl bg-white/[0.04] animate-pulse" />
-                  ))}
+                <div className="text-center py-16 text-white/50">
+                  {language === 'fr' ? 'Aucun téléphone trouvé.' : 'No phones found.'}
                 </div>
               )}
             </div>
@@ -1717,5 +1725,68 @@ export default function ShopHome() {
       <ShopFooter />
       <BottomNavigation />
     </div>
+  );
+}
+
+// ===== Numeric pagination — Gazelle-style: « 1 2 3 … N » =====
+function PhonePagination({
+  currentPage,
+  totalPages,
+  onChange,
+  loading,
+}: {
+  currentPage: number;
+  totalPages: number;
+  onChange: (page: number) => void;
+  loading?: boolean;
+}) {
+  const pages: (number | 'ellipsis')[] = [];
+  const cur = currentPage;
+  const last = totalPages - 1;
+  const add = (n: number) => { if (!pages.includes(n)) pages.push(n); };
+
+  add(0);
+  if (cur - 2 > 1) pages.push('ellipsis');
+  for (let i = Math.max(1, cur - 1); i <= Math.min(last - 1, cur + 1); i++) add(i);
+  if (cur + 2 < last - 1) pages.push('ellipsis');
+  if (last > 0) add(last);
+
+  const baseBtn = 'min-w-[40px] h-10 px-3 rounded-md text-sm font-medium border border-white/15 text-white/85 hover:bg-white/10 transition disabled:opacity-40 disabled:cursor-not-allowed';
+  const activeBtn = 'min-w-[40px] h-10 px-3 rounded-md text-sm font-semibold bg-white text-blue-700 border border-white shadow-sm';
+
+  return (
+    <nav className="flex items-center justify-center gap-2 pt-6 flex-wrap" aria-label="Pagination">
+      <button
+        onClick={() => onChange(Math.max(0, cur - 1))}
+        disabled={loading || cur === 0}
+        className={baseBtn}
+        aria-label="Previous page"
+      >
+        ‹
+      </button>
+      {pages.map((p, i) =>
+        p === 'ellipsis' ? (
+          <span key={`e-${i}`} className="px-2 text-white/40 select-none">…</span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onChange(p)}
+            disabled={loading}
+            className={p === cur ? activeBtn : baseBtn}
+            aria-current={p === cur ? 'page' : undefined}
+          >
+            {p + 1}
+          </button>
+        )
+      )}
+      <button
+        onClick={() => onChange(Math.min(last, cur + 1))}
+        disabled={loading || cur >= last}
+        className={baseBtn}
+        aria-label="Next page"
+      >
+        ›
+      </button>
+    </nav>
   );
 }

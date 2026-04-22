@@ -1443,7 +1443,7 @@ export default function ShopHome() {
                 </SelectContent>
               </Select>
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-[140px] sm:w-[170px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
+                <SelectTrigger className="hidden w-[140px] sm:w-[170px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
                   <SelectValue placeholder={language === 'fr' ? 'Catégorie' : 'Category'} />
                 </SelectTrigger>
                 <SelectContent className="bg-black border border-white/20 z-[9999]">
@@ -1459,7 +1459,7 @@ export default function ShopHome() {
                 </SelectContent>
               </Select>
               <Select value={providerFilter} onValueChange={setProviderFilter}>
-                <SelectTrigger className="hidden sm:flex w-[140px] sm:w-[180px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
+                <SelectTrigger className="hidden w-[140px] sm:w-[180px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
                   <SelectValue placeholder={language === 'fr' ? 'Boutique' : 'Store'} />
                 </SelectTrigger>
                 <SelectContent className="bg-black border border-white/20 z-[9999]">

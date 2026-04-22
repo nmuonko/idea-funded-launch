@@ -1,9 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
-import { isRenderableImageUrl, pickBestImage } from '@/lib/imageValidation';
+import { isRenderableImageUrl, pickCleanestImage } from '@/lib/imageValidation';
 import type { Product } from './ProductCard';
 
 interface PhoneCardProps {
@@ -12,44 +12,47 @@ interface PhoneCardProps {
 }
 
 /**
- * Gazelle-style clean catalog card.
- * - Light neutral image panel
- * - Large centered phone image
- * - Compact title + bold price below
- * - Minimal chrome — the device is the hero
+ * Compact, premium catalog card.
+ * - Soft warm neutral image panel (~#F3EEE7)
+ * - Smart "cleanest image" selection: prefers Amazon _AC_ studio shots and
+ *   eBay s-l1600 over busy lifestyle photos
+ * - Compact text area with 2-line title clamp and tight price line
  */
 export function PhoneCard({ product, className }: PhoneCardProps) {
   const { exchangeRate } = useShopCart();
 
-  const galleryImages = [...new Set([
-    product.imageUrl,
-    ...(product.images || []),
-    ...(product.imageUrls || []),
-  ].filter(Boolean))];
+  const galleryImages = useMemo(() => (
+    [...new Set([
+      product.imageUrl,
+      ...(product.images || []),
+      ...(product.imageUrls || []),
+    ].filter(Boolean) as string[])]
+  ), [product.imageUrl, product.images, product.imageUrls]);
 
   const [imgSrc, setImgSrc] = useState<string>(() =>
-    pickBestImage(galleryImages, product.imageUrl)
+    pickCleanestImage(galleryImages, product.imageUrl)
   );
-  const [fallbackIdx, setFallbackIdx] = useState(0);
+  const [triedUrls] = useState<Set<string>>(() => new Set([imgSrc]));
 
   const tryNextImage = useCallback(() => {
-    for (let i = fallbackIdx + 1; i < galleryImages.length; i++) {
-      const url = galleryImages[i];
-      if (url && isRenderableImageUrl(url) && resizeImageUrl(url, IMAGE_SIZE_THUMB) !== imgSrc) {
-        setFallbackIdx(i);
-        setImgSrc(resizeImageUrl(url, IMAGE_SIZE_THUMB));
+    for (const url of galleryImages) {
+      if (!url || !isRenderableImageUrl(url)) continue;
+      const sized = resizeImageUrl(url, IMAGE_SIZE_THUMB);
+      if (!triedUrls.has(sized) && sized !== imgSrc) {
+        triedUrls.add(sized);
+        setImgSrc(sized);
         return;
       }
     }
     setImgSrc('/placeholder.svg');
-  }, [fallbackIdx, galleryImages, imgSrc]);
+  }, [galleryImages, imgSrc, triedUrls]);
 
   const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     const { naturalWidth: w, naturalHeight: h } = img;
     if (w > 0 && h > 0) {
       const ratio = w / h;
-      // Reject banner-like or tiny images
+      // Reject banner-like, square crops or tiny images
       if (ratio > 2.2 || ratio < 0.45 || Math.min(w, h) < 70) tryNextImage();
     }
   }, [tryNextImage]);
@@ -75,14 +78,14 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
       to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}
       state={{ product: { id: product.id, provider: product.provider, title: product.title, imageUrl: product.imageUrl, priceUsd: product.priceUsd, rating: product.rating, productUrl: product.productUrl } }}
       className={cn(
-        'group block bg-white rounded-lg overflow-hidden border border-black/5 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5',
+        'group block bg-white rounded-md overflow-hidden border border-black/[0.06] transition-all duration-200 hover:border-black/15 hover:shadow-sm',
         className,
       )}
     >
-      {/* Image panel — soft warm neutral, like a studio backdrop */}
+      {/* Image panel — soft warm neutral, studio backdrop */}
       <div
         className="relative w-full aspect-square flex items-center justify-center"
-        style={{ backgroundColor: '#f5f2ed' }}
+        style={{ backgroundColor: '#F3EEE7' }}
       >
         {showImage ? (
           <img
@@ -91,23 +94,23 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
             loading="lazy"
             onLoad={handleImgLoad}
             onError={tryNextImage}
-            className="max-w-[82%] max-h-[82%] object-contain transition-transform duration-300 group-hover:scale-[1.03] drop-shadow-[0_2px_4px_rgba(0,0,0,0.06)]"
+            className="max-w-[72%] max-h-[72%] object-contain transition-transform duration-300 group-hover:scale-[1.02]"
           />
         ) : (
-          <div className="text-neutral-400 text-xs">No image</div>
+          <div className="text-neutral-400 text-[11px]">No image</div>
         )}
       </div>
 
-      {/* Text area — clean, retail-catalog style */}
-      <div className="px-2.5 py-2 bg-white">
-        <h3 className="text-[12px] sm:text-[13px] font-medium text-neutral-800 leading-snug line-clamp-2 min-h-[2.2rem]">
+      {/* Text area — compact retail catalog style */}
+      <div className="px-2 py-1.5 bg-white">
+        <h3 className="text-[11px] sm:text-[12px] font-medium text-neutral-800 leading-snug line-clamp-2 min-h-[2rem]">
           {product.title}
         </h3>
-        <div className="mt-1 flex items-baseline gap-1.5">
-          <span className="text-sm sm:text-base font-bold text-neutral-900">
+        <div className="mt-0.5 flex items-baseline gap-1">
+          <span className="text-[13px] sm:text-sm font-semibold text-neutral-900">
             ${price.toFixed(0)}
           </span>
-          <span className="text-[10px] text-neutral-500">
+          <span className="text-[9px] text-neutral-400">
             ≈ CDF {(price * exchangeRate).toLocaleString()}
           </span>
         </div>

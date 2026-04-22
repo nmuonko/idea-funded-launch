@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { isRenderableImageUrl, pickBestImage } from '@/lib/imageValidation';
+import { formatDisplayPriceUsd } from '@/lib/displayPrice';
 import type { Product } from './ProductCard';
 
 interface PhoneCardProps {
@@ -65,7 +66,7 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
   };
 
   const showImage = imgSrc !== '/placeholder.svg';
-  const price = product.priceUsd;
+  const priceLabel = formatDisplayPriceUsd(product.priceUsd);
 
   return (
     <Link
@@ -102,7 +103,7 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
         </h3>
         <div className="mt-1">
           <span className="text-sm sm:text-base font-bold text-neutral-900">
-            ${price.toFixed(0)}
+            {priceLabel}
           </span>
         </div>
       </div>

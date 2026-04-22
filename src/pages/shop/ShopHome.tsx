@@ -1736,7 +1736,7 @@ export default function ShopHome() {
                   )}
                 </>
               ) : (
-                <div className="text-center py-16 text-white/50">
+                <div className="text-center py-16 text-neutral-500">
                   {language === 'fr' ? 'Aucun téléphone trouvé.' : 'No phones found.'}
                 </div>
               )}

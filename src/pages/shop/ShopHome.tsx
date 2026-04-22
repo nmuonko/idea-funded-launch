@@ -360,13 +360,14 @@ export default function ShopHome() {
     const from = page * PHONES_PAGE_SIZE;
     setBulkPhonesLoading(true);
     try {
-      // Match real handsets only — model-specific patterns avoid generic "for iPhone" accessory titles
+      // Strict positive model patterns — accessory titles ("for iPhone case") rarely include
+      // an actual model token like "iphone 14" or "galaxy s22", so this is sharp enough on its own.
       const phoneOr = [
-        'title.ilike.%iphone 1_%',           // iPhone 10/11/12/13/14/15/16/17
+        'title.ilike.%iphone 1_%',
         'title.ilike.%iphone x%',
         'title.ilike.%iphone se%',
-        'title.ilike.%galaxy s2_%',          // S20-S29
-        'title.ilike.%galaxy s1_%',          // S10-S19
+        'title.ilike.%galaxy s2_%',
+        'title.ilike.%galaxy s1_%',
         'title.ilike.%galaxy note%',
         'title.ilike.%galaxy z fold%',
         'title.ilike.%galaxy z flip%',
@@ -382,8 +383,7 @@ export default function ShopHome() {
         'title.ilike.%unlocked cell phone%',
       ].join(',');
 
-      // Hard exclude obvious accessory/non-phone titles at the DB level
-      let q = supabase
+      const { data, error, count } = await supabase
         .from('catalog_items')
         .select(
           'id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock',
@@ -391,31 +391,22 @@ export default function ShopHome() {
         )
         .eq('is_active', true)
         .eq('is_disallowed', false)
-        .gte('price_usd', 80)        // real handsets only — accessories drop out
+        .gte('price_usd', 80)
         .lte('price_usd', 1800)
-        .or(phoneOr);
-
-      const accessoryWords = [
-        'case', 'cover', 'protector', 'tempered glass', 'screen guard',
-        'charger', 'cable', 'usb-c', 'lightning cable', 'magsafe',
-        'airpods', 'earbud', 'earphone', 'headphone', 'power bank',
-        'holder', 'mount', 'stand', 'adapter', 'wireless charger',
-        'sticker', 'skin', 'wrap', 'lanyard', 'strap', 'pouch', 'sleeve',
-        'lens', 'tripod', 'selfie stick', 'cleaning', 'wipe',
-        'replacement battery', 'replacement screen', 'lcd assembly', 'digitizer',
-      ];
-      for (const w of accessoryWords) q = q.not('title', 'ilike', `%${w}%`);
-
-      const { data, error, count } = await q
-        .order('price_usd', { ascending: false })  // premium first — Gazelle-like
+        .or(phoneOr)
+        .order('price_usd', { ascending: false })
         .range(from, from + PHONES_PAGE_SIZE - 1);
       if (error) throw error;
+
+      // Defensive client-side accessory filter
+      const ACCESSORY_RE = /\b(case|cover|protector|tempered glass|screen guard|charger|cable|usb-c|magsafe|airpods|earbud|earphone|headphone|power bank|holder|mount|stand|adapter|wireless charger|sticker|skin|wrap|lanyard|strap|pouch|sleeve|tripod|selfie stick|cleaning|wipe|replacement battery|replacement screen|lcd assembly|digitizer)\b/i;
 
       const mapped = (data || [])
         .map((item: any): Product | null => {
           const fallback = extractFirstImageFromJson(item.images);
           const preferred = isRenderableImageUrl(item.image_url) ? item.image_url : fallback;
           if (!preferred || !isRenderableImageUrl(preferred)) return null;
+          if (ACCESSORY_RE.test(item.title || '')) return null;
           return {
             id: item.provider_product_id || item.id,
             provider: item.provider || 'amazon',
@@ -437,6 +428,7 @@ export default function ShopHome() {
       setBulkPhonesLoading(false);
     }
   }, []);
+
 
 
   useEffect(() => {

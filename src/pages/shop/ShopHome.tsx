@@ -1232,7 +1232,7 @@ export default function ShopHome() {
       const tt = (p.title || '').toLowerCase();
       return !PHONE_ACCESSORY_KEYWORDS.some(kw => tt.includes(kw));
     });
-    return filterHomepageProducts(sortByLuxury(handsets), 'phones').slice(0, 12);
+    return filterHomepageProducts(sortByLuxury(handsets), 'phones').slice(0, 24);
   }, [pinnedByCategory, categoryItems]);
 
   const phoneAccessoryItems = useMemo(() => {

@@ -1,75 +1,85 @@
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
-import heroIphones from '@/assets/hero-iphones.png';
+import heroIphoneLeft from '@/assets/hero-iphone-left.png';
+import heroPixelRight from '@/assets/hero-pixel-right.png';
 
 /**
- * Gazelle-style hero: bold blue banner with iPhone messaging.
- * Visual only — no logic changes.
+ * Gazelle-style hero: short, wide dark-blue banner.
+ * Compact desktop height (~230px), minimal radius, edge-to-edge feel.
  */
 export function GazelleHero() {
   const { language } = useLanguage();
   const isFr = language === 'fr' || language === 'ln';
 
   return (
-    <section className="px-3 sm:px-6 mb-6" aria-label={isFr ? 'Bienvenue' : 'Welcome'}>
-      <div className="max-w-6xl mx-auto">
+    <section className="px-2 sm:px-4 mb-4" aria-label={isFr ? 'Bienvenue' : 'Welcome'}>
+      <div className="max-w-7xl mx-auto">
         <div
-          className="relative overflow-hidden rounded-2xl sm:rounded-3xl"
+          className="relative overflow-hidden rounded-md"
           style={{
             background:
-              'linear-gradient(135deg, hsl(222 60% 12%) 0%, hsl(222 55% 18%) 40%, hsl(220 50% 24%) 100%)',
+              'linear-gradient(135deg, hsl(222 60% 12%) 0%, hsl(222 55% 18%) 45%, hsl(220 50% 24%) 100%)',
           }}
         >
+          {/* subtle stripe texture */}
           <div
             aria-hidden
             className="absolute inset-0 opacity-[0.10] pointer-events-none"
             style={{
               backgroundImage:
-                'repeating-linear-gradient(135deg, rgba(255,255,255,0.6) 0 1px, transparent 1px 24px)',
+                'repeating-linear-gradient(115deg, rgba(255,255,255,0.55) 0 1px, transparent 1px 22px)',
+              mixBlendMode: 'overlay',
             }}
           />
-          <div aria-hidden className="absolute -top-24 -left-20 w-80 h-80 rounded-full bg-white/10 blur-3xl" />
-          <div aria-hidden className="absolute -bottom-24 -right-20 w-96 h-96 rounded-full bg-cyan-300/20 blur-3xl" />
+          <div aria-hidden className="absolute -top-16 -left-16 w-64 h-64 rounded-full bg-white/10 blur-3xl" />
+          <div aria-hidden className="absolute -bottom-16 -right-16 w-72 h-72 rounded-full bg-cyan-300/15 blur-3xl" />
 
-          <div className="relative grid grid-cols-1 md:grid-cols-[1.1fr_1fr] items-center gap-4 md:gap-8 px-6 sm:px-10 md:px-14 pt-10 sm:pt-14 pb-8 sm:pb-10 md:py-16">
-            <div className="text-center md:text-left">
-              <span className="inline-block text-[10px] sm:text-xs uppercase tracking-[0.25em] text-white/85 font-semibold mb-3">
+          {/* Compact banner: ~150px mobile, ~230px desktop */}
+          <div className="relative flex items-center justify-center min-h-[150px] sm:min-h-[200px] md:min-h-[230px] px-4 sm:px-10 md:px-16 py-5 sm:py-6">
+            {/* Left phone */}
+            <img
+              src={heroIphoneLeft}
+              alt=""
+              aria-hidden
+              draggable={false}
+              className="hidden sm:block absolute left-2 md:left-6 lg:left-12 top-1/2 -translate-y-1/2 -rotate-[14deg] w-[140px] md:w-[180px] lg:w-[210px] h-auto object-contain drop-shadow-[0_18px_22px_rgba(0,0,0,0.45)] select-none"
+            />
+            {/* Right phone */}
+            <img
+              src={heroPixelRight}
+              alt=""
+              aria-hidden
+              draggable={false}
+              className="hidden sm:block absolute right-2 md:right-6 lg:right-12 top-1/2 -translate-y-1/2 rotate-[14deg] w-[140px] md:w-[180px] lg:w-[210px] h-auto object-contain drop-shadow-[0_18px_22px_rgba(0,0,0,0.45)] select-none"
+            />
+
+            {/* Centered text */}
+            <div className="relative text-center max-w-xl mx-auto">
+              <span className="inline-block text-[10px] sm:text-[11px] uppercase tracking-[0.28em] text-white/85 font-semibold mb-1.5">
                 AfriShop
               </span>
-              <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white tracking-tight leading-[1.02]">
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-[1.05]">
                 {isFr ? 'iPhone — Qualité et accessibilité.' : 'iPhone — Quality meets affordability.'}
               </h1>
-              <p className="mt-4 text-base sm:text-lg md:text-xl text-white/90 font-normal max-w-xl mx-auto md:mx-0 leading-relaxed">
+              <p className="mt-1.5 text-xs sm:text-sm md:text-base text-white/85 font-normal leading-snug">
                 {isFr
-                  ? 'Reconditionnés, testés et fiables. Livrés directement chez vous.'
-                  : 'Refurbished, tested and reliable. Delivered straight to your door.'}
+                  ? 'Reconditionnés, testés et fiables.'
+                  : 'Refurbished, tested and reliable.'}
               </p>
-
-              <div className="mt-6 flex flex-wrap items-center justify-center md:justify-start gap-2.5">
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
                 <a
                   href="#phones-grid"
-                  className="inline-flex items-center justify-center rounded-full bg-white text-blue-700 hover:bg-white/95 font-semibold text-sm px-5 py-2.5 shadow-sm transition"
+                  className="inline-flex items-center justify-center rounded-full bg-white text-blue-700 hover:bg-white/95 font-semibold text-xs sm:text-sm px-4 py-1.5 shadow-sm transition"
                 >
                   {isFr ? 'Voir les iPhones' : 'Shop iPhones'}
                 </a>
                 <Link
                   to="/category/phones"
-                  className="inline-flex items-center justify-center rounded-full border border-white/30 text-white hover:bg-white/10 font-medium text-sm px-5 py-2.5 transition"
+                  className="inline-flex items-center justify-center rounded-full border border-white/30 text-white hover:bg-white/10 font-medium text-xs sm:text-sm px-4 py-1.5 transition"
                 >
                   {isFr ? 'Tout parcourir' : 'Browse all'}
                 </Link>
               </div>
-            </div>
-
-            <div aria-hidden className="flex items-end justify-center md:justify-end mt-2 md:mt-0">
-              <img
-                src={heroIphones}
-                alt="iPhones"
-                width={640}
-                height={640}
-                className="w-[260px] sm:w-[320px] md:w-[420px] lg:w-[520px] xl:w-[580px] h-auto object-contain select-none -mb-6 sm:-mb-10 md:-mb-14 drop-shadow-[0_30px_40px_rgba(0,0,0,0.45)]"
-                draggable={false}
-              />
             </div>
           </div>
         </div>

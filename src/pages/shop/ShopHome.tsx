@@ -406,7 +406,7 @@ export default function ShopHome() {
         .gte('price_usd', 80)
         .lte('price_usd', 1800)
         .or(phoneOr)
-        .order('price_usd', { ascending: true })
+        .order('updated_at', { ascending: false, nullsFirst: false })
         .range(from, from + PHONES_PAGE_SIZE - 1);
       if (error) throw error;
 
@@ -1731,7 +1731,10 @@ export default function ShopHome() {
                 </div>
               ) : sortedPhones.length > 0 ? (
                 <>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-2.5 gap-y-3.5 sm:gap-x-3 sm:gap-y-4 max-w-[1200px] mx-auto">
+                  <div
+                    className="grid gap-x-2.5 gap-y-3.5 sm:gap-x-3 sm:gap-y-4 max-w-[1200px] mx-auto"
+                    style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}
+                  >
                     {sortedPhones.map((p, i) => (
                       <PhoneCard key={`${p.id}-${i}`} product={p} />
                     ))}

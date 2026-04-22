@@ -1589,15 +1589,15 @@ export default function ShopHome() {
               </Button>
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-6" id="phones-grid">
               {/* PHONES — single hero grid, Gazelle-style */}
-              {phonesRowItems.length > 0 ? (
+              {sortedPhones.length > 0 ? (
                 <SectionBlock
                   title={language === 'fr' ? 'Téléphones' : 'Phones'}
-                  items={phonesRowItems}
+                  items={sortedPhones}
                   mode="static-grid"
                   seeAllLink="/category/phones"
-                  maxItems={24}
+                  maxItems={sortedPhones.length}
                   categoryKey="phones"
                 />
               ) : (

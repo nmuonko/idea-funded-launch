@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
-import { isRenderableImageUrl, pickBestImage } from '@/lib/imageValidation';
+import { collectProductImageCandidates, handleImageError, handleImageLoad, pickBestImage } from '@/lib/imageValidation';
 import { formatDisplayPriceUsd } from '@/lib/displayPrice';
 import type { Product } from './ProductCard';
 
@@ -19,44 +19,38 @@ interface PhoneCardProps {
  * - Minimal chrome — the device is the hero
  */
 export function PhoneCard({ product, className }: PhoneCardProps) {
-  const galleryImages = [...new Set([
-    product.imageUrl,
-    ...(product.images || []),
-    ...(product.imageUrls || []),
-  ].filter(Boolean))];
+  const galleryImages = useMemo(
+    () => collectProductImageCandidates(product.imageUrl, product.images, product.imageUrls),
+    [product.imageUrl, product.images, product.imageUrls]
+  );
+  const imagePolicy = 'homepage';
+  const fallbackImages = useMemo(() => {
+    const selected = pickBestImage(galleryImages, product.imageUrl, { policy: imagePolicy });
+    const normalizedSelected = resizeImageUrl(selected, IMAGE_SIZE_THUMB);
+    return galleryImages
+      .map((url) => resizeImageUrl(url, IMAGE_SIZE_THUMB))
+      .filter((url, index, arr) => url !== normalizedSelected && arr.indexOf(url) === index);
+  }, [galleryImages, product.imageUrl]);
 
   const [imgSrc, setImgSrc] = useState<string>(() =>
-    pickBestImage(galleryImages, product.imageUrl)
+    resizeImageUrl(pickBestImage(galleryImages, product.imageUrl, { policy: imagePolicy }), IMAGE_SIZE_THUMB)
   );
-  const [fallbackIdx, setFallbackIdx] = useState(0);
 
   useEffect(() => {
-    setImgSrc(pickBestImage(galleryImages, product.imageUrl));
-    setFallbackIdx(0);
+    setImgSrc(resizeImageUrl(pickBestImage(galleryImages, product.imageUrl, { policy: imagePolicy }), IMAGE_SIZE_THUMB));
   }, [product.id, product.imageUrl, galleryImages]);
 
-  const tryNextImage = useCallback(() => {
-    for (let i = fallbackIdx + 1; i < galleryImages.length; i++) {
-      const url = galleryImages[i];
-      if (url && isRenderableImageUrl(url) && resizeImageUrl(url, IMAGE_SIZE_THUMB) !== imgSrc) {
-        setFallbackIdx(i);
-        setImgSrc(resizeImageUrl(url, IMAGE_SIZE_THUMB));
-        return;
-      }
-    }
-    setImgSrc('/placeholder.svg');
-  }, [fallbackIdx, galleryImages, imgSrc]);
-
   const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    const { naturalWidth: w, naturalHeight: h } = img;
-    if (w > 0 && h > 0) {
-      const ratio = w / h;
-      // Reject banner-like, strip-like, or tiny images.
-      // Phone product photos are tall (ratio ~0.5-0.9). Banners are wide (>1.4).
-      if (ratio > 1.5 || ratio < 0.4 || Math.min(w, h) < 80) tryNextImage();
-    }
-  }, [tryNextImage]);
+    handleImageLoad(e);
+    if (e.currentTarget.src.endsWith('/placeholder.svg')) setImgSrc('/placeholder.svg');
+    else setImgSrc(e.currentTarget.currentSrc || e.currentTarget.src);
+  }, []);
+
+  const handleImgError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    handleImageError(e);
+    if (e.currentTarget.src.endsWith('/placeholder.svg')) setImgSrc('/placeholder.svg');
+    else setImgSrc(e.currentTarget.currentSrc || e.currentTarget.src);
+  }, []);
 
   const getProviderForUrl = (): string => {
     const provider = product.provider.toLowerCase();
@@ -96,8 +90,10 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
             src={imgSrc}
             alt={product.title}
             loading="lazy"
+            data-image-policy={imagePolicy}
+            data-fallback-images={fallbackImages.join('|||')}
             onLoad={handleImgLoad}
-            onError={tryNextImage}
+            onError={handleImgError}
             className="max-w-[68%] max-h-[78%] object-contain transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (

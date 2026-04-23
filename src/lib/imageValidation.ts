@@ -475,7 +475,14 @@ export async function inspectImageCandidate(
 
     img.onload = () => {
       window.clearTimeout(timer);
-      settle(validateLoadedImageDimensions(img.naturalWidth, img.naturalHeight, policy));
+      const dimensionResult = validateLoadedImageDimensions(img.naturalWidth, img.naturalHeight, policy);
+      if (!dimensionResult.ok) {
+        settle(dimensionResult);
+        return;
+      }
+
+      const compositionResult = analyzeImageComposition(img, img.naturalWidth, img.naturalHeight, policy);
+      settle(compositionResult.ok ? dimensionResult : compositionResult);
     };
     img.onerror = () => {
       window.clearTimeout(timer);
@@ -673,8 +680,14 @@ export function handleImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
   if (img.src === '/placeholder.svg') return;
   const policy = readPolicy(img);
   const { naturalWidth, naturalHeight } = img;
-  const result = validateLoadedImageDimensions(naturalWidth, naturalHeight, policy);
-  if (!result.ok) {
+  const dimensionResult = validateLoadedImageDimensions(naturalWidth, naturalHeight, policy);
+  if (!dimensionResult.ok) {
+    handleImageError(e);
+    return;
+  }
+
+  const compositionResult = analyzeImageComposition(img, naturalWidth, naturalHeight, policy);
+  if (!compositionResult.ok) {
     handleImageError(e);
   }
 }

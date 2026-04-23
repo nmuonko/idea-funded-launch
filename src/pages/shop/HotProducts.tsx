@@ -92,10 +92,11 @@ export default function HotProducts() {
   useEffect(() => {
     async function fetchProducts() {
       try {
-        const { data, error } = await supabase
+        const { data, error } = await (supabase
           .from('hot_products_showcase')
-          .select('*')
+          .select('*') as any)
           .eq('is_active', true)
+          .or('link_source.eq.storefront,link_source.is.null')
           .order('sort_order', { ascending: true })
           .limit(10);
 

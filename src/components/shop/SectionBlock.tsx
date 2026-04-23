@@ -5,6 +5,7 @@ import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { handleImageError, handleImageLoad, isRenderableImageUrl, pickBestImage } from '@/lib/imageValidation';
+import { translations } from '@/lib/i18n/translations';
 
 interface SectionBlockProps {
   title?: string;
@@ -19,6 +20,8 @@ interface SectionBlockProps {
 
 export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll', categoryKey, seeAllLink, maxItems = 16 }: SectionBlockProps) {
   const { language } = useLanguage();
+  const shop = ((translations as any)[language]?.shop || (translations as any).en?.shop || {}) as any;
+  const seeMoreLabel = shop.seeMore || shop.seeAll || (language === 'fr' ? 'Voir plus' : 'See more');
 
   // For grid mode, always render (show loading skeleton if empty)
   // For other modes, hide if no items and not loading
@@ -54,7 +57,7 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
             <h2 className="text-lg font-semibold text-white/95">{title}</h2>
             {seeAllLink && (
               <Link to={seeAllLink} className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors">
-                {language === 'fr' ? 'Voir plus' : 'See more'}
+                {seeMoreLabel}
                 <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             )}
@@ -106,7 +109,7 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
           <h2 className="text-lg font-semibold text-white/95">{title}</h2>
           {seeAllLink && (
             <Link to={seeAllLink} className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors">
-              {language === 'fr' ? 'Voir plus' : 'See more'}
+              {seeMoreLabel}
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           )}

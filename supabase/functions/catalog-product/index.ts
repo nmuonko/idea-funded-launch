@@ -689,6 +689,13 @@ interface CatalogItem {
   rating: number | null;
   reviewCount?: number | null;
   description?: string | null;
+  product_description?: string | null;
+  long_description?: string | null;
+  shortDescription?: string | null;
+  feature_bullets?: string[] | null;
+  bullet_points?: string[] | null;
+  about_this_item?: string[] | null;
+  highlights?: string[] | null;
   brand?: string | null;
   category?: string | null;
   categoryKey?: string | null;
@@ -706,6 +713,94 @@ interface CatalogItem {
   }>;
 }
 
+function normalizeDescriptionText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value
+    .replace(/<\/?br\s*\/?\s*>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "• ")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function toStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => {
+        if (typeof entry === "string") return normalizeDescriptionText(entry);
+        if (entry && typeof entry === "object") {
+          return normalizeDescriptionText(
+            (entry as Record<string, unknown>).text ??
+            (entry as Record<string, unknown>).value ??
+            (entry as Record<string, unknown>).name ??
+            null,
+          );
+        }
+        return null;
+      })
+      .filter((entry): entry is string => !!entry);
+  }
+
+  if (typeof value === "string") {
+    const normalized = normalizeDescriptionText(value);
+    if (!normalized) return [];
+    return normalized
+      .split(/\n+|\s*[•·▪▫◦‣]\s*/g)
+      .map((part) => normalizeDescriptionText(part))
+      .filter((entry): entry is string => !!entry);
+  }
+
+  return [];
+}
+
+function buildBulletDescription(...sources: unknown[]): string | null {
+  const bullets = sources
+    .flatMap((source) => toStringList(source))
+    .map((bullet) => bullet.replace(/^[•\-\s]+/, "").trim())
+    .filter(Boolean);
+
+  const uniqueBullets = Array.from(new Set(bullets));
+  if (uniqueBullets.length === 0) return null;
+  return uniqueBullets.map((bullet) => `• ${bullet}`).join("\n");
+}
+
+function buildProductDescription(...sources: Array<Record<string, any> | null | undefined>): string | null {
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+
+    const directDescription =
+      normalizeDescriptionText(source.description) ||
+      normalizeDescriptionText(source.product_description) ||
+      normalizeDescriptionText(source.long_description) ||
+      normalizeDescriptionText(source.shortDescription) ||
+      normalizeDescriptionText(source.short_description);
+
+    if (directDescription) return directDescription;
+
+    const bulletDescription = buildBulletDescription(
+      source.feature_bullets,
+      source.bullet_points,
+      source.about_this_item,
+      source.highlights,
+      source.key_features,
+      source.features,
+    );
+
+    if (bulletDescription) return bulletDescription;
+  }
+
+  return null;
+}
+
 function mapDbItemToResponse(item: any): CatalogItem {
   const provider = item.provider || "rainforest";
   
@@ -714,20 +809,44 @@ function mapDbItemToResponse(item: any): CatalogItem {
     allImages = item.images.filter((img: any): img is string => typeof img === "string" && img.length > 0);
   }
   
+  const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata as Record<string, any> : null;
+  const raw = (item.raw && typeof item.raw === "object" ? item.raw : null) as Record<string, any> | null;
+  const rawLikeSources = [
+    raw,
+    metadata,
+    metadata?.raw && typeof metadata.raw === "object" ? metadata.raw : null,
+    metadata?.shopify && typeof metadata.shopify === "object" ? metadata.shopify : null,
+    metadata?.product && typeof metadata.product === "object" ? metadata.product : null,
+  ].filter(Boolean) as Record<string, any>[];
+  const primaryRaw = rawLikeSources[0] || null;
+
   // Fallback: extract images from raw JSON (Amazon/Rainforest products with stored raw data)
-  const raw = item.raw as Record<string, any> | null;
-  if (allImages.length === 0 && raw) {
-    if (raw.processedImages && Array.isArray(raw.processedImages)) {
-      allImages = raw.processedImages.filter((url: any) => typeof url === "string" && url.length > 0);
+  for (const rawSource of rawLikeSources) {
+    if (allImages.length > 0) break;
+    if (rawSource.processedImages && Array.isArray(rawSource.processedImages)) {
+      allImages = rawSource.processedImages.filter((url: any) => typeof url === "string" && url.length > 0);
       console.log(`[CATALOG_PRODUCT] extracted ${allImages.length} images from raw.processedImages for ${item.id}`);
-    } else if (raw.images && Array.isArray(raw.images)) {
-      allImages = raw.images
-        .map((i: any) => i?.large || i?.hi_res || i?.link || (typeof i === "string" ? i : null))
+    } else if (rawSource.images && Array.isArray(rawSource.images)) {
+      allImages = rawSource.images
+        .map((i: any) => i?.large || i?.hi_res || i?.link || i?.url || (typeof i === "string" ? i : null))
         .filter((url: any): url is string => !!url && typeof url === "string");
       console.log(`[CATALOG_PRODUCT] extracted ${allImages.length} images from raw.images for ${item.id}`);
     }
   }
-  
+
+  const computedDescription = buildProductDescription(
+    { description: item.description },
+    ...rawLikeSources,
+  );
+  const computedBullets = Array.from(new Set([
+    ...toStringList(primaryRaw?.feature_bullets),
+    ...toStringList(primaryRaw?.bullet_points),
+    ...toStringList(primaryRaw?.about_this_item),
+    ...toStringList(primaryRaw?.highlights),
+    ...toStringList(primaryRaw?.key_features),
+    ...toStringList(primaryRaw?.features),
+  ])).slice(0, 12);
+
   if (item.image_url && !allImages.includes(item.image_url)) {
     allImages.unshift(item.image_url);
   }
@@ -739,9 +858,9 @@ function mapDbItemToResponse(item: any): CatalogItem {
   let variants: CatalogItem["variants"] = undefined;
   const variantSources: string[] = [];
   
-  if (raw?.variants && Array.isArray(raw.variants)) {
+  if (primaryRaw?.variants && Array.isArray(primaryRaw.variants)) {
     variantSources.push('variants');
-    variants = raw.variants
+    variants = primaryRaw.variants
       .filter((v: any) => v.asin || v.id || v.itemId)
       .slice(0, 30)
       .map((v: any) => {
@@ -780,9 +899,9 @@ function mapDbItemToResponse(item: any): CatalogItem {
   }
   
   // Fallback: build variants from raw.variants_v2 (alternative Rainforest format)
-  if (raw && (!variants || variants.length === 0) && raw.variants_v2 && Array.isArray(raw.variants_v2)) {
+  if (primaryRaw && (!variants || variants.length === 0) && primaryRaw.variants_v2 && Array.isArray(primaryRaw.variants_v2)) {
     variantSources.push('variants_v2');
-    variants = raw.variants_v2
+    variants = primaryRaw.variants_v2
       .filter((v: any) => v.asin || v.id)
       .slice(0, 30)
       .map((v: any) => {
@@ -806,13 +925,10 @@ function mapDbItemToResponse(item: any): CatalogItem {
   
   // Fallback: build synthetic variants from raw.variation_values (top-level dimension groups)
   // This handles products where Rainforest returns { variation_values: { Size: ["S","M","L"], Color: ["Red","Blue"] } }
-  if (raw && (!variants || variants.length === 0) && raw.variation_values && typeof raw.variation_values === 'object') {
+  if (primaryRaw && (!variants || variants.length === 0) && primaryRaw.variation_values && typeof primaryRaw.variation_values === 'object') {
     variantSources.push('variation_values');
-    // variation_values is { DimensionName: [values] } — create a synthetic variant per combination isn't practical,
-    // but we can at least ensure dimensions are available on the current variant
-    // The frontend uses variantGroups which iterates variants[].dimensions — so we need at least one variant entry
     const dims: Array<{ name: string; value: string }> = [];
-    for (const [dimName, values] of Object.entries(raw.variation_values)) {
+    for (const [dimName, values] of Object.entries(primaryRaw.variation_values)) {
       if (Array.isArray(values) && values.length > 0) {
         dims.push({ name: dimName, value: String(values[0]) });
       } else if (typeof values === 'string') {
@@ -825,10 +941,10 @@ function mapDbItemToResponse(item: any): CatalogItem {
   }
   
   // Fallback: eBay aspects format { name: "Size", values: ["10"] }
-  if (raw && (!variants || variants.length === 0) && raw.aspects && Array.isArray(raw.aspects)) {
+  if (primaryRaw && (!variants || variants.length === 0) && primaryRaw.aspects && Array.isArray(primaryRaw.aspects)) {
     variantSources.push('aspects');
     const dims: Array<{ name: string; value: string }> = [];
-    for (const aspect of raw.aspects) {
+    for (const aspect of primaryRaw.aspects) {
       if (aspect.name && aspect.values && Array.isArray(aspect.values) && aspect.values.length > 0) {
         dims.push({ name: aspect.name, value: String(aspect.values[0]) });
       }
@@ -839,14 +955,12 @@ function mapDbItemToResponse(item: any): CatalogItem {
   }
   
   // Enrich existing variants: if variants exist but Size is missing globally, check top-level raw fields
-  if (variants && variants.length > 0 && raw) {
+  if (variants && variants.length > 0 && primaryRaw) {
     const anyHasSize = variants.some(v => v.dimensions?.some(d => d.name.toLowerCase() === 'size'));
     if (!anyHasSize) {
-      // Check raw.variation_values.Size for available sizes
-      const sizeValues = raw.variation_values?.Size || raw.variation_values?.size;
+      const sizeValues = primaryRaw.variation_values?.Size || primaryRaw.variation_values?.size;
       if (Array.isArray(sizeValues) && sizeValues.length > 0) {
         variantSources.push('size_enrichment');
-        // Add first size value to current variant as fallback indicator
         for (const v of variants) {
           if (v.isCurrent && v.dimensions) {
             v.dimensions.push({ name: 'Size', value: String(sizeValues[0]) });
@@ -856,7 +970,7 @@ function mapDbItemToResponse(item: any): CatalogItem {
       }
     }
   }
-  
+
   // Log variant sources for debugging
   const hasSizeAfter = variants?.some(v => v.dimensions?.some(d => d.name.toLowerCase() === 'size')) || false;
   if (variantSources.length > 0) {
@@ -877,7 +991,14 @@ function mapDbItemToResponse(item: any): CatalogItem {
     inStock: item.in_stock,
     rating: item.rating,
     reviewCount: item.review_count,
-    description: raw?.description || null,
+    description: computedDescription,
+    product_description: computedDescription,
+    long_description: computedDescription,
+    shortDescription: normalizeDescriptionText(primaryRaw?.shortDescription) || computedDescription,
+    feature_bullets: computedBullets.length > 0 ? computedBullets : null,
+    bullet_points: computedBullets.length > 0 ? computedBullets : null,
+    about_this_item: computedBullets.length > 0 ? computedBullets : null,
+    highlights: computedBullets.length > 0 ? computedBullets : null,
     brand: item.brand,
     category: item.category,
     categoryKey: item.category_key || null,
@@ -1137,9 +1258,36 @@ Deno.serve(async (req: Request) => {
             console.warn(`[PRICE_REFRESH][EBAY] ${productId}: live refresh failed: ${(e as Error).message}`);
           }
         }
+      if (dbItem.provider === "ebay" && !item.description) {
+        try {
+          liveEbayDetail = liveEbayDetail ?? await getEbayItem(db, productId!);
+          const liveItem = liveEbayDetail?.item;
+          if (liveItem) {
+            const liveDescription = buildProductDescription(liveItem as Record<string, any>);
+            const liveBullets = Array.from(new Set([
+              ...toStringList((liveItem as Record<string, any>).feature_bullets),
+              ...toStringList((liveItem as Record<string, any>).bullet_points),
+              ...toStringList((liveItem as Record<string, any>).about_this_item),
+              ...toStringList((liveItem as Record<string, any>).highlights),
+            ])).slice(0, 12);
+
+            if (liveDescription) {
+              item.description = liveDescription;
+              item.product_description = liveDescription;
+              item.long_description = liveDescription;
+              item.shortDescription = normalizeDescriptionText((liveItem as Record<string, any>).shortDescription) || liveDescription;
+              item.feature_bullets = liveBullets.length > 0 ? liveBullets : null;
+              item.bullet_points = liveBullets.length > 0 ? liveBullets : null;
+              item.about_this_item = liveBullets.length > 0 ? liveBullets : null;
+              item.highlights = liveBullets.length > 0 ? liveBullets : null;
+            }
+          }
+        } catch (e) {
+          console.warn(`[DETAIL_DESC][EBAY] ${productId}: live description fetch failed: ${(e as Error).message}`);
+        }
       }
-      
-      // Merge media gallery images: always prefer media gallery when it has more/equal images
+
+
       const mediaData = mediaResult?.data;
       if (mediaData?.image_urls && Array.isArray(mediaData.image_urls)) {
         const mediaImages = (mediaData.image_urls as string[]).filter((url: string) => typeof url === "string" && url.length > 0);
@@ -1172,9 +1320,27 @@ Deno.serve(async (req: Request) => {
         
         try {
           console.log(`[GALLERY_ENRICH] eBay item ${productId} has ${item.images?.length ?? 0} images, trying API...`);
-            const liveResult = liveEbayDetail ?? await getEbayItem(db, productId!);
+          const liveResult = liveEbayDetail ?? await getEbayItem(db, productId!);
           const liveItem = liveResult?.item;
           const wasRateLimited = liveResult?.debug?.httpStatus === 429;
+
+          if (liveItem?.description && !item.description) {
+            const liveDescription = buildProductDescription(liveItem as Record<string, any>);
+            const liveBullets = Array.from(new Set([
+              ...toStringList((liveItem as Record<string, any>).feature_bullets),
+              ...toStringList((liveItem as Record<string, any>).bullet_points),
+              ...toStringList((liveItem as Record<string, any>).about_this_item),
+              ...toStringList((liveItem as Record<string, any>).highlights),
+            ])).slice(0, 12);
+            item.description = liveDescription;
+            item.product_description = liveDescription;
+            item.long_description = liveDescription;
+            item.shortDescription = normalizeDescriptionText((liveItem as Record<string, any>).shortDescription) || liveDescription;
+            item.feature_bullets = liveBullets.length > 0 ? liveBullets : null;
+            item.bullet_points = liveBullets.length > 0 ? liveBullets : null;
+            item.about_this_item = liveBullets.length > 0 ? liveBullets : null;
+            item.highlights = liveBullets.length > 0 ? liveBullets : null;
+          }
           
           if (liveItem && Array.isArray(liveItem.images) && liveItem.images.length > (item.images?.length || 0)) {
             enrichedImages = upgradeGalleryImages(liveItem.images, "ebay");
@@ -1439,6 +1605,17 @@ Deno.serve(async (req: Request) => {
         const images = upgradeGalleryImages(rawImages, "rainforest");
         const mainImage = images[0] || null;
 
+        const legacyDescription = buildProductDescription(
+          { description: legacyItem.description || null },
+          rawData,
+        );
+        const legacyBullets = Array.from(new Set([
+          ...toStringList(rawData?.feature_bullets),
+          ...toStringList(rawData?.bullet_points),
+          ...toStringList(rawData?.about_this_item),
+          ...toStringList(rawData?.highlights),
+        ])).slice(0, 12);
+
         const item: CatalogItem = {
           id: fullProductId,
           provider: "rainforest",
@@ -1452,10 +1629,16 @@ Deno.serve(async (req: Request) => {
           productUrl: legacyItem.product_url || null,
           inStock: legacyItem.in_stock ?? null,
           rating: legacyItem.rating || null,
-          description: legacyItem.description || null,
+          description: legacyDescription,
+          product_description: legacyDescription,
+          long_description: legacyDescription,
+          shortDescription: normalizeDescriptionText(rawData?.shortDescription) || legacyDescription,
+          feature_bullets: legacyBullets.length > 0 ? legacyBullets : null,
+          bullet_points: legacyBullets.length > 0 ? legacyBullets : null,
+          about_this_item: legacyBullets.length > 0 ? legacyBullets : null,
+          highlights: legacyBullets.length > 0 ? legacyBullets : null,
           brand: legacyItem.brand || null,
         };
-
         // Check variants cache before returning legacy data
         const legacyCachedVariants = await getCachedVariants();
         if (legacyCachedVariants) {
@@ -1536,7 +1719,34 @@ Deno.serve(async (req: Request) => {
           productUrl: ebayItem.productUrl || null,
           inStock: ebayItem.inStock ?? null,
           rating: null,
-          description: ebayItem.description || null,
+          description: buildProductDescription(ebayItem as Record<string, any>),
+          product_description: buildProductDescription(ebayItem as Record<string, any>),
+          long_description: buildProductDescription(ebayItem as Record<string, any>),
+          shortDescription: normalizeDescriptionText((ebayItem as Record<string, any>).shortDescription) || buildProductDescription(ebayItem as Record<string, any>),
+          feature_bullets: Array.from(new Set([
+            ...toStringList((ebayItem as Record<string, any>).feature_bullets),
+            ...toStringList((ebayItem as Record<string, any>).bullet_points),
+            ...toStringList((ebayItem as Record<string, any>).about_this_item),
+            ...toStringList((ebayItem as Record<string, any>).highlights),
+          ])).slice(0, 12),
+          bullet_points: Array.from(new Set([
+            ...toStringList((ebayItem as Record<string, any>).feature_bullets),
+            ...toStringList((ebayItem as Record<string, any>).bullet_points),
+            ...toStringList((ebayItem as Record<string, any>).about_this_item),
+            ...toStringList((ebayItem as Record<string, any>).highlights),
+          ])).slice(0, 12),
+          about_this_item: Array.from(new Set([
+            ...toStringList((ebayItem as Record<string, any>).feature_bullets),
+            ...toStringList((ebayItem as Record<string, any>).bullet_points),
+            ...toStringList((ebayItem as Record<string, any>).about_this_item),
+            ...toStringList((ebayItem as Record<string, any>).highlights),
+          ])).slice(0, 12),
+          highlights: Array.from(new Set([
+            ...toStringList((ebayItem as Record<string, any>).feature_bullets),
+            ...toStringList((ebayItem as Record<string, any>).bullet_points),
+            ...toStringList((ebayItem as Record<string, any>).about_this_item),
+            ...toStringList((ebayItem as Record<string, any>).highlights),
+          ])).slice(0, 12),
           condition: ebayItem.attributes?.["Condition"],
           attributes: ebayItem.attributes,
           variants: ebayItem.variants,

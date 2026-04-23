@@ -595,9 +595,10 @@ export default function ShopHome() {
         };
       }))).filter((p): p is Product => p !== null);
       await applyServerPrices(mapped);
+      const mixed = interleavePhoneBrands(mapped);
       const totalForState = wantCount ? (count || 0) : bulkPhonesTotal;
-      bulkPhonesPageCacheRef.current[page] = { items: mapped, total: totalForState };
-      if (!background) saveLockedHomepagePhones(page, mapped, totalForState);
+      bulkPhonesPageCacheRef.current[page] = { items: mixed, total: totalForState };
+      if (!background) saveLockedHomepagePhones(page, mixed, totalForState);
       if (!background) {
         if (wantCount) setBulkPhonesTotal(count || 0);
         setBulkPhones(mapped);

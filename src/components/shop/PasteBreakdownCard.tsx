@@ -40,7 +40,7 @@ export function PasteBreakdownCard({
     if (isVehicle) {
       setTotalUsd(vehicleAllInclusivePrice(basePriceUsd));
     } else {
-      resolveDisplayPrice(basePriceUsd).then(setTotalUsd);
+      resolveDisplayPrice(basePriceUsd, productTitle).then(setTotalUsd);
     }
   }, [basePriceUsd, isVehicle]);
 

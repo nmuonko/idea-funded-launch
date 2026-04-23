@@ -6943,6 +6943,10 @@ export type Database = {
         Args: { base_price_usd: number; quantity?: number }
         Returns: number
       }
+      compute_display_price_titled: {
+        Args: { base_price_usd: number; p_title: string; quantity?: number }
+        Returns: number
+      }
       compute_display_price_with_category: {
         Args: {
           base_price_usd: number
@@ -6953,6 +6957,10 @@ export type Database = {
       }
       compute_display_prices: {
         Args: { base_prices: number[] }
+        Returns: number[]
+      }
+      compute_display_prices_titled: {
+        Args: { base_prices: number[]; titles: string[] }
         Returns: number[]
       }
       crosstab: { Args: { "": string }; Returns: Record<string, unknown>[] }
@@ -6990,6 +6998,10 @@ export type Database = {
       delete_email: {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
+      }
+      detect_shipping_category_key: {
+        Args: { p_title: string }
+        Returns: string
       }
       dmetaphone: { Args: { "": string }; Returns: string }
       dmetaphone_alt: { Args: { "": string }; Returns: string }

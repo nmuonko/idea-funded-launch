@@ -137,6 +137,16 @@ export default function SearchResults() {
     return () => { cancelled = true; };
   }, [query]);
 
+  // Auto-redirect fashion queries straight to the China (or Turkey) product grid.
+  // Fashion intent has country_priority = ['china','turkey'] only.
+  useEffect(() => {
+    if (!intent?.is_fashion) return;
+    const target = (intent.country_priority?.[0] || 'china').toLowerCase();
+    const route = target === 'turkey' ? '/shop/turkey' : '/shop/china';
+    const qs = query ? `?q=${encodeURIComponent(query)}` : '';
+    navigate(`${route}${qs}`, { replace: true });
+  }, [intent, navigate, query]);
+
   // Derived: client-side provider filtering for instant results
   const products = useMemo(() => {
     if (!providerFilter || providerFilter === 'all') return allProducts;

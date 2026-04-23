@@ -151,7 +151,13 @@ function prioritizeHomepagePhoneRows(items: Product[]): Product[] {
 
   const lead: Product[] = [];
   for (const brand of HOMEPAGE_PHONE_BRAND_SEQUENCE) {
-    lead.push(...buckets[brand].slice(0, HOMEPAGE_PHONE_ROW_SIZE));
+    const row = buckets[brand].slice(0, HOMEPAGE_PHONE_ROW_SIZE);
+    // If a brand has fewer items than a full row, backfill from "other"
+    // so the homepage grid never shows empty/void slots.
+    while (row.length < HOMEPAGE_PHONE_ROW_SIZE && buckets.other.length > 0) {
+      row.push(buckets.other.shift()!);
+    }
+    lead.push(...row);
   }
 
   const used = new Set(lead.map(getProductIdentity));

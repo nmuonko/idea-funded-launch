@@ -57,7 +57,7 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
             <h2 className="text-lg font-semibold text-white/95">{title}</h2>
             {seeAllLink && (
               <Link to={seeAllLink} className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors">
-                {language === 'fr' ? 'Voir plus' : 'See more'}
+                {seeMoreLabel}
                 <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             )}
@@ -109,7 +109,7 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
           <h2 className="text-lg font-semibold text-white/95">{title}</h2>
           {seeAllLink && (
             <Link to={seeAllLink} className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors">
-              {language === 'fr' ? 'Voir plus' : 'See more'}
+              {seeMoreLabel}
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           )}

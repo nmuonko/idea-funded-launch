@@ -108,6 +108,23 @@ const BLOCKED_TOKENS = [
   'pkmb-play-button-overlay',
   'play-button-overlay',
   'play_button_overlay',
+
+  // Amazon A+ / brand-content / marketing banners (NOT product photos)
+  // Real Amazon product images live at /images/I/ — these paths are marketing only
+  '/images/g/01/', '/images/g/02/',
+  'aplusmedia', 'aplus-media', '/aplus/',
+  'brandstore', 'brand-store', 'brand_store',
+  'amazon-business', 'amazonbusiness',
+  'amazon-renewed', 'amazonrenewed',
+  'sharper-screen', 'sharper_screen',
+  'pre-loved', 'preloved',
+  'shop-top-categories', 'shop_top_categories',
+  'ship-internationally', 'ship_internationally',
+  'global-store', 'global_store',
+  'amzl_', '/amzl/',
+  'merchandised', 'merchandising',
+  'category-tile', 'category_tile', 'categorytile',
+  'lifestyle-shot', 'lifestyle_shot',
 ];
 
 /** Filename patterns that strongly indicate non-product promotional content */

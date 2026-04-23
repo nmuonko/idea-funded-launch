@@ -20,6 +20,8 @@ interface SectionBlockProps {
 
 export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll', categoryKey, seeAllLink, maxItems = 16 }: SectionBlockProps) {
   const { language } = useLanguage();
+  const shop = ((translations as any)[language]?.shop || (translations as any).en?.shop || {}) as any;
+  const seeMoreLabel = shop.seeMore || shop.seeAll || (language === 'fr' ? 'Voir plus' : 'See more');
 
   // For grid mode, always render (show loading skeleton if empty)
   // For other modes, hide if no items and not loading

@@ -12,16 +12,16 @@ type Country = {
 };
 
 /**
- * Source countries that AfriShop ships from.
+ * Source countries that AfriShop ships from + Hot Products quick link.
  * - USA → stays on homepage (the curated Amazon phones grid IS the USA catalog)
  * - Turkey / China → existing per-country shop routes
- * - DR Congo → coming-soon page (catalog not live yet)
+ * - Hot Products → curated deals page (replaces former DRC coming-soon tile)
  */
 const COUNTRIES: Country[] = [
-  { key: 'us', flag: '🇺🇸', nameEn: 'USA',      nameFr: 'USA',      scrollToId: 'shop-categories-anchor' },
-  { key: 'tr', flag: '🇹🇷', nameEn: 'Turkey',   nameFr: 'Turquie',  href: '/shop/turkey' },
-  { key: 'cn', flag: '🇨🇳', nameEn: 'China',    nameFr: 'Chine',    href: '/shop/china' },
-  { key: 'cd', flag: '🇨🇩', nameEn: 'DR Congo', nameFr: 'RD Congo', href: '/shop/drc/coming-soon' },
+  { key: 'us',  flag: '🇺🇸', nameEn: 'USA',          nameFr: 'USA',              scrollToId: 'shop-categories-anchor' },
+  { key: 'tr',  flag: '🇹🇷', nameEn: 'Turkey',       nameFr: 'Turquie',          href: '/shop/turkey' },
+  { key: 'cn',  flag: '🇨🇳', nameEn: 'China',        nameFr: 'Chine',            href: '/shop/china' },
+  { key: 'hot', flag: '🔥', nameEn: 'Hot Products', nameFr: 'Produits Vedettes', href: '/hot-products' },
 ];
 
 /**

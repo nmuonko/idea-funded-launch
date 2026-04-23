@@ -1195,7 +1195,8 @@ serve(async (req) => {
               const totalItems = calculateTotalItems(body.sections);
               if (totalItems > 0) {
                 console.log(`[CATALOG_HOME] strict_sections_hit correlationId=${correlationId} sections=${body.sections.length} totalItems=${totalItems}`);
-                return jsonResponse(body);
+                const flat = url.searchParams.get("flat") !== "0";
+                return jsonResponse(flattenMobilePayload(body, locale, flat));
               }
             }
           }

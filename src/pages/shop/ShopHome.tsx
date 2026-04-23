@@ -103,7 +103,11 @@ const HOMEPAGE_MANUAL_FEED_KEY = 'afrishop_homepage_manual_v1';
 const HOMEPAGE_LOCKED_PHONES_KEY = 'afrishop_homepage_phones_v3';
 const HOMEPAGE_PHONE_ROW_SIZE = 4;
 const HOMEPAGE_PHONE_BRAND_SEQUENCE = ['iphone', 'pixel', 'galaxy'] as const;
-const HOMEPAGE_PHONE_RESERVED_COUNT = HOMEPAGE_PHONE_ROW_SIZE * HOMEPAGE_PHONE_BRAND_SEQUENCE.length;
+// Extra items appended after the 3 brand rows so the grid never shows empty
+// trailing slots when bulk results aren't a perfect multiple of the row size.
+const HOMEPAGE_PHONE_EXTRA_FILL = 2;
+const HOMEPAGE_PHONE_RESERVED_COUNT =
+  HOMEPAGE_PHONE_ROW_SIZE * HOMEPAGE_PHONE_BRAND_SEQUENCE.length + HOMEPAGE_PHONE_EXTRA_FILL;
 
 /**
  * Interleave phone listings so iPhone, Galaxy and Pixel are visibly mixed

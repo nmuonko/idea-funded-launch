@@ -1667,25 +1667,31 @@ export default function ShopHome() {
   // and create visual gaps that look like "ad slots" on the homepage.
   const sortedPhones = useMemo(() => {
     const cleaned = curateHomepageProducts(phonesRowItems, 'phones-grid');
-    const pinnedLead = bulkPhonesPage === 0
-      ? prioritizeHomepagePhoneRows(cleaned).slice(0, HOMEPAGE_PHONE_RESERVED_COUNT)
-      : [];
-    const pinnedLeadIds = new Set(pinnedLead.map(getProductIdentity));
-    const remainder = cleaned.filter((item) => !pinnedLeadIds.has(getProductIdentity(item)));
-    let list = [...remainder];
+    let list = [...cleaned];
+
     if (sortBy === 'cheapest') {
+      // Strict ascending price across the entire grid — no brand-row
+      // priority is allowed to break the monotonic ordering.
       list.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
-      // Also sort the pinned brand rows by price so the cheapest items
-      // actually lead each row.
-      pinnedLead.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
     } else if (sortBy === 'priciest') {
       list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
-      pinnedLead.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
+    } else if (bulkPhonesPage === 0) {
+      // Only apply brand-row prioritization when the user hasn't picked
+      // an explicit price sort (otherwise it would scramble prices).
+      list = prioritizeHomepagePhoneRows(list);
     }
-    list = [...pinnedLead, ...list];
+
     if (list.length > PHONES_PAGE_SIZE) {
-      return list.slice(0, PHONES_PAGE_SIZE);
+      list = list.slice(0, PHONES_PAGE_SIZE);
     }
+
+    // Trim trailing partial row so the grid never shows empty slots
+    // at the bottom of the page.
+    const fullRows = Math.floor(list.length / HOMEPAGE_PHONE_ROW_SIZE);
+    if (fullRows > 0 && list.length % HOMEPAGE_PHONE_ROW_SIZE !== 0) {
+      list = list.slice(0, fullRows * HOMEPAGE_PHONE_ROW_SIZE);
+    }
+
     return list;
   }, [phonesRowItems, sortBy, bulkPhonesPage]);
 

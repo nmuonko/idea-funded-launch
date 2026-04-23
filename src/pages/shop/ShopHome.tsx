@@ -117,6 +117,18 @@ function getPhoneBrandBucket(product: Product): 'iphone' | 'pixel' | 'galaxy' | 
   return 'other';
 }
 
+function isHomepagePhoneHandset(product: Pick<Product, 'title'>): boolean {
+  const title = (product.title || '').toLowerCase();
+  if (!title) return false;
+
+  const iphoneMatch = /\biphone\s?(se|1[1-6]|xr|xs|x)\b/.test(title);
+  const pixelMatch = /\bpixel\s?(6|7|8|9)\b/.test(title);
+  const galaxyMatch = /\b(samsung\s+)?galaxy\s+(s\d{1,2}|note\s?\d*|z\s?(fold|flip))\b/.test(title);
+  const oneplusMatch = /\boneplus\s+\d+/i.test(title);
+
+  return iphoneMatch || pixelMatch || galaxyMatch || oneplusMatch;
+}
+
 function getProductIdentity(product: Product): string {
   return `${product.provider || 'unknown'}:${product.id}`;
 }
@@ -581,7 +593,7 @@ export default function ShopHome() {
 
       // Skip the expensive count after the first page — it's the slow part of pagination.
       const wantCount = bulkPhonesTotal === 0;
-      const ACCESSORY_RE = /\b(case|cover|protector|tempered glass|charger|cable|usb-?c|lightning|magsafe|airpods|earbud|earphone|power bank|holder|mount|stand|adapter|wireless charger|screen|skin|wrap|sleeve|pouch|wallet|lanyard|strap|grip|popsocket|stylus|lens|tripod|selfie|car mount|otterbox|spigen|for iphone|for samsung|for galaxy|for pixel|replacement|repair|battery|sim |sim-|sim card|tray|button|speaker only|microphone|housing|frame|bezel|backplate|back plate|back glass|lcd|digitizer|oem part|verre|protection|étui|coque)\b/i;
+      const ACCESSORY_RE = /\b(case|cover|protector|tempered glass|charger|cable|usb-?c|lightning|magsafe|airpods|earbud|earphone|power bank|holder|mount|stand|adapter|wireless charger|screen|skin|wrap|sleeve|pouch|wallet|lanyard|strap|grip|popsocket|stylus|lens|tripod|selfie|car mount|otterbox|spigen|for iphone|for samsung|for galaxy|for pixel|compatible with iphone|compatible with samsung|compatible with galaxy|compatible with pixel|replacement|repair|battery|sim |sim-|sim card|tray|button|speaker only|microphone|housing|frame|bezel|backplate|back plate|back glass|lcd|digitizer|oem part|ssd|portable ssd|external ssd|drive|storage|verre|protection|étui|coque)\b/i;
       const mapCatalogPhoneItems = async (rows: any[] | null | undefined): Promise<Product[]> => {
         const mapped = (await Promise.all((rows || []).map(async (item: any): Promise<Product | null> => {
           const candidates = collectProductImageCandidates(
@@ -594,6 +606,7 @@ export default function ShopHome() {
           );
           const tt = (item.title || '').toLowerCase();
           if (ACCESSORY_RE.test(tt)) return null;
+          if (!isHomepagePhoneHandset({ title: item.title || '' })) return null;
 
           const imageUrl = await pickBestImageAsync(candidates, item.image_url || item.imageUrl, {
             policy: 'homepage',
@@ -641,11 +654,13 @@ export default function ShopHome() {
 
       const generalRangeEnd = page === 0 ? (from + PHONES_PAGE_SIZE + HOMEPAGE_PHONE_RESERVED_COUNT + 24) : (from + PHONES_PAGE_SIZE - 1);
 
+      const brandSeedRangeEnd = HOMEPAGE_PHONE_ROW_SIZE * 8 - 1;
+
       const [generalRes, iphoneRes, pixelRes, galaxyRes] = await Promise.all([
         buildPhoneQuery(phoneOr, wantCount).range(from, generalRangeEnd),
-        page === 0 ? buildPhoneQuery(iphonePhoneOr).range(0, HOMEPAGE_PHONE_ROW_SIZE - 1) : Promise.resolve({ data: [], error: null } as any),
-        page === 0 ? buildPhoneQuery(pixelPhoneOr).range(0, HOMEPAGE_PHONE_ROW_SIZE - 1) : Promise.resolve({ data: [], error: null } as any),
-        page === 0 ? buildPhoneQuery(galaxyPhoneOr).range(0, HOMEPAGE_PHONE_ROW_SIZE - 1) : Promise.resolve({ data: [], error: null } as any),
+        page === 0 ? buildPhoneQuery(iphonePhoneOr).range(0, brandSeedRangeEnd) : Promise.resolve({ data: [], error: null } as any),
+        page === 0 ? buildPhoneQuery(pixelPhoneOr).range(0, brandSeedRangeEnd) : Promise.resolve({ data: [], error: null } as any),
+        page === 0 ? buildPhoneQuery(galaxyPhoneOr).range(0, brandSeedRangeEnd) : Promise.resolve({ data: [], error: null } as any),
       ]);
 
       if (generalRes.error) throw generalRes.error;

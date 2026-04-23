@@ -189,6 +189,12 @@ const MOBILE_SECTIONS: MobileSection[] = [
 const DEFAULT_POOL_SIZE = 300;
 const DEFAULT_PAGE_SIZE = 100;
 const DEFAULT_TTL_SECONDS = 172800; // 2 days
+const MOBILE_SMARTPHONE_PAGE_SIZE = 50;
+const MOBILE_PHONE_ROW_SIZE = 4;
+const MOBILE_PHONE_BRAND_SEQUENCE = ["iphone", "pixel", "galaxy"] as const;
+const MOBILE_PHONE_EXTRA_FILL = 2;
+const MOBILE_PHONE_RESERVED_COUNT = MOBILE_PHONE_ROW_SIZE * MOBILE_PHONE_BRAND_SEQUENCE.length + MOBILE_PHONE_EXTRA_FILL;
+const MOBILE_PHONE_ACCESSORY_RE = /\b(case|cover|protector|tempered glass|charger|cable|usb-?c|lightning|magsafe|airpods|earbud|earphone|power bank|holder|mount|stand|adapter|wireless charger|screen|skin|wrap|sleeve|pouch|wallet|lanyard|strap|grip|popsocket|stylus|lens|tripod|selfie|car mount|otterbox|spigen|for iphone|for samsung|for galaxy|for pixel|compatible with iphone|compatible with samsung|compatible with galaxy|compatible with pixel|replacement|repair|battery|sim |sim-|sim card|tray|button|speaker only|microphone|housing|frame|bezel|backplate|back plate|back glass|lcd|digitizer|oem part|ssd|portable ssd|external ssd|drive|storage|verre|protection|étui|coque)\b/i;
 
 interface FeedSettings {
   poolSize: number;
@@ -333,6 +339,248 @@ function flattenMobilePayload(
       imagelessFiltered: true,
     },
   };
+}
+
+function isHomepageSmartphoneHandset(title: string): boolean {
+  const lower = title.toLowerCase();
+  const iphoneMatch = /\biphone\s?(se|1[1-6]|xr|xs|x)\b/.test(lower);
+  const pixelMatch = /\bpixel\s?(6|7|8|9)\b/.test(lower);
+  const galaxyMatch = /\b(samsung\s+)?galaxy\s+(s\d{1,2}|note\s?\d*|z\s?(fold|flip))\b/.test(lower);
+  const oneplusMatch = /\boneplus\s+\d+/i.test(lower);
+  return iphoneMatch || pixelMatch || galaxyMatch || oneplusMatch;
+}
+
+function getHomepageSmartphoneBucket(item: Pick<CatalogItem, "title">): "iphone" | "pixel" | "galaxy" | "other" {
+  const title = (item.title || "").toLowerCase();
+  if (title.includes("iphone")) return "iphone";
+  if (title.includes("pixel")) return "pixel";
+  if (title.includes("galaxy") || title.includes("samsung")) return "galaxy";
+  return "other";
+}
+
+function prioritizeHomepageSmartphoneRows(items: CatalogItem[]): CatalogItem[] {
+  const buckets: Record<"iphone" | "pixel" | "galaxy" | "other", CatalogItem[]> = {
+    iphone: [],
+    pixel: [],
+    galaxy: [],
+    other: [],
+  };
+
+  for (const item of items) {
+    buckets[getHomepageSmartphoneBucket(item)].push(item);
+  }
+
+  const lead: CatalogItem[] = [];
+  for (const brand of MOBILE_PHONE_BRAND_SEQUENCE) {
+    const row = buckets[brand].slice(0, MOBILE_PHONE_ROW_SIZE);
+    while (row.length < MOBILE_PHONE_ROW_SIZE && buckets.other.length > 0) {
+      row.push(buckets.other.shift()!);
+    }
+    lead.push(...row);
+  }
+
+  const used = new Set(lead.map((item) => `${item.provider}:${item.provider_product_id}`));
+  const rest = items.filter((item) => !used.has(`${item.provider}:${item.provider_product_id}`));
+  return [...lead, ...rest];
+}
+
+async function fetchHomepagePhoneRows(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  orFilter: string,
+  offset: number,
+  limit: number,
+  withCount = false,
+): Promise<{ rows: Array<Record<string, unknown>>; count: number | null }> {
+  const params = new URLSearchParams();
+  params.set("select", "id,provider,provider_product_id,title,image_url,images,product_url,price_usd,in_stock");
+  params.set("is_active", "eq.true");
+  params.set("is_disallowed", "eq.false");
+  params.append("price_usd", "gte.80");
+  params.append("price_usd", "lte.1800");
+  params.set("provider", "in.(amazon,rainforest)");
+  params.set("or", `(${orFilter})`);
+  params.set("order", "updated_at.desc.nullslast");
+  params.set("offset", String(offset));
+  params.set("limit", String(limit));
+
+  const response = await fetch(`${supabaseUrl}/rest/v1/catalog_items?${params.toString()}`, {
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      Accept: "application/json",
+      ...(withCount ? { Prefer: "count=exact" } : {}),
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`phone rows fetch failed (${response.status}): ${body.slice(0, 240)}`);
+  }
+
+  const rows = await response.json();
+  const contentRange = response.headers.get("content-range") || "";
+  const countMatch = contentRange.match(/\/(\d+)$/);
+  return {
+    rows: Array.isArray(rows) ? rows : [],
+    count: countMatch ? parseInt(countMatch[1], 10) : null,
+  };
+}
+
+function mapHomepagePhoneRows(rows: Array<Record<string, unknown>>): CatalogItem[] {
+  const mapped: CatalogItem[] = [];
+  for (const row of rows) {
+    const title = String(row.title || "").trim();
+    if (!title) continue;
+    if (MOBILE_PHONE_ACCESSORY_RE.test(title.toLowerCase())) continue;
+    if (!isHomepageSmartphoneHandset(title)) continue;
+
+    const image = bestProductImage(
+      typeof row.image_url === "string" ? row.image_url : null,
+      row.images,
+    );
+    if (!image) continue;
+
+    const provider = String(row.provider || "amazon");
+    const providerProductId = String(row.provider_product_id || row.id || "").trim();
+    if (!providerProductId) continue;
+
+    const rawPrice = typeof row.price_usd === "number" ? row.price_usd : Number(row.price_usd || 0);
+    const price = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : null;
+    const productUrl = typeof row.product_url === "string" ? row.product_url : null;
+
+    mapped.push({
+      id: providerProductId,
+      provider,
+      provider_product_id: providerProductId,
+      title,
+      price_usd: price,
+      priceUsd: price,
+      currency: "USD",
+      image_url: image,
+      imageUrl: image,
+      product_url: productUrl,
+      productUrl: productUrl,
+      in_stock: row.in_stock !== false,
+    });
+  }
+  return mapped;
+}
+
+async function buildMobileHomepagePhonesResponse(
+  page: number,
+  locale: string,
+  correlationId: string,
+  envUsed: string,
+  envRequested: string,
+  detectedBy: string,
+): Promise<Response | null> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceRoleKey) return null;
+
+  const iphonePhoneOr = [
+    "title.ilike.%iphone 11%",
+    "title.ilike.%iphone 12%",
+    "title.ilike.%iphone 13%",
+    "title.ilike.%iphone 14%",
+    "title.ilike.%iphone 15%",
+    "title.ilike.%iphone 16%",
+    "title.ilike.%iphone se%",
+  ].join(",");
+  const galaxyPhoneOr = [
+    "title.ilike.%galaxy s21%",
+    "title.ilike.%galaxy s22%",
+    "title.ilike.%galaxy s23%",
+    "title.ilike.%galaxy s24%",
+    "title.ilike.%galaxy s25%",
+    "title.ilike.%galaxy note%",
+    "title.ilike.%galaxy z fold%",
+    "title.ilike.%galaxy z flip%",
+  ].join(",");
+  const pixelPhoneOr = [
+    "title.ilike.%pixel 7%",
+    "title.ilike.%pixel 8%",
+    "title.ilike.%pixel 9%",
+  ].join(",");
+  const phoneOr = [iphonePhoneOr, galaxyPhoneOr, pixelPhoneOr, "title.ilike.%oneplus %"].join(",");
+
+  try {
+    const safePage = Math.max(1, page || 1);
+    const zeroBasedPage = safePage - 1;
+    const offset = zeroBasedPage * MOBILE_SMARTPHONE_PAGE_SIZE;
+    const generalLimit = zeroBasedPage === 0
+      ? MOBILE_SMARTPHONE_PAGE_SIZE + MOBILE_PHONE_RESERVED_COUNT + 24
+      : MOBILE_SMARTPHONE_PAGE_SIZE;
+    const brandSeedLimit = MOBILE_PHONE_ROW_SIZE * 8;
+
+    const [generalRes, iphoneRes, pixelRes, galaxyRes] = await Promise.all([
+      fetchHomepagePhoneRows(supabaseUrl, serviceRoleKey, phoneOr, offset, generalLimit, true),
+      zeroBasedPage === 0
+        ? fetchHomepagePhoneRows(supabaseUrl, serviceRoleKey, iphonePhoneOr, 0, brandSeedLimit)
+        : Promise.resolve({ rows: [], count: null }),
+      zeroBasedPage === 0
+        ? fetchHomepagePhoneRows(supabaseUrl, serviceRoleKey, pixelPhoneOr, 0, brandSeedLimit)
+        : Promise.resolve({ rows: [], count: null }),
+      zeroBasedPage === 0
+        ? fetchHomepagePhoneRows(supabaseUrl, serviceRoleKey, galaxyPhoneOr, 0, brandSeedLimit)
+        : Promise.resolve({ rows: [], count: null }),
+    ]);
+
+    const rawRows = zeroBasedPage === 0
+      ? [...iphoneRes.rows, ...pixelRes.rows, ...galaxyRes.rows, ...generalRes.rows]
+      : generalRes.rows;
+
+    let items = deduplicateItems(mapHomepagePhoneRows(rawRows));
+    if (zeroBasedPage === 0) {
+      items = prioritizeHomepageSmartphoneRows(items);
+    }
+    items = items.slice(0, MOBILE_SMARTPHONE_PAGE_SIZE);
+
+    const totalItems = Math.max(generalRes.count || 0, items.length);
+    const totalPages = Math.max(1, Math.ceil(totalItems / MOBILE_SMARTPHONE_PAGE_SIZE));
+    const langKey: "fr" | "en" = locale === "en" ? "en" : "fr";
+    const title_en = "Smartphones";
+    const title_fr = "Smartphones";
+
+    return jsonResponse({
+      ok: true,
+      sections: normalizeSectionTitles([
+        {
+          key: "phones",
+          title: langKey === "en" ? title_en : title_fr,
+          title_en,
+          title_fr,
+          hideTitle: true,
+          items,
+        },
+      ], langKey),
+      page: safePage,
+      pageSize: MOBILE_SMARTPHONE_PAGE_SIZE,
+      totalPages,
+      totalItems,
+      hasMore: safePage < totalPages,
+      hasMoreCached: safePage < totalPages,
+      banners: [],
+      promos: [],
+      ads: [],
+      hero: null,
+      promotions: [],
+      correlationId,
+      meta: {
+        client: "mobile",
+        detectedBy,
+        envUsed,
+        envRequested,
+        source: "mobile_homepage_phones_db",
+        pageMode: "numeric",
+        matchesWebHomepagePhones: true,
+      },
+    });
+  } catch (error) {
+    console.warn(`[CATALOG_HOME] mobile_homepage_phones_error correlationId=${correlationId} error=${error}`);
+    return null;
+  }
 }
 
 function jsonResponse(data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
@@ -1212,6 +1460,21 @@ serve(async (req) => {
         } catch (err) {
           console.warn(`[CATALOG_HOME] section_browse delegation error: ${err}`);
         }
+      }
+    }
+
+    const wantsMobileHomepagePhones = clientType === "mobile" && !category && !sectionKey && !forceLive;
+    if (wantsMobileHomepagePhones) {
+      const mobileHomepageResponse = await buildMobileHomepagePhonesResponse(
+        page,
+        locale,
+        correlationId,
+        env,
+        envRequested,
+        detectedBy,
+      );
+      if (mobileHomepageResponse) {
+        return mobileHomepageResponse;
       }
     }
 

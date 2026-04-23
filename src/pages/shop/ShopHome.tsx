@@ -100,14 +100,26 @@ const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_mo
 const HOMEPAGE_HARD_PRICE_CEILING_USD = 500;
 const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v8';
 const HOMEPAGE_MANUAL_FEED_KEY = 'afrishop_homepage_manual_v1';
-const HOMEPAGE_LOCKED_PHONES_KEY = 'afrishop_homepage_phones_v3';
-const HOMEPAGE_PHONE_ROW_SIZE = 4;
-const HOMEPAGE_PHONE_BRAND_SEQUENCE = ['iphone', 'pixel', 'galaxy'] as const;
-// Extra items appended after the 3 brand rows so the grid never shows empty
-// trailing slots when bulk results aren't a perfect multiple of the row size.
-const HOMEPAGE_PHONE_EXTRA_FILL = 2;
+// ============================================================================
+// 🔒 LOCKED HOMEPAGE PHONE GRID CONFIG — DO NOT MODIFY
+// ----------------------------------------------------------------------------
+// These values were tuned with the user and must remain stable:
+//   • Row size = 4 (matches desktop grid columns, no empty trailing slots)
+//   • Brand sequence = iPhone → Pixel → Galaxy (row 1, 2, 3)
+//   • Extra fill = 2 (prevents void slots when bulk results aren't aligned)
+//   • Default sort = cheapest (ascending price, end-to-end)
+// Object.freeze prevents accidental in-place mutation at runtime.
+// To intentionally change these, bump HOMEPAGE_LOCKED_PHONES_KEY to clear
+// stale local-storage caches, then update with explicit user approval.
+// ============================================================================
+const HOMEPAGE_LOCKED_PHONES_KEY = 'afrishop_homepage_phones_v3' as const;
+const HOMEPAGE_PHONE_ROW_SIZE = 4 as const;
+const HOMEPAGE_PHONE_BRAND_SEQUENCE = Object.freeze(['iphone', 'pixel', 'galaxy'] as const);
+const HOMEPAGE_PHONE_EXTRA_FILL = 2 as const;
 const HOMEPAGE_PHONE_RESERVED_COUNT =
-  HOMEPAGE_PHONE_ROW_SIZE * HOMEPAGE_PHONE_BRAND_SEQUENCE.length + HOMEPAGE_PHONE_EXTRA_FILL;
+  (HOMEPAGE_PHONE_ROW_SIZE * HOMEPAGE_PHONE_BRAND_SEQUENCE.length + HOMEPAGE_PHONE_EXTRA_FILL) as const;
+const HOMEPAGE_PHONE_DEFAULT_SORT = 'cheapest' as const;
+// 🔒 END LOCKED CONFIG ========================================================
 
 /**
  * Interleave phone listings so iPhone, Galaxy and Pixel are visibly mixed

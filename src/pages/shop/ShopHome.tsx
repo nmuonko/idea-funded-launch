@@ -416,7 +416,7 @@ export default function ShopHome() {
       const mapped = (data || [])
         .map((item: any): Product | null => {
           const fallback = extractFirstImageFromJson(item.images);
-          const preferred = isRenderableImageUrl(item.image_url) ? item.image_url : fallback;
+          const preferred = fallback || (isRenderableImageUrl(item.image_url) ? item.image_url : null);
           if (!preferred || !isRenderableImageUrl(preferred)) return null;
           const tt = (item.title || '').toLowerCase();
           if (ACCESSORY_RE.test(tt)) return null;

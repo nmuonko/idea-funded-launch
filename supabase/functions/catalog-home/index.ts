@@ -540,7 +540,18 @@ async function buildMobileHomepagePhonesResponse(
       : generalRes.rows;
 
     let items = deduplicateItems(mapHomepagePhoneRows(rawRows));
-    // Enforce cheapest-first across the merged set (web parity).
+    // Apply all-inclusive pricing (markup + shipping + rounding) so the homepage
+    // tile price matches the product detail page and cart exactly.
+    try {
+      const pSettings = await loadPricingSettings();
+      items = applyAllInclusivePricingToItems(
+        items as unknown as Record<string, unknown>[],
+        pSettings,
+      ) as typeof items;
+    } catch (e) {
+      console.error(`[CATALOG_HOME] mobile_phones pricing transform error:`, e);
+    }
+    // Re-sort cheapest-first AFTER all-inclusive pricing (markup can shift order).
     items.sort((a, b) => (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
     items = items.slice(0, MOBILE_SMARTPHONE_PAGE_SIZE);
 

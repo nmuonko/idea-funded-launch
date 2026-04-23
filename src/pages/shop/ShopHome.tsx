@@ -1563,9 +1563,32 @@ export default function ShopHome() {
     } else if (sortBy === 'priciest') {
       list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
     } else {
-      // Default view: interleave iPhone / Galaxy / Pixel so all three brands
-      // are visibly mixed within the first rows of the homepage phones grid.
-      list = interleavePhoneBrands(list);
+      // Default view: group by brand into full rows so the first row is
+      // iPhones, the second row is Google Pixel, and the third row is Samsung
+      // Galaxy. The grid uses up to 6 columns (xl), so we slice each brand to
+      // a multiple of 6 and stack them in fixed order.
+      const ROW_SIZE = 6;
+      const buckets: Record<'iphone' | 'pixel' | 'galaxy' | 'other', Product[]> = {
+        iphone: [], pixel: [], galaxy: [], other: [],
+      };
+      for (const p of list) {
+        const t = (p.title || '').toLowerCase();
+        if (t.includes('iphone')) buckets.iphone.push(p);
+        else if (t.includes('pixel')) buckets.pixel.push(p);
+        else if (t.includes('galaxy') || t.includes('samsung')) buckets.galaxy.push(p);
+        else buckets.other.push(p);
+      }
+      const takeRow = (arr: Product[]) => arr.slice(0, ROW_SIZE);
+      const ordered = [
+        ...takeRow(buckets.iphone),
+        ...takeRow(buckets.pixel),
+        ...takeRow(buckets.galaxy),
+      ];
+      // Append any remaining products after the three brand rows so we keep
+      // a full grid below without leaving empty slots.
+      const usedIds = new Set(ordered.map(p => p.id));
+      const rest = list.filter(p => !usedIds.has(p.id));
+      list = [...ordered, ...rest];
     }
     // Grid uses up to 6 cols (xl). Trim to a multiple of 12 so the last visible
     // row is always full and never shows orphan empty slots.

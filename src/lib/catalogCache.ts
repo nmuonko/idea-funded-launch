@@ -460,7 +460,7 @@ export function clearCatalogHomeCache(): number {
  * Used for automatic recovery when startup network errors are detected.
  */
 export function clearAllCatalogCache(): number {
-  const prefixes = ['afrishop_cache:', 'afrishop_curated:', 'afrishop_curated_v2:'];
+  const prefixes = ['afrishop_cache:', 'afrishop_curated', 'afrishop_image_validation:'];
   const keysToRemove: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);

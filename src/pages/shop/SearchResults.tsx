@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { normalizeQuery, stableStringify, cachedCatalogFetchWithSwr, cachedCatalogFetch, generateCacheKey, getCached } from '@/lib/catalogCache';
-import { isRenderableImageUrl } from '@/lib/imageValidation';
+import { collectProductImageCandidates, pickBestImage } from '@/lib/imageValidation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 const PAGE_SIZE = 500;
@@ -46,12 +46,22 @@ function dedupeWithSet(list: Product[], seenIds: Set<string>): Product[] {
 /** Map raw API items to Product interface, filtering out bad images */
 function mapItems(items: any[]): Product[] {
   return items.map((item: any) => {
-    const rawImage = item.image_url || item.imageUrl || '';
+    const candidates = collectProductImageCandidates(
+      item.image_url,
+      item.imageUrl,
+      item.mainImageUrl,
+      item.image,
+      item.images,
+      item.imageUrls,
+    );
+    const imageUrl = pickBestImage(candidates);
     return {
       id: item.provider_product_id || item.id,
       provider: item.provider || 'amazon',
       title: item.title || 'Product',
-      imageUrl: isRenderableImageUrl(rawImage) ? rawImage : '',
+      imageUrl: imageUrl === '/placeholder.svg' ? '' : imageUrl,
+      images: candidates,
+      imageUrls: candidates,
       priceUsd: item.price_usd || item.priceUsd || 0,
       rating: item.rating,
       inStock: item.in_stock !== false,

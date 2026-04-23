@@ -21,7 +21,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { translations } from '@/lib/i18n/translations';
 import { getRecentlyViewed } from '@/lib/recentlyViewed';
-import { isRenderableImageUrl } from '@/lib/imageValidation';
+import { clearImageValidationCaches, collectProductImageCandidates, isRenderableImageUrl, pickBestImage } from '@/lib/imageValidation';
 import { supabase } from '@/integrations/supabase/client';
 import { applyServerPrices, resolveDisplayPrice } from '@/lib/serverPricing';
 
@@ -98,7 +98,7 @@ const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set<string>(['vehicles', 'cars']);
 const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_motors']);
 // Hard ceiling enforced for non-exempt categories.
 const HOMEPAGE_HARD_PRICE_CEILING_USD = 500;
-const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v6';
+const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v7';
 
 function getCategoryMaxPrice(categoryKey?: string): number {
   if (!categoryKey) return HOMEPAGE_DEFAULT_MAX_PRICE_USD;
@@ -139,13 +139,13 @@ function getCachedCategoryResult(catKey: string): Product[] | null {
     const { items, ts } = JSON.parse(raw);
     if (Date.now() - ts > CURATED_CACHE_TTL_MS) return null;
     if (!Array.isArray(items) || items.length === 0) return null;
-    return keepEnoughHomepageProducts(items, catKey);
+    return curateHomepageProducts(keepEnoughHomepageProducts(items, catKey), `cache:${catKey}`);
   } catch { return null; }
 }
 
 function setCachedCategoryResult(catKey: string, items: Product[]) {
   try {
-    const filteredItems = keepEnoughHomepageProducts(items, catKey);
+    const filteredItems = curateHomepageProducts(keepEnoughHomepageProducts(items, catKey), `cache-write:${catKey}`);
     if (filteredItems.length > 0) {
       localStorage.setItem(`${CURATED_CATEGORY_CACHE_PREFIX}:${catKey}`, JSON.stringify({ items: filteredItems, ts: Date.now() }));
     }
@@ -154,13 +154,31 @@ function setCachedCategoryResult(catKey: string, items: Product[]) {
 
 // ====== HELPERS ======
 
+const resolveProductImages = (item: any, policy: 'default' | 'homepage' = 'default') => {
+  const candidates = collectProductImageCandidates(
+    item.image_url,
+    item.imageUrl,
+    item.mainImageUrl,
+    item.image,
+    item.images,
+    item.imageUrls,
+  );
+  const imageUrl = pickBestImage(candidates, undefined, { policy });
+  return {
+    candidates,
+    imageUrl: imageUrl === '/placeholder.svg' ? '' : imageUrl,
+  };
+};
+
 const mapItemToProduct = (item: HomeFeedResponse['sections'][0]['items'][0]): Product => {
-  const rawImage = item.image_url || item.imageUrl || '';
+  const { candidates, imageUrl } = resolveProductImages(item);
   return {
     id: item.provider_product_id || item.id || '',
     provider: item.provider || 'amazon',
     title: item.title || 'Product',
-    imageUrl: isRenderableImageUrl(rawImage) ? rawImage : '',
+    imageUrl,
+    images: candidates,
+    imageUrls: candidates,
     priceUsd: item.price_usd || item.priceUsd || 0,
     rating: item.rating,
     inStock: item.in_stock !== false,
@@ -186,12 +204,14 @@ const parsePrice = (item: any): number => {
 };
 
 const mapSearchItemToProduct = (item: any): Product => {
-  const rawImage = item.imageUrl || item.mainImageUrl || item.image_url || item.image || '';
+  const { candidates, imageUrl } = resolveProductImages(item);
   return {
     id: item.id || item.providerProductId || item.provider_product_id || item.itemId || item.asin || item.productUrl || item.product_url || item.url || '',
     provider: item.provider === 'rainforest' ? 'amazon' : (item.provider || 'amazon'),
     title: item.title || 'Product',
-    imageUrl: isRenderableImageUrl(rawImage) ? rawImage : '',
+    imageUrl,
+    images: candidates,
+    imageUrls: candidates,
     priceUsd: parsePrice(item),
     rating: item.rating,
     inStock: item.inStock !== false,
@@ -274,6 +294,36 @@ const deriveProviderImageFallback = (provider: string, providerProductId?: strin
     return `https://vexgateway.fastly.carvana.io/${providerProductId}/standardizedHero.jpg?width=800`;
   }
   return null;
+};
+
+const getStrictHomepageImage = (product: Partial<Product> & Record<string, any>): string | null => {
+  const candidates = collectProductImageCandidates(product.imageUrl, product.images, product.imageUrls);
+  const selected = pickBestImage(candidates, undefined, { policy: 'homepage' });
+  return selected === '/placeholder.svg' ? null : selected;
+};
+
+const curateHomepageProducts = (items: Product[], surface: string): Product[] => {
+  return items.flatMap((product) => {
+    const selected = getStrictHomepageImage(product as Product & Record<string, any>);
+    if (!selected) {
+      console.info('[ShopHome] Removed product with no clean homepage image', {
+        surface,
+        productId: product.id,
+        title: product.title,
+      });
+      return [];
+    }
+
+    if (selected !== product.imageUrl) {
+      console.info('[ShopHome] Replaced homepage image with clean fallback', {
+        surface,
+        productId: product.id,
+        selectedImage: selected,
+      });
+    }
+
+    return [{ ...product, imageUrl: selected }];
+  });
 };
 
 export default function ShopHome() {
@@ -415,29 +465,17 @@ export default function ShopHome() {
       const ACCESSORY_RE = /\b(case|cover|protector|tempered glass|charger|cable|usb-?c|lightning|magsafe|airpods|earbud|earphone|power bank|holder|mount|stand|adapter|wireless charger|screen|skin|wrap|sleeve|pouch|wallet|lanyard|strap|grip|popsocket|stylus|lens|tripod|selfie|car mount|otterbox|spigen|for iphone|for samsung|for galaxy|for pixel|replacement|repair|battery|sim |sim-|sim card|tray|button|speaker only|microphone|housing|frame|bezel|backplate|back plate|back glass|lcd|digitizer|oem part|verre|protection|étui|coque)\b/i;
       const mapped = (data || [])
         .map((item: any): Product | null => {
-          const fallback = extractFirstImageFromJson(item.images);
-          const preferred = fallback || (isRenderableImageUrl(item.image_url) ? item.image_url : null);
-          if (!preferred || !isRenderableImageUrl(preferred)) return null;
+          const { candidates, imageUrl } = resolveProductImages(item, 'homepage');
+          if (!imageUrl) return null;
           const tt = (item.title || '').toLowerCase();
           if (ACCESSORY_RE.test(tt)) return null;
-          const gallery = Array.isArray(item.images)
-            ? item.images
-                .flatMap((img: any) => {
-                  if (typeof img === 'string') return [img];
-                  if (!img || typeof img !== 'object') return [];
-                  return [img.url, img.image, img.src, img.large, img.hiRes, img.hi_res, img.main].filter(
-                    (v): v is string => typeof v === 'string'
-                  );
-                })
-                .filter(Boolean)
-            : [];
           return {
             id: item.provider_product_id || item.id,
             provider: item.provider || 'amazon',
             title: item.title || 'Phone',
-            imageUrl: preferred,
-            images: gallery,
-            imageUrls: gallery,
+            imageUrl,
+            images: candidates,
+            imageUrls: candidates,
             priceUsd: item.price_usd || 0,
             rating: item.rating,
             inStock: item.in_stock !== false,
@@ -503,19 +541,19 @@ export default function ShopHome() {
       if (error) throw error;
 
       const totalCount = count ?? 0;
-      const mapped = (data || [])
+        const mapped = (data || [])
         .map((item: any): Product | null => {
-          const fallbackImage = extractFirstImageFromJson(item.images);
+          const { candidates, imageUrl } = resolveProductImages(item);
           const providerFallback = deriveProviderImageFallback(item.provider || provider, item.provider_product_id || item.id);
-          const preferred = isRenderableImageUrl(item.image_url)
-            ? item.image_url
-            : (fallbackImage || providerFallback);
+          const preferred = imageUrl || providerFallback;
           if (!preferred || !isRenderableImageUrl(preferred)) return null;
           return {
             id: item.provider_product_id || item.id,
             provider: item.provider || provider,
             title: item.title || 'Product',
             imageUrl: preferred,
+            images: candidates,
+            imageUrls: candidates,
             priceUsd: item.price_usd || 0, // will be resolved below
             rating: item.rating,
             inStock: item.in_stock !== false,
@@ -698,6 +736,10 @@ export default function ShopHome() {
     // On retry, clear all local caches so we get a truly fresh request
     if (forceRefresh) {
       clearAllCatalogCache();
+      clearImageValidationCaches();
+      bulkPhonesPageCacheRef.current = {};
+      categoryProductsCacheRef.current = {};
+      storeProductsCacheRef.current = {};
     }
 
     const params = {
@@ -722,9 +764,9 @@ export default function ShopHome() {
       }
 
       if (data?.sections?.length) {
-        const all = filterHomepageProducts(
+        const all = curateHomepageProducts(filterHomepageProducts(
           data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0)
-        );
+        ), 'accueil');
         setAccueilProducts(all);
       }
     } catch (err: any) {
@@ -738,6 +780,10 @@ export default function ShopHome() {
   const handleFullRetry = useCallback(() => {
     // 1. Clear ALL caches (localStorage + memory)
     clearAllCatalogCache();
+    clearImageValidationCaches();
+    bulkPhonesPageCacheRef.current = {};
+    categoryProductsCacheRef.current = {};
+    storeProductsCacheRef.current = {};
 
     // 2. Reset all state
     setAccueilProducts([]);
@@ -1188,11 +1234,11 @@ export default function ShopHome() {
           items = keepEnoughHomepageProducts(deduplicateProducts(sortByLuxury(items)), catKey).slice(0, 4);
         }
 
-        items = keepEnoughHomepageProducts(items, catKey);
+        items = curateHomepageProducts(keepEnoughHomepageProducts(items, catKey), `category:${catKey}`);
         if (items.length < 4) {
-          items = await searchCategoryRescue(catKey, items, 4);
+          items = curateHomepageProducts(await searchCategoryRescue(catKey, items, 4), `category-rescue:${catKey}`);
         }
-        items = keepEnoughHomepageProducts(deduplicateProducts(sortByLuxury(items)), catKey).slice(0, 4);
+        items = curateHomepageProducts(keepEnoughHomepageProducts(deduplicateProducts(sortByLuxury(items)), catKey).slice(0, 4), `category-final:${catKey}`);
 
         if (SLOW_CATEGORIES.has(catKey)) {
           setCachedCategoryResult(catKey, items);
@@ -1313,7 +1359,7 @@ export default function ShopHome() {
   const getHomepageCategoryItems = useCallback((catKey: string) => {
     const pinnedItems = pinnedByCategory[catKey] || [];
     const fetchedItems = categoryItems[catKey] || [];
-    const withImages = (arr: Product[]) => arr.filter(p => !!p.imageUrl && isRenderableImageUrl(p.imageUrl));
+    const withImages = (arr: Product[]) => curateHomepageProducts(arr.filter(p => !!p.imageUrl && isRenderableImageUrl(p.imageUrl)), `homepage-category:${catKey}`);
     const primary = withImages(filterForCategory(deduplicateProducts([...pinnedItems, ...fetchedItems]), catKey));
 
     if (primary.length >= 4) {
@@ -1383,11 +1429,7 @@ export default function ShopHome() {
   // ad/banner/promo URLs — these would otherwise render as empty/null cards
   // and create visual gaps that look like "ad slots" on the homepage.
   const sortedPhones = useMemo(() => {
-    const cleaned = phonesRowItems.filter((p: any) => {
-      const candidates = [p.imageUrl, ...((p.images as string[]) || []), ...((p.imageUrls as string[]) || [])]
-        .filter(Boolean);
-      return candidates.some((u: string) => isRenderableImageUrl(u));
-    });
+    const cleaned = curateHomepageProducts(phonesRowItems, 'phones-grid');
     const list = [...cleaned];
     if (sortBy === 'cheapest') list.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
     else if (sortBy === 'priciest') list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
@@ -1469,7 +1511,7 @@ export default function ShopHome() {
             id: (item as any).provider_product_id || (item as any).catalog_item_id,
             provider: (item as any).provider || 'ebay',
             title: (item as any).title || 'Product',
-            imageUrl: (item as any).image_url || '',
+            imageUrl: pickBestImage(collectProductImageCandidates((item as any).image_url), undefined, { policy: 'homepage' }),
             priceUsd: Number((item as any).price_usd) || 0,
             inStock: true,
           };
@@ -1479,7 +1521,7 @@ export default function ShopHome() {
         // Resolve all pinned prices server-side in one batch
         await applyServerPrices(allPinned);
         for (const [catKey, products] of Object.entries(grouped)) {
-          grouped[catKey] = filterHomepageProducts(products, catKey);
+          grouped[catKey] = curateHomepageProducts(filterHomepageProducts(products, catKey), `pinned:${catKey}`);
         }
         setPinnedByCategory(grouped);
         const loadingUpdates: Record<string, boolean> = {};
@@ -1508,9 +1550,9 @@ export default function ShopHome() {
             client: 'web',
           }, { skipCache: true });
           if (data?.sections?.length) {
-            const all = filterHomepageProducts(
+            const all = curateHomepageProducts(filterHomepageProducts(
               data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0)
-            );
+            ), 'initial-accueil');
             setAccueilProducts(all);
           }
         } catch (err: any) {

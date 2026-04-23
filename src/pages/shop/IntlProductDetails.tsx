@@ -10,6 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { toast } from 'sonner';
+import { collectProductImageCandidates, pickBestImage } from '@/lib/imageValidation';
 
 interface CountryMeta {
   country: string;
@@ -44,6 +45,24 @@ interface IntlProduct {
   is_active?: boolean;
   options?: { name: string; values: string[] }[];
   variants?: ShopifyVariant[];
+}
+
+function mapChinaCatalogItem(row: any): IntlProduct | null {
+  const candidates = collectProductImageCandidates(row.image_url, row.images, row.imageUrl, row.imageUrls);
+  const imageUrl = pickBestImage(candidates, row.image_url, { policy: 'homepage' });
+  if (!imageUrl || imageUrl === '/placeholder.svg') return null;
+  return {
+    id: String(row.id),
+    country: 'china',
+    title: row.title || 'Product',
+    image_url: imageUrl,
+    images: candidates,
+    product_url: row.product_url || '',
+    base_price_usd: Number(row.price_usd) || 0,
+    est_weight_kg: 0.8,
+    description: row.description || null,
+    measurements: null,
+  };
 }
 
 const ALLOWED = new Set(['china', 'dubai', 'turkey']);
@@ -105,12 +124,30 @@ export default function IntlProductDetails() {
       setLoading(true);
       const productPromise: Promise<{ data: IntlProduct | null }> = key === 'china'
         ? supabase.functions.invoke('shopify-products', { body: {} })
-            .then((r: any) => {
+            .then(async (r: any) => {
               const list: IntlProduct[] = r?.data?.products ?? [];
               const found = list.find((p) => String(p.id) === String(id)) || null;
-              return { data: found };
+              if (found) return { data: found };
+
+              const { data } = await supabase
+                .from('catalog_items')
+                .select('id, title, image_url, images, product_url, price_usd, description, provider')
+                .eq('id', id)
+                .eq('provider', 'shein')
+                .maybeSingle();
+
+              return { data: data ? mapChinaCatalogItem(data) : null };
             })
-            .catch(() => ({ data: null }))
+            .catch(async () => {
+              const { data } = await supabase
+                .from('catalog_items')
+                .select('id, title, image_url, images, product_url, price_usd, description, provider')
+                .eq('id', id)
+                .eq('provider', 'shein')
+                .maybeSingle();
+
+              return { data: data ? mapChinaCatalogItem(data) : null };
+            })
         : ((supabase.from('international_products' as any).select('*').eq('id', id).maybeSingle()) as any);
 
       const [metaRes, settingsRes, prodRes] = await Promise.all([

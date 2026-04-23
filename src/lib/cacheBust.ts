@@ -3,7 +3,12 @@ declare const __BUILD_VERSION__: string;
 const BUILD_KEY = 'afrishop_build_version';
 const RELOAD_KEY = 'afrishop_build_reload_once';
 const CACHE_PREFIXES = ['afrishop_cache:', 'afrishop_curated', 'afrishop_image_validation:'];
-const EXACT_KEYS = ['afrishop_recent_searches', 'afrishop_recently_viewed'];
+const EXACT_KEYS = [
+  'afrishop_recent_searches',
+  'afrishop_recently_viewed',
+  'afrishop_homepage_manual_v1',
+  'afrishop_homepage_phones_v1',
+];
 
 function clearStaleKeys(): number {
   const toRemove: string[] = [];

@@ -140,6 +140,10 @@ const BLOCKED_TOKENS = [
 const HOMEPAGE_STRICT_TOKENS = [
   'shop-top-categories', 'shop_top_categories',
   'top-categories', 'top_categories',
+  'in-the-box', 'in_the_box',
+  'what-is-in-the-box', 'whats-in-the-box', 'whats_in_the_box',
+  'included-in-the-box', 'included_in_the_box',
+  'box-contents', 'box_contents',
   'promo-strip', 'promo_strip',
   'ad-strip', 'ad_strip',
   'shipping-strip', 'shipping_strip',
@@ -159,6 +163,7 @@ const HOMEPAGE_SUSPECT_FILENAME_WORDS = new Set([
   'ad', 'ads', 'banner', 'promo', 'promotion', 'shop', 'store', 'category', 'categories',
   'deal', 'deals', 'offer', 'offers', 'shipping', 'delivery', 'hero', 'brand', 'sponsored',
   'internationally', 'global', 'renewed', 'tile', 'tiles', 'marketing', 'campaign',
+  'box', 'contents', 'included', 'inside',
 ]);
 
 const PRODUCT_IMAGE_FIELD_KEYS = [
@@ -263,6 +268,10 @@ function analyzeImageComposition(
     const rowCoverage = rows.size / sampleHeight;
     const colCoverage = cols.size / sampleWidth;
     const fillRatio = fgCount / (sampleWidth * sampleHeight);
+    const leftMarginRatio = minX / sampleWidth;
+    const rightMarginRatio = (sampleWidth - maxX - 1) / sampleWidth;
+    const topMarginRatio = minY / sampleHeight;
+    const bottomMarginRatio = (sampleHeight - maxY - 1) / sampleHeight;
 
     if (bboxHeightRatio < 0.22 && bboxWidthRatio > 0.38) {
       return { ok: false, reason: 'composition-thin-strip' };
@@ -283,6 +292,17 @@ function analyzeImageComposition(
       }
       if (fillRatio < 0.09 && colCoverage > 0.34) {
         return { ok: false, reason: 'homepage-composition-sparse-banner' };
+      }
+      if (
+        bboxWidthRatio > 0.58 &&
+        bboxHeightRatio > 0.58 &&
+        fillRatio < 0.2 &&
+        leftMarginRatio > 0.06 &&
+        rightMarginRatio > 0.06 &&
+        topMarginRatio > 0.05 &&
+        bottomMarginRatio > 0.05
+      ) {
+        return { ok: false, reason: 'homepage-composition-box-layout' };
       }
     }
 

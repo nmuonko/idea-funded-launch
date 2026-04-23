@@ -9,6 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { toast } from 'sonner';
+import { collectProductImageCandidates, pickBestImage } from '@/lib/imageValidation';
 
 interface CountryMeta {
   country: string;
@@ -29,6 +30,24 @@ interface IntlProduct {
   est_weight_kg: number;
   description: string | null;
   measurements?: string | null;
+}
+
+function mapChinaCatalogItem(row: any): IntlProduct | null {
+  const candidates = collectProductImageCandidates(row.image_url, row.images, row.imageUrl, row.imageUrls);
+  const imageUrl = pickBestImage(candidates, row.image_url, { policy: 'homepage' });
+  if (!imageUrl || imageUrl === '/placeholder.svg') return null;
+  return {
+    id: String(row.id),
+    country: 'china',
+    title: row.title || 'Product',
+    image_url: imageUrl,
+    images: candidates,
+    product_url: row.product_url || '',
+    base_price_usd: Number(row.price_usd) || 0,
+    est_weight_kg: 0.8,
+    description: row.description || null,
+    measurements: null,
+  };
 }
 
 const ALLOWED = new Set(['china', 'dubai', 'turkey', 'usa']);
@@ -62,8 +81,35 @@ export default function CountryShop() {
       setLoading(true);
       const productsPromise = key === 'china'
         ? supabase.functions.invoke('shopify-products', { body: {} })
-            .then((r: any) => ({ data: r?.data?.products ?? [] }))
-            .catch(() => ({ data: [] }))
+            .then(async (r: any) => {
+              const liveProducts = Array.isArray(r?.data?.products) ? r.data.products : [];
+              if (liveProducts.length > 0) return { data: liveProducts };
+
+              const { data } = await supabase
+                .from('catalog_items')
+                .select('id, title, image_url, images, product_url, price_usd, description, provider')
+                .eq('provider', 'shein')
+                .eq('is_active', true)
+                .eq('is_disallowed', false)
+                .gt('price_usd', 0)
+                .order('updated_at', { ascending: false })
+                .limit(48);
+
+              return { data: (data || []).map(mapChinaCatalogItem).filter(Boolean) };
+            })
+            .catch(async () => {
+              const { data } = await supabase
+                .from('catalog_items')
+                .select('id, title, image_url, images, product_url, price_usd, description, provider')
+                .eq('provider', 'shein')
+                .eq('is_active', true)
+                .eq('is_disallowed', false)
+                .gt('price_usd', 0)
+                .order('updated_at', { ascending: false })
+                .limit(48);
+
+              return { data: (data || []).map(mapChinaCatalogItem).filter(Boolean) };
+            })
         : (supabase.from('international_products' as any)
             .select('*')
             .eq('country', key)

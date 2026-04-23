@@ -1605,6 +1605,17 @@ Deno.serve(async (req: Request) => {
         const images = upgradeGalleryImages(rawImages, "rainforest");
         const mainImage = images[0] || null;
 
+        const legacyDescription = buildProductDescription(
+          { description: legacyItem.description || null },
+          rawData,
+        );
+        const legacyBullets = Array.from(new Set([
+          ...toStringList(rawData?.feature_bullets),
+          ...toStringList(rawData?.bullet_points),
+          ...toStringList(rawData?.about_this_item),
+          ...toStringList(rawData?.highlights),
+        ])).slice(0, 12);
+
         const item: CatalogItem = {
           id: fullProductId,
           provider: "rainforest",
@@ -1618,48 +1629,16 @@ Deno.serve(async (req: Request) => {
           productUrl: legacyItem.product_url || null,
           inStock: legacyItem.in_stock ?? null,
           rating: legacyItem.rating || null,
-          description: buildProductDescription(
-            { description: legacyItem.description || null },
-            rawData,
-          ),
-          product_description: buildProductDescription(
-            { description: legacyItem.description || null },
-            rawData,
-          ),
-          long_description: buildProductDescription(
-            { description: legacyItem.description || null },
-            rawData,
-          ),
-          shortDescription: normalizeDescriptionText(rawData?.shortDescription) || buildProductDescription(
-            { description: legacyItem.description || null },
-            rawData,
-          ),
-          feature_bullets: Array.from(new Set([
-            ...toStringList(rawData?.feature_bullets),
-            ...toStringList(rawData?.bullet_points),
-            ...toStringList(rawData?.about_this_item),
-            ...toStringList(rawData?.highlights),
-          ])).slice(0, 12),
-          bullet_points: Array.from(new Set([
-            ...toStringList(rawData?.feature_bullets),
-            ...toStringList(rawData?.bullet_points),
-            ...toStringList(rawData?.about_this_item),
-            ...toStringList(rawData?.highlights),
-          ])).slice(0, 12),
-          about_this_item: Array.from(new Set([
-            ...toStringList(rawData?.feature_bullets),
-            ...toStringList(rawData?.bullet_points),
-            ...toStringList(rawData?.about_this_item),
-            ...toStringList(rawData?.highlights),
-          ])).slice(0, 12),
-          highlights: Array.from(new Set([
-            ...toStringList(rawData?.feature_bullets),
-            ...toStringList(rawData?.bullet_points),
-            ...toStringList(rawData?.about_this_item),
-            ...toStringList(rawData?.highlights),
-          ])).slice(0, 12),
+          description: legacyDescription,
+          product_description: legacyDescription,
+          long_description: legacyDescription,
+          shortDescription: normalizeDescriptionText(rawData?.shortDescription) || legacyDescription,
+          feature_bullets: legacyBullets.length > 0 ? legacyBullets : null,
+          bullet_points: legacyBullets.length > 0 ? legacyBullets : null,
+          about_this_item: legacyBullets.length > 0 ? legacyBullets : null,
+          highlights: legacyBullets.length > 0 ? legacyBullets : null,
           brand: legacyItem.brand || null,
-
+        };
         // Check variants cache before returning legacy data
         const legacyCachedVariants = await getCachedVariants();
         if (legacyCachedVariants) {

@@ -689,6 +689,13 @@ interface CatalogItem {
   rating: number | null;
   reviewCount?: number | null;
   description?: string | null;
+  product_description?: string | null;
+  long_description?: string | null;
+  shortDescription?: string | null;
+  feature_bullets?: string[] | null;
+  bullet_points?: string[] | null;
+  about_this_item?: string[] | null;
+  highlights?: string[] | null;
   brand?: string | null;
   category?: string | null;
   categoryKey?: string | null;

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ShoppingCart, Check, Loader2, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
-import { isRenderableImageUrl, handleImageLoad, handleImageError, pickBestImage } from '@/lib/imageValidation';
+import { collectProductImageCandidates, handleImageLoad, handleImageError, pickBestImage } from '@/lib/imageValidation';
 
 export interface Product {
   id: string;
@@ -30,58 +30,41 @@ interface ProductCardProps {
   coverImage?: boolean;
 }
 
-// Use shared image validator — single source of truth
-function isLikelyPromotionalImageUrl(url: string): boolean {
-  return !isRenderableImageUrl(url);
-}
-
 export function ProductCard({ product, className, compact = false, coverImage = false }: ProductCardProps) {
   const { addItem, addToSaved, removeFromSaved, isItemSaved, exchangeRate, feeSettings } = useShopCart();
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
   // Collect all candidate gallery images for fallback
-  const galleryImages = [...new Set([
-    product.imageUrl,
-    ...(product.images || []),
-    ...(product.imageUrls || []),
-  ].filter(Boolean))];
+  const galleryImages = useMemo(
+    () => collectProductImageCandidates(product.imageUrl, product.images, product.imageUrls),
+    [product.imageUrl, product.images, product.imageUrls]
+  );
+  const imagePolicy = compact ? 'homepage' : 'default';
+  const fallbackImages = useMemo(() => {
+    const selected = pickBestImage(galleryImages, product.imageUrl, { policy: imagePolicy });
+    const normalizedSelected = resizeImageUrl(selected, IMAGE_SIZE_THUMB);
+    return galleryImages
+      .map((url) => resizeImageUrl(url, IMAGE_SIZE_THUMB))
+      .filter((url, index, arr) => url !== normalizedSelected && arr.indexOf(url) === index);
+  }, [galleryImages, product.imageUrl, imagePolicy]);
 
   const [imgSrc, setImgSrc] = useState<string>(() => {
-    // Pick best image upfront: try primary, then fallback to any valid image from gallery
-    return pickBestImage(galleryImages, product.imageUrl);
+    const selected = pickBestImage(galleryImages, product.imageUrl, { policy: imagePolicy });
+    return resizeImageUrl(selected, IMAGE_SIZE_THUMB);
   });
-  const [fallbackIdx, setFallbackIdx] = useState(0);
   const { language } = useLanguage();
 
-  // Try next valid gallery image, then placeholder as last resort
-  const tryNextImage = useCallback(() => {
-    // Find next valid image in gallery starting after current fallbackIdx
-    for (let i = fallbackIdx + 1; i < galleryImages.length; i++) {
-      const url = galleryImages[i];
-      if (url && isRenderableImageUrl(url) && resizeImageUrl(url, IMAGE_SIZE_THUMB) !== imgSrc) {
-        setFallbackIdx(i);
-        setImgSrc(resizeImageUrl(url, IMAGE_SIZE_THUMB));
-        return;
-      }
-    }
-    setImgSrc('/placeholder.svg');
-  }, [fallbackIdx, galleryImages, imgSrc]);
-
-  // On load: check aspect ratio for banner detection, try next image if bad
   const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    const { naturalWidth: w, naturalHeight: h } = img;
-    if (w > 0 && h > 0) {
-      const ratio = w / h;
-      if (ratio > 2.2 || ratio < 0.45 || (w < 80 && h < 80) || Math.min(w, h) < 70) {
-        tryNextImage();
-      }
-    }
-  }, [tryNextImage]);
-  
-  const handleImgError = useCallback(() => {
-    tryNextImage();
-  }, [tryNextImage]);
+    handleImageLoad(e);
+    if (e.currentTarget.src.endsWith('/placeholder.svg')) setImgSrc('/placeholder.svg');
+    else setImgSrc(e.currentTarget.currentSrc || e.currentTarget.src);
+  }, []);
+
+  const handleImgError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    handleImageError(e);
+    if (e.currentTarget.src.endsWith('/placeholder.svg')) setImgSrc('/placeholder.svg');
+    else setImgSrc(e.currentTarget.currentSrc || e.currentTarget.src);
+  }, []);
 
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
@@ -175,6 +158,8 @@ export function ProductCard({ product, className, compact = false, coverImage = 
             alt={product.title}
             className="w-full h-full object-contain p-2 sm:p-3 transition-transform duration-300 group-hover:scale-[1.04]"
             loading="lazy"
+            data-image-policy={imagePolicy}
+            data-fallback-images={fallbackImages.join('|||')}
             onLoad={handleImgLoad}
             onError={handleImgError}
           />

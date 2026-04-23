@@ -99,6 +99,12 @@ const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_mo
 // Hard ceiling enforced for non-exempt categories.
 const HOMEPAGE_HARD_PRICE_CEILING_USD = 500;
 const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v8';
+const HOMEPAGE_MANUAL_FEED_KEY = 'afrishop_homepage_manual_v1';
+const HOMEPAGE_BLOCKED_PRODUCT_PATTERNS = [
+  /lexar\s+es3\s+1tb\s+external\s+ssd/i,
+  /usb\s*3\.2\s*gen\s*2\s+portable\s+ssd/i,
+  /pssd\s+up\s+to\s+1050mb\/s\s+read/i,
+];
 
 function getCategoryMaxPrice(categoryKey?: string): number {
   if (!categoryKey) return HOMEPAGE_DEFAULT_MAX_PRICE_USD;
@@ -120,7 +126,11 @@ function isHomepagePriceAllowed(product: Product, categoryKey?: string): boolean
 }
 
 function filterHomepageProducts(products: Product[], categoryKey?: string): Product[] {
-  return products.filter(product => isHomepagePriceAllowed(product, categoryKey));
+  return products.filter(product => {
+    const title = (product.title || '').trim();
+    if (HOMEPAGE_BLOCKED_PRODUCT_PATTERNS.some((pattern) => pattern.test(title))) return false;
+    return isHomepagePriceAllowed(product, categoryKey);
+  });
 }
 
 function keepEnoughHomepageProducts(products: Product[], categoryKey?: string, minimum = 4): Product[] {
@@ -301,6 +311,27 @@ const getStrictHomepageImage = (product: Partial<Product> & Record<string, any>)
   const selected = pickBestImage(candidates, undefined, { policy: 'homepage' });
   return selected === '/placeholder.svg' ? null : selected;
 };
+
+function loadLockedHomepageFeed(): Product[] | null {
+  try {
+    const raw = localStorage.getItem(HOMEPAGE_MANUAL_FEED_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed?.items) || parsed.items.length === 0) return null;
+    return parsed.items as Product[];
+  } catch {
+    return null;
+  }
+}
+
+function saveLockedHomepageFeed(items: Product[]): void {
+  try {
+    const sanitized = items.slice(0, 16);
+    localStorage.setItem(HOMEPAGE_MANUAL_FEED_KEY, JSON.stringify({ items: sanitized, ts: Date.now() }));
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 const curateHomepageProducts = (items: Product[], surface: string): Product[] => {
   return items.flatMap((product) => {
@@ -751,10 +782,20 @@ export default function ShopHome() {
     setAccueilLoading(true);
     setError(null);
 
+    if (!forceRefresh) {
+      const locked = loadLockedHomepageFeed();
+      if (locked?.length) {
+        setAccueilProducts(curateHomepageProducts(filterHomepageProducts(locked), 'locked-homepage'));
+        setAccueilLoading(false);
+        return;
+      }
+    }
+
     // On retry, clear all local caches so we get a truly fresh request
     if (forceRefresh) {
       clearAllCatalogCache();
       clearImageValidationCaches();
+      try { localStorage.removeItem(HOMEPAGE_MANUAL_FEED_KEY); } catch {}
       bulkPhonesPageCacheRef.current = {};
       categoryProductsCacheRef.current = {};
       storeProductsCacheRef.current = {};
@@ -786,6 +827,7 @@ export default function ShopHome() {
           data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0)
         ), 'accueil');
         setAccueilProducts(all);
+        if (all.length) saveLockedHomepageFeed(all);
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load');
@@ -799,6 +841,7 @@ export default function ShopHome() {
     // 1. Clear ALL caches (localStorage + memory)
     clearAllCatalogCache();
     clearImageValidationCaches();
+    try { localStorage.removeItem(HOMEPAGE_MANUAL_FEED_KEY); } catch {}
     bulkPhonesPageCacheRef.current = {};
     categoryProductsCacheRef.current = {};
     storeProductsCacheRef.current = {};
@@ -1572,6 +1615,7 @@ export default function ShopHome() {
               data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0)
             ), 'initial-accueil');
             setAccueilProducts(all);
+            if (all.length) saveLockedHomepageFeed(all);
           }
         } catch (err: any) {
           setError(err.message || 'Failed to load');

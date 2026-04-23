@@ -543,17 +543,17 @@ export default function ShopHome() {
       const totalCount = count ?? 0;
       const mapped = (data || [])
         .map((item: any): Product | null => {
-          const fallbackImage = extractFirstImageFromJson(item.images);
+          const { candidates, imageUrl } = resolveProductImages(item);
           const providerFallback = deriveProviderImageFallback(item.provider || provider, item.provider_product_id || item.id);
-          const preferred = isRenderableImageUrl(item.image_url)
-            ? item.image_url
-            : (fallbackImage || providerFallback);
+          const preferred = imageUrl || providerFallback;
           if (!preferred || !isRenderableImageUrl(preferred)) return null;
           return {
             id: item.provider_product_id || item.id,
             provider: item.provider || provider,
             title: item.title || 'Product',
             imageUrl: preferred,
+            images: candidates,
+            imageUrls: candidates,
             priceUsd: item.price_usd || 0, // will be resolved below
             rating: item.rating,
             inStock: item.in_stock !== false,
@@ -736,6 +736,10 @@ export default function ShopHome() {
     // On retry, clear all local caches so we get a truly fresh request
     if (forceRefresh) {
       clearAllCatalogCache();
+      clearImageValidationCaches();
+      bulkPhonesPageCacheRef.current = {};
+      categoryProductsCacheRef.current = {};
+      storeProductsCacheRef.current = {};
     }
 
     const params = {
@@ -760,9 +764,9 @@ export default function ShopHome() {
       }
 
       if (data?.sections?.length) {
-        const all = filterHomepageProducts(
+        const all = curateHomepageProducts(filterHomepageProducts(
           data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0)
-        );
+        ), 'accueil');
         setAccueilProducts(all);
       }
     } catch (err: any) {
@@ -776,6 +780,10 @@ export default function ShopHome() {
   const handleFullRetry = useCallback(() => {
     // 1. Clear ALL caches (localStorage + memory)
     clearAllCatalogCache();
+    clearImageValidationCaches();
+    bulkPhonesPageCacheRef.current = {};
+    categoryProductsCacheRef.current = {};
+    storeProductsCacheRef.current = {};
 
     // 2. Reset all state
     setAccueilProducts([]);
@@ -1507,7 +1515,7 @@ export default function ShopHome() {
             id: (item as any).provider_product_id || (item as any).catalog_item_id,
             provider: (item as any).provider || 'ebay',
             title: (item as any).title || 'Product',
-            imageUrl: (item as any).image_url || '',
+            imageUrl: pickBestImage(collectProductImageCandidates((item as any).image_url), undefined, { policy: 'homepage' }),
             priceUsd: Number((item as any).price_usd) || 0,
             inStock: true,
           };
@@ -1517,7 +1525,7 @@ export default function ShopHome() {
         // Resolve all pinned prices server-side in one batch
         await applyServerPrices(allPinned);
         for (const [catKey, products] of Object.entries(grouped)) {
-          grouped[catKey] = filterHomepageProducts(products, catKey);
+          grouped[catKey] = curateHomepageProducts(filterHomepageProducts(products, catKey), `pinned:${catKey}`);
         }
         setPinnedByCategory(grouped);
         const loadingUpdates: Record<string, boolean> = {};
@@ -1546,9 +1554,9 @@ export default function ShopHome() {
             client: 'web',
           }, { skipCache: true });
           if (data?.sections?.length) {
-            const all = filterHomepageProducts(
+            const all = curateHomepageProducts(filterHomepageProducts(
               data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0)
-            );
+            ), 'initial-accueil');
             setAccueilProducts(all);
           }
         } catch (err: any) {

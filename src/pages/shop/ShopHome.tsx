@@ -1580,34 +1580,28 @@ export default function ShopHome() {
     } else if (sortBy === 'priciest') {
       list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
     } else {
-      // The homepage phone grid renders 4 cards per row on desktop and shows
-      // 12 items per page, so reserve the first three desktop rows for the
-      // three requested brands while keeping the total page size unchanged.
-      const ROW_SIZE = 4;
-      const buckets: Record<'iphone' | 'pixel' | 'galaxy' | 'other', Product[]> = {
-        iphone: [], pixel: [], galaxy: [], other: [],
+      // Sort the page so iPhones appear first, then Google Pixels, then
+      // Samsung Galaxys, then everything else. With a 4-column desktop grid
+      // and 12 items per page this naturally puts each brand on its own row
+      // when the page contains enough of each brand. Stable within each brand
+      // to preserve the upstream curated order (e.g. cheapest-first).
+      const brandRank = (p: Product) => {
+        const bucket = getPhoneBrandBucket(p);
+        if (bucket === 'iphone') return 0;
+        if (bucket === 'pixel') return 1;
+        if (bucket === 'galaxy') return 2;
+        return 3;
       };
-      const source = deduplicateProducts([...phoneBrandPriorityPool, ...list]);
-
-      for (const p of source) {
-        buckets[getPhoneBrandBucket(p)].push(p);
-      }
-
-      const ordered = [
-        ...buckets.iphone.slice(0, ROW_SIZE),
-        ...buckets.pixel.slice(0, ROW_SIZE),
-        ...buckets.galaxy.slice(0, ROW_SIZE),
-      ];
-
-      const usedIds = new Set(ordered.map(p => p.id));
-      const rest = source.filter(p => !usedIds.has(p.id));
-      list = [...ordered, ...rest];
+      list = list
+        .map((p, i) => ({ p, i, r: brandRank(p) }))
+        .sort((a, b) => a.r - b.r || a.i - b.i)
+        .map(({ p }) => p);
     }
     if (list.length > PHONES_PAGE_SIZE) {
       return list.slice(0, PHONES_PAGE_SIZE);
     }
     return list;
-  }, [phonesRowItems, phoneBrandPriorityPool, sortBy]);
+  }, [phonesRowItems, sortBy]);
 
   const totalPhonePages = Math.max(1, Math.ceil(bulkPhonesTotal / PHONES_PAGE_SIZE));
 

@@ -601,7 +601,7 @@ export default function ShopHome() {
       if (!background) saveLockedHomepagePhones(page, mixed, totalForState);
       if (!background) {
         if (wantCount) setBulkPhonesTotal(count || 0);
-        setBulkPhones(mapped);
+        setBulkPhones(mixed);
       } else if (wantCount) {
         setBulkPhonesTotal(count || 0);
       }

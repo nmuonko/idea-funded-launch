@@ -1409,7 +1409,7 @@ serve(async (req) => {
 
   const startTime = Date.now();
   const detection = detectClientType(req);
-  const clientType = detection.clientType;
+  let clientType = detection.clientType;
   const detectedBy = detection.detectedBy;
   const { envRequested, envUsed } = normalizeEnv(req);
   const lang = getResponseLanguage(req);
@@ -1420,7 +1420,9 @@ serve(async (req) => {
     // Parse parameters
     const url = new URL(req.url);
     let page = 1;
-    let pageSize = clientType === "mobile" ? 20 : DEFAULT_PAGE_SIZE;
+    // Unified payload: mobile and web use the same default page size on the
+    // homepage so pagination/items-per-page match exactly across clients.
+    let pageSize = DEFAULT_PAGE_SIZE;
     let category = "";
     let section = "";
     let amazonDomain = "amazon.com";
@@ -1481,19 +1483,15 @@ serve(async (req) => {
       }
     }
 
-    const wantsMobileHomepagePhones = clientType === "mobile" && !category && !sectionKey && !forceLive;
-    if (wantsMobileHomepagePhones) {
-      const mobileHomepageResponse = await buildMobileHomepagePhonesResponse(
-        page,
-        locale,
-        correlationId,
-        env,
-        envRequested,
-        detectedBy,
-      );
-      if (mobileHomepageResponse) {
-        return mobileHomepageResponse;
-      }
+    // UNIFIED HOMEPAGE: mobile and web now share the SAME homepage payload.
+    // The frozen mobile app must show the exact same items in the exact same
+    // order as the web app's homepage (eBay live "featured" trending section).
+    // We force mobile to take the web code path below by overriding clientType
+    // for the rest of this request. The mobile-specific phones grid branch
+    // and the mobile-only sections cache are intentionally bypassed.
+    if (clientType === "mobile" && !category && !sectionKey) {
+      console.log(`[CATALOG_HOME] correlationId=${correlationId} unifying mobile→web homepage payload (frozen-app contract)`);
+      clientType = "web";
     }
 
     console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} detectedBy=${detectedBy} lang=${lang} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);

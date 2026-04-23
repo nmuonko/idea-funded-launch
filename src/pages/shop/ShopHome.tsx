@@ -21,7 +21,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { translations } from '@/lib/i18n/translations';
 import { getRecentlyViewed } from '@/lib/recentlyViewed';
-import { isRenderableImageUrl } from '@/lib/imageValidation';
+import { clearImageValidationCaches, collectProductImageCandidates, isRenderableImageUrl, isStrictHomepageRenderableImageUrl, pickBestImage } from '@/lib/imageValidation';
 import { supabase } from '@/integrations/supabase/client';
 import { applyServerPrices, resolveDisplayPrice } from '@/lib/serverPricing';
 
@@ -154,13 +154,31 @@ function setCachedCategoryResult(catKey: string, items: Product[]) {
 
 // ====== HELPERS ======
 
+const resolveProductImages = (item: any, policy: 'default' | 'homepage' = 'default') => {
+  const candidates = collectProductImageCandidates(
+    item.image_url,
+    item.imageUrl,
+    item.mainImageUrl,
+    item.image,
+    item.images,
+    item.imageUrls,
+  );
+  const imageUrl = pickBestImage(candidates, undefined, { policy });
+  return {
+    candidates,
+    imageUrl: imageUrl === '/placeholder.svg' ? '' : imageUrl,
+  };
+};
+
 const mapItemToProduct = (item: HomeFeedResponse['sections'][0]['items'][0]): Product => {
-  const rawImage = item.image_url || item.imageUrl || '';
+  const { candidates, imageUrl } = resolveProductImages(item);
   return {
     id: item.provider_product_id || item.id || '',
     provider: item.provider || 'amazon',
     title: item.title || 'Product',
-    imageUrl: isRenderableImageUrl(rawImage) ? rawImage : '',
+    imageUrl,
+    images: candidates,
+    imageUrls: candidates,
     priceUsd: item.price_usd || item.priceUsd || 0,
     rating: item.rating,
     inStock: item.in_stock !== false,
@@ -186,12 +204,14 @@ const parsePrice = (item: any): number => {
 };
 
 const mapSearchItemToProduct = (item: any): Product => {
-  const rawImage = item.imageUrl || item.mainImageUrl || item.image_url || item.image || '';
+  const { candidates, imageUrl } = resolveProductImages(item);
   return {
     id: item.id || item.providerProductId || item.provider_product_id || item.itemId || item.asin || item.productUrl || item.product_url || item.url || '',
     provider: item.provider === 'rainforest' ? 'amazon' : (item.provider || 'amazon'),
     title: item.title || 'Product',
-    imageUrl: isRenderableImageUrl(rawImage) ? rawImage : '',
+    imageUrl,
+    images: candidates,
+    imageUrls: candidates,
     priceUsd: parsePrice(item),
     rating: item.rating,
     inStock: item.inStock !== false,
@@ -274,6 +294,36 @@ const deriveProviderImageFallback = (provider: string, providerProductId?: strin
     return `https://vexgateway.fastly.carvana.io/${providerProductId}/standardizedHero.jpg?width=800`;
   }
   return null;
+};
+
+const getStrictHomepageImage = (product: Partial<Product> & Record<string, any>): string | null => {
+  const candidates = collectProductImageCandidates(product.imageUrl, product.images, product.imageUrls);
+  const selected = pickBestImage(candidates, undefined, { policy: 'homepage' });
+  return selected === '/placeholder.svg' ? null : selected;
+};
+
+const curateHomepageProducts = (items: Product[], surface: string): Product[] => {
+  return items.flatMap((product) => {
+    const selected = getStrictHomepageImage(product as Product & Record<string, any>);
+    if (!selected) {
+      console.info('[ShopHome] Removed product with no clean homepage image', {
+        surface,
+        productId: product.id,
+        title: product.title,
+      });
+      return [];
+    }
+
+    if (selected !== product.imageUrl) {
+      console.info('[ShopHome] Replaced homepage image with clean fallback', {
+        surface,
+        productId: product.id,
+        selectedImage: selected,
+      });
+    }
+
+    return [{ ...product, imageUrl: selected }];
+  });
 };
 
 export default function ShopHome() {

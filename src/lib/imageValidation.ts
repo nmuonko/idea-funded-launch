@@ -169,6 +169,129 @@ const PRODUCT_IMAGE_FIELD_KEYS = [
 const inspectedUrlCache = new Map<string, { ok: boolean; reason: string }>();
 const inspectedUrlPromises = new Map<string, Promise<{ ok: boolean; reason: string }>>();
 
+type Rgb = { r: number; g: number; b: number };
+
+function colorDistance(a: Rgb, b: Rgb): number {
+  return Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
+}
+
+function getPixel(data: Uint8ClampedArray, width: number, x: number, y: number): Rgb {
+  const idx = (y * width + x) * 4;
+  return { r: data[idx], g: data[idx + 1], b: data[idx + 2] };
+}
+
+function averageRgb(samples: Rgb[]): Rgb {
+  if (samples.length === 0) return { r: 255, g: 255, b: 255 };
+  const total = samples.reduce((acc, sample) => ({
+    r: acc.r + sample.r,
+    g: acc.g + sample.g,
+    b: acc.b + sample.b,
+  }), { r: 0, g: 0, b: 0 });
+  return {
+    r: Math.round(total.r / samples.length),
+    g: Math.round(total.g / samples.length),
+    b: Math.round(total.b / samples.length),
+  };
+}
+
+function analyzeImageComposition(
+  source: CanvasImageSource,
+  naturalWidth: number,
+  naturalHeight: number,
+  policy: ImageValidationPolicy = 'default'
+): { ok: boolean; reason: string } {
+  if (typeof document === 'undefined') return { ok: true, reason: 'composition-skip-ssr' };
+
+  const sampleWidth = 48;
+  const sampleHeight = Math.max(48, Math.round((naturalHeight / Math.max(naturalWidth, 1)) * sampleWidth));
+  const canvas = document.createElement('canvas');
+  canvas.width = sampleWidth;
+  canvas.height = sampleHeight;
+
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return { ok: true, reason: 'composition-skip-no-canvas' };
+
+  try {
+    ctx.drawImage(source, 0, 0, sampleWidth, sampleHeight);
+    const imageData = ctx.getImageData(0, 0, sampleWidth, sampleHeight);
+    const { data } = imageData;
+
+    const backgroundSamples: Rgb[] = [];
+    for (let x = 0; x < sampleWidth; x += Math.max(1, Math.floor(sampleWidth / 8))) {
+      backgroundSamples.push(getPixel(data, sampleWidth, x, 0));
+      backgroundSamples.push(getPixel(data, sampleWidth, x, sampleHeight - 1));
+    }
+    for (let y = 0; y < sampleHeight; y += Math.max(1, Math.floor(sampleHeight / 8))) {
+      backgroundSamples.push(getPixel(data, sampleWidth, 0, y));
+      backgroundSamples.push(getPixel(data, sampleWidth, sampleWidth - 1, y));
+    }
+
+    const background = averageRgb(backgroundSamples);
+    const distanceThreshold = policy === 'homepage' ? 34 : 40;
+
+    let fgCount = 0;
+    let minX = sampleWidth;
+    let minY = sampleHeight;
+    let maxX = -1;
+    let maxY = -1;
+    const rows = new Set<number>();
+    const cols = new Set<number>();
+
+    for (let y = 0; y < sampleHeight; y += 1) {
+      for (let x = 0; x < sampleWidth; x += 1) {
+        const idx = (y * sampleWidth + x) * 4;
+        const alpha = data[idx + 3];
+        if (alpha < 20) continue;
+        const pixel = { r: data[idx], g: data[idx + 1], b: data[idx + 2] };
+        if (colorDistance(pixel, background) < distanceThreshold) continue;
+        fgCount += 1;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        rows.add(y);
+        cols.add(x);
+      }
+    }
+
+    if (fgCount === 0 || maxX < minX || maxY < minY) {
+      return { ok: false, reason: 'composition-empty' };
+    }
+
+    const bboxWidthRatio = (maxX - minX + 1) / sampleWidth;
+    const bboxHeightRatio = (maxY - minY + 1) / sampleHeight;
+    const rowCoverage = rows.size / sampleHeight;
+    const colCoverage = cols.size / sampleWidth;
+    const fillRatio = fgCount / (sampleWidth * sampleHeight);
+
+    if (bboxHeightRatio < 0.22 && bboxWidthRatio > 0.38) {
+      return { ok: false, reason: 'composition-thin-strip' };
+    }
+    if (rowCoverage < 0.24 && bboxWidthRatio > 0.42) {
+      return { ok: false, reason: 'composition-row-strip' };
+    }
+    if (fillRatio < 0.07 && bboxWidthRatio > 0.4) {
+      return { ok: false, reason: 'composition-sparse-banner' };
+    }
+
+    if (policy === 'homepage') {
+      if (bboxHeightRatio < 0.3 && bboxWidthRatio > 0.32) {
+        return { ok: false, reason: 'homepage-composition-thin-strip' };
+      }
+      if (rowCoverage < 0.32 && bboxWidthRatio > 0.34) {
+        return { ok: false, reason: 'homepage-composition-row-strip' };
+      }
+      if (fillRatio < 0.09 && colCoverage > 0.34) {
+        return { ok: false, reason: 'homepage-composition-sparse-banner' };
+      }
+    }
+
+    return { ok: true, reason: 'ok' };
+  } catch {
+    return { ok: true, reason: 'composition-skip-cors' };
+  }
+}
+
 /** Filename patterns that strongly indicate non-product promotional content */
 const PROMO_FILENAME_PATTERNS = [
   /^banner/i,

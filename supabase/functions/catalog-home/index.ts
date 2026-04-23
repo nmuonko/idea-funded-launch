@@ -1264,7 +1264,8 @@ serve(async (req) => {
               const normalizedSections = normalizeSectionTitles(normalized, langKey2) as typeof normalized;
               const totalItems = calculateTotalItems(normalizedSections);
               
-              return jsonResponse({
+              const flat = url.searchParams.get("flat") !== "0";
+              return jsonResponse(flattenMobilePayload({
                 ok: true,
                 sections: normalizedSections,
                 page: 1,
@@ -1287,7 +1288,7 @@ serve(async (req) => {
                   ts: Date.now(),
                   schemaVersion: recipeSettings.mobile_schema_version,
                 },
-              });
+              }, locale, flat));
             }
           }
         } else {

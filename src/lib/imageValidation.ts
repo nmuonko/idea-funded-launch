@@ -1,10 +1,20 @@
 /**
- * Shared image URL validator for the frontend.
- * Blocks ad banners, seller logos, promotional graphics, and non-product images.
- * 
- * This is the FRONTEND FALLBACK GUARD — the backend should filter first,
- * but this catches anything that slips through.
+ * Shared image validator for the frontend.
+ *
+ * Layers:
+ * 1) URL / path / filename heuristics
+ * 2) Gallery candidate extraction + fallback selection
+ * 3) Runtime loaded-image dimension checks
+ * 4) Async homepage preflight checks for curated feeds
  */
+
+export type ImageValidationPolicy = 'default' | 'homepage';
+
+type ImageCheckResult = {
+  ok: boolean;
+  reason: string;
+  normalizedUrl?: string;
+};
 
 const BLOCKED_TOKENS = [
   // Seller branding
@@ -127,6 +137,38 @@ const BLOCKED_TOKENS = [
   'lifestyle-shot', 'lifestyle_shot',
 ];
 
+const HOMEPAGE_STRICT_TOKENS = [
+  'shop-top-categories', 'shop_top_categories',
+  'top-categories', 'top_categories',
+  'promo-strip', 'promo_strip',
+  'ad-strip', 'ad_strip',
+  'shipping-strip', 'shipping_strip',
+  'marketing-tile', 'marketing_tile',
+  'category-promo', 'category_promo',
+  'category-tile', 'category_tile',
+  'hero-tile', 'hero_tile',
+  'brand-tile', 'brand_tile',
+  'gift-guide', 'gift_guide',
+  'global-store', 'global_store',
+  'ship-internationally', 'ship_internationally',
+  'storefront-content', 'storefront_content',
+  'promotional-content', 'promotional_content',
+];
+
+const HOMEPAGE_SUSPECT_FILENAME_WORDS = new Set([
+  'ad', 'ads', 'banner', 'promo', 'promotion', 'shop', 'store', 'category', 'categories',
+  'deal', 'deals', 'offer', 'offers', 'shipping', 'delivery', 'hero', 'brand', 'sponsored',
+  'internationally', 'global', 'renewed', 'tile', 'tiles', 'marketing', 'campaign',
+]);
+
+const PRODUCT_IMAGE_FIELD_KEYS = [
+  'imageUrl', 'image_url', 'mainImageUrl', 'image', 'url', 'src',
+  'large', 'hiRes', 'hi_res', 'main', 'images', 'imageUrls', 'gallery', 'media',
+];
+
+const inspectedUrlCache = new Map<string, { ok: boolean; reason: string }>();
+const inspectedUrlPromises = new Map<string, Promise<{ ok: boolean; reason: string }>>();
+
 /** Filename patterns that strongly indicate non-product promotional content */
 const PROMO_FILENAME_PATTERNS = [
   /^banner/i,
@@ -143,55 +185,233 @@ const PROMO_FILENAME_PATTERNS = [
   /^sponsored/i,
 ];
 
-/**
- * Check if an image URL is a valid, renderable product image.
- * Returns false for banners, logos, promos, SVGs, GIFs, tiny images, etc.
- */
-export function isRenderableImageUrl(url?: string | null): boolean {
-  if (!url || typeof url !== 'string') return false;
-  const lower = url.toLowerCase();
+function evaluateImageUrl(url?: string | null, policy: ImageValidationPolicy = 'default'): ImageCheckResult {
+  if (!url || typeof url !== 'string') return { ok: false, reason: 'missing-url' };
 
-  if (!lower.startsWith('http')) return false;
-  if (lower.includes('.html')) return false;
-  if (lower.endsWith('.svg') || lower.endsWith('.gif')) return false;
-  if (lower.startsWith('data:')) return false;
+  const normalizedUrl = upgradeToHighRes(url);
+  const lower = normalizedUrl.toLowerCase();
 
-  // Block known bad substrings
-  if (BLOCKED_TOKENS.some(token => lower.includes(token))) return false;
+  if (!lower.startsWith('http')) return { ok: false, reason: 'non-http-url' };
+  if (lower.includes('.html')) return { ok: false, reason: 'html-url' };
+  if (lower.endsWith('.svg') || lower.endsWith('.gif')) return { ok: false, reason: 'unsupported-extension' };
+  if (lower.startsWith('data:')) return { ok: false, reason: 'data-url' };
 
-  // ── AMAZON STRICT GUARD ────────────────────────────────────────────────
-  // Real Amazon product photos ALWAYS live under /images/I/<asin-image>.
-  // Marketing/banner/A+ assets live under /images/G/, /images/S/, /images/P/, etc.
-  // If the URL is from an Amazon CDN but NOT /images/I/, reject it.
+  if (BLOCKED_TOKENS.some(token => lower.includes(token))) {
+    return { ok: false, reason: 'blocked-token' };
+  }
+
+  if (policy === 'homepage' && HOMEPAGE_STRICT_TOKENS.some(token => lower.includes(token))) {
+    return { ok: false, reason: 'homepage-strict-token' };
+  }
+
   if (
     lower.includes('media-amazon.com') ||
     lower.includes('images-amazon.com') ||
     lower.includes('ssl-images-amazon.com')
   ) {
-    if (!lower.includes('/images/i/')) return false;
+    if (!lower.includes('/images/i/')) {
+      return { ok: false, reason: 'amazon-non-product-path' };
+    }
   }
 
-  // Block eBay seller template/promo images
-  if (lower.includes('i.ebayimg.com') && (
-    !lower.includes('/d/') && !lower.includes('/g/') && !lower.includes('/s-l')
-  )) return false;
+  if (lower.includes('i.ebayimg.com') && !lower.includes('/d/') && !lower.includes('/g/') && !lower.includes('/s-l')) {
+    return { ok: false, reason: 'ebay-non-product-path' };
+  }
 
-  // Check WxH dimension patterns (NOT provider thumbnail tokens which are upgradeable)
   const sizeMatch = lower.match(/[\/_](\d+)x(\d+)/);
   if (sizeMatch) {
     const w = Number(sizeMatch[1]);
     const h = Number(sizeMatch[2]);
-    if (w < 50 && h < 50) return false;
+    const shortEdge = Math.min(w, h);
     const ratio = w / Math.max(h, 1);
-    // Stricter: banners are wide-and-short; product photos are square-ish
-    if (ratio > 1.8 || ratio < 0.45) return false;
+
+    if (shortEdge < 50) return { ok: false, reason: 'size-pattern-too-small' };
+    if (policy === 'homepage') {
+      if (ratio > 1.45 || ratio < 0.42) return { ok: false, reason: 'homepage-size-pattern-strip' };
+      if (shortEdge < 110) return { ok: false, reason: 'homepage-size-pattern-too-small' };
+    } else if (ratio > 1.8 || ratio < 0.45) {
+      return { ok: false, reason: 'size-pattern-strip' };
+    }
   }
 
-  // Check filename for promotional patterns
   const filename = lower.split('/').pop()?.split('?')[0] || '';
-  if (PROMO_FILENAME_PATTERNS.some(pat => pat.test(filename))) return false;
+  if (PROMO_FILENAME_PATTERNS.some(pat => pat.test(filename))) {
+    return { ok: false, reason: 'promo-filename-pattern' };
+  }
 
-  return true;
+  if (policy === 'homepage') {
+    const filenameWords = filename
+      .replace(/\.(jpg|jpeg|png|webp)$/i, '')
+      .split(/[^a-z0-9]+/i)
+      .filter(Boolean);
+    const suspiciousWordCount = filenameWords.filter(word => HOMEPAGE_SUSPECT_FILENAME_WORDS.has(word)).length;
+    if (suspiciousWordCount >= 2) {
+      return { ok: false, reason: 'homepage-suspect-filename' };
+    }
+  }
+
+  return { ok: true, reason: 'ok', normalizedUrl };
+}
+
+function validateLoadedImageDimensions(
+  naturalWidth: number,
+  naturalHeight: number,
+  policy: ImageValidationPolicy = 'default'
+): { ok: boolean; reason: string } {
+  if (naturalWidth <= 0 || naturalHeight <= 0) return { ok: false, reason: 'missing-dimensions' };
+
+  const ratio = naturalWidth / Math.max(naturalHeight, 1);
+  const shortEdge = Math.min(naturalWidth, naturalHeight);
+  const longEdge = Math.max(naturalWidth, naturalHeight);
+
+  if (policy === 'homepage') {
+    if (shortEdge < 140) return { ok: false, reason: 'homepage-loaded-too-small' };
+    if (ratio > 1.45 || ratio < 0.42) return { ok: false, reason: 'homepage-loaded-strip' };
+    if (longEdge / Math.max(shortEdge, 1) > 1.65 && shortEdge < 220) {
+      return { ok: false, reason: 'homepage-loaded-banner-layout' };
+    }
+    return { ok: true, reason: 'ok' };
+  }
+
+  if (shortEdge < 80) return { ok: false, reason: 'loaded-too-small' };
+  if (ratio > 1.8 || ratio < 0.45) return { ok: false, reason: 'loaded-strip' };
+  if (longEdge / Math.max(shortEdge, 1) > 2.1 && shortEdge < 160) {
+    return { ok: false, reason: 'loaded-banner-layout' };
+  }
+
+  return { ok: true, reason: 'ok' };
+}
+
+function readPolicy(img: HTMLImageElement): ImageValidationPolicy {
+  return img.dataset.imagePolicy === 'homepage' ? 'homepage' : 'default';
+}
+
+function debugImageDecision(debugKey: string | undefined, message: string, payload: Record<string, unknown>) {
+  if (!debugKey) return;
+  console.info(`[ImageValidation] ${message}`, { debugKey, ...payload });
+}
+
+function collectRawImageStrings(value: unknown, seen = new WeakSet<object>()): string[] {
+  if (!value) return [];
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(entry => collectRawImageStrings(entry, seen));
+  if (typeof value !== 'object') return [];
+  if (seen.has(value as object)) return [];
+
+  seen.add(value as object);
+  const result: string[] = [];
+
+  for (const key of PRODUCT_IMAGE_FIELD_KEYS) {
+    const candidate = (value as Record<string, unknown>)[key];
+    if (!candidate) continue;
+    result.push(...collectRawImageStrings(candidate, seen));
+  }
+
+  return result;
+}
+
+export function isRenderableImageUrl(url?: string | null, policy: ImageValidationPolicy = 'default'): boolean {
+  return evaluateImageUrl(url, policy).ok;
+}
+
+export function isStrictHomepageRenderableImageUrl(url?: string | null): boolean {
+  return isRenderableImageUrl(url, 'homepage');
+}
+
+export function collectProductImageCandidates(...sources: unknown[]): string[] {
+  const raw = sources.flatMap(source => collectRawImageStrings(source));
+  return filterGalleryImages(raw);
+}
+
+export async function inspectImageCandidate(
+  url: string,
+  policy: ImageValidationPolicy = 'default'
+): Promise<{ ok: boolean; reason: string }> {
+  const checked = evaluateImageUrl(url, policy);
+  if (!checked.ok || !checked.normalizedUrl) return { ok: false, reason: checked.reason };
+
+  const cacheKey = `${policy}:${checked.normalizedUrl}`;
+  const cached = inspectedUrlCache.get(cacheKey);
+  if (cached) return cached;
+
+  const inFlight = inspectedUrlPromises.get(cacheKey);
+  if (inFlight) return inFlight;
+
+  const promise = new Promise<{ ok: boolean; reason: string }>((resolve) => {
+    const img = new Image();
+    let settled = false;
+    const settle = (result: { ok: boolean; reason: string }) => {
+      if (settled) return;
+      settled = true;
+      inspectedUrlCache.set(cacheKey, result);
+      inspectedUrlPromises.delete(cacheKey);
+      resolve(result);
+    };
+
+    const timer = window.setTimeout(() => settle({ ok: false, reason: 'image-load-timeout' }), 4500);
+
+    img.onload = () => {
+      window.clearTimeout(timer);
+      settle(validateLoadedImageDimensions(img.naturalWidth, img.naturalHeight, policy));
+    };
+    img.onerror = () => {
+      window.clearTimeout(timer);
+      settle({ ok: false, reason: 'image-load-error' });
+    };
+    img.decoding = 'async';
+    img.referrerPolicy = 'no-referrer';
+    img.src = checked.normalizedUrl;
+  });
+
+  inspectedUrlPromises.set(cacheKey, promise);
+  return promise;
+}
+
+export async function pickBestImageAsync(
+  images: unknown[],
+  currentUrl?: string | null,
+  options?: { policy?: ImageValidationPolicy; debugKey?: string }
+): Promise<string | null> {
+  const policy = options?.policy ?? 'default';
+  const candidates = collectProductImageCandidates(currentUrl, images);
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    const checked = evaluateImageUrl(candidate, policy);
+    if (!checked.ok || !checked.normalizedUrl) {
+      debugImageDecision(options?.debugKey, 'Rejected candidate before load', {
+        candidate,
+        reason: checked.reason,
+        policy,
+      });
+      continue;
+    }
+
+    const inspected = await inspectImageCandidate(checked.normalizedUrl, policy);
+    if (!inspected.ok) {
+      debugImageDecision(options?.debugKey, 'Rejected candidate after load', {
+        candidate: checked.normalizedUrl,
+        reason: inspected.reason,
+        policy,
+      });
+      continue;
+    }
+
+    debugImageDecision(options?.debugKey, index === 0 ? 'Accepted primary candidate' : 'Accepted fallback candidate', {
+      selectedImage: checked.normalizedUrl,
+      fallbackIndex: index,
+      policy,
+    });
+    return checked.normalizedUrl;
+  }
+
+  debugImageDecision(options?.debugKey, 'No valid product image candidates remain', { policy });
+  return null;
+}
+
+export function clearImageValidationCaches(): void {
+  inspectedUrlCache.clear();
+  inspectedUrlPromises.clear();
 }
 
 /**
@@ -276,12 +496,17 @@ function upgradeToHighRes(url: string): string {
  * Pick the best valid product image from a list.
  * Returns the first renderable image URL, or '/placeholder.svg' if none valid.
  */
-export function pickBestImage(images: string[], currentUrl?: string): string {
-  // If current URL is valid, keep it
-  if (currentUrl && isRenderableImageUrl(currentUrl)) return currentUrl;
-  // Try each image in the list
-  for (const url of (images || [])) {
-    if (isRenderableImageUrl(url)) return upgradeToHighRes(url);
+export function pickBestImage(
+  images: unknown[],
+  currentUrl?: string | null,
+  options?: { policy?: ImageValidationPolicy }
+): string {
+  const policy = options?.policy ?? 'default';
+  const candidates = collectProductImageCandidates(currentUrl, images);
+
+  for (const url of candidates) {
+    const checked = evaluateImageUrl(url, policy);
+    if (checked.ok && checked.normalizedUrl) return checked.normalizedUrl;
   }
   return '/placeholder.svg';
 }
@@ -301,11 +526,13 @@ export function sanitizeCartImage(url: string | null | undefined, fallback = '/p
 export function handleImageError(e: React.SyntheticEvent<HTMLImageElement>) {
   const img = e.currentTarget;
   if (img.src === '/placeholder.svg') return;
+  const policy = readPolicy(img);
   // Try fallback images stored in data attribute
   const fallbacks = img.dataset.fallbackImages?.split('|||').filter(Boolean) || [];
   for (const url of fallbacks) {
-    if (isRenderableImageUrl(url) && url !== img.src) {
-      img.src = upgradeToHighRes(url);
+    const checked = evaluateImageUrl(url, policy);
+    if (checked.ok && checked.normalizedUrl && checked.normalizedUrl !== img.src) {
+      img.src = checked.normalizedUrl;
       // Remove this URL from fallbacks so we don't retry
       img.dataset.fallbackImages = fallbacks.filter(u => u !== url).join('|||');
       return;
@@ -321,12 +548,10 @@ export function handleImageError(e: React.SyntheticEvent<HTMLImageElement>) {
 export function handleImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
   const img = e.currentTarget;
   if (img.src === '/placeholder.svg') return;
+  const policy = readPolicy(img);
   const { naturalWidth, naturalHeight } = img;
-  if (naturalWidth > 0 && naturalHeight > 0) {
-    const ratio = naturalWidth / naturalHeight;
-    // Banner-like: wide-and-short (ratio > 1.8) or strip-like (< 0.45) or tiny
-    if (ratio > 1.8 || ratio < 0.45 || Math.min(naturalWidth, naturalHeight) < 80) {
-      handleImageError(e);
-    }
+  const result = validateLoadedImageDimensions(naturalWidth, naturalHeight, policy);
+  if (!result.ok) {
+    handleImageError(e);
   }
 }

@@ -100,6 +100,7 @@ const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_mo
 const HOMEPAGE_HARD_PRICE_CEILING_USD = 500;
 const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v8';
 const HOMEPAGE_MANUAL_FEED_KEY = 'afrishop_homepage_manual_v1';
+const HOMEPAGE_LOCKED_PHONES_KEY = 'afrishop_homepage_phones_v1';
 const HOMEPAGE_BLOCKED_PRODUCT_PATTERNS = [
   /lexar\s+es3\s+1tb\s+external\s+ssd/i,
   /usb\s*3\.2\s*gen\s*2\s+portable\s+ssd/i,
@@ -333,6 +334,31 @@ function saveLockedHomepageFeed(items: Product[]): void {
   }
 }
 
+function loadLockedHomepagePhones(page: number): { items: Product[]; total: number } | null {
+  if (page !== 0) return null;
+  try {
+    const raw = localStorage.getItem(HOMEPAGE_LOCKED_PHONES_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed?.items) || parsed.items.length === 0) return null;
+    return {
+      items: parsed.items as Product[],
+      total: Number(parsed.total) || parsed.items.length,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveLockedHomepagePhones(page: number, items: Product[], total: number): void {
+  if (page !== 0) return;
+  try {
+    localStorage.setItem(HOMEPAGE_LOCKED_PHONES_KEY, JSON.stringify({ items, total, ts: Date.now() }));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 const curateHomepageProducts = (items: Product[], surface: string): Product[] => {
   return items.flatMap((product) => {
     const selected = getStrictHomepageImage(product as Product & Record<string, any>);
@@ -450,6 +476,13 @@ export default function ShopHome() {
       }
       return;
     }
+    const locked = !background ? loadLockedHomepagePhones(page) : null;
+    if (locked) {
+      bulkPhonesPageCacheRef.current[page] = locked;
+      setBulkPhones(locked.items);
+      setBulkPhonesTotal(locked.total);
+      return;
+    }
     const from = page * PHONES_PAGE_SIZE;
     if (!background) setBulkPhonesLoading(true);
     try {
@@ -535,6 +568,7 @@ export default function ShopHome() {
       await applyServerPrices(mapped);
       const totalForState = wantCount ? (count || 0) : bulkPhonesTotal;
       bulkPhonesPageCacheRef.current[page] = { items: mapped, total: totalForState };
+      if (!background) saveLockedHomepagePhones(page, mapped, totalForState);
       if (!background) {
         if (wantCount) setBulkPhonesTotal(count || 0);
         setBulkPhones(mapped);
@@ -796,6 +830,7 @@ export default function ShopHome() {
       clearAllCatalogCache();
       clearImageValidationCaches();
       try { localStorage.removeItem(HOMEPAGE_MANUAL_FEED_KEY); } catch {}
+      try { localStorage.removeItem(HOMEPAGE_LOCKED_PHONES_KEY); } catch {}
       bulkPhonesPageCacheRef.current = {};
       categoryProductsCacheRef.current = {};
       storeProductsCacheRef.current = {};
@@ -842,6 +877,7 @@ export default function ShopHome() {
     clearAllCatalogCache();
     clearImageValidationCaches();
     try { localStorage.removeItem(HOMEPAGE_MANUAL_FEED_KEY); } catch {}
+    try { localStorage.removeItem(HOMEPAGE_LOCKED_PHONES_KEY); } catch {}
     bulkPhonesPageCacheRef.current = {};
     categoryProductsCacheRef.current = {};
     storeProductsCacheRef.current = {};

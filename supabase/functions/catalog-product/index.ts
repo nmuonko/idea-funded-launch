@@ -858,9 +858,9 @@ function mapDbItemToResponse(item: any): CatalogItem {
   let variants: CatalogItem["variants"] = undefined;
   const variantSources: string[] = [];
   
-  if (raw?.variants && Array.isArray(raw.variants)) {
+  if (primaryRaw?.variants && Array.isArray(primaryRaw.variants)) {
     variantSources.push('variants');
-    variants = raw.variants
+    variants = primaryRaw.variants
       .filter((v: any) => v.asin || v.id || v.itemId)
       .slice(0, 30)
       .map((v: any) => {
@@ -899,9 +899,9 @@ function mapDbItemToResponse(item: any): CatalogItem {
   }
   
   // Fallback: build variants from raw.variants_v2 (alternative Rainforest format)
-  if (raw && (!variants || variants.length === 0) && raw.variants_v2 && Array.isArray(raw.variants_v2)) {
+  if (primaryRaw && (!variants || variants.length === 0) && primaryRaw.variants_v2 && Array.isArray(primaryRaw.variants_v2)) {
     variantSources.push('variants_v2');
-    variants = raw.variants_v2
+    variants = primaryRaw.variants_v2
       .filter((v: any) => v.asin || v.id)
       .slice(0, 30)
       .map((v: any) => {
@@ -925,13 +925,10 @@ function mapDbItemToResponse(item: any): CatalogItem {
   
   // Fallback: build synthetic variants from raw.variation_values (top-level dimension groups)
   // This handles products where Rainforest returns { variation_values: { Size: ["S","M","L"], Color: ["Red","Blue"] } }
-  if (raw && (!variants || variants.length === 0) && raw.variation_values && typeof raw.variation_values === 'object') {
+  if (primaryRaw && (!variants || variants.length === 0) && primaryRaw.variation_values && typeof primaryRaw.variation_values === 'object') {
     variantSources.push('variation_values');
-    // variation_values is { DimensionName: [values] } — create a synthetic variant per combination isn't practical,
-    // but we can at least ensure dimensions are available on the current variant
-    // The frontend uses variantGroups which iterates variants[].dimensions — so we need at least one variant entry
     const dims: Array<{ name: string; value: string }> = [];
-    for (const [dimName, values] of Object.entries(raw.variation_values)) {
+    for (const [dimName, values] of Object.entries(primaryRaw.variation_values)) {
       if (Array.isArray(values) && values.length > 0) {
         dims.push({ name: dimName, value: String(values[0]) });
       } else if (typeof values === 'string') {
@@ -944,10 +941,10 @@ function mapDbItemToResponse(item: any): CatalogItem {
   }
   
   // Fallback: eBay aspects format { name: "Size", values: ["10"] }
-  if (raw && (!variants || variants.length === 0) && raw.aspects && Array.isArray(raw.aspects)) {
+  if (primaryRaw && (!variants || variants.length === 0) && primaryRaw.aspects && Array.isArray(primaryRaw.aspects)) {
     variantSources.push('aspects');
     const dims: Array<{ name: string; value: string }> = [];
-    for (const aspect of raw.aspects) {
+    for (const aspect of primaryRaw.aspects) {
       if (aspect.name && aspect.values && Array.isArray(aspect.values) && aspect.values.length > 0) {
         dims.push({ name: aspect.name, value: String(aspect.values[0]) });
       }
@@ -958,14 +955,12 @@ function mapDbItemToResponse(item: any): CatalogItem {
   }
   
   // Enrich existing variants: if variants exist but Size is missing globally, check top-level raw fields
-  if (variants && variants.length > 0 && raw) {
+  if (variants && variants.length > 0 && primaryRaw) {
     const anyHasSize = variants.some(v => v.dimensions?.some(d => d.name.toLowerCase() === 'size'));
     if (!anyHasSize) {
-      // Check raw.variation_values.Size for available sizes
-      const sizeValues = raw.variation_values?.Size || raw.variation_values?.size;
+      const sizeValues = primaryRaw.variation_values?.Size || primaryRaw.variation_values?.size;
       if (Array.isArray(sizeValues) && sizeValues.length > 0) {
         variantSources.push('size_enrichment');
-        // Add first size value to current variant as fallback indicator
         for (const v of variants) {
           if (v.isCurrent && v.dimensions) {
             v.dimensions.push({ name: 'Size', value: String(sizeValues[0]) });
@@ -975,7 +970,7 @@ function mapDbItemToResponse(item: any): CatalogItem {
       }
     }
   }
-  
+
   // Log variant sources for debugging
   const hasSizeAfter = variants?.some(v => v.dimensions?.some(d => d.name.toLowerCase() === 'size')) || false;
   if (variantSources.length > 0) {
@@ -996,7 +991,14 @@ function mapDbItemToResponse(item: any): CatalogItem {
     inStock: item.in_stock,
     rating: item.rating,
     reviewCount: item.review_count,
-    description: raw?.description || null,
+    description: computedDescription,
+    product_description: computedDescription,
+    long_description: computedDescription,
+    shortDescription: normalizeDescriptionText(primaryRaw?.shortDescription) || computedDescription,
+    feature_bullets: computedBullets.length > 0 ? computedBullets : null,
+    bullet_points: computedBullets.length > 0 ? computedBullets : null,
+    about_this_item: computedBullets.length > 0 ? computedBullets : null,
+    highlights: computedBullets.length > 0 ? computedBullets : null,
     brand: item.brand,
     category: item.category,
     categoryKey: item.category_key || null,
@@ -1291,9 +1293,27 @@ Deno.serve(async (req: Request) => {
         
         try {
           console.log(`[GALLERY_ENRICH] eBay item ${productId} has ${item.images?.length ?? 0} images, trying API...`);
-            const liveResult = liveEbayDetail ?? await getEbayItem(db, productId!);
+          const liveResult = liveEbayDetail ?? await getEbayItem(db, productId!);
           const liveItem = liveResult?.item;
           const wasRateLimited = liveResult?.debug?.httpStatus === 429;
+
+          if (liveItem?.description && !item.description) {
+            const liveDescription = buildProductDescription(liveItem as Record<string, any>);
+            const liveBullets = Array.from(new Set([
+              ...toStringList((liveItem as Record<string, any>).feature_bullets),
+              ...toStringList((liveItem as Record<string, any>).bullet_points),
+              ...toStringList((liveItem as Record<string, any>).about_this_item),
+              ...toStringList((liveItem as Record<string, any>).highlights),
+            ])).slice(0, 12);
+            item.description = liveDescription;
+            item.product_description = liveDescription;
+            item.long_description = liveDescription;
+            item.shortDescription = normalizeDescriptionText((liveItem as Record<string, any>).shortDescription) || liveDescription;
+            item.feature_bullets = liveBullets.length > 0 ? liveBullets : null;
+            item.bullet_points = liveBullets.length > 0 ? liveBullets : null;
+            item.about_this_item = liveBullets.length > 0 ? liveBullets : null;
+            item.highlights = liveBullets.length > 0 ? liveBullets : null;
+          }
           
           if (liveItem && Array.isArray(liveItem.images) && liveItem.images.length > (item.images?.length || 0)) {
             enrichedImages = upgradeGalleryImages(liveItem.images, "ebay");
@@ -1571,9 +1591,47 @@ Deno.serve(async (req: Request) => {
           productUrl: legacyItem.product_url || null,
           inStock: legacyItem.in_stock ?? null,
           rating: legacyItem.rating || null,
-          description: legacyItem.description || null,
+          description: buildProductDescription(
+            { description: legacyItem.description || null },
+            rawData,
+          ),
+          product_description: buildProductDescription(
+            { description: legacyItem.description || null },
+            rawData,
+          ),
+          long_description: buildProductDescription(
+            { description: legacyItem.description || null },
+            rawData,
+          ),
+          shortDescription: normalizeDescriptionText(rawData?.shortDescription) || buildProductDescription(
+            { description: legacyItem.description || null },
+            rawData,
+          ),
+          feature_bullets: Array.from(new Set([
+            ...toStringList(rawData?.feature_bullets),
+            ...toStringList(rawData?.bullet_points),
+            ...toStringList(rawData?.about_this_item),
+            ...toStringList(rawData?.highlights),
+          ])).slice(0, 12),
+          bullet_points: Array.from(new Set([
+            ...toStringList(rawData?.feature_bullets),
+            ...toStringList(rawData?.bullet_points),
+            ...toStringList(rawData?.about_this_item),
+            ...toStringList(rawData?.highlights),
+          ])).slice(0, 12),
+          about_this_item: Array.from(new Set([
+            ...toStringList(rawData?.feature_bullets),
+            ...toStringList(rawData?.bullet_points),
+            ...toStringList(rawData?.about_this_item),
+            ...toStringList(rawData?.highlights),
+          ])).slice(0, 12),
+          highlights: Array.from(new Set([
+            ...toStringList(rawData?.feature_bullets),
+            ...toStringList(rawData?.bullet_points),
+            ...toStringList(rawData?.about_this_item),
+            ...toStringList(rawData?.highlights),
+          ])).slice(0, 12),
           brand: legacyItem.brand || null,
-        };
 
         // Check variants cache before returning legacy data
         const legacyCachedVariants = await getCachedVariants();
@@ -1655,7 +1713,34 @@ Deno.serve(async (req: Request) => {
           productUrl: ebayItem.productUrl || null,
           inStock: ebayItem.inStock ?? null,
           rating: null,
-          description: ebayItem.description || null,
+          description: buildProductDescription(ebayItem as Record<string, any>),
+          product_description: buildProductDescription(ebayItem as Record<string, any>),
+          long_description: buildProductDescription(ebayItem as Record<string, any>),
+          shortDescription: normalizeDescriptionText((ebayItem as Record<string, any>).shortDescription) || buildProductDescription(ebayItem as Record<string, any>),
+          feature_bullets: Array.from(new Set([
+            ...toStringList((ebayItem as Record<string, any>).feature_bullets),
+            ...toStringList((ebayItem as Record<string, any>).bullet_points),
+            ...toStringList((ebayItem as Record<string, any>).about_this_item),
+            ...toStringList((ebayItem as Record<string, any>).highlights),
+          ])).slice(0, 12),
+          bullet_points: Array.from(new Set([
+            ...toStringList((ebayItem as Record<string, any>).feature_bullets),
+            ...toStringList((ebayItem as Record<string, any>).bullet_points),
+            ...toStringList((ebayItem as Record<string, any>).about_this_item),
+            ...toStringList((ebayItem as Record<string, any>).highlights),
+          ])).slice(0, 12),
+          about_this_item: Array.from(new Set([
+            ...toStringList((ebayItem as Record<string, any>).feature_bullets),
+            ...toStringList((ebayItem as Record<string, any>).bullet_points),
+            ...toStringList((ebayItem as Record<string, any>).about_this_item),
+            ...toStringList((ebayItem as Record<string, any>).highlights),
+          ])).slice(0, 12),
+          highlights: Array.from(new Set([
+            ...toStringList((ebayItem as Record<string, any>).feature_bullets),
+            ...toStringList((ebayItem as Record<string, any>).bullet_points),
+            ...toStringList((ebayItem as Record<string, any>).about_this_item),
+            ...toStringList((ebayItem as Record<string, any>).highlights),
+          ])).slice(0, 12),
           condition: ebayItem.attributes?.["Condition"],
           attributes: ebayItem.attributes,
           variants: ebayItem.variants,

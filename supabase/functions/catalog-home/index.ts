@@ -1397,7 +1397,110 @@ async function fetchLiveItems(
   return items.slice(0, pageSize);
 }
 
-serve(async (req) => {
+// ============================================================================
+// CURATED HOMEPAGE POST-PROCESSING (?curated=1)
+// ----------------------------------------------------------------------------
+// When clients pass ?curated=1, apply the same web-app curation rules to
+// sections[].items so mobile and web show identical curated feeds:
+//   1. Drop items priced over $500 (HOMEPAGE_HARD_PRICE_CEILING_USD)
+//      — exempt: vehicles/cars providers
+//   2. Drop items matching HOMEPAGE_BLOCKED_PRODUCT_PATTERNS (titles)
+//   3. Round-robin interleave by phone brand (iPhone → Galaxy → Pixel → other)
+//      so the top of the feed mixes brands instead of one dominating.
+// Order is otherwise preserved. Backward compatible: omit the flag for raw.
+// ============================================================================
+const CURATED_HARD_PRICE_CEILING_USD = 500;
+const CURATED_PRICE_EXEMPT_PROVIDERS = new Set(["carvana", "cars", "vehicles"]);
+const CURATED_BLOCKED_TITLE_PATTERNS: RegExp[] = [
+  /lexar\s+es3\s+1tb\s+external\s+ssd/i,
+  /usb\s*3\.2\s*gen\s*2\s+portable\s+ssd/i,
+  /pssd\s+up\s+to\s+1050mb\/s\s+read/i,
+];
+
+type CuratedItem = Record<string, unknown>;
+
+function curatedGetPrice(it: CuratedItem): number {
+  const v = (it.price_usd ?? it.priceUsd ?? 0) as number | string;
+  const n = typeof v === "string" ? parseFloat(v.replace(/[$,]/g, "")) : Number(v);
+  return isNaN(n) ? 0 : n;
+}
+
+function curatedGetProvider(it: CuratedItem): string {
+  return String(it.provider || "").toLowerCase();
+}
+
+function curatedGetTitle(it: CuratedItem): string {
+  return String(it.title || "");
+}
+
+function curatedAllowItem(it: CuratedItem): boolean {
+  const title = curatedGetTitle(it).trim();
+  if (CURATED_BLOCKED_TITLE_PATTERNS.some(p => p.test(title))) return false;
+  const provider = curatedGetProvider(it);
+  if (CURATED_PRICE_EXEMPT_PROVIDERS.has(provider)) return true;
+  const price = curatedGetPrice(it);
+  if (price > 0 && price > CURATED_HARD_PRICE_CEILING_USD) return false;
+  return true;
+}
+
+function curatedPhoneBucket(it: CuratedItem): "iphone" | "galaxy" | "pixel" | "other" {
+  const t = curatedGetTitle(it).toLowerCase();
+  if (t.includes("iphone")) return "iphone";
+  if (t.includes("pixel")) return "pixel";
+  if (t.includes("galaxy") || t.includes("samsung")) return "galaxy";
+  return "other";
+}
+
+function curatedInterleavePhoneBrands(items: CuratedItem[]): CuratedItem[] {
+  const buckets: Record<"iphone" | "galaxy" | "pixel" | "other", CuratedItem[]> = {
+    iphone: [], galaxy: [], pixel: [], other: [],
+  };
+  for (const it of items) buckets[curatedPhoneBucket(it)].push(it);
+  const order: Array<keyof typeof buckets> = ["iphone", "galaxy", "pixel", "other"];
+  const out: CuratedItem[] = [];
+  let added = true;
+  while (added) {
+    added = false;
+    for (const k of order) {
+      const next = buckets[k].shift();
+      if (next) { out.push(next); added = true; }
+    }
+  }
+  return out;
+}
+
+function applyCuratedHomepageRules(body: unknown): unknown {
+  if (!body || typeof body !== "object") return body;
+  const obj = body as Record<string, unknown>;
+  const sections = obj.sections;
+  if (!Array.isArray(sections)) return body;
+
+  const newSections = sections.map((s) => {
+    if (!s || typeof s !== "object") return s;
+    const sec = s as Record<string, unknown>;
+    const items = Array.isArray(sec.items) ? (sec.items as CuratedItem[]) : [];
+    const filtered = items.filter(curatedAllowItem);
+    const reordered = curatedInterleavePhoneBrands(filtered);
+    return { ...sec, items: reordered };
+  });
+
+  let totalItems = 0;
+  for (const s of newSections) {
+    const items = (s as Record<string, unknown>).items;
+    if (Array.isArray(items)) totalItems += items.length;
+  }
+
+  const meta = (obj.meta && typeof obj.meta === "object") ? obj.meta as Record<string, unknown> : {};
+
+  return {
+    ...obj,
+    sections: newSections,
+    totalItems,
+    meta: { ...meta, curated: true, curatedRules: "v1" },
+  };
+}
+
+const __originalHandler = async (req: Request): Promise<Response> => {
   const correlationId = generateCorrelationId();
   
   // Dynamic CORS preflight — echoes whatever headers the client requests
@@ -2166,5 +2269,28 @@ serve(async (req) => {
         schemaVersion: CACHE_SCHEMA_VERSION,
       }
     });
+  }
+};
+
+// Wrapper: applies ?curated=1 post-processing to the JSON response body
+// without changing any of the existing response paths inside the handler.
+serve(async (req: Request): Promise<Response> => {
+  const res = await __originalHandler(req);
+  try {
+    const url = new URL(req.url);
+    const wantsCurated = url.searchParams.get("curated") === "1"
+      || url.searchParams.get("curated") === "true";
+    if (!wantsCurated) return res;
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("application/json")) return res;
+    const text = await res.text();
+    let body: unknown;
+    try { body = JSON.parse(text); } catch { return new Response(text, { status: res.status, headers: res.headers }); }
+    const curated = applyCuratedHomepageRules(body);
+    const headers = new Headers(res.headers);
+    return new Response(JSON.stringify(curated), { status: res.status, headers });
+  } catch (e) {
+    console.warn("[CATALOG_HOME] curated post-process failed, returning raw:", e);
+    return res;
   }
 });

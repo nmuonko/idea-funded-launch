@@ -979,6 +979,7 @@ export default function ShopHome() {
       page: 1,
       pageSize: 100,
       client: 'web',
+      curated: 1, // server-side curation: matches mobile app for 1:1 parity
     };
 
     try {
@@ -1819,6 +1820,7 @@ export default function ShopHome() {
             page: 1,
             pageSize: 100,
             client: 'web',
+            curated: 1, // server-side curation: matches mobile for 1:1 parity
           }, { skipCache: true });
           if (data?.sections?.length) {
             const all = curateHomepageProducts(filterHomepageProducts(

@@ -1481,19 +1481,15 @@ serve(async (req) => {
       }
     }
 
-    const wantsMobileHomepagePhones = clientType === "mobile" && !category && !sectionKey && !forceLive;
-    if (wantsMobileHomepagePhones) {
-      const mobileHomepageResponse = await buildMobileHomepagePhonesResponse(
-        page,
-        locale,
-        correlationId,
-        env,
-        envRequested,
-        detectedBy,
-      );
-      if (mobileHomepageResponse) {
-        return mobileHomepageResponse;
-      }
+    // UNIFIED HOMEPAGE: mobile and web now share the SAME homepage payload.
+    // The frozen mobile app must show the exact same items in the exact same
+    // order as the web app's homepage (eBay live "featured" trending section).
+    // We force mobile to take the web code path below by overriding clientType
+    // for the rest of this request. The mobile-specific phones grid branch
+    // and the mobile-only sections cache are intentionally bypassed.
+    if (clientType === "mobile" && !category && !sectionKey) {
+      console.log(`[CATALOG_HOME] correlationId=${correlationId} unifying mobile→web homepage payload (frozen-app contract)`);
+      clientType = "web";
     }
 
     console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} detectedBy=${detectedBy} lang=${lang} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);

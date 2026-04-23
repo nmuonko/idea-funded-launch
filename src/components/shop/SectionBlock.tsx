@@ -5,6 +5,7 @@ import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { handleImageError, handleImageLoad, isRenderableImageUrl, pickBestImage } from '@/lib/imageValidation';
+import { translations } from '@/lib/i18n/translations';
 
 interface SectionBlockProps {
   title?: string;

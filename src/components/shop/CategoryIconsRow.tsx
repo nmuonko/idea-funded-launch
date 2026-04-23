@@ -23,20 +23,21 @@ const CATEGORIES = ALL_HOMEPAGE_CATEGORIES.map((key) => ({
 })).filter(category => Boolean(category.image));
 
 export const CategoryIconsRow = React.forwardRef<HTMLDivElement, Record<string, never>>(function CategoryIconsRow(_props, _ref) {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const navigate = useNavigate();
+  const shop = (t.shop || {}) as any;
 
   return (
     <div className="bg-card border border-border rounded-2xl p-4 sm:p-5 shadow-md">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-base sm:text-lg font-semibold text-card-foreground">
-          {language === 'fr' ? 'Économisez sur les catégories' : 'Save on categories'}
+          {shop.saveOnCategories || (language === 'fr' ? 'Économisez sur les catégories' : 'Save on categories')}
         </h2>
         <button
           onClick={() => navigate('/category/all')}
           className="flex items-center gap-1 text-sm text-primary hover:text-primary/80 font-medium transition-colors"
         >
-          {language === 'fr' ? 'Voir tout' : 'See all'}
+          {shop.seeAll || (language === 'fr' ? 'Voir tout' : 'See all')}
           <ArrowRight className="h-3.5 w-3.5" />
         </button>
       </div>

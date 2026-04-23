@@ -400,7 +400,8 @@ async function fetchHomepagePhoneRows(
   params.append("price_usd", "lte.1800");
   params.set("provider", "in.(amazon,rainforest)");
   params.set("or", `(${orFilter})`);
-  params.set("order", "updated_at.desc.nullslast");
+  // Cheapest first per page (web parity). Tie-break by recency for stability.
+  params.set("order", "price_usd.asc.nullslast,updated_at.desc.nullslast");
   params.set("offset", String(offset));
   params.set("limit", String(limit));
 

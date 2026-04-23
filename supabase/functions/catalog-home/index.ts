@@ -1420,7 +1420,9 @@ serve(async (req) => {
     // Parse parameters
     const url = new URL(req.url);
     let page = 1;
-    let pageSize = clientType === "mobile" ? 20 : DEFAULT_PAGE_SIZE;
+    // Unified payload: mobile and web use the same default page size on the
+    // homepage so pagination/items-per-page match exactly across clients.
+    let pageSize = DEFAULT_PAGE_SIZE;
     let category = "";
     let section = "";
     let amazonDomain = "amazon.com";

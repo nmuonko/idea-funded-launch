@@ -65,7 +65,7 @@ function mapChinaCatalogItem(row: any): IntlProduct | null {
   };
 }
 
-const ALLOWED = new Set(['china', 'dubai', 'turkey']);
+const ALLOWED = new Set(['china', 'turkey']);
 
 export default function IntlProductDetails() {
   const { country = '', id = '' } = useParams<{ country: string; id: string }>();

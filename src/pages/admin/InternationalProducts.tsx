@@ -39,7 +39,7 @@ interface IntlProduct {
   created_at: string;
 }
 
-const COUNTRY_FILTER_OPTIONS = ['all', 'china', 'dubai', 'turkey'];
+const COUNTRY_FILTER_OPTIONS = ['all', 'china', 'turkey'];
 
 export default function InternationalProducts() {
   const { user } = useAuth();
@@ -228,8 +228,8 @@ export default function InternationalProducts() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {t(
-              'Manually add products from China, Dubai, and Turkey. Pricing uses the global markup + per-country per-kg shipping.',
-              'Ajoutez manuellement des produits de Chine, Dubaï et Turquie. Tarification = marge globale + expédition par kg par pays.',
+              'Manually add products from China and Turkey. Pricing uses the global markup + per-country per-kg shipping.',
+              'Ajoutez manuellement des produits de Chine et Turquie. Tarification = marge globale + expédition par kg par pays.',
             )}
           </p>
         </div>

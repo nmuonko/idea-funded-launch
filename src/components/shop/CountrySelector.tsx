@@ -16,7 +16,6 @@ interface CountryRow {
 const FLAG_ISO: Record<string, string> = {
   usa: 'us',
   china: 'cn',
-  dubai: 'ae',
   turkey: 'tr',
 };
 
@@ -28,15 +27,13 @@ const flagUrl = (key: string) => {
 const COUNTRY_TAGLINE: Record<string, { en: string; fr: string }> = {
   usa:    { en: 'Phones & electronics',  fr: 'Téléphones & électronique' },
   china:  { en: 'Fashion & gadgets',     fr: 'Mode & gadgets' },
-  dubai:  { en: 'Luxury & premium',      fr: 'Luxe & premium' },
   turkey: { en: 'Apparel & beauty',      fr: 'Vêtements & beauté' },
 };
 
 const FALLBACK: CountryRow[] = [
   { country: 'usa',    label_en: 'USA',    label_fr: 'États-Unis', flag_emoji: '🇺🇸', enabled: true, sort_order: 1 },
   { country: 'china',  label_en: 'China',  label_fr: 'Chine',      flag_emoji: '🇨🇳', enabled: true, sort_order: 2 },
-  { country: 'dubai',  label_en: 'Dubai',  label_fr: 'Dubaï',      flag_emoji: '🇦🇪', enabled: true, sort_order: 3 },
-  { country: 'turkey', label_en: 'Turkey', label_fr: 'Turquie',    flag_emoji: '🇹🇷', enabled: true, sort_order: 4 },
+  { country: 'turkey', label_en: 'Turkey', label_fr: 'Turquie',    flag_emoji: '🇹🇷', enabled: true, sort_order: 3 },
 ];
 
 export function CountrySelector() {

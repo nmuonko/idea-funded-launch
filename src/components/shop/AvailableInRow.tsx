@@ -3,7 +3,9 @@ import { useLanguage } from '@/contexts/LanguageContext';
 
 type Country = {
   key: string;
-  flag: string;
+  /** ISO 3166-1 alpha-2 code for SVG flag, or null for emoji fallback */
+  iso?: string;
+  emoji?: string;
   nameEn: string;
   nameFr: string;
   /** Route or in-page action when clicked */
@@ -13,15 +15,14 @@ type Country = {
 
 /**
  * Source countries that AfriShop ships from + Hot Products quick link.
- * - USA → stays on homepage (the curated Amazon phones grid IS the USA catalog)
- * - Turkey / China → existing per-country shop routes
- * - Hot Products → curated deals page (replaces former DRC coming-soon tile)
+ * Flags use flagcdn.com SVGs for cross-platform consistency (Windows Chrome
+ * does not render regional-indicator emoji flags as actual flags).
  */
 const COUNTRIES: Country[] = [
-  { key: 'us',  flag: '🇺🇸', nameEn: 'USA',          nameFr: 'USA',              scrollToId: 'shop-categories-anchor' },
-  { key: 'tr',  flag: '🇹🇷', nameEn: 'Turkey',       nameFr: 'Turquie',          href: '/shop/turkey' },
-  { key: 'cn',  flag: '🇨🇳', nameEn: 'China',        nameFr: 'Chine',            href: '/shop/china' },
-  { key: 'hot', flag: '🔥', nameEn: 'Hot Products', nameFr: 'Produits Vedettes', href: '/hot-products' },
+  { key: 'us',  iso: 'us', nameEn: 'USA',          nameFr: 'USA',              scrollToId: 'shop-categories-anchor' },
+  { key: 'tr',  iso: 'tr', nameEn: 'Turkey',       nameFr: 'Turquie',          href: '/shop/turkey' },
+  { key: 'cn',  iso: 'cn', nameEn: 'China',        nameFr: 'Chine',            href: '/shop/china' },
+  { key: 'hot', emoji: '🔥', nameEn: 'Hot Products', nameFr: 'Produits Vedettes', href: '/hot-products' },
 ];
 
 /**
@@ -66,7 +67,19 @@ export function AvailableInRow() {
                 aria-hidden
                 className="flex items-center justify-center w-9 h-7 rounded-[3px] bg-white/10 text-lg leading-none overflow-hidden shrink-0"
               >
-                {c.flag}
+                {c.iso ? (
+                  <img
+                    src={`https://flagcdn.com/w80/${c.iso}.png`}
+                    srcSet={`https://flagcdn.com/w160/${c.iso}.png 2x`}
+                    width={36}
+                    height={28}
+                    alt=""
+                    loading="lazy"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  c.emoji
+                )}
               </span>
               <span className="flex-1 min-w-0">
                 <span className="block text-sm font-semibold text-white truncate">

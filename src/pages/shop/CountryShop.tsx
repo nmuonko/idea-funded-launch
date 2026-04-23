@@ -88,7 +88,7 @@ export default function CountryShop() {
               const { data } = await supabase
                 .from('catalog_items')
                 .select('id, title, image_url, images, product_url, price_usd, description, provider')
-                .eq('provider', 'shein')
+                .in('provider', ['shopify_china', 'shein'])
                 .eq('is_active', true)
                 .eq('is_disallowed', false)
                 .gt('price_usd', 0)
@@ -101,7 +101,7 @@ export default function CountryShop() {
               const { data } = await supabase
                 .from('catalog_items')
                 .select('id, title, image_url, images, product_url, price_usd, description, provider')
-                .eq('provider', 'shein')
+                .in('provider', ['shopify_china', 'shein'])
                 .eq('is_active', true)
                 .eq('is_disallowed', false)
                 .gt('price_usd', 0)

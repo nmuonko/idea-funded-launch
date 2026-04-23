@@ -541,7 +541,7 @@ export default function ShopHome() {
       if (error) throw error;
 
       const totalCount = count ?? 0;
-      const mapped = (data || [])
+        const mapped = (data || [])
         .map((item: any): Product | null => {
           const { candidates, imageUrl } = resolveProductImages(item);
           const providerFallback = deriveProviderImageFallback(item.provider || provider, item.provider_product_id || item.id);
@@ -1234,11 +1234,11 @@ export default function ShopHome() {
           items = keepEnoughHomepageProducts(deduplicateProducts(sortByLuxury(items)), catKey).slice(0, 4);
         }
 
-        items = keepEnoughHomepageProducts(items, catKey);
+        items = curateHomepageProducts(keepEnoughHomepageProducts(items, catKey), `category:${catKey}`);
         if (items.length < 4) {
-          items = await searchCategoryRescue(catKey, items, 4);
+          items = curateHomepageProducts(await searchCategoryRescue(catKey, items, 4), `category-rescue:${catKey}`);
         }
-        items = keepEnoughHomepageProducts(deduplicateProducts(sortByLuxury(items)), catKey).slice(0, 4);
+        items = curateHomepageProducts(keepEnoughHomepageProducts(deduplicateProducts(sortByLuxury(items)), catKey).slice(0, 4), `category-final:${catKey}`);
 
         if (SLOW_CATEGORIES.has(catKey)) {
           setCachedCategoryResult(catKey, items);
@@ -1359,7 +1359,7 @@ export default function ShopHome() {
   const getHomepageCategoryItems = useCallback((catKey: string) => {
     const pinnedItems = pinnedByCategory[catKey] || [];
     const fetchedItems = categoryItems[catKey] || [];
-    const withImages = (arr: Product[]) => arr.filter(p => !!p.imageUrl && isRenderableImageUrl(p.imageUrl));
+    const withImages = (arr: Product[]) => curateHomepageProducts(arr.filter(p => !!p.imageUrl && isRenderableImageUrl(p.imageUrl)), `homepage-category:${catKey}`);
     const primary = withImages(filterForCategory(deduplicateProducts([...pinnedItems, ...fetchedItems]), catKey));
 
     if (primary.length >= 4) {
@@ -1429,11 +1429,7 @@ export default function ShopHome() {
   // ad/banner/promo URLs — these would otherwise render as empty/null cards
   // and create visual gaps that look like "ad slots" on the homepage.
   const sortedPhones = useMemo(() => {
-    const cleaned = phonesRowItems.filter((p: any) => {
-      const candidates = [p.imageUrl, ...((p.images as string[]) || []), ...((p.imageUrls as string[]) || [])]
-        .filter(Boolean);
-      return candidates.some((u: string) => isRenderableImageUrl(u));
-    });
+    const cleaned = curateHomepageProducts(phonesRowItems, 'phones-grid');
     const list = [...cleaned];
     if (sortBy === 'cheapest') list.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
     else if (sortBy === 'priciest') list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));

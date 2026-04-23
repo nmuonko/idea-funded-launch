@@ -4,7 +4,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { ArrowRight } from 'lucide-react';
 import { prefetchCatalogCategory } from '@/lib/catalogCache';
 import { useCallback } from 'react';
-import { isRenderableImageUrl, filterGalleryImages } from '@/lib/imageValidation';
+import { handleImageError, handleImageLoad, isRenderableImageUrl } from '@/lib/imageValidation';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 
 interface CategoryCardProps {
@@ -107,14 +107,8 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
                   alt={product.title}
                   className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105"
                   loading="lazy"
-                  onLoad={(e) => {
-                    const img = e.currentTarget;
-                    const ratio = img.naturalWidth / Math.max(img.naturalHeight, 1);
-                    if (ratio > 3 || ratio < 0.33 || (img.naturalWidth < 50 && img.naturalHeight < 50)) {
-                      img.style.display = 'none';
-                    }
-                  }}
-                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  onLoad={handleImageLoad}
+                  onError={handleImageError}
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-muted-foreground text-[10px]">

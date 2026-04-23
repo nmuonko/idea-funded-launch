@@ -4,7 +4,7 @@ import { CategoryCard } from '@/components/shop/CategoryCard';
 import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { isRenderableImageUrl } from '@/lib/imageValidation';
+import { handleImageError, handleImageLoad, isRenderableImageUrl } from '@/lib/imageValidation';
 
 interface SectionBlockProps {
   title?: string;
@@ -75,17 +75,8 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
                   className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105 image-rendering-auto"
                   loading="lazy"
                   decoding="async"
-                  onLoad={(e) => {
-                    const img = e.currentTarget;
-                    const ratio = img.naturalWidth / Math.max(img.naturalHeight, 1);
-                    if (ratio > 3 || ratio < 0.33 || (img.naturalWidth < 50 && img.naturalHeight < 50)) {
-                      img.src = '/placeholder.svg';
-                    }
-                  }}
-                  onError={(e) => {
-                    e.currentTarget.onerror = null;
-                    e.currentTarget.src = '/placeholder.svg';
-                  }}
+                  onLoad={handleImageLoad}
+                  onError={handleImageError}
                 />
               </div>
               <p className="mt-1 text-[11px] text-white/70 line-clamp-2 leading-tight">

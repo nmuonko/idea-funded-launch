@@ -1258,9 +1258,36 @@ Deno.serve(async (req: Request) => {
             console.warn(`[PRICE_REFRESH][EBAY] ${productId}: live refresh failed: ${(e as Error).message}`);
           }
         }
+      if (dbItem.provider === "ebay" && !item.description) {
+        try {
+          liveEbayDetail = liveEbayDetail ?? await getEbayItem(db, productId!);
+          const liveItem = liveEbayDetail?.item;
+          if (liveItem) {
+            const liveDescription = buildProductDescription(liveItem as Record<string, any>);
+            const liveBullets = Array.from(new Set([
+              ...toStringList((liveItem as Record<string, any>).feature_bullets),
+              ...toStringList((liveItem as Record<string, any>).bullet_points),
+              ...toStringList((liveItem as Record<string, any>).about_this_item),
+              ...toStringList((liveItem as Record<string, any>).highlights),
+            ])).slice(0, 12);
+
+            if (liveDescription) {
+              item.description = liveDescription;
+              item.product_description = liveDescription;
+              item.long_description = liveDescription;
+              item.shortDescription = normalizeDescriptionText((liveItem as Record<string, any>).shortDescription) || liveDescription;
+              item.feature_bullets = liveBullets.length > 0 ? liveBullets : null;
+              item.bullet_points = liveBullets.length > 0 ? liveBullets : null;
+              item.about_this_item = liveBullets.length > 0 ? liveBullets : null;
+              item.highlights = liveBullets.length > 0 ? liveBullets : null;
+            }
+          }
+        } catch (e) {
+          console.warn(`[DETAIL_DESC][EBAY] ${productId}: live description fetch failed: ${(e as Error).message}`);
+        }
       }
-      
-      // Merge media gallery images: always prefer media gallery when it has more/equal images
+
+
       const mediaData = mediaResult?.data;
       if (mediaData?.image_urls && Array.isArray(mediaData.image_urls)) {
         const mediaImages = (mediaData.image_urls as string[]).filter((url: string) => typeof url === "string" && url.length > 0);

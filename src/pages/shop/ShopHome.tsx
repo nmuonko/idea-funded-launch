@@ -106,16 +106,20 @@ const HOMEPAGE_LOCKED_PHONES_KEY = 'afrishop_homepage_phones_v2';
  * Interleave phone listings so iPhone, Galaxy and Pixel are visibly mixed
  * in the homepage grid instead of one brand dominating the top.
  */
+function getPhoneBrandBucket(product: Product): 'iphone' | 'pixel' | 'galaxy' | 'other' {
+  const title = (product.title || '').toLowerCase();
+  if (title.includes('iphone')) return 'iphone';
+  if (title.includes('pixel')) return 'pixel';
+  if (title.includes('galaxy') || title.includes('samsung')) return 'galaxy';
+  return 'other';
+}
+
 function interleavePhoneBrands(items: Product[]): Product[] {
   const buckets: Record<'iphone' | 'galaxy' | 'pixel' | 'other', Product[]> = {
     iphone: [], galaxy: [], pixel: [], other: [],
   };
   for (const p of items) {
-    const t = (p.title || '').toLowerCase();
-    if (t.includes('iphone')) buckets.iphone.push(p);
-    else if (t.includes('pixel')) buckets.pixel.push(p);
-    else if (t.includes('galaxy') || t.includes('samsung')) buckets.galaxy.push(p);
-    else buckets.other.push(p);
+    buckets[getPhoneBrandBucket(p)].push(p);
   }
   // Round-robin in a fixed order so each brand appears early.
   const order: Array<keyof typeof buckets> = ['iphone', 'galaxy', 'pixel', 'other'];
@@ -1551,6 +1555,19 @@ export default function ShopHome() {
     return filterHomepageProducts(sortByLuxury(handsets), 'phones');
   }, [pinnedByCategory, categoryItems, bulkPhones]);
 
+  const phoneBrandPriorityPool = useMemo(() => {
+    const pool = deduplicateProducts([
+      ...phonesRowItems,
+      ...(pinnedByCategory['phones'] || []),
+      ...(categoryItems['phones'] || []),
+    ]).filter((p) => {
+      const tt = (p.title || '').toLowerCase();
+      return !PHONE_ACCESSORY_KEYWORDS.some((kw) => tt.includes(kw));
+    });
+
+    return curateHomepageProducts(filterHomepageProducts(pool, 'phones'), 'phones-brand-priority');
+  }, [phonesRowItems, pinnedByCategory, categoryItems]);
+
   // Apply user-selected sort on top of the curated phones list.
   // Also drop any product whose primary image AND all gallery fallbacks are
   // ad/banner/promo URLs — these would otherwise render as empty/null cards
@@ -1563,44 +1580,34 @@ export default function ShopHome() {
     } else if (sortBy === 'priciest') {
       list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
     } else {
-      // Default view: group by brand into full rows so the first row is
-      // iPhones, the second row is Google Pixel, and the third row is Samsung
-      // Galaxy. The grid uses up to 6 columns (xl), so we slice each brand to
-      // a multiple of 6 and stack them in fixed order.
-      // Grid is grid-cols-2 / sm:grid-cols-3 / lg:grid-cols-4. Use 12 per brand
-      // (LCM of 2/3/4) so each brand block fills a whole number of rows on every
-      // breakpoint and the brand boundary always lands on a row boundary.
-      const ROW_SIZE = 12;
+      // The homepage phone grid renders 4 cards per row on desktop and shows
+      // 12 items per page, so reserve the first three desktop rows for the
+      // three requested brands while keeping the total page size unchanged.
+      const ROW_SIZE = 4;
       const buckets: Record<'iphone' | 'pixel' | 'galaxy' | 'other', Product[]> = {
         iphone: [], pixel: [], galaxy: [], other: [],
       };
-      for (const p of list) {
-        const t = (p.title || '').toLowerCase();
-        if (t.includes('iphone')) buckets.iphone.push(p);
-        else if (t.includes('pixel')) buckets.pixel.push(p);
-        else if (t.includes('galaxy') || t.includes('samsung')) buckets.galaxy.push(p);
-        else buckets.other.push(p);
+      const source = deduplicateProducts([...phoneBrandPriorityPool, ...list]);
+
+      for (const p of source) {
+        buckets[getPhoneBrandBucket(p)].push(p);
       }
-      const takeRow = (arr: Product[]) => arr.slice(0, ROW_SIZE);
+
       const ordered = [
-        ...takeRow(buckets.iphone),
-        ...takeRow(buckets.pixel),
-        ...takeRow(buckets.galaxy),
+        ...buckets.iphone.slice(0, ROW_SIZE),
+        ...buckets.pixel.slice(0, ROW_SIZE),
+        ...buckets.galaxy.slice(0, ROW_SIZE),
       ];
-      // Append any remaining products after the three brand rows so we keep
-      // a full grid below without leaving empty slots.
+
       const usedIds = new Set(ordered.map(p => p.id));
-      const rest = list.filter(p => !usedIds.has(p.id));
+      const rest = source.filter(p => !usedIds.has(p.id));
       list = [...ordered, ...rest];
     }
-    // Grid uses up to 6 cols (xl). Trim to a multiple of 12 so the last visible
-    // row is always full and never shows orphan empty slots.
-    if (list.length >= 12) {
-      const usable = Math.floor(list.length / 12) * 12;
-      return list.slice(0, usable);
+    if (list.length > PHONES_PAGE_SIZE) {
+      return list.slice(0, PHONES_PAGE_SIZE);
     }
     return list;
-  }, [phonesRowItems, sortBy]);
+  }, [phonesRowItems, phoneBrandPriorityPool, sortBy]);
 
   const totalPhonePages = Math.max(1, Math.ceil(bulkPhonesTotal / PHONES_PAGE_SIZE));
 

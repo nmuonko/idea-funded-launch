@@ -21,7 +21,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { translations } from '@/lib/i18n/translations';
 import { getRecentlyViewed } from '@/lib/recentlyViewed';
-import { clearImageValidationCaches, collectProductImageCandidates, isRenderableImageUrl, pickBestImage } from '@/lib/imageValidation';
+import { clearImageValidationCaches, collectProductImageCandidates, isRenderableImageUrl, pickBestImage, pickBestImageAsync } from '@/lib/imageValidation';
 import { supabase } from '@/integrations/supabase/client';
 import { applyServerPrices, resolveDisplayPrice } from '@/lib/serverPricing';
 
@@ -98,7 +98,7 @@ const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set<string>(['vehicles', 'cars']);
 const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_motors']);
 // Hard ceiling enforced for non-exempt categories.
 const HOMEPAGE_HARD_PRICE_CEILING_USD = 500;
-const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v7';
+const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v8';
 
 function getCategoryMaxPrice(categoryKey?: string): number {
   if (!categoryKey) return HOMEPAGE_DEFAULT_MAX_PRICE_USD;

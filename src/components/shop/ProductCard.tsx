@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ShoppingCart, Check, Loader2, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -53,6 +53,11 @@ export function ProductCard({ product, className, compact = false, coverImage = 
     return resizeImageUrl(selected, IMAGE_SIZE_THUMB);
   });
   const { language } = useLanguage();
+
+  useEffect(() => {
+    const selected = pickBestImage(galleryImages, product.imageUrl, { policy: imagePolicy });
+    setImgSrc(resizeImageUrl(selected, IMAGE_SIZE_THUMB));
+  }, [galleryImages, product.imageUrl, imagePolicy, product.id]);
 
   const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     handleImageLoad(e);

@@ -11,7 +11,7 @@
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
-const CACHE_PREFIX = 'afrishop_cache:v17:';
+const CACHE_PREFIX = 'afrishop_cache:v18:';
 const DEFAULT_TTL_SECONDS = 3600; // 1 hour fallback
 const LRU_MAX_SIZE = 100;
 const SWR_STALE_MULTIPLIER = 2; // Serve stale up to 2x TTL

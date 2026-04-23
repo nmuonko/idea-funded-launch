@@ -1567,7 +1567,10 @@ export default function ShopHome() {
       // iPhones, the second row is Google Pixel, and the third row is Samsung
       // Galaxy. The grid uses up to 6 columns (xl), so we slice each brand to
       // a multiple of 6 and stack them in fixed order.
-      const ROW_SIZE = 6;
+      // Grid is grid-cols-2 / sm:grid-cols-3 / lg:grid-cols-4. Use 12 per brand
+      // (LCM of 2/3/4) so each brand block fills a whole number of rows on every
+      // breakpoint and the brand boundary always lands on a row boundary.
+      const ROW_SIZE = 12;
       const buckets: Record<'iphone' | 'pixel' | 'galaxy' | 'other', Product[]> = {
         iphone: [], pixel: [], galaxy: [], other: [],
       };

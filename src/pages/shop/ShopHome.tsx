@@ -1557,12 +1557,18 @@ export default function ShopHome() {
   // and create visual gaps that look like "ad slots" on the homepage.
   const sortedPhones = useMemo(() => {
     const cleaned = curateHomepageProducts(phonesRowItems, 'phones-grid');
-    const list = [...cleaned];
-    if (sortBy === 'cheapest') list.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
-    else if (sortBy === 'priciest') list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
-    // Grid uses up to 6 cols (xl). Trim to a multiple of 12 (LCM of 2,3,4,5,6 ≈ 60 — 12 is the
-    // largest divisor that divides every breakpoint cleanly without dropping too many items)
-    // so the last visible row is always full and never shows orphan empty slots.
+    let list = [...cleaned];
+    if (sortBy === 'cheapest') {
+      list.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
+    } else if (sortBy === 'priciest') {
+      list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
+    } else {
+      // Default view: interleave iPhone / Galaxy / Pixel so all three brands
+      // are visibly mixed within the first rows of the homepage phones grid.
+      list = interleavePhoneBrands(list);
+    }
+    // Grid uses up to 6 cols (xl). Trim to a multiple of 12 so the last visible
+    // row is always full and never shows orphan empty slots.
     if (list.length >= 12) {
       const usable = Math.floor(list.length / 12) * 12;
       return list.slice(0, usable);

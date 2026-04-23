@@ -227,12 +227,15 @@ export function postFilterItems<T extends {
 
 /**
  * Post-sort items array (for sorts not supported by API, e.g., eBay rating)
- * 
- * "smart" sort: composite score blending relevance + price competitiveness + rating
- *   Formula: 0.50 * relevance_norm + 0.35 * price_score + 0.15 * rating_norm
+ *
+ * "smart" sort: composite score — relevance-led but strongly rewards low price.
+ *   Formula: 0.40 * relevance_norm + 0.50 * price_score + 0.10 * rating_norm
  *   - relevance_norm: existing _score normalized to 0-100
- *   - price_score: percentile rank inverted (cheapest = 100, most expensive = 0)
+ *   - price_score: log-scaled cheap-first (cheapest ≈ 100, most expensive ≈ 0)
  *   - rating_norm: rating/5 * 100
+ *
+ * Items below the median relevance score are excluded from the cheap-first
+ * boost so we never surface irrelevant junk just because it is cheap.
  */
 export function postSortItems<T extends { 
   priceUsd?: number | null;
@@ -254,35 +257,43 @@ export function postSortItems<T extends {
       // Gather numeric ranges for normalization
       const prices = sorted.map(i => i.priceUsd ?? i.price_usd ?? 0).filter(p => p > 0);
       const scores = sorted.map(i => (i as any)._score ?? 0);
-      const minPrice = Math.min(...prices, 1);
-      const maxPrice = Math.max(...prices, 1);
       const maxScore = Math.max(...scores, 1);
-      const priceRange = maxPrice - minPrice || 1;
 
-      // Compute composite smart score for each item
+      // Median relevance — items below this don't get the cheap-first boost
+      const sortedScores = [...scores].sort((a, b) => a - b);
+      const medianScore = sortedScores[Math.floor(sortedScores.length / 2)] ?? 0;
+
+      // Log-scaled price normalization so $5 vs $10 matters more than $500 vs $510
+      const minPrice = prices.length ? Math.min(...prices) : 1;
+      const maxPrice = prices.length ? Math.max(...prices) : 1;
+      const logMin = Math.log(Math.max(minPrice, 1));
+      const logMax = Math.log(Math.max(maxPrice, 1));
+      const logRange = (logMax - logMin) || 1;
+
       const withSmartScore = sorted.map(item => {
         const price = item.priceUsd ?? item.price_usd ?? 0;
         const relevance = (item as any)._score ?? 0;
         const rating = item.rating ?? 0;
 
-        // Normalize relevance: 0-100 based on max score in result set
         const relevanceNorm = maxScore > 0 ? (relevance / maxScore) * 100 : 50;
 
-        // Price competitiveness: cheapest = 100, most expensive = 0
+        // Cheapest = 100, most expensive ≈ 0 (log scale)
         const priceScore = price > 0
-          ? (1 - (price - minPrice) / priceRange) * 100
+          ? (1 - (Math.log(price) - logMin) / logRange) * 100
           : 0;
 
-        // Rating normalized: 0-100
         const ratingNorm = (rating / 5) * 100;
 
-        // Weighted composite: relevance-heavy but rewards low price
-        const smartScore = 0.50 * relevanceNorm + 0.35 * priceScore + 0.15 * ratingNorm;
+        // Below-median-relevance items get a softer price weight to avoid junk
+        const isRelevant = relevance >= medianScore;
+        const wRel = isRelevant ? 0.40 : 0.65;
+        const wPrice = isRelevant ? 0.50 : 0.25;
+        const wRating = 0.10;
 
+        const smartScore = wRel * relevanceNorm + wPrice * priceScore + wRating * ratingNorm;
         return { item, smartScore };
       });
 
-      // Sort descending by smart score
       withSmartScore.sort((a, b) => b.smartScore - a.smartScore);
       return withSmartScore.map(s => s.item);
     }

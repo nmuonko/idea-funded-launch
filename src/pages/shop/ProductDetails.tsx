@@ -246,24 +246,14 @@ export default function ProductDetailsPage() {
     }));
   }, [product?.variants]);
 
-  // Price source of truth: use the same shared pricing utility as the homepage.
-  // If the backend returns base_price_usd, resolve from that raw base value.
-  // Otherwise keep the already-displayed price from navigation state.
+  // Price source of truth: trust the all-inclusive priceUsd returned by
+  // /catalog-product (which already applied markup + shipping server-side via
+  // the SAME pricing function the homepage uses). Re-deriving from
+  // basePriceUsd via a separate RPC caused drift vs homepage card price.
   useEffect(() => {
-    const base = product?.basePriceUsd ?? null;
     const display = product?.priceUsd ?? 0;
-    let cancelled = false;
-
-    if (base && base > 0) {
-      resolveDisplayPrice(base).then((resolved) => {
-        if (!cancelled) setResolvedDisplayPrice(resolved > 0 ? resolved : display);
-      });
-      return () => { cancelled = true; };
-    }
-
     setResolvedDisplayPrice(display > 0 ? display : null);
-    return () => { cancelled = true; };
-  }, [product?.basePriceUsd, product?.priceUsd]);
+  }, [product?.priceUsd]);
 
   // Reset state when route params change
   useEffect(() => {

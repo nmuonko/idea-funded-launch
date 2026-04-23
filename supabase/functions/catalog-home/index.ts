@@ -1409,7 +1409,7 @@ serve(async (req) => {
 
   const startTime = Date.now();
   const detection = detectClientType(req);
-  const clientType = detection.clientType;
+  let clientType = detection.clientType;
   const detectedBy = detection.detectedBy;
   const { envRequested, envUsed } = normalizeEnv(req);
   const lang = getResponseLanguage(req);

@@ -101,12 +101,8 @@ export default function HotProducts() {
 
         if (error) throw error;
         if (data) {
-          const filtered = (data as any[]).filter((item) => {
-            const provider = String(item.provider || '').toLowerCase();
-            if (provider === 'cargurus' || provider === 'carvana' || provider === 'ebay_motors') return true;
-            const price = Number(item.total_price_usd || 0);
-            return price > 0 && price <= 200;
-          });
+          // Admin-curated showcase: show every active item, no client-side price filter.
+          const filtered = (data as any[]).filter((item) => Number(item.total_price_usd || 0) > 0);
           setProducts(filtered as any);
         }
       } catch (err: any) {

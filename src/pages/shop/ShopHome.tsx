@@ -116,8 +116,8 @@ const HOMEPAGE_LOCKED_PHONES_KEY = 'afrishop_homepage_phones_v3' as const;
 const HOMEPAGE_PHONE_ROW_SIZE = 4 as const;
 const HOMEPAGE_PHONE_BRAND_SEQUENCE = Object.freeze(['iphone', 'pixel', 'galaxy'] as const);
 const HOMEPAGE_PHONE_EXTRA_FILL = 2 as const;
-const HOMEPAGE_PHONE_RESERVED_COUNT =
-  (HOMEPAGE_PHONE_ROW_SIZE * HOMEPAGE_PHONE_BRAND_SEQUENCE.length + HOMEPAGE_PHONE_EXTRA_FILL) as const;
+const HOMEPAGE_PHONE_RESERVED_COUNT: number =
+  HOMEPAGE_PHONE_ROW_SIZE * HOMEPAGE_PHONE_BRAND_SEQUENCE.length + HOMEPAGE_PHONE_EXTRA_FILL;
 const HOMEPAGE_PHONE_DEFAULT_SORT = 'cheapest' as const;
 // 🔒 END LOCKED CONFIG ========================================================
 

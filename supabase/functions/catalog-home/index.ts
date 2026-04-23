@@ -400,7 +400,8 @@ async function fetchHomepagePhoneRows(
   params.append("price_usd", "lte.1800");
   params.set("provider", "in.(amazon,rainforest)");
   params.set("or", `(${orFilter})`);
-  params.set("order", "updated_at.desc.nullslast");
+  // Cheapest first per page (web parity). Tie-break by recency for stability.
+  params.set("order", "price_usd.asc.nullslast,updated_at.desc.nullslast");
   params.set("offset", String(offset));
   params.set("limit", String(limit));
 
@@ -432,13 +433,16 @@ function mapHomepagePhoneRows(rows: Array<Record<string, unknown>>): CatalogItem
   for (const row of rows) {
     const title = String(row.title || "").trim();
     if (!title) continue;
-    if (MOBILE_PHONE_ACCESSORY_RE.test(title.toLowerCase())) continue;
+    const lowerTitle = title.toLowerCase();
+    if (MOBILE_PHONE_ACCESSORY_RE.test(lowerTitle)) continue;
     if (!isHomepageSmartphoneHandset(title)) continue;
+    // Hard-block any tile whose title smells like an ad/banner row
+    if (/\b(shop now|buy now|sponsored|advertisement|promo|deal of the day|limited time|love grown|cereal)\b/i.test(lowerTitle)) continue;
 
-    const image = bestProductImage(
-      typeof row.image_url === "string" ? row.image_url : null,
-      row.images,
-    );
+    // Strict: only accept the PRIMARY image after sanitization. No gallery fallback —
+    // gallery fallbacks are how banner thumbnails sneak into product tiles.
+    const primary = typeof row.image_url === "string" ? row.image_url : null;
+    const image = sanitizeImageUrl(primary);
     if (!image) continue;
 
     const provider = String(row.provider || "amazon");
@@ -447,6 +451,7 @@ function mapHomepagePhoneRows(rows: Array<Record<string, unknown>>): CatalogItem
 
     const rawPrice = typeof row.price_usd === "number" ? row.price_usd : Number(row.price_usd || 0);
     const price = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : null;
+    if (price === null) continue; // cheapest-first ordering requires a price
     const productUrl = typeof row.product_url === "string" ? row.product_url : null;
 
     mapped.push({
@@ -464,6 +469,9 @@ function mapHomepagePhoneRows(rows: Array<Record<string, unknown>>): CatalogItem
       in_stock: row.in_stock !== false,
     });
   }
+  // Final cheapest-first guarantee at the mapper level (defensive, in case
+  // upstream merging from multiple brand-seed queries reorders items).
+  mapped.sort((a, b) => (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
   return mapped;
 }
 
@@ -532,9 +540,8 @@ async function buildMobileHomepagePhonesResponse(
       : generalRes.rows;
 
     let items = deduplicateItems(mapHomepagePhoneRows(rawRows));
-    if (zeroBasedPage === 0) {
-      items = prioritizeHomepageSmartphoneRows(items);
-    }
+    // Enforce cheapest-first across the merged set (web parity).
+    items.sort((a, b) => (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
     items = items.slice(0, MOBILE_SMARTPHONE_PAGE_SIZE);
 
     const totalItems = Math.max(generalRes.count || 0, items.length);

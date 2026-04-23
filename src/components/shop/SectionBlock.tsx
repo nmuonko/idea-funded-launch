@@ -4,7 +4,7 @@ import { CategoryCard } from '@/components/shop/CategoryCard';
 import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { handleImageError, handleImageLoad, isRenderableImageUrl } from '@/lib/imageValidation';
+import { handleImageError, handleImageLoad, isRenderableImageUrl, pickBestImage } from '@/lib/imageValidation';
 
 interface SectionBlockProps {
   title?: string;
@@ -62,6 +62,12 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
         )}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 xl:grid-cols-8 gap-2">
           {visibleItems.map((product, idx) => (
+            (() => {
+              const selectedImage = pickBestImage([product.imageUrl, ...(product.images || []), ...(product.imageUrls || [])], product.imageUrl, { policy: 'homepage' });
+              const resolvedSrc = selectedImage === '/placeholder.svg' ? '' : selectedImage;
+              const fallbackImages = [...new Set([product.imageUrl, ...(product.images || []), ...(product.imageUrls || [])].filter(Boolean as any))]
+                .filter((url) => url !== resolvedSrc);
+              return (
             <Link
               key={`${product.id}-${idx}`}
               to={getProductLink(product)}
@@ -70,11 +76,13 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
             >
               <div className="aspect-square rounded-lg bg-white overflow-hidden p-1.5 border border-gray-100 shadow-sm">
                 <img
-                  src={isRenderableImageUrl(product.imageUrl) ? product.imageUrl : '/placeholder.svg'}
+                  src={resolvedSrc && isRenderableImageUrl(resolvedSrc, 'homepage') ? resolvedSrc : '/placeholder.svg'}
                   alt={product.title}
                   className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105 image-rendering-auto"
                   loading="lazy"
                   decoding="async"
+                  data-image-policy="homepage"
+                  data-fallback-images={fallbackImages.join('|||')}
                   onLoad={handleImageLoad}
                   onError={handleImageError}
                 />
@@ -83,6 +91,8 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
                 {product.title}
               </p>
             </Link>
+              );
+            })()
           ))}
         </div>
       </div>

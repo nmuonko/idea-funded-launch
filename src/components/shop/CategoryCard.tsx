@@ -4,7 +4,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { ArrowRight } from 'lucide-react';
 import { prefetchCatalogCategory } from '@/lib/catalogCache';
 import { useCallback } from 'react';
-import { handleImageError, handleImageLoad, isRenderableImageUrl } from '@/lib/imageValidation';
+import { handleImageError, handleImageLoad, isRenderableImageUrl, pickBestImage } from '@/lib/imageValidation';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 
 interface CategoryCardProps {
@@ -94,6 +94,13 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
 
       <div className="grid grid-cols-2 gap-2 flex-1">
         {displayItems.map((product, idx) => (
+          (() => {
+            const selectedImage = pickBestImage([product.imageUrl, ...(product.images || []), ...(product.imageUrls || [])], product.imageUrl, { policy: 'homepage' });
+            const fallbackImages = [...new Set([product.imageUrl, ...(product.images || []), ...(product.imageUrls || [])].filter(Boolean as any))]
+              .map((url) => resizeImageUrl(url as string, IMAGE_SIZE_THUMB))
+              .filter((url) => url !== resizeImageUrl(selectedImage, IMAGE_SIZE_THUMB));
+            const resolvedSrc = selectedImage === '/placeholder.svg' ? '' : resizeImageUrl(selectedImage, IMAGE_SIZE_THUMB);
+            return (
           <Link
             key={`${product.id}-${idx}`}
             to={getProductLink(product)}
@@ -101,12 +108,14 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
             className="group flex flex-col"
           >
             <div className="aspect-square rounded-lg bg-white overflow-hidden p-1.5 border border-gray-100 shadow-sm">
-              {isRenderableImageUrl(product.imageUrl) ? (
+              {resolvedSrc && isRenderableImageUrl(resolvedSrc, 'homepage') ? (
                 <img
-                  src={resizeImageUrl(product.imageUrl!, IMAGE_SIZE_THUMB)}
+                  src={resolvedSrc}
                   alt={product.title}
                   className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105"
                   loading="lazy"
+                  data-image-policy="homepage"
+                  data-fallback-images={fallbackImages.join('|||')}
                   onLoad={handleImageLoad}
                   onError={handleImageError}
                 />
@@ -120,6 +129,8 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
               {product.title}
             </p>
           </Link>
+            );
+          })()
         ))}
         {/* Subtle empty placeholders for missing slots */}
         {emptySlots > 0 && Array.from({ length: emptySlots }).map((_, i) => (

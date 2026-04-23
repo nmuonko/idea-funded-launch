@@ -713,6 +713,94 @@ interface CatalogItem {
   }>;
 }
 
+function normalizeDescriptionText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value
+    .replace(/<\/?br\s*\/?\s*>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "• ")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function toStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => {
+        if (typeof entry === "string") return normalizeDescriptionText(entry);
+        if (entry && typeof entry === "object") {
+          return normalizeDescriptionText(
+            (entry as Record<string, unknown>).text ??
+            (entry as Record<string, unknown>).value ??
+            (entry as Record<string, unknown>).name ??
+            null,
+          );
+        }
+        return null;
+      })
+      .filter((entry): entry is string => !!entry);
+  }
+
+  if (typeof value === "string") {
+    const normalized = normalizeDescriptionText(value);
+    if (!normalized) return [];
+    return normalized
+      .split(/\n+|\s*[•·▪▫◦‣]\s*/g)
+      .map((part) => normalizeDescriptionText(part))
+      .filter((entry): entry is string => !!entry);
+  }
+
+  return [];
+}
+
+function buildBulletDescription(...sources: unknown[]): string | null {
+  const bullets = sources
+    .flatMap((source) => toStringList(source))
+    .map((bullet) => bullet.replace(/^[•\-\s]+/, "").trim())
+    .filter(Boolean);
+
+  const uniqueBullets = Array.from(new Set(bullets));
+  if (uniqueBullets.length === 0) return null;
+  return uniqueBullets.map((bullet) => `• ${bullet}`).join("\n");
+}
+
+function buildProductDescription(...sources: Array<Record<string, any> | null | undefined>): string | null {
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+
+    const directDescription =
+      normalizeDescriptionText(source.description) ||
+      normalizeDescriptionText(source.product_description) ||
+      normalizeDescriptionText(source.long_description) ||
+      normalizeDescriptionText(source.shortDescription) ||
+      normalizeDescriptionText(source.short_description);
+
+    if (directDescription) return directDescription;
+
+    const bulletDescription = buildBulletDescription(
+      source.feature_bullets,
+      source.bullet_points,
+      source.about_this_item,
+      source.highlights,
+      source.key_features,
+      source.features,
+    );
+
+    if (bulletDescription) return bulletDescription;
+  }
+
+  return null;
+}
+
 function mapDbItemToResponse(item: any): CatalogItem {
   const provider = item.provider || "rainforest";
   
@@ -721,20 +809,44 @@ function mapDbItemToResponse(item: any): CatalogItem {
     allImages = item.images.filter((img: any): img is string => typeof img === "string" && img.length > 0);
   }
   
+  const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata as Record<string, any> : null;
+  const raw = (item.raw && typeof item.raw === "object" ? item.raw : null) as Record<string, any> | null;
+  const rawLikeSources = [
+    raw,
+    metadata,
+    metadata?.raw && typeof metadata.raw === "object" ? metadata.raw : null,
+    metadata?.shopify && typeof metadata.shopify === "object" ? metadata.shopify : null,
+    metadata?.product && typeof metadata.product === "object" ? metadata.product : null,
+  ].filter(Boolean) as Record<string, any>[];
+  const primaryRaw = rawLikeSources[0] || null;
+
   // Fallback: extract images from raw JSON (Amazon/Rainforest products with stored raw data)
-  const raw = item.raw as Record<string, any> | null;
-  if (allImages.length === 0 && raw) {
-    if (raw.processedImages && Array.isArray(raw.processedImages)) {
-      allImages = raw.processedImages.filter((url: any) => typeof url === "string" && url.length > 0);
+  for (const rawSource of rawLikeSources) {
+    if (allImages.length > 0) break;
+    if (rawSource.processedImages && Array.isArray(rawSource.processedImages)) {
+      allImages = rawSource.processedImages.filter((url: any) => typeof url === "string" && url.length > 0);
       console.log(`[CATALOG_PRODUCT] extracted ${allImages.length} images from raw.processedImages for ${item.id}`);
-    } else if (raw.images && Array.isArray(raw.images)) {
-      allImages = raw.images
-        .map((i: any) => i?.large || i?.hi_res || i?.link || (typeof i === "string" ? i : null))
+    } else if (rawSource.images && Array.isArray(rawSource.images)) {
+      allImages = rawSource.images
+        .map((i: any) => i?.large || i?.hi_res || i?.link || i?.url || (typeof i === "string" ? i : null))
         .filter((url: any): url is string => !!url && typeof url === "string");
       console.log(`[CATALOG_PRODUCT] extracted ${allImages.length} images from raw.images for ${item.id}`);
     }
   }
-  
+
+  const computedDescription = buildProductDescription(
+    { description: item.description },
+    ...rawLikeSources,
+  );
+  const computedBullets = Array.from(new Set([
+    ...toStringList(primaryRaw?.feature_bullets),
+    ...toStringList(primaryRaw?.bullet_points),
+    ...toStringList(primaryRaw?.about_this_item),
+    ...toStringList(primaryRaw?.highlights),
+    ...toStringList(primaryRaw?.key_features),
+    ...toStringList(primaryRaw?.features),
+  ])).slice(0, 12);
+
   if (item.image_url && !allImages.includes(item.image_url)) {
     allImages.unshift(item.image_url);
   }

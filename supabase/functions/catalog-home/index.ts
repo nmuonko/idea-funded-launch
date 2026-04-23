@@ -428,43 +428,43 @@ async function fetchHomepagePhoneRows(
 }
 
 function mapHomepagePhoneRows(rows: Array<Record<string, unknown>>): CatalogItem[] {
-  return rows
-    .map((row) => {
-      const title = String(row.title || "").trim();
-      if (!title) return null;
-      if (MOBILE_PHONE_ACCESSORY_RE.test(title.toLowerCase())) return null;
-      if (!isHomepageSmartphoneHandset(title)) return null;
+  const mapped: CatalogItem[] = [];
+  for (const row of rows) {
+    const title = String(row.title || "").trim();
+    if (!title) continue;
+    if (MOBILE_PHONE_ACCESSORY_RE.test(title.toLowerCase())) continue;
+    if (!isHomepageSmartphoneHandset(title)) continue;
 
-      const image = bestProductImage(
-        typeof row.image_url === "string" ? row.image_url : null,
-        row.images,
-      );
-      if (!image) return null;
+    const image = bestProductImage(
+      typeof row.image_url === "string" ? row.image_url : null,
+      row.images,
+    );
+    if (!image) continue;
 
-      const provider = String(row.provider || "amazon");
-      const providerProductId = String(row.provider_product_id || row.id || "").trim();
-      if (!providerProductId) return null;
+    const provider = String(row.provider || "amazon");
+    const providerProductId = String(row.provider_product_id || row.id || "").trim();
+    if (!providerProductId) continue;
 
-      const rawPrice = typeof row.price_usd === "number" ? row.price_usd : Number(row.price_usd || 0);
-      const price = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : null;
-      const productUrl = typeof row.product_url === "string" ? row.product_url : null;
+    const rawPrice = typeof row.price_usd === "number" ? row.price_usd : Number(row.price_usd || 0);
+    const price = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : null;
+    const productUrl = typeof row.product_url === "string" ? row.product_url : null;
 
-      return {
-        id: providerProductId,
-        provider,
-        provider_product_id: providerProductId,
-        title,
-        price_usd: price,
-        priceUsd: price,
-        currency: "USD",
-        image_url: image,
-        imageUrl: image,
-        product_url: productUrl,
-        productUrl: productUrl,
-        in_stock: row.in_stock !== false,
-      } satisfies CatalogItem;
-    })
-    .filter((item): item is CatalogItem => item !== null);
+    mapped.push({
+      id: providerProductId,
+      provider,
+      provider_product_id: providerProductId,
+      title,
+      price_usd: price,
+      priceUsd: price,
+      currency: "USD",
+      image_url: image,
+      imageUrl: image,
+      product_url: productUrl,
+      productUrl: productUrl,
+      in_stock: row.in_stock !== false,
+    });
+  }
+  return mapped;
 }
 
 async function buildMobileHomepagePhonesResponse(

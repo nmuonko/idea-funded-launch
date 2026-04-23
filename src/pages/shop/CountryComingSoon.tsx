@@ -7,7 +7,6 @@ import { Helmet } from 'react-helmet-async';
 
 const COUNTRY_META: Record<string, { en: string; fr: string; flag: string }> = {
   china:  { en: 'China',  fr: 'Chine',    flag: '🇨🇳' },
-  dubai:  { en: 'Dubai',  fr: 'Dubaï',    flag: '🇦🇪' },
   turkey: { en: 'Turkey', fr: 'Turquie',  flag: '🇹🇷' },
 };
 

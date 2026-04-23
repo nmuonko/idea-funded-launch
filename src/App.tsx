@@ -224,7 +224,7 @@ const App = () => {
             <Route path="/shop/search" element={<Navigate to="/search" replace />} />
             <Route path="/shop/product/:provider/:id" element={<ShopProductRedirect />} />
 
-            {/* Country-specific shop pages (China, Dubai, Turkey) */}
+            {/* Country-specific shop pages (China, Turkey) */}
             <Route path="/shop/:country/coming-soon" element={<CountryComingSoon />} />
             <Route path="/shop/:country/product/:id" element={<IntlProductDetails />} />
             <Route path="/shop/:country" element={<CountryShop />} />

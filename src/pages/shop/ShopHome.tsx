@@ -1675,8 +1675,12 @@ export default function ShopHome() {
     let list = [...remainder];
     if (sortBy === 'cheapest') {
       list.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
+      // Also sort the pinned brand rows by price so the cheapest items
+      // actually lead each row.
+      pinnedLead.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
     } else if (sortBy === 'priciest') {
       list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
+      pinnedLead.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
     }
     list = [...pinnedLead, ...list];
     if (list.length > PHONES_PAGE_SIZE) {

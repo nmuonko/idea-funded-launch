@@ -159,6 +159,18 @@ export function isRenderableImageUrl(url?: string | null): boolean {
   // Block known bad substrings
   if (BLOCKED_TOKENS.some(token => lower.includes(token))) return false;
 
+  // ── AMAZON STRICT GUARD ────────────────────────────────────────────────
+  // Real Amazon product photos ALWAYS live under /images/I/<asin-image>.
+  // Marketing/banner/A+ assets live under /images/G/, /images/S/, /images/P/, etc.
+  // If the URL is from an Amazon CDN but NOT /images/I/, reject it.
+  if (
+    lower.includes('media-amazon.com') ||
+    lower.includes('images-amazon.com') ||
+    lower.includes('ssl-images-amazon.com')
+  ) {
+    if (!lower.includes('/images/i/')) return false;
+  }
+
   // Block eBay seller template/promo images
   if (lower.includes('i.ebayimg.com') && (
     !lower.includes('/d/') && !lower.includes('/g/') && !lower.includes('/s-l')
@@ -171,7 +183,8 @@ export function isRenderableImageUrl(url?: string | null): boolean {
     const h = Number(sizeMatch[2]);
     if (w < 50 && h < 50) return false;
     const ratio = w / Math.max(h, 1);
-    if (ratio > 2.5 || ratio < 0.4) return false;
+    // Stricter: banners are wide-and-short; product photos are square-ish
+    if (ratio > 1.8 || ratio < 0.45) return false;
   }
 
   // Check filename for promotional patterns

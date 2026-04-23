@@ -21,7 +21,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { translations } from '@/lib/i18n/translations';
 import { getRecentlyViewed } from '@/lib/recentlyViewed';
-import { clearImageValidationCaches, collectProductImageCandidates, isRenderableImageUrl, isStrictHomepageRenderableImageUrl, pickBestImage } from '@/lib/imageValidation';
+import { clearImageValidationCaches, collectProductImageCandidates, isRenderableImageUrl, pickBestImage } from '@/lib/imageValidation';
 import { supabase } from '@/integrations/supabase/client';
 import { applyServerPrices, resolveDisplayPrice } from '@/lib/serverPricing';
 
@@ -98,7 +98,7 @@ const HOMEPAGE_PRICE_EXEMPT_CATEGORIES = new Set<string>(['vehicles', 'cars']);
 const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_motors']);
 // Hard ceiling enforced for non-exempt categories.
 const HOMEPAGE_HARD_PRICE_CEILING_USD = 500;
-const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v6';
+const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v7';
 
 function getCategoryMaxPrice(categoryKey?: string): number {
   if (!categoryKey) return HOMEPAGE_DEFAULT_MAX_PRICE_USD;
@@ -139,13 +139,13 @@ function getCachedCategoryResult(catKey: string): Product[] | null {
     const { items, ts } = JSON.parse(raw);
     if (Date.now() - ts > CURATED_CACHE_TTL_MS) return null;
     if (!Array.isArray(items) || items.length === 0) return null;
-    return keepEnoughHomepageProducts(items, catKey);
+    return curateHomepageProducts(keepEnoughHomepageProducts(items, catKey), `cache:${catKey}`);
   } catch { return null; }
 }
 
 function setCachedCategoryResult(catKey: string, items: Product[]) {
   try {
-    const filteredItems = keepEnoughHomepageProducts(items, catKey);
+    const filteredItems = curateHomepageProducts(keepEnoughHomepageProducts(items, catKey), `cache-write:${catKey}`);
     if (filteredItems.length > 0) {
       localStorage.setItem(`${CURATED_CATEGORY_CACHE_PREFIX}:${catKey}`, JSON.stringify({ items: filteredItems, ts: Date.now() }));
     }
@@ -465,29 +465,17 @@ export default function ShopHome() {
       const ACCESSORY_RE = /\b(case|cover|protector|tempered glass|charger|cable|usb-?c|lightning|magsafe|airpods|earbud|earphone|power bank|holder|mount|stand|adapter|wireless charger|screen|skin|wrap|sleeve|pouch|wallet|lanyard|strap|grip|popsocket|stylus|lens|tripod|selfie|car mount|otterbox|spigen|for iphone|for samsung|for galaxy|for pixel|replacement|repair|battery|sim |sim-|sim card|tray|button|speaker only|microphone|housing|frame|bezel|backplate|back plate|back glass|lcd|digitizer|oem part|verre|protection|étui|coque)\b/i;
       const mapped = (data || [])
         .map((item: any): Product | null => {
-          const fallback = extractFirstImageFromJson(item.images);
-          const preferred = fallback || (isRenderableImageUrl(item.image_url) ? item.image_url : null);
-          if (!preferred || !isRenderableImageUrl(preferred)) return null;
+          const { candidates, imageUrl } = resolveProductImages(item, 'homepage');
+          if (!imageUrl) return null;
           const tt = (item.title || '').toLowerCase();
           if (ACCESSORY_RE.test(tt)) return null;
-          const gallery = Array.isArray(item.images)
-            ? item.images
-                .flatMap((img: any) => {
-                  if (typeof img === 'string') return [img];
-                  if (!img || typeof img !== 'object') return [];
-                  return [img.url, img.image, img.src, img.large, img.hiRes, img.hi_res, img.main].filter(
-                    (v): v is string => typeof v === 'string'
-                  );
-                })
-                .filter(Boolean)
-            : [];
           return {
             id: item.provider_product_id || item.id,
             provider: item.provider || 'amazon',
             title: item.title || 'Phone',
-            imageUrl: preferred,
-            images: gallery,
-            imageUrls: gallery,
+            imageUrl,
+            images: candidates,
+            imageUrls: candidates,
             priceUsd: item.price_usd || 0,
             rating: item.rating,
             inStock: item.in_stock !== false,

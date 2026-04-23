@@ -100,7 +100,10 @@ const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_mo
 const HOMEPAGE_HARD_PRICE_CEILING_USD = 500;
 const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v8';
 const HOMEPAGE_MANUAL_FEED_KEY = 'afrishop_homepage_manual_v1';
-const HOMEPAGE_LOCKED_PHONES_KEY = 'afrishop_homepage_phones_v2';
+const HOMEPAGE_LOCKED_PHONES_KEY = 'afrishop_homepage_phones_v3';
+const HOMEPAGE_PHONE_ROW_SIZE = 4;
+const HOMEPAGE_PHONE_BRAND_SEQUENCE = ['iphone', 'pixel', 'galaxy'] as const;
+const HOMEPAGE_PHONE_RESERVED_COUNT = HOMEPAGE_PHONE_ROW_SIZE * HOMEPAGE_PHONE_BRAND_SEQUENCE.length;
 
 /**
  * Interleave phone listings so iPhone, Galaxy and Pixel are visibly mixed
@@ -112,6 +115,32 @@ function getPhoneBrandBucket(product: Product): 'iphone' | 'pixel' | 'galaxy' | 
   if (title.includes('pixel')) return 'pixel';
   if (title.includes('galaxy') || title.includes('samsung')) return 'galaxy';
   return 'other';
+}
+
+function getProductIdentity(product: Product): string {
+  return `${product.provider || 'unknown'}:${product.id}`;
+}
+
+function prioritizeHomepagePhoneRows(items: Product[]): Product[] {
+  const buckets: Record<'iphone' | 'pixel' | 'galaxy' | 'other', Product[]> = {
+    iphone: [],
+    pixel: [],
+    galaxy: [],
+    other: [],
+  };
+
+  for (const item of items) {
+    buckets[getPhoneBrandBucket(item)].push(item);
+  }
+
+  const lead: Product[] = [];
+  for (const brand of HOMEPAGE_PHONE_BRAND_SEQUENCE) {
+    lead.push(...buckets[brand].slice(0, HOMEPAGE_PHONE_ROW_SIZE));
+  }
+
+  const used = new Set(lead.map(getProductIdentity));
+  const rest = items.filter((item) => !used.has(getProductIdentity(item)));
+  return [...lead, ...rest];
 }
 
 function interleavePhoneBrands(items: Product[]): Product[] {
@@ -519,7 +548,7 @@ export default function ShopHome() {
     const from = page * PHONES_PAGE_SIZE;
     if (!background) setBulkPhonesLoading(true);
     try {
-      const phoneOr = [
+      const iphonePhoneOr = [
         'title.ilike.%iphone 11%',
         'title.ilike.%iphone 12%',
         'title.ilike.%iphone 13%',
@@ -527,6 +556,8 @@ export default function ShopHome() {
         'title.ilike.%iphone 15%',
         'title.ilike.%iphone 16%',
         'title.ilike.%iphone se%',
+      ].join(',');
+      const galaxyPhoneOr = [
         'title.ilike.%galaxy s21%',
         'title.ilike.%galaxy s22%',
         'title.ilike.%galaxy s23%',
@@ -535,79 +566,116 @@ export default function ShopHome() {
         'title.ilike.%galaxy note%',
         'title.ilike.%galaxy z fold%',
         'title.ilike.%galaxy z flip%',
+      ].join(',');
+      const pixelPhoneOr = [
         'title.ilike.%pixel 7%',
         'title.ilike.%pixel 8%',
         'title.ilike.%pixel 9%',
+      ].join(',');
+      const phoneOr = [
+        iphonePhoneOr,
+        galaxyPhoneOr,
+        pixelPhoneOr,
         'title.ilike.%oneplus %',
       ].join(',');
 
       // Skip the expensive count after the first page — it's the slow part of pagination.
       const wantCount = bulkPhonesTotal === 0;
-      const { data, error, count } = await supabase
+      const ACCESSORY_RE = /\b(case|cover|protector|tempered glass|charger|cable|usb-?c|lightning|magsafe|airpods|earbud|earphone|power bank|holder|mount|stand|adapter|wireless charger|screen|skin|wrap|sleeve|pouch|wallet|lanyard|strap|grip|popsocket|stylus|lens|tripod|selfie|car mount|otterbox|spigen|for iphone|for samsung|for galaxy|for pixel|replacement|repair|battery|sim |sim-|sim card|tray|button|speaker only|microphone|housing|frame|bezel|backplate|back plate|back glass|lcd|digitizer|oem part|verre|protection|étui|coque)\b/i;
+      const mapCatalogPhoneItems = async (rows: any[] | null | undefined): Promise<Product[]> => {
+        const mapped = (await Promise.all((rows || []).map(async (item: any): Promise<Product | null> => {
+          const candidates = collectProductImageCandidates(
+            item.image_url,
+            item.imageUrl,
+            item.mainImageUrl,
+            item.image,
+            item.images,
+            item.imageUrls,
+          );
+          const tt = (item.title || '').toLowerCase();
+          if (ACCESSORY_RE.test(tt)) return null;
+
+          const imageUrl = await pickBestImageAsync(candidates, item.image_url || item.imageUrl, {
+            policy: 'homepage',
+            debugKey: item.provider_product_id || item.id || item.title || 'phone-grid',
+          });
+
+          if (!imageUrl) {
+            console.info('[ShopHome] Removed phone-grid product with no clean image', {
+              productId: item.provider_product_id || item.id,
+              title: item.title,
+            });
+            return null;
+          }
+
+          return {
+            id: item.provider_product_id || item.id,
+            provider: item.provider || 'amazon',
+            title: item.title || 'Phone',
+            imageUrl,
+            images: candidates,
+            imageUrls: candidates,
+            priceUsd: item.price_usd || 0,
+            rating: item.rating,
+            inStock: item.in_stock !== false,
+            productUrl: item.product_url,
+          };
+        }))).filter((p): p is Product => p !== null);
+        await applyServerPrices(mapped);
+        return mapped;
+      };
+
+      const buildPhoneQuery = (orFilter: string, withCount = false) => supabase
         .from('catalog_items')
         .select(
           'id, provider, provider_product_id, title, image_url, images, product_url, price_usd, rating, in_stock',
-          wantCount ? { count: 'exact' } : {}
+          withCount ? { count: 'exact' } : {}
         )
         .eq('is_active', true)
         .eq('is_disallowed', false)
         .gte('price_usd', 80)
         .lte('price_usd', 1800)
         .in('provider', ['amazon', 'rainforest'])
-        .or(phoneOr)
-        .order('updated_at', { ascending: false, nullsFirst: false })
-        .range(from, from + PHONES_PAGE_SIZE - 1);
-      if (error) throw error;
+        .or(orFilter)
+        .order('updated_at', { ascending: false, nullsFirst: false });
 
-      const ACCESSORY_RE = /\b(case|cover|protector|tempered glass|charger|cable|usb-?c|lightning|magsafe|airpods|earbud|earphone|power bank|holder|mount|stand|adapter|wireless charger|screen|skin|wrap|sleeve|pouch|wallet|lanyard|strap|grip|popsocket|stylus|lens|tripod|selfie|car mount|otterbox|spigen|for iphone|for samsung|for galaxy|for pixel|replacement|repair|battery|sim |sim-|sim card|tray|button|speaker only|microphone|housing|frame|bezel|backplate|back plate|back glass|lcd|digitizer|oem part|verre|protection|étui|coque)\b/i;
-      const mapped = (await Promise.all((data || []).map(async (item: any): Promise<Product | null> => {
-        const candidates = collectProductImageCandidates(
-          item.image_url,
-          item.imageUrl,
-          item.mainImageUrl,
-          item.image,
-          item.images,
-          item.imageUrls,
-        );
-        const tt = (item.title || '').toLowerCase();
-        if (ACCESSORY_RE.test(tt)) return null;
+      const generalRangeEnd = page === 0 ? (from + PHONES_PAGE_SIZE + HOMEPAGE_PHONE_RESERVED_COUNT + 24) : (from + PHONES_PAGE_SIZE - 1);
 
-        const imageUrl = await pickBestImageAsync(candidates, item.image_url || item.imageUrl, {
-          policy: 'homepage',
-          debugKey: item.provider_product_id || item.id || item.title || 'phone-grid',
-        });
+      const [generalRes, iphoneRes, pixelRes, galaxyRes] = await Promise.all([
+        buildPhoneQuery(phoneOr, wantCount).range(from, generalRangeEnd),
+        page === 0 ? buildPhoneQuery(iphonePhoneOr).range(0, HOMEPAGE_PHONE_ROW_SIZE - 1) : Promise.resolve({ data: [], error: null } as any),
+        page === 0 ? buildPhoneQuery(pixelPhoneOr).range(0, HOMEPAGE_PHONE_ROW_SIZE - 1) : Promise.resolve({ data: [], error: null } as any),
+        page === 0 ? buildPhoneQuery(galaxyPhoneOr).range(0, HOMEPAGE_PHONE_ROW_SIZE - 1) : Promise.resolve({ data: [], error: null } as any),
+      ]);
 
-        if (!imageUrl) {
-          console.info('[ShopHome] Removed phone-grid product with no clean image', {
-            productId: item.provider_product_id || item.id,
-            title: item.title,
-          });
-          return null;
-        }
+      if (generalRes.error) throw generalRes.error;
+      if (iphoneRes?.error) throw iphoneRes.error;
+      if (pixelRes?.error) throw pixelRes.error;
+      if (galaxyRes?.error) throw galaxyRes.error;
 
-        return {
-          id: item.provider_product_id || item.id,
-          provider: item.provider || 'amazon',
-          title: item.title || 'Phone',
-          imageUrl,
-          images: candidates,
-          imageUrls: candidates,
-          priceUsd: item.price_usd || 0,
-          rating: item.rating,
-          inStock: item.in_stock !== false,
-          productUrl: item.product_url,
-        };
-      }))).filter((p): p is Product => p !== null);
-      await applyServerPrices(mapped);
-      const mixed = interleavePhoneBrands(mapped);
-      const totalForState = wantCount ? (count || 0) : bulkPhonesTotal;
-      bulkPhonesPageCacheRef.current[page] = { items: mixed, total: totalForState };
-      if (!background) saveLockedHomepagePhones(page, mixed, totalForState);
+      const seedRows = page === 0
+        ? [
+            ...(iphoneRes.data || []),
+            ...(pixelRes.data || []),
+            ...(galaxyRes.data || []),
+            ...(generalRes.data || []),
+          ]
+        : (generalRes.data || []);
+
+      const mapped = await mapCatalogPhoneItems(seedRows);
+      let ordered = deduplicateProducts(mapped);
+      if (page === 0) {
+        ordered = prioritizeHomepagePhoneRows(ordered);
+      }
+      ordered = ordered.slice(0, PHONES_PAGE_SIZE);
+      const totalForState = wantCount ? (generalRes.count || 0) : bulkPhonesTotal;
+      bulkPhonesPageCacheRef.current[page] = { items: ordered, total: totalForState };
+      if (!background) saveLockedHomepagePhones(page, ordered, totalForState);
       if (!background) {
-        if (wantCount) setBulkPhonesTotal(count || 0);
-        setBulkPhones(mixed);
+        if (wantCount) setBulkPhonesTotal(generalRes.count || 0);
+        setBulkPhones(ordered);
       } else if (wantCount) {
-        setBulkPhonesTotal(count || 0);
+        setBulkPhonesTotal(generalRes.count || 0);
       }
     } catch (e) {
       console.warn('[ShopHome] bulk phones fetch failed:', e);
@@ -1574,34 +1642,23 @@ export default function ShopHome() {
   // and create visual gaps that look like "ad slots" on the homepage.
   const sortedPhones = useMemo(() => {
     const cleaned = curateHomepageProducts(phonesRowItems, 'phones-grid');
-    let list = [...cleaned];
+    const pinnedLead = bulkPhonesPage === 0
+      ? prioritizeHomepagePhoneRows(cleaned).slice(0, HOMEPAGE_PHONE_RESERVED_COUNT)
+      : [];
+    const pinnedLeadIds = new Set(pinnedLead.map(getProductIdentity));
+    const remainder = cleaned.filter((item) => !pinnedLeadIds.has(getProductIdentity(item)));
+    let list = [...remainder];
     if (sortBy === 'cheapest') {
       list.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
     } else if (sortBy === 'priciest') {
       list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
-    } else {
-      // Sort the page so iPhones appear first, then Google Pixels, then
-      // Samsung Galaxys, then everything else. With a 4-column desktop grid
-      // and 12 items per page this naturally puts each brand on its own row
-      // when the page contains enough of each brand. Stable within each brand
-      // to preserve the upstream curated order (e.g. cheapest-first).
-      const brandRank = (p: Product) => {
-        const bucket = getPhoneBrandBucket(p);
-        if (bucket === 'iphone') return 0;
-        if (bucket === 'pixel') return 1;
-        if (bucket === 'galaxy') return 2;
-        return 3;
-      };
-      list = list
-        .map((p, i) => ({ p, i, r: brandRank(p) }))
-        .sort((a, b) => a.r - b.r || a.i - b.i)
-        .map(({ p }) => p);
     }
+    list = [...pinnedLead, ...list];
     if (list.length > PHONES_PAGE_SIZE) {
       return list.slice(0, PHONES_PAGE_SIZE);
     }
     return list;
-  }, [phonesRowItems, sortBy]);
+  }, [phonesRowItems, sortBy, bulkPhonesPage]);
 
   const totalPhonePages = Math.max(1, Math.ceil(bulkPhonesTotal / PHONES_PAGE_SIZE));
 

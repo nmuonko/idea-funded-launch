@@ -1221,7 +1221,8 @@ serve(async (req) => {
               const totalItems = calculateTotalItems(normalizedSections);
               const totalMs = Date.now() - startTime;
               
-              return jsonResponse({
+              const flat = url.searchParams.get("flat") !== "0";
+              return jsonResponse(flattenMobilePayload({
                 ok: true,
                 sections: normalizedSections,
                 page: 1,
@@ -1245,7 +1246,7 @@ serve(async (req) => {
                   totalMs,
                   schemaVersion: recipeSettings.mobile_schema_version,
                 },
-              });
+              }, locale, flat));
             }
           }
           

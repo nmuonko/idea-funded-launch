@@ -244,18 +244,64 @@ function generateCorrelationId(): string {
  * Order is preserved (phones → electronics → vehicles → kitchen → gaming → refurbished).
  * Set ?flat=0 to keep grouped sections.
  */
+function hasValidImage(it: Record<string, unknown>): boolean {
+  const candidates: unknown[] = [
+    it.imageUrl,
+    it.image_url,
+    it.image,
+    it.thumbnail,
+    Array.isArray(it.images) && it.images.length > 0 ? (it.images as unknown[])[0] : null,
+  ];
+  for (const c of candidates) {
+    if (typeof c !== "string") continue;
+    const url = c.trim();
+    if (!url) continue;
+    if (url === "/placeholder.svg" || url.endsWith("placeholder.svg")) continue;
+    if (!/^https?:\/\//i.test(url)) continue;
+    if (/no[-_]?image|noimage|missing|spacer|1x1|pixel\.gif/i.test(url)) continue;
+    return true;
+  }
+  return false;
+}
+
 function flattenMobilePayload(
   body: Record<string, unknown>,
   locale: string,
   shouldFlatten: boolean,
 ): Record<string, unknown> {
-  if (!shouldFlatten) return body;
   const sections = (body.sections as Array<Record<string, unknown>>) || [];
-  if (sections.length <= 1) return body;
+
+  // ALWAYS drop imageless items (mobile must never see blank tiles)
+  const cleanedSections = sections.map(s => ({
+    ...s,
+    items: ((s.items as Array<Record<string, unknown>>) || []).filter(hasValidImage),
+  }));
+
+  // Strip any banner/ad/promo fields that frozen mobile builds might render
+  const stripped = {
+    ...body,
+    sections: cleanedSections,
+    banners: [],
+    promos: [],
+    ads: [],
+    hero: null,
+    promotions: [],
+  };
+
+  if (!shouldFlatten || sections.length <= 1) {
+    return {
+      ...stripped,
+      meta: {
+        ...((body.meta as Record<string, unknown>) || {}),
+        bannersStripped: true,
+        imagelessFiltered: true,
+      },
+    };
+  }
 
   const mergedItems: unknown[] = [];
   const seenIds = new Set<string>();
-  for (const s of sections) {
+  for (const s of cleanedSections) {
     const items = (s.items as Array<Record<string, unknown>>) || [];
     for (const it of items) {
       const id = String(it.id ?? "");
@@ -276,13 +322,15 @@ function flattenMobilePayload(
   };
 
   return {
-    ...body,
+    ...stripped,
     sections: [flatSection],
     totalItems: mergedItems.length,
     meta: {
       ...((body.meta as Record<string, unknown>) || {}),
       flattened: true,
       originalSectionCount: sections.length,
+      bannersStripped: true,
+      imagelessFiltered: true,
     },
   };
 }

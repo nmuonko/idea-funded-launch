@@ -688,26 +688,31 @@ export default function SearchResults() {
 
           {/* Price filter removed - sort dropdown above handles ordering */}
 
-          {/* Fashion intent banner — clothing/shoes/beauty come from China + Turkey */}
+          {/* Fashion intent banner — shown briefly before auto-redirect to China/Turkey */}
           {intent?.is_fashion && (
             <div className="mb-4 rounded-xl border border-primary/30 bg-primary/10 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
               <p className="text-sm text-white/80 flex-1">
-                {language === 'fr'
-                  ? 'Pour la mode, la beauté et les chaussures, nous recommandons nos boutiques Chine et Turquie.'
-                  : 'For fashion, beauty and shoes we recommend our China and Turkey stores.'}
+                {shop.fashionRedirectBanner ||
+                  (language === 'fr'
+                    ? 'Pour la mode, la beauté et les chaussures, nous recommandons nos boutiques Chine et Turquie.'
+                    : 'For fashion, beauty and shoes we recommend our China and Turkey stores.')}
+                {' '}
+                <span className="text-white/60">
+                  {shop.fashionRedirecting || (language === 'fr' ? 'Redirection…' : 'Redirecting…')}
+                </span>
               </p>
               <div className="flex gap-2">
                 <Link
                   to="/shop/china"
                   className="inline-flex items-center justify-center gap-1 rounded-lg bg-primary text-primary-foreground px-3 py-1.5 text-sm font-medium hover:opacity-90"
                 >
-                  🇨🇳 {language === 'fr' ? 'Chine' : 'China'}
+                  🇨🇳 {shop.chinaStore || (language === 'fr' ? 'Chine' : 'China')}
                 </Link>
                 <Link
                   to="/shop/turkey"
                   className="inline-flex items-center justify-center gap-1 rounded-lg border border-white/20 text-white/90 hover:bg-white/10 px-3 py-1.5 text-sm font-medium"
                 >
-                  🇹🇷 {language === 'fr' ? 'Turquie' : 'Turkey'}
+                  🇹🇷 {shop.turkeyStore || (language === 'fr' ? 'Turquie' : 'Turkey')}
                 </Link>
               </div>
             </div>

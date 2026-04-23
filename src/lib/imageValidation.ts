@@ -324,8 +324,8 @@ export function handleImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
   const { naturalWidth, naturalHeight } = img;
   if (naturalWidth > 0 && naturalHeight > 0) {
     const ratio = naturalWidth / naturalHeight;
-    if (ratio > 3 || ratio < 0.33 || (naturalWidth < 50 && naturalHeight < 50)) {
-      // Trigger error handler which tries next fallback
+    // Banner-like: wide-and-short (ratio > 1.8) or strip-like (< 0.45) or tiny
+    if (ratio > 1.8 || ratio < 0.45 || Math.min(naturalWidth, naturalHeight) < 80) {
       handleImageError(e);
     }
   }

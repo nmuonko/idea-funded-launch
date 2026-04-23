@@ -213,7 +213,9 @@ export function computeAllInclusivePrice(
   }
 
   const total = basePriceUsd + markup + shipping;
-  return Math.round(total * 100) / 100;
+  // Round UP to whole dollar — matches frontend allInclusivePrice() and catalog-home.
+  // Per all-inclusive pricing policy: final display prices are whole-dollar amounts.
+  return Math.ceil(total);
 }
 
 /**

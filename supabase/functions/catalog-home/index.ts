@@ -238,6 +238,55 @@ function generateCorrelationId(): string {
   return `ch_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 }
 
+/**
+ * Flatten grouped mobile sections into a single "For you" feed.
+ * Mobile homepage shows one continuous product grid (matching web behavior).
+ * Order is preserved (phones → electronics → vehicles → kitchen → gaming → refurbished).
+ * Set ?flat=0 to keep grouped sections.
+ */
+function flattenMobilePayload(
+  body: Record<string, unknown>,
+  locale: string,
+  shouldFlatten: boolean,
+): Record<string, unknown> {
+  if (!shouldFlatten) return body;
+  const sections = (body.sections as Array<Record<string, unknown>>) || [];
+  if (sections.length <= 1) return body;
+
+  const mergedItems: unknown[] = [];
+  const seenIds = new Set<string>();
+  for (const s of sections) {
+    const items = (s.items as Array<Record<string, unknown>>) || [];
+    for (const it of items) {
+      const id = String(it.id ?? "");
+      if (!id || seenIds.has(id)) continue;
+      seenIds.add(id);
+      mergedItems.push(it);
+    }
+  }
+
+  const title_en = "For you";
+  const title_fr = "Pour vous";
+  const flatSection = {
+    key: "for_you",
+    title: locale === "en" ? title_en : title_fr,
+    title_en,
+    title_fr,
+    items: mergedItems,
+  };
+
+  return {
+    ...body,
+    sections: [flatSection],
+    totalItems: mergedItems.length,
+    meta: {
+      ...((body.meta as Record<string, unknown>) || {}),
+      flattened: true,
+      originalSectionCount: sections.length,
+    },
+  };
+}
+
 function jsonResponse(data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
   const finalHeaders: Record<string, string> = { ...corsHeaders, "Content-Type": "application/json; charset=utf-8", ...extraHeaders };
 

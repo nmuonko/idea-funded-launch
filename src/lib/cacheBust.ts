@@ -2,7 +2,7 @@ declare const __BUILD_VERSION__: string;
 
 const BUILD_KEY = 'afrishop_build_version';
 const RELOAD_KEY = 'afrishop_build_reload_once';
-const CACHE_PREFIXES = ['afrishop_cache:', 'afrishop_curated:', 'afrishop_curated_v2:'];
+const CACHE_PREFIXES = ['afrishop_cache:', 'afrishop_curated', 'afrishop_image_validation:'];
 const EXACT_KEYS = ['afrishop_recent_searches', 'afrishop_recently_viewed'];
 
 function clearStaleKeys(): number {

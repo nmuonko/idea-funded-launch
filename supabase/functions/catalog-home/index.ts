@@ -1463,6 +1463,21 @@ serve(async (req) => {
       }
     }
 
+    const wantsMobileHomepagePhones = clientType === "mobile" && !category && !sectionKey && !forceLive;
+    if (wantsMobileHomepagePhones) {
+      const mobileHomepageResponse = await buildMobileHomepagePhonesResponse(
+        page,
+        locale,
+        correlationId,
+        env,
+        envRequested,
+        detectedBy,
+      );
+      if (mobileHomepageResponse) {
+        return mobileHomepageResponse;
+      }
+    }
+
     console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} detectedBy=${detectedBy} lang=${lang} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);
 
     // ===== MOBILE: STRICT SECTIONS CACHE (PRIMARY) → RECIPE CACHE (FALLBACK) =====

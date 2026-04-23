@@ -100,7 +100,36 @@ const HOMEPAGE_PRICE_EXEMPT_PROVIDERS = new Set(['cargurus', 'carvana', 'ebay_mo
 const HOMEPAGE_HARD_PRICE_CEILING_USD = 500;
 const CURATED_CATEGORY_CACHE_PREFIX = 'afrishop_curated_v8';
 const HOMEPAGE_MANUAL_FEED_KEY = 'afrishop_homepage_manual_v1';
-const HOMEPAGE_LOCKED_PHONES_KEY = 'afrishop_homepage_phones_v1';
+const HOMEPAGE_LOCKED_PHONES_KEY = 'afrishop_homepage_phones_v2';
+
+/**
+ * Interleave phone listings so iPhone, Galaxy and Pixel are visibly mixed
+ * in the homepage grid instead of one brand dominating the top.
+ */
+function interleavePhoneBrands(items: Product[]): Product[] {
+  const buckets: Record<'iphone' | 'galaxy' | 'pixel' | 'other', Product[]> = {
+    iphone: [], galaxy: [], pixel: [], other: [],
+  };
+  for (const p of items) {
+    const t = (p.title || '').toLowerCase();
+    if (t.includes('iphone')) buckets.iphone.push(p);
+    else if (t.includes('pixel')) buckets.pixel.push(p);
+    else if (t.includes('galaxy') || t.includes('samsung')) buckets.galaxy.push(p);
+    else buckets.other.push(p);
+  }
+  // Round-robin in a fixed order so each brand appears early.
+  const order: Array<keyof typeof buckets> = ['iphone', 'galaxy', 'pixel', 'other'];
+  const out: Product[] = [];
+  let added = true;
+  while (added) {
+    added = false;
+    for (const k of order) {
+      const next = buckets[k].shift();
+      if (next) { out.push(next); added = true; }
+    }
+  }
+  return out;
+}
 const HOMEPAGE_BLOCKED_PRODUCT_PATTERNS = [
   /lexar\s+es3\s+1tb\s+external\s+ssd/i,
   /usb\s*3\.2\s*gen\s*2\s+portable\s+ssd/i,
@@ -566,12 +595,13 @@ export default function ShopHome() {
         };
       }))).filter((p): p is Product => p !== null);
       await applyServerPrices(mapped);
+      const mixed = interleavePhoneBrands(mapped);
       const totalForState = wantCount ? (count || 0) : bulkPhonesTotal;
-      bulkPhonesPageCacheRef.current[page] = { items: mapped, total: totalForState };
-      if (!background) saveLockedHomepagePhones(page, mapped, totalForState);
+      bulkPhonesPageCacheRef.current[page] = { items: mixed, total: totalForState };
+      if (!background) saveLockedHomepagePhones(page, mixed, totalForState);
       if (!background) {
         if (wantCount) setBulkPhonesTotal(count || 0);
-        setBulkPhones(mapped);
+        setBulkPhones(mixed);
       } else if (wantCount) {
         setBulkPhonesTotal(count || 0);
       }

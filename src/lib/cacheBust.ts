@@ -8,6 +8,7 @@ const EXACT_KEYS = [
   'afrishop_recently_viewed',
   'afrishop_homepage_manual_v1',
   'afrishop_homepage_phones_v1',
+  'afrishop_homepage_phones_v2',
 ];
 
 function clearStaleKeys(): number {

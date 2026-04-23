@@ -2270,4 +2270,27 @@ const __originalHandler = async (req: Request): Promise<Response> => {
       }
     });
   }
+};
+
+// Wrapper: applies ?curated=1 post-processing to the JSON response body
+// without changing any of the existing response paths inside the handler.
+serve(async (req: Request): Promise<Response> => {
+  const res = await __originalHandler(req);
+  try {
+    const url = new URL(req.url);
+    const wantsCurated = url.searchParams.get("curated") === "1"
+      || url.searchParams.get("curated") === "true";
+    if (!wantsCurated) return res;
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("application/json")) return res;
+    const text = await res.text();
+    let body: unknown;
+    try { body = JSON.parse(text); } catch { return new Response(text, { status: res.status, headers: res.headers }); }
+    const curated = applyCuratedHomepageRules(body);
+    const headers = new Headers(res.headers);
+    return new Response(JSON.stringify(curated), { status: res.status, headers });
+  } catch (e) {
+    console.warn("[CATALOG_HOME] curated post-process failed, returning raw:", e);
+    return res;
+  }
 });

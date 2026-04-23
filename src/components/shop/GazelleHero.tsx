@@ -43,7 +43,7 @@ const SLIDES: Slide[] = [
 
 /**
  * Gazelle-style hero: short, wide blue banner with rotating phone showcases.
- * Each slide shows a phone-pair image split across left/right and crossfades every ~4.5s.
+ * Each slide stays visible for 45s so the homepage feels calmer and less ad-like.
  */
 export function GazelleHero() {
   const { language } = useLanguage();
@@ -53,7 +53,7 @@ export function GazelleHero() {
   useEffect(() => {
     const id = setInterval(() => {
       setIndex((i) => (i + 1) % SLIDES.length);
-    }, 15000);
+    }, 45000);
     return () => clearInterval(id);
   }, []);
 
@@ -84,7 +84,7 @@ export function GazelleHero() {
 
           <div className="relative flex items-center justify-center min-h-[180px] sm:min-h-[220px] md:min-h-[260px] px-4 sm:px-10 md:px-16 py-6 sm:py-8">
             {/* Left half of phone-pair image (crossfading) */}
-            <div className="hidden sm:block absolute left-0 top-0 bottom-0 w-[28%] md:w-[26%] lg:w-[24%] pointer-events-none">
+            <div className="hidden sm:block absolute left-0 top-0 bottom-0 w-[30%] md:w-[28%] lg:w-[26%] pointer-events-none overflow-hidden">
               {SLIDES.map((s, i) => (
                 <img
                   key={`L-${s.brand}`}
@@ -92,16 +92,16 @@ export function GazelleHero() {
                   alt=""
                   aria-hidden
                   draggable={false}
-                  className={`absolute inset-0 w-full h-full object-cover object-right transition-opacity duration-700 ease-out ${
+                  className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-700 ease-out ${
                     i === index ? 'opacity-100' : 'opacity-0'
                   }`}
-                  style={{ objectPosition: '70% center' }}
+                  style={{ objectPosition: 'right center', transform: 'scale(1.05)' }}
                 />
               ))}
             </div>
 
             {/* Right half of phone-pair image (crossfading) */}
-            <div className="hidden sm:block absolute right-0 top-0 bottom-0 w-[28%] md:w-[26%] lg:w-[24%] pointer-events-none">
+            <div className="hidden sm:block absolute right-0 top-0 bottom-0 w-[30%] md:w-[28%] lg:w-[26%] pointer-events-none overflow-hidden">
               {SLIDES.map((s, i) => (
                 <img
                   key={`R-${s.brand}`}
@@ -109,10 +109,10 @@ export function GazelleHero() {
                   alt=""
                   aria-hidden
                   draggable={false}
-                  className={`absolute inset-0 w-full h-full object-cover object-left transition-opacity duration-700 ease-out ${
+                  className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-700 ease-out ${
                     i === index ? 'opacity-100' : 'opacity-0'
                   }`}
-                  style={{ objectPosition: '30% center' }}
+                  style={{ objectPosition: 'left center', transform: 'scale(1.05)' }}
                 />
               ))}
             </div>

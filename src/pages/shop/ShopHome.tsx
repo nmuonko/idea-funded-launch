@@ -1365,9 +1365,17 @@ export default function ShopHome() {
     return filterHomepageProducts(sortByLuxury(handsets), 'phones');
   }, [pinnedByCategory, categoryItems, bulkPhones]);
 
-  // Apply user-selected sort on top of the curated phones list
+  // Apply user-selected sort on top of the curated phones list.
+  // Also drop any product whose primary image AND all gallery fallbacks are
+  // ad/banner/promo URLs — these would otherwise render as empty/null cards
+  // and create visual gaps that look like "ad slots" on the homepage.
   const sortedPhones = useMemo(() => {
-    const list = [...phonesRowItems];
+    const cleaned = phonesRowItems.filter((p: any) => {
+      const candidates = [p.imageUrl, ...((p.images as string[]) || []), ...((p.imageUrls as string[]) || [])]
+        .filter(Boolean);
+      return candidates.some((u: string) => isRenderableImageUrl(u));
+    });
+    const list = [...cleaned];
     if (sortBy === 'cheapest') list.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
     else if (sortBy === 'priciest') list.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
     return list;

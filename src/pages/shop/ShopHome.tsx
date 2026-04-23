@@ -420,11 +420,24 @@ export default function ShopHome() {
           if (!preferred || !isRenderableImageUrl(preferred)) return null;
           const tt = (item.title || '').toLowerCase();
           if (ACCESSORY_RE.test(tt)) return null;
+          const gallery = Array.isArray(item.images)
+            ? item.images
+                .flatMap((img: any) => {
+                  if (typeof img === 'string') return [img];
+                  if (!img || typeof img !== 'object') return [];
+                  return [img.url, img.image, img.src, img.large, img.hiRes, img.hi_res, img.main].filter(
+                    (v): v is string => typeof v === 'string'
+                  );
+                })
+                .filter(Boolean)
+            : [];
           return {
             id: item.provider_product_id || item.id,
             provider: item.provider || 'amazon',
             title: item.title || 'Phone',
             imageUrl: preferred,
+            images: gallery,
+            imageUrls: gallery,
             priceUsd: item.price_usd || 0,
             rating: item.rating,
             inStock: item.in_stock !== false,

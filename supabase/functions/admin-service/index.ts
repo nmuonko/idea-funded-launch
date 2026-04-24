@@ -180,7 +180,7 @@ async function handleOrderAction(auth: AdminAuth, body: any): Promise<Response> 
               estimatedDelivery: metadata?.estimatedDelivery,
             });
           } else if (actionType === 'DELIVERED') {
-            emailData = buildOrderDeliveredEmail({ customerName: name, orderId, items: itemList });
+            emailData = buildOrderDeliveredEmail({ customerName: name, orderId, deliveredAt: new Date().toISOString() });
           }
 
           if (emailData) {

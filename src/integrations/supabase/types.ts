@@ -6108,6 +6108,99 @@ export type Database = {
         }
         Relationships: []
       }
+      shopify_collections: {
+        Row: {
+          description: string | null
+          handle: string
+          id: string
+          image_url: string | null
+          product_ids: string[] | null
+          synced_at: string
+          title: string
+          updated_at_shopify: string | null
+        }
+        Insert: {
+          description?: string | null
+          handle: string
+          id: string
+          image_url?: string | null
+          product_ids?: string[] | null
+          synced_at?: string
+          title: string
+          updated_at_shopify?: string | null
+        }
+        Update: {
+          description?: string | null
+          handle?: string
+          id?: string
+          image_url?: string | null
+          product_ids?: string[] | null
+          synced_at?: string
+          title?: string
+          updated_at_shopify?: string | null
+        }
+        Relationships: []
+      }
+      shopify_inventory_levels: {
+        Row: {
+          available: number
+          inventory_item_id: string
+          location_id: string
+          product_id: string | null
+          updated_at: string
+          variant_id: string | null
+        }
+        Insert: {
+          available?: number
+          inventory_item_id: string
+          location_id: string
+          product_id?: string | null
+          updated_at?: string
+          variant_id?: string | null
+        }
+        Update: {
+          available?: number
+          inventory_item_id?: string
+          location_id?: string
+          product_id?: string | null
+          updated_at?: string
+          variant_id?: string | null
+        }
+        Relationships: []
+      }
+      shopify_webhook_log: {
+        Row: {
+          error: string | null
+          hmac_valid: boolean | null
+          id: string
+          payload: Json
+          processed: boolean
+          received_at: string
+          shop_domain: string | null
+          topic: string
+        }
+        Insert: {
+          error?: string | null
+          hmac_valid?: boolean | null
+          id?: string
+          payload: Json
+          processed?: boolean
+          received_at?: string
+          shop_domain?: string | null
+          topic: string
+        }
+        Update: {
+          error?: string | null
+          hmac_valid?: boolean | null
+          id?: string
+          payload?: Json
+          processed?: boolean
+          received_at?: string
+          shop_domain?: string | null
+          topic?: string
+        }
+        Relationships: []
+      }
       store_visit_counts: {
         Row: {
           created_at: string

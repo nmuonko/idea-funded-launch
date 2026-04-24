@@ -123,14 +123,51 @@ async function cacheProducts(products: any[]) {
   }
 }
 
+function providerForCountry(country: string): string {
+  return country === "turkey" ? SHOPIFY_TURKEY_PROVIDER : SHOPIFY_CHINA_PROVIDER;
+}
+
+// Apply all-inclusive (markup + shipping) so the price shown in the mobile app
+// is the SAME final price the customer pays in the cart. Without this, the
+// listing would show the raw Shopify price ($2.72) while the cart shows the
+// fee-included price ($X), causing a confusing mismatch.
+async function applyDisplayPricing(products: any[]): Promise<any[]> {
+  if (!products.length) return products;
+  try {
+    const settings = await loadPricingSettings();
+    // Map our shape → the shape applyAllInclusivePricingToItems expects
+    const mapped = products.map((p) => ({
+      ...p,
+      provider: SHOPIFY_CHINA_PROVIDER,
+      price_usd: Number(p.base_price_usd) || 0,
+      title: p.title,
+      unified_category: "clothes_shoes",
+    }));
+    const priced = applyAllInclusivePricingToItems(mapped, settings);
+    return priced.map((p: any, i: number) => ({
+      ...products[i],
+      base_price_usd: Number(p.base_price_usd) || Number(products[i].base_price_usd) || 0,
+      price_usd: Number(p.price_usd) || 0,
+      priceUsd: Number(p.price_usd) || 0,
+      price: Number(p.price_usd) || 0,
+      fees_included: true,
+      is_all_inclusive_display: true,
+      pricing_mode: "all_inclusive",
+    }));
+  } catch (e) {
+    console.error("[shopify-products] applyDisplayPricing failed", e instanceof Error ? e.message : String(e));
+    return products;
+  }
+}
+
 // Read cached products when Shopify is unavailable.
-async function readCachedProducts(limit: number): Promise<any[]> {
+async function readCachedProducts(limit: number, country: string): Promise<any[]> {
   try {
     const sb = buildSupabase();
     const { data, error } = await sb
       .from("catalog_items")
       .select("provider_product_id, title, image_url, images, product_url, price_usd, in_stock, metadata")
-      .eq("provider", SHOPIFY_CHINA_PROVIDER)
+      .eq("provider", providerForCountry(country))
       .eq("is_active", true)
       .order("updated_at", { ascending: false })
       .limit(limit);
@@ -142,7 +179,7 @@ async function readCachedProducts(limit: number): Promise<any[]> {
       const meta = row.metadata?.shopify || {};
       return {
         id: String(row.provider_product_id),
-        country: "china",
+        country,
         title: row.title,
         image_url: row.image_url,
         images: Array.isArray(row.images) ? row.images : [],
@@ -162,12 +199,15 @@ async function readCachedProducts(limit: number): Promise<any[]> {
   }
 }
 
-async function respondFromCache(limit: number, reason: string, status: number, details?: unknown) {
-  const cached = await readCachedProducts(limit);
-  console.log(`[shopify-products] serving ${cached.length} cached products (reason=${reason})`);
+async function respondFromCache(limit: number, country: string, reason: string, status: number, details?: unknown) {
+  const cached = await readCachedProducts(limit, country);
+  const priced = await applyDisplayPricing(cached);
+  console.log(`[shopify-products] serving ${priced.length} cached products country=${country} (reason=${reason})`);
   return new Response(JSON.stringify({
-    products: cached,
-    count: cached.length,
+    products: priced,
+    items: priced,
+    count: priced.length,
+    country,
     cached: true,
     cache_reason: reason,
     upstream_status: status,
@@ -182,9 +222,16 @@ Deno.serve(async (req) => {
 
   const url = new URL(req.url);
   const limit = Math.min(Number(url.searchParams.get("limit") || 50), 250);
+  const countryRaw = (url.searchParams.get("country") || url.searchParams.get("source") || "china").toLowerCase();
+  const country = countryRaw === "turkey" ? "turkey" : "china";
+
+  // Turkey has no live Shopify store yet — always serve from cache (currently empty).
+  if (country === "turkey") {
+    return await respondFromCache(limit, country, "turkey_cache_only", 0);
+  }
 
   if (!STOREFRONT_DOMAIN || (!STOREFRONT_TOKEN && !ADMIN_TOKEN)) {
-    return await respondFromCache(limit, "credentials_missing", 0);
+    return await respondFromCache(limit, country, "credentials_missing", 0);
   }
 
   try {

@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { loadPricingSettings, applyAllInclusivePricingToItems } from "../_shared/allInclusivePricing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,6 +19,7 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const API_VERSION = "2025-07";
 const SHOPIFY_CHINA_PROVIDER = "shopify_china";
+const SHOPIFY_TURKEY_PROVIDER = "shopify_turkey";
 const CACHE_TTL_DAYS = 30;
 
 const STOREFRONT_QUERY = `
@@ -121,14 +123,51 @@ async function cacheProducts(products: any[]) {
   }
 }
 
+function providerForCountry(country: string): string {
+  return country === "turkey" ? SHOPIFY_TURKEY_PROVIDER : SHOPIFY_CHINA_PROVIDER;
+}
+
+// Apply all-inclusive (markup + shipping) so the price shown in the mobile app
+// is the SAME final price the customer pays in the cart. Without this, the
+// listing would show the raw Shopify price ($2.72) while the cart shows the
+// fee-included price ($X), causing a confusing mismatch.
+async function applyDisplayPricing(products: any[]): Promise<any[]> {
+  if (!products.length) return products;
+  try {
+    const settings = await loadPricingSettings();
+    // Map our shape → the shape applyAllInclusivePricingToItems expects
+    const mapped = products.map((p) => ({
+      ...p,
+      provider: SHOPIFY_CHINA_PROVIDER,
+      price_usd: Number(p.base_price_usd) || 0,
+      title: p.title,
+      unified_category: "clothes_shoes",
+    }));
+    const priced = applyAllInclusivePricingToItems(mapped, settings);
+    return priced.map((p: any, i: number) => ({
+      ...products[i],
+      base_price_usd: Number(p.base_price_usd) || Number(products[i].base_price_usd) || 0,
+      price_usd: Number(p.price_usd) || 0,
+      priceUsd: Number(p.price_usd) || 0,
+      price: Number(p.price_usd) || 0,
+      fees_included: true,
+      is_all_inclusive_display: true,
+      pricing_mode: "all_inclusive",
+    }));
+  } catch (e) {
+    console.error("[shopify-products] applyDisplayPricing failed", e instanceof Error ? e.message : String(e));
+    return products;
+  }
+}
+
 // Read cached products when Shopify is unavailable.
-async function readCachedProducts(limit: number): Promise<any[]> {
+async function readCachedProducts(limit: number, country: string): Promise<any[]> {
   try {
     const sb = buildSupabase();
     const { data, error } = await sb
       .from("catalog_items")
       .select("provider_product_id, title, image_url, images, product_url, price_usd, in_stock, metadata")
-      .eq("provider", SHOPIFY_CHINA_PROVIDER)
+      .eq("provider", providerForCountry(country))
       .eq("is_active", true)
       .order("updated_at", { ascending: false })
       .limit(limit);
@@ -140,7 +179,7 @@ async function readCachedProducts(limit: number): Promise<any[]> {
       const meta = row.metadata?.shopify || {};
       return {
         id: String(row.provider_product_id),
-        country: "china",
+        country,
         title: row.title,
         image_url: row.image_url,
         images: Array.isArray(row.images) ? row.images : [],
@@ -160,12 +199,15 @@ async function readCachedProducts(limit: number): Promise<any[]> {
   }
 }
 
-async function respondFromCache(limit: number, reason: string, status: number, details?: unknown) {
-  const cached = await readCachedProducts(limit);
-  console.log(`[shopify-products] serving ${cached.length} cached products (reason=${reason})`);
+async function respondFromCache(limit: number, country: string, reason: string, status: number, details?: unknown) {
+  const cached = await readCachedProducts(limit, country);
+  const priced = await applyDisplayPricing(cached);
+  console.log(`[shopify-products] serving ${priced.length} cached products country=${country} (reason=${reason})`);
   return new Response(JSON.stringify({
-    products: cached,
-    count: cached.length,
+    products: priced,
+    items: priced,
+    count: priced.length,
+    country,
     cached: true,
     cache_reason: reason,
     upstream_status: status,
@@ -180,9 +222,16 @@ Deno.serve(async (req) => {
 
   const url = new URL(req.url);
   const limit = Math.min(Number(url.searchParams.get("limit") || 50), 250);
+  const countryRaw = (url.searchParams.get("country") || url.searchParams.get("source") || "china").toLowerCase();
+  const country = countryRaw === "turkey" ? "turkey" : "china";
+
+  // Turkey has no live Shopify store yet — always serve from cache (currently empty).
+  if (country === "turkey") {
+    return await respondFromCache(limit, country, "turkey_cache_only", 0);
+  }
 
   if (!STOREFRONT_DOMAIN || (!STOREFRONT_TOKEN && !ADMIN_TOKEN)) {
-    return await respondFromCache(limit, "credentials_missing", 0);
+    return await respondFromCache(limit, country, "credentials_missing", 0);
   }
 
   try {
@@ -202,13 +251,13 @@ Deno.serve(async (req) => {
       if (!res.ok) {
         const body = await res.text();
         console.error("[shopify-products] Storefront error", res.status, body.slice(0, 300));
-        return await respondFromCache(limit, `storefront_${res.status}`, res.status, body.slice(0, 500));
+        return await respondFromCache(limit, country, `storefront_${res.status}`, res.status, body.slice(0, 500));
       }
 
       const json = await res.json();
       if (json.errors) {
         console.error("[shopify-products] GraphQL errors", JSON.stringify(json.errors).slice(0, 300));
-        return await respondFromCache(limit, "graphql_errors", 200, json.errors);
+        return await respondFromCache(limit, country, "graphql_errors", 200, json.errors);
       }
 
       const edges = json?.data?.products?.edges || [];
@@ -259,10 +308,11 @@ Deno.serve(async (req) => {
         await cacheProducts(products);
       } else {
         // Live returned 0 — fall back to cache instead of returning empty.
-        return await respondFromCache(limit, "live_empty", 200);
+        return await respondFromCache(limit, country, "live_empty", 200);
       }
 
-      return new Response(JSON.stringify({ products, count: products.length, cached: false }), {
+      const priced = await applyDisplayPricing(products);
+      return new Response(JSON.stringify({ products: priced, items: priced, count: priced.length, country, cached: false }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -280,7 +330,7 @@ Deno.serve(async (req) => {
     if (!res.ok) {
       const body = await res.text();
       console.error("[shopify-products] Admin API error", res.status, body.slice(0, 300));
-      return await respondFromCache(limit, `admin_${res.status}`, res.status, body.slice(0, 500));
+      return await respondFromCache(limit, country, `admin_${res.status}`, res.status, body.slice(0, 500));
     }
 
     const data = await res.json();
@@ -312,16 +362,17 @@ Deno.serve(async (req) => {
     if (products.length > 0) {
       await cacheProducts(products);
     } else {
-      return await respondFromCache(limit, "admin_live_empty", 200);
+      return await respondFromCache(limit, country, "admin_live_empty", 200);
     }
 
-    return new Response(JSON.stringify({ products, count: products.length, cached: false }), {
+    const priced = await applyDisplayPricing(products);
+    return new Response(JSON.stringify({ products: priced, items: priced, count: priced.length, country, cached: false }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     console.error("[shopify-products] Exception:", msg);
-    return await respondFromCache(limit, "exception", 0, msg);
+    return await respondFromCache(limit, country, "exception", 0, msg);
   }
 });

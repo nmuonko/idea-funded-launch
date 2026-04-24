@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { loadPricingSettings, applyAllInclusivePricingToItems } from "../_shared/allInclusivePricing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,6 +19,7 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const API_VERSION = "2025-07";
 const SHOPIFY_CHINA_PROVIDER = "shopify_china";
+const SHOPIFY_TURKEY_PROVIDER = "shopify_turkey";
 const CACHE_TTL_DAYS = 30;
 
 const STOREFRONT_QUERY = `

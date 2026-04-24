@@ -251,13 +251,13 @@ Deno.serve(async (req) => {
       if (!res.ok) {
         const body = await res.text();
         console.error("[shopify-products] Storefront error", res.status, body.slice(0, 300));
-        return await respondFromCache(limit, `storefront_${res.status}`, res.status, body.slice(0, 500));
+        return await respondFromCache(limit, country, `storefront_${res.status}`, res.status, body.slice(0, 500));
       }
 
       const json = await res.json();
       if (json.errors) {
         console.error("[shopify-products] GraphQL errors", JSON.stringify(json.errors).slice(0, 300));
-        return await respondFromCache(limit, "graphql_errors", 200, json.errors);
+        return await respondFromCache(limit, country, "graphql_errors", 200, json.errors);
       }
 
       const edges = json?.data?.products?.edges || [];
@@ -308,10 +308,11 @@ Deno.serve(async (req) => {
         await cacheProducts(products);
       } else {
         // Live returned 0 — fall back to cache instead of returning empty.
-        return await respondFromCache(limit, "live_empty", 200);
+        return await respondFromCache(limit, country, "live_empty", 200);
       }
 
-      return new Response(JSON.stringify({ products, count: products.length, cached: false }), {
+      const priced = await applyDisplayPricing(products);
+      return new Response(JSON.stringify({ products: priced, items: priced, count: priced.length, country, cached: false }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -329,7 +330,7 @@ Deno.serve(async (req) => {
     if (!res.ok) {
       const body = await res.text();
       console.error("[shopify-products] Admin API error", res.status, body.slice(0, 300));
-      return await respondFromCache(limit, `admin_${res.status}`, res.status, body.slice(0, 500));
+      return await respondFromCache(limit, country, `admin_${res.status}`, res.status, body.slice(0, 500));
     }
 
     const data = await res.json();
@@ -361,16 +362,17 @@ Deno.serve(async (req) => {
     if (products.length > 0) {
       await cacheProducts(products);
     } else {
-      return await respondFromCache(limit, "admin_live_empty", 200);
+      return await respondFromCache(limit, country, "admin_live_empty", 200);
     }
 
-    return new Response(JSON.stringify({ products, count: products.length, cached: false }), {
+    const priced = await applyDisplayPricing(products);
+    return new Response(JSON.stringify({ products: priced, items: priced, count: priced.length, country, cached: false }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     console.error("[shopify-products] Exception:", msg);
-    return await respondFromCache(limit, "exception", 0, msg);
+    return await respondFromCache(limit, country, "exception", 0, msg);
   }
 });

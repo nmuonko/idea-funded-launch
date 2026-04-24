@@ -904,19 +904,38 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   let pricing = cartPricingCalc(basePriceUsd, quantity, effectiveMarkup, settings.exchangeRate);
 
   // ─── DISPLAY PARITY: match the all-inclusive price shown on homepage / PDP ───
-  // Homepage & catalog-product use Math.ceil(base + base*markup% + shipping_per_unit_with_buffer)
-  // per unit. We force the cart line total to use the SAME per-unit ceil so the
-  // customer never sees a different price between listing → PDP → cart.
+  // The mobile app (frozen RN build) sends `productPrice` = the EXACT all-inclusive
+  // price the user saw on the screen they tapped (homepage card or PDP).
+  // To guarantee zero price drift between listing → PDP → cart, we anchor the cart
+  // line total to that displayed price whenever it looks plausibly all-inclusive.
+  // Otherwise we fall back to the recomputed Math.ceil(base+markup+shipping) parity formula.
   if (!isFixedPrice && !isVehicleDetected && !requiresManualQuote && basePriceUsd > 0) {
-    const shippingPerUnit = quantity > 0 ? shippingFeeUsd / quantity : shippingFeeUsd;
     const markupRate = (effectiveMarkup || 0) / 100;
-    const allInclusiveUnit = Math.ceil(basePriceUsd + (basePriceUsd * markupRate) + shippingPerUnit);
-    const newLineTotal = cartRound2(allInclusiveUnit * quantity);
-    // Re-derive shipping so subtotal+shipping == ceiled total (keeps DB invariants)
+    const shippingPerUnit = quantity > 0 ? shippingFeeUsd / quantity : shippingFeeUsd;
+    const recomputedUnit = Math.ceil(basePriceUsd + (basePriceUsd * markupRate) + shippingPerUnit);
+
+    // Anchor to the price the user actually saw whenever the client sent one that
+    // is clearly all-inclusive (>= raw base). This eliminates drift caused by
+    // PDP/cart-side live price refreshes that happen AFTER the homepage rendered.
+    let displayUnit = recomputedUnit;
+    let anchorSource: 'client_display' | 'recomputed' = 'recomputed';
+    if (productPrice && productPrice > 0 && productPrice >= basePriceUsd) {
+      // Sanity guard: never accept a client price that's wildly above what our
+      // formula would produce (protects against malicious clients). Allow up to
+      // 25% above the recomputed unit (covers stale-base-price drift in real life).
+      const upperBound = Math.ceil(recomputedUnit * 1.25);
+      if (productPrice <= upperBound) {
+        displayUnit = Math.ceil(productPrice);
+        anchorSource = 'client_display';
+      }
+    }
+
+    const newLineTotal = cartRound2(displayUnit * quantity);
+    // Re-derive shipping so base*qty + markup + shipping == displayed total (keeps DB invariants)
     const newShippingFee = cartRound2(newLineTotal - pricing.itemSubtotalUsd);
     if (newShippingFee >= 0) {
       shippingFeeUsd = newShippingFee;
-      console.log(`[CART_ADD][${correlationId}] DISPLAY_PARITY base=$${basePriceUsd} markup=${effectiveMarkup}% shipPerUnit=$${shippingPerUnit.toFixed(2)} → unit=$${allInclusiveUnit} lineTotal=$${newLineTotal}`);
+      console.log(`[CART_ADD][${correlationId}] DISPLAY_PARITY anchor=${anchorSource} base=$${basePriceUsd} markup=${effectiveMarkup}% shipPerUnit=$${shippingPerUnit.toFixed(2)} recomputedUnit=$${recomputedUnit} sentPrice=$${productPrice} → unit=$${displayUnit} lineTotal=$${newLineTotal}`);
     }
   }
 

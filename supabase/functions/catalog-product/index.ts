@@ -1258,6 +1258,8 @@ Deno.serve(async (req: Request) => {
             console.warn(`[PRICE_REFRESH][EBAY] ${productId}: live refresh failed: ${(e as Error).message}`);
           }
         }
+      }
+
       if (dbItem.provider === "ebay" && !item.description) {
         try {
           liveEbayDetail = liveEbayDetail ?? await getEbayItem(db, productId!);

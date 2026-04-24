@@ -903,6 +903,23 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   effectiveMarkup = isFixedPrice ? 0 : (isVehicleDetected ? 0 : settings.markupPercent);
   let pricing = cartPricingCalc(basePriceUsd, quantity, effectiveMarkup, settings.exchangeRate);
 
+  // ─── DISPLAY PARITY: match the all-inclusive price shown on homepage / PDP ───
+  // Homepage & catalog-product use Math.ceil(base + base*markup% + shipping_per_unit_with_buffer)
+  // per unit. We force the cart line total to use the SAME per-unit ceil so the
+  // customer never sees a different price between listing → PDP → cart.
+  if (!isFixedPrice && !isVehicleDetected && !requiresManualQuote && basePriceUsd > 0) {
+    const shippingPerUnit = quantity > 0 ? shippingFeeUsd / quantity : shippingFeeUsd;
+    const markupRate = (effectiveMarkup || 0) / 100;
+    const allInclusiveUnit = Math.ceil(basePriceUsd + (basePriceUsd * markupRate) + shippingPerUnit);
+    const newLineTotal = cartRound2(allInclusiveUnit * quantity);
+    // Re-derive shipping so subtotal+shipping == ceiled total (keeps DB invariants)
+    const newShippingFee = cartRound2(newLineTotal - pricing.itemSubtotalUsd);
+    if (newShippingFee >= 0) {
+      shippingFeeUsd = newShippingFee;
+      console.log(`[CART_ADD][${correlationId}] DISPLAY_PARITY base=$${basePriceUsd} markup=${effectiveMarkup}% shipPerUnit=$${shippingPerUnit.toFixed(2)} → unit=$${allInclusiveUnit} lineTotal=$${newLineTotal}`);
+    }
+  }
+
   if (isGuest) {
     const protectionOpts = { categoryKey: detectedCategoryData?.category ?? null, isVehicle: isVehicleDetected, requiresManualQuote };
     const response = buildItemResponse(null, productUrl, productTitle, productImageUrl, store, pricing, shippingFeeUsd, settings.exchangeRate, false, effectiveMarkup, settings.protection, protectionOpts);

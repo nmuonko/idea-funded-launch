@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
         const { data, error } = await supabase
           .from("catalog_items")
           .select(
-            "id, title, provider, unified_category, category_key, price_usd, fees_included, is_all_inclusive_display",
+            "id, title, provider, unified_category, category_key, price_usd",
           )
           .in("id", ids);
         if (error) {

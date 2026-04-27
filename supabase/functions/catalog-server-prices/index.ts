@@ -1,14 +1,17 @@
 // catalog-server-prices
-// Batch all-inclusive price resolver for the mobile homepage feed.
+// Batch all-inclusive price resolver for the FROZEN mobile homepage feed.
 //
-// The frozen RN app POSTs `{ items: [{ id, basePriceUsd, ... }] }` and expects
-// `{ prices: [{ id, priceUsd, finalPriceUsd, totalPriceUsd, price_usd }] }`
-// with the SAME all-inclusive number that catalog-home / catalog-product return.
+// Contract: POST { items: [{ id, basePriceUsd?, ... }] }
+// Returns:  { prices: [{ id, priceUsd, finalPriceUsd, totalPriceUsd, price_usd, basePriceUsd, feesIncluded }] }
 //
-// Uses the shared allInclusivePricing module so every catalog endpoint agrees.
+// CRITICAL: To guarantee parity with /catalog-product (the PDP), this endpoint
+// ALWAYS fetches the full row from `catalog_items` by id and feeds the SAME
+// shape into the SAME shared `applyAllInclusivePricingToItems` function that
+// catalog-product, catalog-home, and catalog-category use. Client-supplied
+// basePriceUsd / title are IGNORED when a DB row is found — the DB row is the
+// single source of truth, so the homepage card and PDP cannot disagree.
 //
-// Per frozen-build contract: ALWAYS returns HTTP 200 with JSON, even on errors,
-// to prevent the mobile app from crashing on null responses.
+// Per frozen-build contract: ALWAYS returns HTTP 200 with JSON, even on errors.
 
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -34,9 +37,9 @@ interface IncomingItem {
   category_key?: string | null;
 }
 
-function ok(body: unknown, status = 200) {
+function ok(body: unknown) {
   return new Response(JSON.stringify(body), {
-    status,
+    status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
@@ -44,11 +47,8 @@ function ok(body: unknown, status = 200) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  // Frozen-app contract: never return non-200; always JSON.
   try {
-    if (req.method !== "POST") {
-      return ok({ prices: [], error: "method_not_allowed" });
-    }
+    if (req.method !== "POST") return ok({ prices: [], error: "method_not_allowed" });
 
     let payload: { items?: IncomingItem[] } = {};
     try {
@@ -60,69 +60,96 @@ Deno.serve(async (req) => {
     const incoming = Array.isArray(payload?.items) ? payload.items : [];
     if (incoming.length === 0) return ok({ prices: [] });
 
-    // Cap to protect CPU budget (mobile homepage rarely sends >50)
+    // Cap batch size to protect CPU budget
     const items = incoming.slice(0, 200);
+    const ids = Array.from(new Set(items.map((i) => String(i.id)).filter(Boolean)));
 
-    // We may need to enrich items missing basePriceUsd / title / provider
-    // (the RN app sometimes sends just { id, basePriceUsd }) — fetch from DB
-    // to ensure accurate category-based shipping.
-    const idsNeedingEnrich = items
-      .filter((i) => !i.title || !i.provider)
-      .map((i) => i.id)
-      .filter(Boolean);
-
-    let enrichMap = new Map<string, Record<string, unknown>>();
-    if (idsNeedingEnrich.length > 0) {
+    // ALWAYS fetch DB rows — DB is the single source of truth for parity with PDP
+    const dbMap = new Map<string, Record<string, unknown>>();
+    if (ids.length > 0) {
       try {
         const supabase = createClient(
           Deno.env.get("SUPABASE_URL")!,
           Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
         );
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from("catalog_items")
-          .select("id, title, provider, unified_category, category_key, price_usd")
-          .in("id", idsNeedingEnrich);
-        if (Array.isArray(data)) {
-          for (const row of data) enrichMap.set(String(row.id), row as Record<string, unknown>);
+          .select(
+            "id, title, provider, unified_category, category_key, price_usd, fees_included, is_all_inclusive_display",
+          )
+          .in("id", ids);
+        if (error) {
+          console.warn("[catalog-server-prices] DB fetch error:", error.message);
+        } else if (Array.isArray(data)) {
+          for (const row of data) dbMap.set(String(row.id), row as Record<string, unknown>);
         }
       } catch (err) {
-        console.warn("[catalog-server-prices] enrich failed:", err);
+        console.warn("[catalog-server-prices] DB fetch threw:", err);
       }
     }
 
     const settings = await loadPricingSettings();
 
     // Build the array shape that applyAllInclusivePricingToItems expects.
+    // Prefer DB row data (canonical) over client-supplied data (untrusted).
     const prepared = items.map((i) => {
-      const enriched = enrichMap.get(String(i.id)) || {};
-      const basePrice =
-        Number(i.basePriceUsd ?? i.priceUsd ?? i.price_usd ?? enriched.price_usd ?? 0) || 0;
+      const row = dbMap.get(String(i.id));
+      if (row) {
+        // DB row found — use canonical data, ignore client basePrice/title
+        const basePrice = Number(row.price_usd ?? 0) || 0;
+        return {
+          __sourceId: i.id,
+          __hasRow: true,
+          id: row.id,
+          title: row.title ?? "",
+          provider: row.provider ?? "",
+          unified_category: row.unified_category ?? null,
+          category_key: row.category_key ?? null,
+          price_usd: basePrice,
+          priceUsd: basePrice,
+          // Preserve already-priced flag so we don't double-price hot products
+          fees_included: row.fees_included === true,
+          is_all_inclusive_display: row.is_all_inclusive_display === true,
+        };
+      }
+      // No DB row — fall back to client-supplied data (best-effort)
+      const basePrice = Number(i.basePriceUsd ?? i.priceUsd ?? i.price_usd ?? 0) || 0;
       return {
+        __sourceId: i.id,
+        __hasRow: false,
         id: i.id,
-        title: (i.title ?? enriched.title ?? "") as string,
-        provider: (i.provider ?? enriched.provider ?? "") as string,
-        unified_category: i.unified_category ?? enriched.unified_category ?? null,
-        category_key: i.category_key ?? enriched.category_key ?? null,
+        title: i.title ?? "",
+        provider: i.provider ?? "",
+        unified_category: i.unified_category ?? null,
+        category_key: i.category_key ?? null,
         price_usd: basePrice,
         priceUsd: basePrice,
       };
     });
 
-    const priced = applyAllInclusivePricingToItems(prepared as Record<string, unknown>[], settings);
+    const priced = applyAllInclusivePricingToItems(
+      prepared as unknown as Record<string, unknown>[],
+      settings,
+    );
 
     const prices = priced.map((p) => {
       const finalPrice = Number(p.price_usd ?? p.priceUsd ?? 0) || 0;
+      const basePrice = Number(p.base_price_usd ?? 0) || 0;
       return {
-        id: p.id,
+        id: (p as Record<string, unknown>).__sourceId ?? p.id,
         priceUsd: finalPrice,
         finalPriceUsd: finalPrice,
         totalPriceUsd: finalPrice,
         price_usd: finalPrice,
-        basePriceUsd: Number(p.base_price_usd ?? 0) || 0,
+        basePriceUsd: basePrice,
         feesIncluded: true,
+        source: (p as Record<string, unknown>).__hasRow ? "db" : "client_fallback",
       };
     });
 
+    console.log(
+      `[catalog-server-prices] resolved ${prices.length}/${items.length} (db=${dbMap.size})`,
+    );
     return ok({ prices });
   } catch (err) {
     console.error("[catalog-server-prices] fatal:", err);

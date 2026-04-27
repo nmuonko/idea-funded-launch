@@ -107,7 +107,7 @@ export function parseFilters(filtersParam: string | null): CatalogFilters {
     }
     if (Array.isArray(parsed.brand)) {
       filters.brand = parsed.brand.filter((b: unknown) => typeof b === 'string' && b.length > 0);
-      if (filters.brand.length === 0) delete filters.brand;
+      if (filters.brand!.length === 0) delete filters.brand;
     }
     if (['new', 'used', 'refurbished', 'any'].includes(parsed.condition)) {
       filters.condition = parsed.condition;

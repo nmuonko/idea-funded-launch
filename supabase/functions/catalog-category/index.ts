@@ -157,7 +157,6 @@ const AMAZON_DEFAULT_QUERIES: Record<string, string> = {
   electronics_gaming: "ps5 xbox nintendo switch console gaming",
   electronics_cameras: "camera gopro dslr mirrorless",
   electronics_audio: "headphones speaker airpods earbuds bluetooth",
-  electronics_audio: "headphones",
   vehicles: "cars",
   vehicles_all: "cars",
   vehicles_cars_trucks: "cars",
@@ -772,16 +771,17 @@ Deno.serve(async (req) => {
     // Final filtering
     const { allowed: filteredItems, removed: removedCount } = filterDisallowedItems(
       mixResult.items.map(item => ({
-        ...item,
+        id: (item as CatalogProduct).id,
+        providerProductId: (item as CatalogProduct).providerProductId,
         title: (item as CatalogProduct).title,
         productUrl: (item as CatalogProduct).productUrl,
         provider: (item as CatalogProduct).provider,
-        category: (item as CatalogProduct).category,
+        category: String((item as CatalogProduct).category ?? ""),
       })),
       `[CATALOG] requestId=${requestId}`
     );
 
-    const allowedIds = new Set(filteredItems.map(i => i.id));
+    const allowedIds = new Set(filteredItems.map(i => (i as { id: string }).id));
     let filteredFinalItems = mixResult.items.filter(item => allowedIds.has(item.id)) as CatalogProduct[];
 
     // Apply brand diversity to ALL categories (not just clothing)

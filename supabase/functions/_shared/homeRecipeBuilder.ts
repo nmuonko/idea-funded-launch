@@ -140,7 +140,7 @@ async function loadSeedsForRecipe(recipeId: string): Promise<SeedRow[]> {
     .map(r => ({
       ...r,
       sort_order: Number(r.sort_order) || 0,
-      max_items: (r as Record<string, unknown>).max_items as number ?? (r as Record<string, unknown>).maxItems as number ?? 3,
+      max_items: ((r as unknown as Record<string, unknown>).max_items as number) ?? ((r as unknown as Record<string, unknown>).maxItems as number) ?? 3,
       required_terms: r.required_terms ?? [],
       excluded_terms: r.excluded_terms ?? [],
     }))
@@ -521,7 +521,7 @@ export async function buildMobileHomepage(env: string, recipeKey?: string | null
     // Apply all-inclusive pricing so mobile cache has final prices
     try {
       const pricingSettings = await loadPricingSettings();
-      items = applyAllInclusivePricingToItems(items, pricingSettings);
+      items = applyAllInclusivePricingToItems(items as unknown as Record<string, unknown>[], pricingSettings) as unknown as typeof items;
     } catch (e) {
       console.error(`[HOME_RECIPE] pricing transform error for ${recipe.key}: ${e}`);
     }

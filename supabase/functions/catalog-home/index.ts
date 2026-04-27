@@ -547,7 +547,7 @@ async function buildMobileHomepagePhonesResponse(
       items = applyAllInclusivePricingToItems(
         items as unknown as Record<string, unknown>[],
         pSettings,
-      ) as typeof items;
+      ) as unknown as typeof items;
     } catch (e) {
       console.error(`[CATALOG_HOME] mobile_phones pricing transform error:`, e);
     }
@@ -1556,7 +1556,7 @@ const __originalHandler = async (req: Request): Promise<Response> => {
       section = url.searchParams.get("section") || url.searchParams.get("sectionKey") || "";
       cursor = url.searchParams.get("cursor") || "";
       amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
-      locale = url.searchParams.get("locale") || url.searchParams.get("lang") || lang;
+      locale = (url.searchParams.get("locale") || url.searchParams.get("lang") || lang) as "fr" | "en";
       forceLive = url.searchParams.get("live") === "1" || url.searchParams.get("source") === "live";
     }
 
@@ -1644,10 +1644,10 @@ const __originalHandler = async (req: Request): Promise<Response> => {
               const langKey2: "fr" | "en" = (locale === "en" ? "en" : "fr");
               const normalized = sections.map(s => ({
                 ...s,
-                title: langKey2 === "fr" ? (s.title_fr || s.title) : (s.title_en || s.title),
+                title: String((langKey2 === "fr" ? (s.title_fr || s.title) : (s.title_en || s.title)) ?? ""),
                 items: (s.items as unknown[] || []).slice(0, 40),
               }));
-              const normalizedSections = normalizeSectionTitles(normalized, langKey2) as typeof normalized;
+              const normalizedSections = normalizeSectionTitles(normalized as unknown as import("../_shared/titleNormalizer.ts").Section[], langKey2) as typeof normalized;
               const totalItems = calculateTotalItems(normalizedSections);
               const totalMs = Date.now() - startTime;
               
@@ -1688,11 +1688,11 @@ const __originalHandler = async (req: Request): Promise<Response> => {
               const langKey2: "fr" | "en" = (locale === "en" ? "en" : "fr");
               const normalized = sections.map(s => ({
                 ...s,
-                title: langKey2 === "fr" ? (s.title_fr || s.title) : (s.title_en || s.title),
+                title: String((langKey2 === "fr" ? (s.title_fr || s.title) : (s.title_en || s.title)) ?? ""),
                 items: (s.items as unknown[] || []).slice(0, 40),
               }));
-              const normalizedSections = normalizeSectionTitles(normalized, langKey2) as typeof normalized;
-              const totalItems = calculateTotalItems(normalizedSections);
+              const normalizedSections = normalizeSectionTitles(normalized as unknown as import("../_shared/titleNormalizer.ts").Section[], langKey2) as unknown as typeof normalized;
+              const totalItems = calculateTotalItems(normalizedSections as unknown as import("../_shared/titleNormalizer.ts").Section[]);
               
               const flat = url.searchParams.get("flat") !== "0";
               return jsonResponse(flattenMobilePayload({
@@ -2011,7 +2011,7 @@ const __originalHandler = async (req: Request): Promise<Response> => {
         // Apply all-inclusive pricing for web clients
         try {
           const pSettings = await loadPricingSettings();
-          pageItems = applyAllInclusivePricingToItems(pageItems as unknown as Record<string, unknown>[], pSettings) as typeof pageItems;
+          pageItems = applyAllInclusivePricingToItems(pageItems as unknown as Record<string, unknown>[], pSettings) as unknown as typeof pageItems;
         } catch (e) { console.error(`[CATALOG_HOME] pricing transform error:`, e); }
         const hasMoreCached = page < actualTotalPages;
         
@@ -2196,7 +2196,7 @@ const __originalHandler = async (req: Request): Promise<Response> => {
     // Apply all-inclusive pricing for web clients
     try {
       const pSettings = await loadPricingSettings();
-      pageItems = applyAllInclusivePricingToItems(pageItems as unknown as Record<string, unknown>[], pSettings) as typeof pageItems;
+      pageItems = applyAllInclusivePricingToItems(pageItems as unknown as Record<string, unknown>[], pSettings) as unknown as typeof pageItems;
     } catch (e) { console.error(`[CATALOG_HOME] pricing transform error:`, e); }
     const actualTotalPages = Math.ceil(items.length / pageSize);
 

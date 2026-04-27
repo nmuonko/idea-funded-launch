@@ -564,7 +564,7 @@ function mapAndFilter(rows: Array<Record<string, unknown>>, profile: SectionProf
         segment: row.segment as string | undefined,
       };
     })
-    .filter((item): item is SectionItem => item !== null);
+    .filter((item): item is NonNullable<typeof item> => item !== null) as SectionItem[];
 
   return filterItemsForProfile(mapped, profile)
     .filter(item => !usedIds.has(item.id))

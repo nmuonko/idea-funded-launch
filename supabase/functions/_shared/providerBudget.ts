@@ -96,8 +96,8 @@ export async function incrementBudget(
     return {
       allowed: true,
       count: 0,
-      limit,
-      remaining: limit,
+      limit: effectiveLimit,
+      remaining: effectiveLimit,
       windowKey: "error",
     };
   }

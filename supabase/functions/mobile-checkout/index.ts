@@ -1335,6 +1335,42 @@ serve(async (req) => {
       dedupe_log: dedupeLog,
     });
 
+    // SELF-HEAL: Some items get is_vehicle=true by mistake (e.g. legacy data, manual edits).
+    // Before any vehicle-quote enforcement, drop the vehicle flag from items that have
+    // no real vehicle signal at all (not from a vehicle store, no vehicle URL, no vehicle
+    // keyword in title, no vehicle-specific fields). This unblocks checkout for users whose
+    // cart contains, e.g., a watch or a phone wrongly tagged as a vehicle.
+    const VEHICLE_STORE_NAMES = new Set(['CARVANA', 'CARGURUS', 'TESLA_USED', 'EDMUNDS']);
+    const misclassifiedVehicleIds: string[] = [];
+    for (const item of dbItems) {
+      if (item.is_vehicle !== true) continue;
+      const storeUpper = String(item.store || '').toUpperCase();
+      const detection = detectVehicleFromItems([{ ...item, is_vehicle: false, vehicle_quote_applied: false }]);
+      const looksLikeVehicle =
+        VEHICLE_STORE_NAMES.has(storeUpper) ||
+        (detection.isVehicle && detection.confidence === 'high');
+      if (!looksLikeVehicle) {
+        misclassifiedVehicleIds.push(item.id);
+        item.is_vehicle = false;
+        item.vehicle_quote_applied = false;
+        item.requires_manual_quote = false;
+      }
+    }
+    if (misclassifiedVehicleIds.length > 0) {
+      console.warn('[mobile-checkout] AUTO_HEAL_MISCLASSIFIED_VEHICLES', {
+        count: misclassifiedVehicleIds.length,
+        ids: misclassifiedVehicleIds,
+      });
+      try {
+        await supabase
+          .from('order_items')
+          .update({ is_vehicle: false, vehicle_quote_applied: false, requires_manual_quote: false })
+          .in('id', misclassifiedVehicleIds);
+      } catch (healErr) {
+        console.error('[mobile-checkout] Failed to persist vehicle flag healing:', healErr);
+      }
+    }
+
     // P2 FIX: Check for vehicles requiring manual quote
     const vehiclesWithPendingQuotes = dbItems.filter(item => 
       item.is_vehicle === true && item.vehicle_quote_applied !== true

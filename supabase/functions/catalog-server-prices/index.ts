@@ -107,9 +107,6 @@ Deno.serve(async (req) => {
           category_key: row.category_key ?? null,
           price_usd: basePrice,
           priceUsd: basePrice,
-          // Preserve already-priced flag so we don't double-price hot products
-          fees_included: row.fees_included === true,
-          is_all_inclusive_display: row.is_all_inclusive_display === true,
         };
       }
       // No DB row — fall back to client-supplied data (best-effort)

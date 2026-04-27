@@ -12,7 +12,7 @@ import { SECTION_PROFILES, filterItemsForProfile, type SectionProfile, type Sect
 import { isValidProductImageUrl, upgradeToHighRes, bestProductImage } from "./imageValidator.ts";
 import { normalizeSectionTitles, calculateTotalItems } from "./titleNormalizer.ts";
 import { isDisallowedItem } from "./contentBlocker.ts";
-import { loadPricingSettings, applyAllInclusivePricingToItems } from "./allInclusivePricing.ts";
+import { loadPricingSettings, applyAllInclusivePricingToItems, type PricingSettings } from "./allInclusivePricing.ts";
 import { postProcessSection } from "./sectionPostProcess.ts";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -309,7 +309,7 @@ async function buildStrictSectionsFromPool(
   pool: SectionItem[],
   lang: "fr" | "en",
   correlationId: string,
-  pricingSettings?: { markupPercent: number; shippingBaseFeeUsd: number; shippingPercent: number }
+  pricingSettings?: PricingSettings
 ): Promise<CachedSectionsPayload> {
   const usedIds = new Set<string>();
   const sectionBuckets: Record<string, SectionItem[]> = {};
@@ -448,7 +448,7 @@ export async function serveMobileSections(
   const effectiveTtl = ttlOverride && ttlOverride > 0 ? ttlOverride : DEFAULT_TTL_SECONDS;
   
   // Load pricing settings for all-inclusive pricing
-  let pricingSettings: { markupPercent: number; shippingBaseFeeUsd: number; shippingPercent: number } | undefined;
+  let pricingSettings: PricingSettings | undefined;
   try {
     pricingSettings = await loadPricingSettings();
   } catch (err) {

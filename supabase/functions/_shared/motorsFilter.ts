@@ -337,7 +337,7 @@ export function isAllowedMotorListing(input: MotorsFilterInput): MotorsFilterRes
   const categoryPath = (input.categoryPath || "").toLowerCase();
   
   // Get minimum price for this vehicle subkey
-  const minPrice = getMinPriceForVehicleSubkey(input.vehiclesSubkey);
+  const minPrice = getMinPriceForVehicleSubkey(input.vehiclesSubkey ?? null);
 
   // 1. ENFORCE minimum price ($1500+ for real vehicles)
   if (input.priceUsd === null || input.priceUsd < minPrice) {

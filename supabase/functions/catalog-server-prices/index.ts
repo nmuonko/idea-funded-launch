@@ -129,20 +129,29 @@ Deno.serve(async (req) => {
       settings,
     );
 
-    const prices = priced.map((p) => {
-      const finalPrice = Number(p.price_usd ?? p.priceUsd ?? 0) || 0;
-      const basePrice = Number(p.base_price_usd ?? 0) || 0;
-      return {
-        id: (p as Record<string, unknown>).__sourceId ?? p.id,
-        priceUsd: finalPrice,
-        finalPriceUsd: finalPrice,
-        totalPriceUsd: finalPrice,
-        price_usd: finalPrice,
-        basePriceUsd: basePrice,
-        feesIncluded: true,
-        source: (p as Record<string, unknown>).__hasRow ? "db" : "client_fallback",
-      };
-    });
+    // Strict contract for the frozen mobile app's "verified-or-hide" policy:
+    // ONLY emit a price when we have a real DB row AND a positive final price.
+    // Anything else is OMITTED from the response so the client can treat
+    // "missing id" as "unverified — hide it" with zero ambiguity. We never
+    // emit priceUsd: 0, which would otherwise risk a free-item leak.
+    const prices = priced
+      .map((p) => {
+        const finalPrice = Number(p.price_usd ?? p.priceUsd ?? 0) || 0;
+        const basePrice = Number(p.base_price_usd ?? 0) || 0;
+        const hasRow = Boolean((p as Record<string, unknown>).__hasRow);
+        if (!hasRow || finalPrice <= 0 || basePrice <= 0) return null;
+        return {
+          id: (p as Record<string, unknown>).__sourceId ?? p.id,
+          priceUsd: finalPrice,
+          finalPriceUsd: finalPrice,
+          totalPriceUsd: finalPrice,
+          price_usd: finalPrice,
+          basePriceUsd: basePrice,
+          feesIncluded: true,
+          source: "db" as const,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
 
     console.log(
       `[catalog-server-prices] resolved ${prices.length}/${items.length} (db=${dbMap.size})`,

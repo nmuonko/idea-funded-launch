@@ -6,6 +6,15 @@
  * Frontend mirrors this in src/lib/imageValidation.ts
  */
 
+import { KNOWN_AMAZON_BANNER_IDS } from "./knownBannerImages.ts";
+
+// Extract the Amazon image ID (e.g. "11GWaerpNhL") from any Amazon image URL.
+// Returns null when the URL is not an Amazon /images/I/ asset.
+function amazonImageIdFromUrl(url: string): string | null {
+  const m = url.match(/\/images\/I\/([A-Za-z0-9+_-]+?)(?:\.|_|$)/);
+  return m ? m[1] : null;
+}
+
 // ─── BLOCKED URL PATTERNS ─────────────────────────────────────────────────────
 
 const BLOCKED_SUBSTRINGS = [
@@ -240,6 +249,14 @@ export function isValidProductImageUrl(url: string | null | undefined): boolean 
   if (!lower.startsWith("http")) return false;
   if (lower.includes(".html")) return false;
   if (lower.startsWith("data:")) return false;
+
+  // Fast O(1) reject for known Amazon banner image IDs (case-sensitive — Amazon IDs are).
+  // This is the highest-impact filter: hundreds of storefront banners are reused
+  // across thousands of Renewed listings as the "primary image".
+  if (url.includes("amazon.com/images/I/")) {
+    const imgId = amazonImageIdFromUrl(url);
+    if (imgId && KNOWN_AMAZON_BANNER_IDS.has(imgId)) return false;
+  }
 
   // Block known bad substrings
   for (const pattern of BLOCKED_SUBSTRINGS) {

@@ -672,10 +672,23 @@ export async function readMobileCache(env: string): Promise<{ hit: boolean; payl
   return { hit: true, payload: row.payload, ageSeconds, schemaVersion: row.schema_version };
 }
 
+// HARD CAP: Mobile app is FROZEN — it cannot apply price refreshes itself,
+// so the backend MUST keep cached prices fresh. Never let mobile cache live
+// longer than 2 hours regardless of what admin settings say. This prevents
+// the disaster of customers buying products at multi-day-old (under-priced)
+// snapshots, which causes negative-margin orders.
+const MOBILE_CACHE_TTL_HARD_CAP_SECONDS = 2 * 3600; // 2 hours
+
 export async function writeMobileCache(env: string, payload: Record<string, unknown>, ttlSeconds: number, schemaVersion: number): Promise<void> {
   const url = `${baseUrl()}/rest/v1/home_cache_mobile_sections`;
   const headers = { ...restHeaders(), Prefer: "resolution=merge-duplicates" };
-  
+  const cappedTtl = Math.min(
+    ttlSeconds > 0 ? ttlSeconds : MOBILE_CACHE_TTL_HARD_CAP_SECONDS,
+    MOBILE_CACHE_TTL_HARD_CAP_SECONDS,
+  );
+  if (cappedTtl !== ttlSeconds) {
+    console.warn(`[HOME_CACHE] mobile TTL capped from ${ttlSeconds}s -> ${cappedTtl}s (frozen app safety)`);
+  }
   await fetch(url, {
     method: "POST",
     headers,
@@ -683,7 +696,7 @@ export async function writeMobileCache(env: string, payload: Record<string, unkn
       env,
       schema_version: schemaVersion,
       built_at: new Date().toISOString(),
-      ttl_seconds: ttlSeconds,
+      ttl_seconds: cappedTtl,
       payload,
     }),
   });

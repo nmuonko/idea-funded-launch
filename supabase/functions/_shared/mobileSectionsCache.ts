@@ -107,6 +107,11 @@ export async function readMobileSectionsCache(
 
 // ─── WRITE CACHE ──────────────────────────────────────────────────────────────
 
+// HARD CAP: Frozen mobile app cannot refresh prices itself. Backend MUST
+// keep cached prices fresh — never let cached homepage live > 2h or we risk
+// customers buying at stale (under-priced) snapshots = negative margin orders.
+const MOBILE_SECTIONS_TTL_HARD_CAP_SECONDS = 2 * 3600;
+
 async function writeMobileSectionsCache(
   env: string,
   payload: CachedSectionsPayload,
@@ -116,6 +121,14 @@ async function writeMobileSectionsCache(
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceRoleKey) return;
+
+  const cappedTtl = Math.min(
+    ttlSeconds > 0 ? ttlSeconds : DEFAULT_TTL_SECONDS,
+    MOBILE_SECTIONS_TTL_HARD_CAP_SECONDS,
+  );
+  if (cappedTtl !== ttlSeconds) {
+    console.warn(`[MOBILE_SECTIONS_CACHE] TTL capped from ${ttlSeconds}s -> ${cappedTtl}s (frozen app safety)`);
+  }
 
   try {
     await fetch(`${supabaseUrl}/rest/v1/catalog_home_mobile_sections_cache`, {
@@ -130,11 +143,11 @@ async function writeMobileSectionsCache(
         env,
         schema_version: MOBILE_SECTIONS_SCHEMA_VERSION,
         built_at: new Date().toISOString(),
-        ttl_seconds: ttlSeconds,
+        ttl_seconds: cappedTtl,
         payload,
       }),
     });
-    console.log(`[MOBILE_SECTIONS_CACHE] saved env=${env} correlationId=${correlationId}`);
+    console.log(`[MOBILE_SECTIONS_CACHE] saved env=${env} ttl=${cappedTtl}s correlationId=${correlationId}`);
   } catch (err) {
     console.warn(`[MOBILE_SECTIONS_CACHE] write error: ${err}`);
   }

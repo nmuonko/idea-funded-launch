@@ -250,6 +250,14 @@ export function isValidProductImageUrl(url: string | null | undefined): boolean 
   if (lower.includes(".html")) return false;
   if (lower.startsWith("data:")) return false;
 
+  // Fast O(1) reject for known Amazon banner image IDs (case-sensitive — Amazon IDs are).
+  // This is the highest-impact filter: hundreds of storefront banners are reused
+  // across thousands of Renewed listings as the "primary image".
+  if (url.includes("amazon.com/images/I/")) {
+    const imgId = amazonImageIdFromUrl(url);
+    if (imgId && KNOWN_AMAZON_BANNER_IDS.has(imgId)) return false;
+  }
+
   // Block known bad substrings
   for (const pattern of BLOCKED_SUBSTRINGS) {
     if (lower.includes(pattern)) return false;

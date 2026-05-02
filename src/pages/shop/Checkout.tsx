@@ -308,6 +308,7 @@ export default function Checkout() {
 
       // Step 1: Ensure any visible local-only items are persisted to the backend cart first
       const localOnlyCheckoutItems = effectiveCheckoutItems.filter(item => item.id.startsWith('local_'));
+      const syncedLocalItemIds: string[] = [];
       if (localOnlyCheckoutItems.length > 0) {
         console.log('[WEB_CHECKOUT] Sync fallback: persisting local-only items before order creation...', localOnlyCheckoutItems.length);
 
@@ -331,11 +332,19 @@ export default function Checkout() {
           if (syncError || syncData?.success === false || syncData?.ok === false) {
             throw new Error(syncError?.message || syncData?.message || syncData?.error || 'Failed to sync your cart before checkout.');
           }
+
+          const serverItemId = syncData?.item?.id || syncData?.itemId || syncData?.cart_item_id;
+          if (serverItemId && typeof serverItemId === 'string' && !serverItemId.startsWith('local_')) {
+            syncedLocalItemIds.push(serverItemId);
+          }
         }
       }
 
       // Step 2: Create/update DRAFT order from cart items
-      const selectedCartItemIds = effectiveCheckoutItems.map(i => i.id).filter(id => !id.startsWith('local_'));
+      const selectedCartItemIds = Array.from(new Set([
+        ...effectiveCheckoutItems.map(i => i.id).filter(id => !id.startsWith('local_')),
+        ...syncedLocalItemIds,
+      ]));
       console.log('[WEB_CHECKOUT] Step 1: Creating order from cart... selectedIds=', selectedCartItemIds.length);
       
       const { data: orderData, error: orderError } = await supabase.functions.invoke(

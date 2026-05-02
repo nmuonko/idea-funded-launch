@@ -1334,6 +1334,17 @@ serve(async (req) => {
       duplicates_removed: duplicatesRemoved,
       dedupe_log: dedupeLog,
     });
+    if (duplicatesRemoved > 0) {
+      dbItems.length = 0;
+      dbItems.push(...deduped.map(item => ({
+        ...item.original_item,
+        quantity: item.quantity,
+      })));
+      console.warn('[mobile-checkout] CHECKOUT_DUPLICATES_COLLAPSED_FOR_TOTALS', {
+        deduped_count: dbItems.length,
+        quantities: dbItems.map(item => ({ id: item.id, quantity: item.quantity })),
+      });
+    }
 
     // SELF-HEAL: Some items get is_vehicle=true by mistake (e.g. legacy data, manual edits).
     // Before any vehicle-quote enforcement, drop the vehicle flag from items that have

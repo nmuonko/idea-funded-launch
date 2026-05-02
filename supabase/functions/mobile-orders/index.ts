@@ -180,12 +180,17 @@ function calculateCartSummary(
 
 // ─── Action: create ───────────────────────────────────────
 
-async function handleCreate(user: any, supabase: any, url: URL): Promise<Response> {
+async function handleCreate(user: any, supabase: any, url: URL, body: any = {}): Promise<Response> {
   const correlationId = crypto.randomUUID().slice(0, 8);
   const startTime = Date.now();
   const env = url.searchParams.get('env') || 'prod';
+  const requestedCartItemIds = Array.isArray(body?.cart_item_ids)
+    ? body.cart_item_ids.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+    : Array.isArray(body?.cartItemIds)
+    ? body.cartItemIds.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+    : [];
   
-  console.log(`[CREATE_ORDER] start correlationId=${correlationId} env=${env}`);
+  console.log(`[CREATE_ORDER] start correlationId=${correlationId} env=${env} requestedItems=${requestedCartItemIds.length}`);
 
   // Get existing DRAFT order with items
   let { data: existingOrder, error: orderFetchError } = await supabase
@@ -204,34 +209,6 @@ async function handleCreate(user: any, supabase: any, url: URL): Promise<Respons
     }, 200);
   }
 
-  // FALLBACK: Check for a recent PENDING_PAYMENT order that can be reused
-  if (!existingOrder) {
-    console.log(`[CREATE_ORDER] correlationId=${correlationId} No draft order found, checking for recent PENDING_PAYMENT...`);
-    
-    const { data: pendingOrder, error: pendingFetchError } = await supabase
-      .from('orders')
-      .select('*, order_items(*)')
-      .eq('user_id', user.id)
-      .eq('status', 'PENDING_PAYMENT')
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (pendingFetchError) {
-      console.error(`[CREATE_ORDER] correlationId=${correlationId} Error fetching pending order:`, pendingFetchError.message);
-    }
-
-    if (pendingOrder && pendingOrder.order_items && pendingOrder.order_items.length > 0) {
-      const updatedAt = new Date(pendingOrder.updated_at);
-      const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
-      
-      if (updatedAt > thirtyMinutesAgo) {
-        console.log(`[CREATE_ORDER] correlationId=${correlationId} Reusing recent PENDING_PAYMENT order: orderId=${pendingOrder.id}`);
-        existingOrder = pendingOrder;
-      }
-    }
-  }
-
   if (!existingOrder || !existingOrder.order_items || existingOrder.order_items.length === 0) {
     return jsonResponse({ 
       ok: false, success: false, error: 'EMPTY_CART', 
@@ -239,7 +216,22 @@ async function handleCreate(user: any, supabase: any, url: URL): Promise<Respons
     }, 200);
   }
 
-  console.log(`[CREATE_ORDER] correlationId=${correlationId} Found order: orderId=${existingOrder.id} itemCount=${existingOrder.order_items.length}`);
+  const orderItemsForCheckout = requestedCartItemIds.length > 0
+    ? existingOrder.order_items.filter((item: any) => requestedCartItemIds.includes(item.id))
+    : existingOrder.order_items;
+
+  if (requestedCartItemIds.length > 0 && orderItemsForCheckout.length !== requestedCartItemIds.length) {
+    const foundIds = new Set(orderItemsForCheckout.map((item: any) => item.id));
+    const missingIds = requestedCartItemIds.filter((id: string) => !foundIds.has(id));
+    console.warn(`[CREATE_ORDER] correlationId=${correlationId} selected item mismatch requested=${requestedCartItemIds.length} found=${orderItemsForCheckout.length}`);
+    return jsonResponse({
+      ok: false, success: false, error: 'CART_ITEMS_NOT_FOUND',
+      message: 'Some selected cart items are no longer available. Please refresh your cart.',
+      correlationId, missing_item_ids: missingIds,
+    }, 200);
+  }
+
+  console.log(`[CREATE_ORDER] correlationId=${correlationId} Found order: orderId=${existingOrder.id} itemCount=${existingOrder.order_items.length} checkoutItemCount=${orderItemsForCheckout.length}`);
 
   // Get pricing settings from cache — use admin client to bypass RLS on settings table
   const { getCachedGlobalSettings } = await import("../_shared/settingsMemoryCache.ts");
@@ -260,7 +252,7 @@ async function handleCreate(user: any, supabase: any, url: URL): Promise<Respons
   const vehicleMarkupPercent = settings.vehicle_markup_percent ?? settings.category_markups?.vehicles ?? 10;
 
   const summary = calculateCartSummary(
-    existingOrder.order_items, shippingBaseFeeUsd, shippingPercent, 
+    orderItemsForCheckout, shippingBaseFeeUsd, shippingPercent, 
     exchangeRate, markupPercent, vehicleMarkupPercent
   );
 
@@ -295,7 +287,7 @@ async function handleCreate(user: any, supabase: any, url: URL): Promise<Respons
   const elapsedMs = Date.now() - startTime;
   console.log(`[CREATE_ORDER] success correlationId=${correlationId} orderId=${updatedOrder.id} totalUsd=${updatedOrder.total_usd} ms=${elapsedMs}`);
 
-  const orderItemIds = existingOrder.order_items.map((item: any) => item.id);
+  const orderItemIds = orderItemsForCheckout.map((item: any) => item.id);
 
   return jsonResponse({
     ok: true, success: true, correlationId,
@@ -582,7 +574,7 @@ serve(async (req) => {
 
     switch (action) {
       case 'create':
-        return handleCreate(user, supabase, url);
+        return handleCreate(user, supabase, url, body);
       case 'list':
         return handleList(user, supabase, url);
       case 'get_by_id':

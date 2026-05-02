@@ -311,10 +311,31 @@ export default function Checkout() {
       const syncedLocalItemIds: string[] = [];
       if (localOnlyCheckoutItems.length > 0) {
         console.log('[WEB_CHECKOUT] Sync fallback: persisting local-only items before order creation...', localOnlyCheckoutItems.length);
+        const normalizeCheckoutUrl = (value?: string | null) => {
+          if (!value) return '';
+          try {
+            const url = new URL(value);
+            return `${url.hostname.replace(/^www\./, '').toLowerCase()}${url.pathname.replace(/\/+$/, '').toLowerCase()}`;
+          } catch {
+            return value.trim().toLowerCase();
+          }
+        };
+        const { data: currentCartData } = await supabase.functions.invoke('mobile-cart', {
+          body: { action: 'get_cart' },
+        });
+        const currentServerItems = currentCartData?.activeItems || currentCartData?.items || [];
 
         for (const item of localOnlyCheckoutItems) {
           if (!item.productUrl) {
             throw new Error('A cart item is missing its product link. Please add it again before checkout.');
+          }
+
+          const existingServerItem = currentServerItems.find((serverItem: any) =>
+            normalizeCheckoutUrl(serverItem.productUrl || serverItem.product_url) === normalizeCheckoutUrl(item.productUrl)
+          );
+          if (existingServerItem?.id) {
+            syncedLocalItemIds.push(existingServerItem.id);
+            continue;
           }
 
           const { data: syncData, error: syncError } = await supabase.functions.invoke('mobile-cart', {

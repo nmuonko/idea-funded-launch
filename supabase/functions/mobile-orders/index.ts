@@ -180,12 +180,17 @@ function calculateCartSummary(
 
 // ─── Action: create ───────────────────────────────────────
 
-async function handleCreate(user: any, supabase: any, url: URL): Promise<Response> {
+async function handleCreate(user: any, supabase: any, url: URL, body: any = {}): Promise<Response> {
   const correlationId = crypto.randomUUID().slice(0, 8);
   const startTime = Date.now();
   const env = url.searchParams.get('env') || 'prod';
+  const requestedCartItemIds = Array.isArray(body?.cart_item_ids)
+    ? body.cart_item_ids.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+    : Array.isArray(body?.cartItemIds)
+    ? body.cartItemIds.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+    : [];
   
-  console.log(`[CREATE_ORDER] start correlationId=${correlationId} env=${env}`);
+  console.log(`[CREATE_ORDER] start correlationId=${correlationId} env=${env} requestedItems=${requestedCartItemIds.length}`);
 
   // Get existing DRAFT order with items
   let { data: existingOrder, error: orderFetchError } = await supabase
@@ -239,7 +244,22 @@ async function handleCreate(user: any, supabase: any, url: URL): Promise<Respons
     }, 200);
   }
 
-  console.log(`[CREATE_ORDER] correlationId=${correlationId} Found order: orderId=${existingOrder.id} itemCount=${existingOrder.order_items.length}`);
+  const orderItemsForCheckout = requestedCartItemIds.length > 0
+    ? existingOrder.order_items.filter((item: any) => requestedCartItemIds.includes(item.id))
+    : existingOrder.order_items;
+
+  if (requestedCartItemIds.length > 0 && orderItemsForCheckout.length !== requestedCartItemIds.length) {
+    const foundIds = new Set(orderItemsForCheckout.map((item: any) => item.id));
+    const missingIds = requestedCartItemIds.filter((id: string) => !foundIds.has(id));
+    console.warn(`[CREATE_ORDER] correlationId=${correlationId} selected item mismatch requested=${requestedCartItemIds.length} found=${orderItemsForCheckout.length}`);
+    return jsonResponse({
+      ok: false, success: false, error: 'CART_ITEMS_NOT_FOUND',
+      message: 'Some selected cart items are no longer available. Please refresh your cart.',
+      correlationId, missing_item_ids: missingIds,
+    }, 200);
+  }
+
+  console.log(`[CREATE_ORDER] correlationId=${correlationId} Found order: orderId=${existingOrder.id} itemCount=${existingOrder.order_items.length} checkoutItemCount=${orderItemsForCheckout.length}`);
 
   // Get pricing settings from cache — use admin client to bypass RLS on settings table
   const { getCachedGlobalSettings } = await import("../_shared/settingsMemoryCache.ts");
@@ -260,7 +280,7 @@ async function handleCreate(user: any, supabase: any, url: URL): Promise<Respons
   const vehicleMarkupPercent = settings.vehicle_markup_percent ?? settings.category_markups?.vehicles ?? 10;
 
   const summary = calculateCartSummary(
-    existingOrder.order_items, shippingBaseFeeUsd, shippingPercent, 
+    orderItemsForCheckout, shippingBaseFeeUsd, shippingPercent, 
     exchangeRate, markupPercent, vehicleMarkupPercent
   );
 
@@ -295,7 +315,7 @@ async function handleCreate(user: any, supabase: any, url: URL): Promise<Respons
   const elapsedMs = Date.now() - startTime;
   console.log(`[CREATE_ORDER] success correlationId=${correlationId} orderId=${updatedOrder.id} totalUsd=${updatedOrder.total_usd} ms=${elapsedMs}`);
 
-  const orderItemIds = existingOrder.order_items.map((item: any) => item.id);
+  const orderItemIds = orderItemsForCheckout.map((item: any) => item.id);
 
   return jsonResponse({
     ok: true, success: true, correlationId,

@@ -209,34 +209,6 @@ async function handleCreate(user: any, supabase: any, url: URL, body: any = {}):
     }, 200);
   }
 
-  // FALLBACK: Check for a recent PENDING_PAYMENT order that can be reused
-  if (!existingOrder) {
-    console.log(`[CREATE_ORDER] correlationId=${correlationId} No draft order found, checking for recent PENDING_PAYMENT...`);
-    
-    const { data: pendingOrder, error: pendingFetchError } = await supabase
-      .from('orders')
-      .select('*, order_items(*)')
-      .eq('user_id', user.id)
-      .eq('status', 'PENDING_PAYMENT')
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (pendingFetchError) {
-      console.error(`[CREATE_ORDER] correlationId=${correlationId} Error fetching pending order:`, pendingFetchError.message);
-    }
-
-    if (pendingOrder && pendingOrder.order_items && pendingOrder.order_items.length > 0) {
-      const updatedAt = new Date(pendingOrder.updated_at);
-      const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
-      
-      if (updatedAt > thirtyMinutesAgo) {
-        console.log(`[CREATE_ORDER] correlationId=${correlationId} Reusing recent PENDING_PAYMENT order: orderId=${pendingOrder.id}`);
-        existingOrder = pendingOrder;
-      }
-    }
-  }
-
   if (!existingOrder || !existingOrder.order_items || existingOrder.order_items.length === 0) {
     return jsonResponse({ 
       ok: false, success: false, error: 'EMPTY_CART', 

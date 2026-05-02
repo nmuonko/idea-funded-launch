@@ -959,17 +959,42 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
   if (existingResult.data) {
     const existingItem = existingResult.data;
     const newQuantity = existingItem.quantity + quantity;
-    console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=false dbUpdateAttempted=true orderId=${draft.id} existingItemId=${existingItem.id}`);
+    console.log(`[CART_ADD][${correlationId}] dbInsertAttempted=false dbUpdateAttempted=true orderId=${draft.id} existingItemId=${existingItem.id} mergedQuantity=${newQuantity}`);
+
+    // CRITICAL: recompute pricing/shipping using the NEW MERGED quantity, not the increment.
+    // Previously these used `quantity` (the increment), which left per-unit values stored
+    // against a multi-unit row — making cart drawer / payment totals diverge.
+    const mergedPricing = cartPricingCalc(basePriceUsd, newQuantity, effectiveMarkup, settings.exchangeRate);
+    let mergedShippingFeeUsd = shippingFeeUsd;
+    if (!isFixedPrice && !isVehicleDetected && !requiresManualQuote) {
+      if (detectedCategoryData) {
+        const catInfo: ShippingCategoryInfo = {
+          est_weight_kg: detectedCategoryData.estWeightKg,
+          flat_shipping_usd: detectedCategoryData.flatShippingUsd,
+          shipping_buffer_percent: detectedCategoryData.shippingBufferPercent,
+          requires_manual_quote: detectedCategoryData.requiresManualQuote,
+        };
+        mergedShippingFeeUsd = calculateWeightBasedShippingFee(catInfo, settings.shippingRatePerKg, newQuantity);
+      } else {
+        const normalizedPercent = settings.shippingPercent > 1 ? settings.shippingPercent / 100 : settings.shippingPercent;
+        mergedShippingFeeUsd = calculateShippingFee(cartRound2(basePriceUsd * newQuantity), settings.shippingBaseFeeUsd, normalizedPercent, false);
+      }
+    } else if (isFixedPrice || isVehicleDetected) {
+      mergedShippingFeeUsd = 0;
+    }
+
+    const mergedTotalPriceUsd = cartRound2(mergedPricing.itemSubtotalUsd + mergedShippingFeeUsd);
     const updateFields: Record<string, unknown> = {
       quantity: newQuantity, base_price_usd: basePriceUsd, product_image_url: productImageUrl,
       is_vehicle: isVehicleDetected || existingItem.is_vehicle,
       requires_manual_quote: false,
       updated_at: new Date().toISOString(),
       price_source: isFixedPrice ? "hot_product" : (isVehicleDetected ? "auto_vehicle_tiered" : priceSource),
-      shipping_fee_usd: shippingFeeUsd,
-      markup_fee_usd: pricing.itemMarginUsd,
-      total_price_usd: cartRound2(pricing.itemSubtotalUsd + shippingFeeUsd),
-      total_price_cdf: cartRound2(cartRound2(pricing.itemSubtotalUsd + shippingFeeUsd) * settings.exchangeRate),
+      subtotal_usd: mergedPricing.itemBaseTotalUsd,
+      shipping_fee_usd: mergedShippingFeeUsd,
+      markup_fee_usd: mergedPricing.itemMarginUsd,
+      total_price_usd: mergedTotalPriceUsd,
+      total_price_cdf: cartRound2(mergedTotalPriceUsd * settings.exchangeRate),
     };
     // If vehicle, update pricing fields
     if (isVehicleDetected && vehiclePricingResult) {

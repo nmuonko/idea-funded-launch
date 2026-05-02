@@ -64,22 +64,6 @@ export async function getOrCreateDraftOrder(
     return { data: existingResult.data[0], error: null, status: 200 };
   }
 
-  // RACE CONDITION FIX: Check for a recent PENDING_PAYMENT order before creating a new draft.
-  // This prevents duplicates when cart sync runs after checkout converts DRAFT → PENDING_PAYMENT.
-  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-  const pendingResult = await db.from<DraftOrder[]>("orders")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("status", "PENDING_PAYMENT")
-    .gte("updated_at", thirtyMinutesAgo)
-    .order("updated_at", { ascending: false })
-    .limit(1);
-
-  if (pendingResult.data && pendingResult.data.length > 0) {
-    console.log(`[CART_ADD] ${correlationId} Found recent PENDING_PAYMENT order, reusing: ${pendingResult.data[0].id}`);
-    return { data: pendingResult.data[0], error: null, status: 200 };
-  }
-  
   // Create new draft order
   const insertResult = await db.from<DraftOrder[]>("orders")
     .insert({ user_id: userId, status: "DRAFT" })

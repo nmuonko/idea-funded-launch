@@ -602,7 +602,7 @@ serve(async (req) => {
 
     switch (action) {
       case 'create':
-        return handleCreate(user, supabase, url);
+        return handleCreate(user, supabase, url, body);
       case 'list':
         return handleList(user, supabase, url);
       case 'get_by_id':

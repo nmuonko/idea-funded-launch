@@ -76,6 +76,11 @@ export default function CountryShop() {
       navigate('/', { replace: true });
       return;
     }
+    // China & Turkey are not live yet — show coming soon page
+    if (key === 'china' || key === 'turkey') {
+      navigate(`/shop/${key}/coming-soon`, { replace: true });
+      return;
+    }
     let cancelled = false;
     (async () => {
       setLoading(true);

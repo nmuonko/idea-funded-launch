@@ -148,7 +148,7 @@ export function ProductCard({ product, className, compact = false, coverImage = 
       to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}
       state={{ product: { id: product.id, provider: product.provider, title: product.title, imageUrl: product.imageUrl, priceUsd: product.priceUsd, rating: product.rating, productUrl: product.productUrl } }}
       className={cn(
-        "group block bg-[#1a1d23] border border-white/10 rounded-xl sm:rounded-2xl overflow-hidden transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:shadow-black/30",
+        "group block bg-white rounded-xl sm:rounded-2xl overflow-hidden transition-all duration-200 hover:shadow-lg hover:shadow-black/10",
         className
       )}
     >
@@ -214,7 +214,7 @@ export function ProductCard({ product, className, compact = false, coverImage = 
       <div className={cn("space-y-1", compact ? "p-2" : "p-3")}>
         {/* Title — bold, tight tracking, 2-line clamp, like Gazelle */}
         <h3 className={cn(
-          "font-semibold text-white leading-snug tracking-tight line-clamp-2",
+          "font-semibold text-black leading-snug tracking-tight line-clamp-2",
           compact ? "text-[13px] min-h-[2.4rem]" : "text-sm sm:text-[15px] min-h-[2.6rem]"
         )}>
           {product.title}
@@ -223,8 +223,8 @@ export function ProductCard({ product, className, compact = false, coverImage = 
         {/* Rating */}
         {product.rating && (
           <div className="flex items-center gap-1">
-            <span className="text-yellow-400 text-xs">★</span>
-            <span className="text-white/60 text-xs">{product.rating.toFixed(1)}</span>
+            <span className="text-yellow-500 text-xs">★</span>
+            <span className="text-black/60 text-xs">{product.rating.toFixed(1)}</span>
           </div>
         )}
 
@@ -241,7 +241,7 @@ export function ProductCard({ product, className, compact = false, coverImage = 
                   )}>
                     ${displayPrice.toFixed(0)}
                   </span>
-                  <span className={cn("text-white/40 mt-1", compact ? "text-[10px]" : "text-[11px]")}>
+                  <span className={cn("text-black/50 mt-1", compact ? "text-[10px]" : "text-[11px]")}>
                     ≈ CDF {(displayPrice * exchangeRate).toLocaleString()}
                   </span>
                 </>

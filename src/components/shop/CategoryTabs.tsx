@@ -96,7 +96,7 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
           };
           
           const filteredTabs = data.tabs
-            .filter((tab: any) => tab.key !== 'business_industrial');
+            .filter((tab: any) => !['business_industrial', 'refurbished', 'new', 'neuf', 'reconditionne', 'reconditionné'].includes(String(tab.key).toLowerCase()));
           
           const seen = new Set<string>();
           seen.add('all');

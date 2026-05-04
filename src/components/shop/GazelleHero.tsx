@@ -60,27 +60,27 @@ export function GazelleHero() {
   const slide = SLIDES[index];
 
   return (
-    <section className="px-2 sm:px-4 mb-4" aria-label={isFr ? 'Bienvenue' : 'Welcome'}>
-      <div className="max-w-7xl mx-auto">
+    <section className="bg-white pt-3 pb-4" aria-label={isFr ? 'Bienvenue' : 'Welcome'}>
+      <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
         <div
-          className="relative overflow-hidden rounded-md"
+          className="relative overflow-hidden rounded-2xl shadow-sm ring-1 ring-black/5"
           style={{
             background:
-              'linear-gradient(135deg, hsl(230 70% 30%) 0%, hsl(230 75% 38%) 50%, hsl(230 70% 32%) 100%)',
+              'radial-gradient(circle at 20% 20%, hsl(220 90% 55%) 0%, transparent 55%), radial-gradient(circle at 85% 80%, hsl(260 75% 45%) 0%, transparent 50%), linear-gradient(135deg, hsl(225 75% 22%) 0%, hsl(230 80% 32%) 50%, hsl(240 70% 25%) 100%)',
           }}
         >
-          {/* subtle wavy stripe texture */}
+          {/* soft diagonal sheen */}
           <div
             aria-hidden
-            className="absolute inset-0 opacity-[0.18] pointer-events-none"
+            className="absolute inset-0 opacity-[0.10] pointer-events-none"
             style={{
               backgroundImage:
-                'repeating-linear-gradient(115deg, rgba(255,255,255,0.55) 0 2px, transparent 2px 26px)',
+                'repeating-linear-gradient(120deg, rgba(255,255,255,0.6) 0 1px, transparent 1px 32px)',
               mixBlendMode: 'overlay',
             }}
           />
-          <div aria-hidden className="absolute -top-16 -left-16 w-64 h-64 rounded-full bg-white/10 blur-3xl" />
-          <div aria-hidden className="absolute -bottom-16 -right-16 w-72 h-72 rounded-full bg-cyan-300/10 blur-3xl" />
+          <div aria-hidden className="absolute -top-24 -left-24 w-72 h-72 rounded-full bg-white/15 blur-3xl" />
+          <div aria-hidden className="absolute -bottom-24 -right-24 w-80 h-80 rounded-full bg-cyan-300/15 blur-3xl" />
 
           <div className="relative flex items-center justify-center min-h-[180px] sm:min-h-[220px] md:min-h-[260px] px-4 sm:px-10 md:px-16 py-6 sm:py-8">
             {/* Left half of phone-pair image (crossfading) */}

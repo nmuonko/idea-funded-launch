@@ -1898,6 +1898,8 @@ export default function ShopHome() {
               { key: 'iphone', label: 'iPhone' },
               { key: 'samsung', label: 'Samsung' },
               { key: 'pixel', label: 'Google Pixels' },
+              { key: 'refurbished', label: language === 'fr' ? 'Reconditionné' : 'Refurbished' },
+              { key: 'new', label: language === 'fr' ? 'Neuf' : 'New' },
               { key: 'deals', label: language === 'fr' ? '⭐ Meilleures offres' : '⭐ Best deals' },
             ];
             return (

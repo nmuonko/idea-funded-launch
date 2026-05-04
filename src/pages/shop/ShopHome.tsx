@@ -1886,12 +1886,12 @@ export default function ShopHome() {
       <AvailableInRow />
       <div id="shop-categories-anchor" />
 
-      <main className="pb-8 bg-white text-black">
+      <main className="pb-8 bg-[#f5f3ef] text-black">
         <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
           {/* Filters Toolbar — "Sort by: Featured ▾                                  323 products" */}
           <div className="flex items-center justify-between gap-4 mb-5 pb-3 border-b border-black/10">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-black/60 font-normal">
+              <span className="text-sm text-black font-normal">
                 {language === 'fr' ? 'Trier par :' : 'Sort by:'}
               </span>
               <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>

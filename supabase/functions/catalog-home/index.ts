@@ -2157,25 +2157,46 @@ const __originalHandler = async (req: Request): Promise<Response> => {
   }
 };
 
-// Wrapper: applies ?curated=1 post-processing to the JSON response body
-// without changing any of the existing response paths inside the handler.
+// Wrapper: applies ?curated=1 post-processing AND mobile flattening to the
+// JSON response body without changing any of the existing response paths
+// inside the handler. Mobile-detected requests get reshaped to a single
+// "for_you" section with banners/ads/imageless items stripped — guaranteeing
+// the frozen mobile app shows the same items in the same order as the web.
 serve(async (req: Request): Promise<Response> => {
   const res = await __originalHandler(req);
   try {
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("application/json")) return res;
+
     const url = new URL(req.url);
     const wantsCurated = url.searchParams.get("curated") === "1"
       || url.searchParams.get("curated") === "true";
-    if (!wantsCurated) return res;
-    const ct = res.headers.get("content-type") || "";
-    if (!ct.includes("application/json")) return res;
+
+    // Detect mobile from the request (same logic as the inner handler).
+    const detection = detectClientType(req);
+    const isMobile = detection.clientType === "mobile";
+    const locale = (url.searchParams.get("locale") || url.searchParams.get("lang") || "fr").toLowerCase();
+    const flat = url.searchParams.get("flat") !== "0";
+
+    if (!wantsCurated && !isMobile) return res;
+
     const text = await res.text();
     let body: unknown;
     try { body = JSON.parse(text); } catch { return new Response(text, { status: res.status, headers: res.headers }); }
-    const curated = applyCuratedHomepageRules(body);
+
+    let processed: unknown = body;
+    if (wantsCurated) processed = applyCuratedHomepageRules(processed);
+    if (isMobile && processed && typeof processed === "object") {
+      processed = flattenMobilePayload(processed as Record<string, unknown>, locale, flat);
+      // Mark in meta that this was reshaped for the frozen mobile app
+      const p = processed as Record<string, unknown>;
+      p.meta = { ...((p.meta as Record<string, unknown>) || {}), client: "mobile", unifiedSource: "web_cache" };
+    }
+
     const headers = new Headers(res.headers);
-    return new Response(JSON.stringify(curated), { status: res.status, headers });
+    return new Response(JSON.stringify(processed), { status: res.status, headers });
   } catch (e) {
-    console.warn("[CATALOG_HOME] curated post-process failed, returning raw:", e);
+    console.warn("[CATALOG_HOME] post-process failed, returning raw:", e);
     return res;
   }
 });

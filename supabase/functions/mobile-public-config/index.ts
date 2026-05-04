@@ -315,12 +315,16 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   home: {
+    // UNIFIED HOMEPAGE (Option B): one continuous "For You" grid sourced from
+    // catalog-home (the same cache the web app reads). The frozen mobile app
+    // renders sections from this config; collapsing to a single section makes
+    // the homepage a continuous grid identical to the web in items + order.
     sections: [
-      { key: "trending", label_fr: "Tendances", label_en: "Trending", collectionKey: "electronics_trending", maxItems: 10 },
-      { key: "best", label_fr: "Meilleures ventes", label_en: "Best Sellers", collectionKey: "best_sellers_electronics", maxItems: 10 },
-      { key: "deals", label_fr: "Promos", label_en: "Deals", collectionKey: "deals_electronics", maxItems: 10 },
+      { key: "for_you", label_fr: "Pour vous", label_en: "For You", collectionKey: "web_homepage_mirror", maxItems: 60 },
     ],
     collections: {
+      // Kept for backward compat with older builds that may still request these.
+      web_homepage_mirror: { queries: [], providers: ["rainforest", "ebay"], dbOnly: true },
       electronics_trending: { queries: ["iphone", "samsung phone", "laptop", "headphones", "monitor"], providers: ["rainforest"], dbOnly: true },
       phones: { queries: ["iphone", "android phone", "unlocked smartphone"], providers: ["rainforest", "ebay"], dbOnly: true },
       tablets: { queries: ["ipad", "samsung tablet", "android tablet"], providers: ["rainforest"], dbOnly: true },

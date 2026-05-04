@@ -77,13 +77,13 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
       to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}
       state={{ product: { id: product.id, provider: product.provider, title: product.title, imageUrl: product.imageUrl, priceUsd: product.priceUsd, rating: product.rating, productUrl: product.productUrl } }}
       className={cn(
-        'group block bg-white rounded-md overflow-hidden ring-1 ring-black/[0.04] transition-all duration-200 hover:shadow-[0_4px_14px_-6px_rgba(0,0,0,0.12)] hover:-translate-y-0.5',
+        'group block bg-transparent overflow-hidden transition-all duration-200 hover:-translate-y-0.5',
         className,
       )}
     >
       {/* Image panel — soft warm neutral, calm & premium */}
       <div
-        className="relative w-full aspect-square flex items-center justify-center bg-white"
+        className="relative w-full aspect-square flex items-center justify-center bg-transparent"
       >
         {showImage ? (
           <img
@@ -102,7 +102,7 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
       </div>
 
       {/* Text area — clean, catalog-style */}
-      <div className="px-3.5 pt-3 pb-3.5 bg-white">
+      <div className="px-3.5 pt-3 pb-3.5 bg-transparent">
         <h3 className="text-[13px] sm:text-sm font-medium text-neutral-800 leading-snug line-clamp-2 min-h-[2.4rem]">
           {product.title}
         </h3>

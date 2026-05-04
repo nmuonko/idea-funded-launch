@@ -17,7 +17,6 @@ import { PhoneCard } from '@/components/shop/PhoneCard';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
-import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { translations } from '@/lib/i18n/translations';
@@ -1878,7 +1877,7 @@ export default function ShopHome() {
   const isInitialLoading = accueilLoading && Object.values(categoryLoadingMap).every(v => v);
 
   return (
-    <div className="min-h-screen bg-[#faf7f1] pb-safe-nav">
+    <div className="min-h-screen bg-[#0f1115] pb-safe-nav">
       <ShopHeader />
       <div className="pt-16 md:pt-20" />
 
@@ -1887,97 +1886,40 @@ export default function ShopHome() {
       <AvailableInRow />
       <div id="shop-categories-anchor" />
 
-      <main className="pb-8 bg-[#faf7f1] text-black">
-        <div className="container mx-auto px-3 sm:px-4 max-w-[1440px]">
-          {/* Brand filter chips */}
-          {(() => {
-            const params = new URLSearchParams(window.location.search);
-            const activeBrand = (params.get('brand') || 'all').toLowerCase();
-            const chips = [
-              { key: 'all', label: language === 'fr' ? 'Tous les téléphones' : 'All phones' },
-              { key: 'iphone', label: 'iPhone' },
-              { key: 'samsung', label: 'Samsung' },
-              { key: 'pixel', label: 'Google Pixels' },
-              { key: 'deals', label: language === 'fr' ? '⭐ Meilleures offres' : '⭐ Best deals' },
-            ];
-            return (
-              <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
-                <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
-                  {chips.map((c) => {
-                    const active = activeBrand === c.key || (c.key === 'all' && activeBrand === 'all');
-                    return (
-                      <a
-                        key={c.key}
-                        href={c.key === 'all' ? '/' : `/?brand=${c.key}`}
-                        className={cn(
-                          'inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border whitespace-nowrap transition-all',
-                          active
-                            ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
-                            : 'bg-white text-neutral-800 border-black/10 hover:bg-neutral-50',
-                        )}
-                      >
-                        {c.label}
-                      </a>
-                    );
-                  })}
-                </div>
-                <div className="flex items-center gap-2 ml-auto">
-                  <span className="text-sm text-neutral-600">
-                    {language === 'fr' ? 'Trier par :' : 'Sort by:'}
-                  </span>
-                  <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
-                    <SelectTrigger className="w-auto min-w-[200px] bg-white border border-black/10 text-black font-medium hover:bg-neutral-50 rounded-md h-9 px-3 text-sm shadow-none focus:ring-0">
-                      <SelectValue placeholder={language === 'fr' ? 'Prix : du plus bas au plus élevé' : 'Price: low to high'} />
-                    </SelectTrigger>
-                    <SelectContent className="bg-white border border-black/10 z-[9999]">
-                      <SelectItem value="cheapest" className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer">
-                        {language === 'fr' ? 'Prix : du plus bas au plus élevé' : 'Price: low to high'}
-                      </SelectItem>
-                      <SelectItem value="priciest" className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer">
-                        {language === 'fr' ? 'Prix : du plus élevé au plus bas' : 'Price: high to low'}
-                      </SelectItem>
-                      <SelectItem value="newest" className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer">
-                        {language === 'fr' ? 'Nouveautés' : 'Newest'}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Filters Toolbar — legacy (hidden, kept for unused state) */}
-          <div className="hidden flex items-center justify-between gap-4 mb-5 pb-3 border-b border-black/10">
+      <main className="pb-8 bg-white text-black">
+        <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
+          {/* Filters Toolbar — "Sort by: Featured ▾                                  323 products" */}
+          <div className="flex items-center justify-between gap-4 mb-5 pb-3 border-b border-white/10">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-black font-normal">
+              <span className="text-sm text-white/60 font-normal">
                 {language === 'fr' ? 'Trier par :' : 'Sort by:'}
               </span>
               <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
-                <SelectTrigger className="w-auto min-w-[140px] bg-transparent border-0 text-black font-semibold hover:bg-black/5 rounded-md h-9 px-2 text-sm shadow-none focus:ring-0">
+                <SelectTrigger className="w-auto min-w-[140px] bg-transparent border-0 text-white font-semibold hover:bg-white/5 rounded-md h-9 px-2 text-sm shadow-none focus:ring-0">
                   <SelectValue placeholder={language === 'fr' ? 'En vedette' : 'Featured'} />
                 </SelectTrigger>
-                <SelectContent className="bg-white border border-black/10 z-[9999]">
-                  <SelectItem value="cheapest" className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer">
+                <SelectContent className="bg-black border border-white/20 z-[9999]">
+                  <SelectItem value="cheapest" className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer">
                     {language === 'fr' ? 'Moins cher d\'abord' : 'Cheapest first'}
                   </SelectItem>
-                  <SelectItem value="newest" className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer">
+                  <SelectItem value="newest" className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer">
                     {language === 'fr' ? 'Nouveautés' : 'Newest'}
                   </SelectItem>
-                  <SelectItem value="priciest" className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer">
+                  <SelectItem value="priciest" className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer">
                     {language === 'fr' ? 'Plus cher d\'abord' : 'Priciest first'}
                   </SelectItem>
                 </SelectContent>
               </Select>
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="hidden w-[140px] sm:w-[170px] bg-transparent border border-black/15 text-black hover:bg-black/5 rounded-md h-9 px-3 text-xs sm:text-sm">
+                <SelectTrigger className="hidden w-[140px] sm:w-[170px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
                   <SelectValue placeholder={language === 'fr' ? 'Catégorie' : 'Category'} />
                 </SelectTrigger>
-                <SelectContent className="bg-white border border-black/10 z-[9999]">
+                <SelectContent className="bg-black border border-white/20 z-[9999]">
                   {CATEGORY_FILTER_OPTIONS.map((opt) => (
                     <SelectItem
                       key={opt.value}
                       value={opt.value}
-                      className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer"
+                      className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
                     >
                       {language === 'fr' ? opt.labelFr : opt.labelEn}
                     </SelectItem>
@@ -1985,13 +1927,13 @@ export default function ShopHome() {
                 </SelectContent>
               </Select>
               <Select value={providerFilter} onValueChange={setProviderFilter}>
-                <SelectTrigger className="hidden w-[140px] sm:w-[180px] bg-transparent border border-black/15 text-black hover:bg-black/5 rounded-md h-9 px-3 text-xs sm:text-sm">
+                <SelectTrigger className="hidden w-[140px] sm:w-[180px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
                   <SelectValue placeholder={language === 'fr' ? 'Boutique' : 'Store'} />
                 </SelectTrigger>
-                <SelectContent className="bg-white border border-black/10 z-[9999]">
+                <SelectContent className="bg-black border border-white/20 z-[9999]">
                   <SelectItem
                     value="all"
-                    className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer"
+                    className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
                   >
                     {language === 'fr' ? 'Tous les magasins' : 'All Stores'}
                   </SelectItem>
@@ -1999,7 +1941,7 @@ export default function ShopHome() {
                     <SelectItem
                       key={opt.value}
                       value={opt.value}
-                      className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer"
+                      className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
                     >
                       {opt.label} ({opt.count.toLocaleString()})
                     </SelectItem>
@@ -2007,7 +1949,7 @@ export default function ShopHome() {
                 </SelectContent>
               </Select>
             </div>
-            <span className="text-sm text-black/60 font-normal whitespace-nowrap">
+            <span className="text-sm text-white/60 font-normal whitespace-nowrap">
               {bulkPhonesTotal > 0
                 ? `${bulkPhonesTotal.toLocaleString()} ${language === 'fr' ? 'produits' : 'products'}`
                 : ''}
@@ -2129,7 +2071,7 @@ export default function ShopHome() {
                 </div>
               ) : sortedPhones.length > 0 ? (
                 <>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-2 sm:gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 max-w-[1200px] mx-auto">
                     {sortedPhones.map((p, i) => (
                       <PhoneCard key={`${p.id}-${i}`} product={p} />
                     ))}

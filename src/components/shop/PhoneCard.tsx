@@ -1,11 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Heart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { collectProductImageCandidates, handleImageError, handleImageLoad, pickBestImage } from '@/lib/imageValidation';
 import { formatDisplayPriceUsd } from '@/lib/displayPrice';
-import { formatPhoneDisplayName } from '@/lib/phoneDisplayName';
 import type { Product } from './ProductCard';
 
 interface PhoneCardProps {
@@ -69,10 +67,6 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
 
   const showImage = imgSrc !== '/placeholder.svg';
   const priceLabel = formatDisplayPriceUsd(product.priceUsd);
-  const { name: displayName, storage } = useMemo(
-    () => formatPhoneDisplayName(product.title),
-    [product.title]
-  );
 
   // If no valid product image is available (only banners/promos), hide the card
   // entirely instead of showing an "ad-looking" tile on the homepage.
@@ -83,44 +77,37 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
       to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}
       state={{ product: { id: product.id, provider: product.provider, title: product.title, imageUrl: product.imageUrl, priceUsd: product.priceUsd, rating: product.rating, productUrl: product.productUrl } }}
       className={cn(
-        'group block rounded-xl bg-white border border-[#EAE2D6] overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md',
+        'group block bg-white rounded-md overflow-hidden ring-1 ring-black/[0.04] transition-all duration-200 hover:shadow-[0_4px_14px_-6px_rgba(0,0,0,0.12)] hover:-translate-y-0.5',
         className,
       )}
     >
-      {/* Image panel */}
-      <div className="relative w-full aspect-square flex items-center justify-center bg-white">
+      {/* Image panel — soft warm neutral, calm & premium */}
+      <div
+        className="relative w-full aspect-square flex items-center justify-center bg-[#F0EBE3]"
+      >
         {showImage ? (
           <img
             src={imgSrc}
-            alt={displayName}
+            alt={product.title}
             loading="lazy"
             data-image-policy={imagePolicy}
             data-fallback-images={fallbackImages.join('|||')}
             onLoad={handleImgLoad}
             onError={handleImgError}
-            className="max-w-[78%] max-h-[82%] object-contain transition-transform duration-300 group-hover:scale-[1.03]"
+            className="max-w-[68%] max-h-[78%] object-contain transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
           <div className="text-neutral-400 text-xs">No image</div>
         )}
-        <span
-          className="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded-full bg-white border border-[#EAE2D6] text-neutral-400"
-          aria-hidden
-        >
-          <Heart className="w-3.5 h-3.5" />
-        </span>
       </div>
 
       {/* Text area — clean, catalog-style */}
-      <div className="px-3 pt-2 pb-3">
-        <h3 className="text-[13px] font-semibold text-neutral-900 leading-snug line-clamp-1">
-          {displayName}
+      <div className="px-3.5 pt-3 pb-3.5 bg-white">
+        <h3 className="text-[13px] sm:text-sm font-medium text-neutral-800 leading-snug line-clamp-2 min-h-[2.4rem]">
+          {product.title}
         </h3>
-        {storage && (
-          <p className="text-[11px] text-neutral-500 mt-0.5">{storage}</p>
-        )}
-        <div className="mt-1.5">
-          <span className="text-[15px] font-bold text-neutral-900 tracking-tight">
+        <div className="mt-2">
+          <span className="text-base sm:text-lg font-bold text-neutral-900 tracking-tight">
             {priceLabel}
           </span>
         </div>

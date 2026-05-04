@@ -51,10 +51,10 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
     };
 
     return (
-      <div className="bg-white border border-black/10 rounded-2xl p-3 sm:p-4 shadow-md shadow-black/20">
+      <div className="bg-[#1a1d23] border border-white/[0.1] rounded-2xl p-3 sm:p-4 shadow-md shadow-black/20">
         {title && !hideTitle && (
           <div className="flex items-center justify-between mb-3 px-1">
-            <h2 className="text-lg font-semibold text-black">{title}</h2>
+            <h2 className="text-lg font-semibold text-white/95">{title}</h2>
             {seeAllLink && (
               <Link to={seeAllLink} className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors">
                 {seeMoreLabel}
@@ -90,7 +90,7 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
                   onError={handleImageError}
                 />
               </div>
-              <p className="mt-1 text-[11px] text-black/70 line-clamp-2 leading-tight">
+              <p className="mt-1 text-[11px] text-white/70 line-clamp-2 leading-tight">
                 {product.title}
               </p>
             </Link>
@@ -103,10 +103,10 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
   }
 
   return (
-    <div className="bg-white border border-black/10 rounded-2xl p-3 sm:p-4 shadow-md">
+    <div className="bg-[#1a1d23] border border-white/[0.1] rounded-2xl p-3 sm:p-4 shadow-md">
       {title && !hideTitle && (
         <div className="flex items-center justify-between mb-3 px-1">
-          <h2 className="text-lg font-semibold text-black">{title}</h2>
+          <h2 className="text-lg font-semibold text-white/95">{title}</h2>
           {seeAllLink && (
             <Link to={seeAllLink} className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors">
               {seeMoreLabel}

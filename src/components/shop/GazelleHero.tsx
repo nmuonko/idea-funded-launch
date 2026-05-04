@@ -1,50 +1,160 @@
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
-import heroTrio from '@/assets/hero-phones-trio.jpg';
+import heroIphone from '@/assets/hero-phone-iphone.png';
+import heroPixel from '@/assets/hero-phone-pixel.png';
+import heroSamsung from '@/assets/hero-phone-samsung.png';
+
+type Slide = {
+  src: string;
+  brand: string;
+  titleEn: string;
+  titleFr: string;
+  subEn: string;
+  subFr: string;
+};
+
+const SLIDES: Slide[] = [
+  {
+    src: heroIphone,
+    brand: 'iPhone',
+    titleEn: 'Quality meets Affordability.',
+    titleFr: 'Qualité et accessibilité.',
+    subEn: 'Refurbished, tested and reliable.',
+    subFr: 'Reconditionnés, testés et fiables.',
+  },
+  {
+    src: heroPixel,
+    brand: 'Google Pixel 10',
+    titleEn: 'Pure Android. Pure power.',
+    titleFr: 'Android pur. Puissance pure.',
+    subEn: 'The smartest camera in your pocket.',
+    subFr: "L'appareil photo le plus intelligent.",
+  },
+  {
+    src: heroSamsung,
+    brand: 'Samsung Galaxy',
+    titleEn: 'Brilliant. Bold. Yours.',
+    titleFr: 'Brillant. Audacieux. À vous.',
+    subEn: 'Flagship features, flagship value.',
+    subFr: 'Performances haut de gamme, prix juste.',
+  },
+];
 
 /**
- * Compact AfriShop hero — cream marble background, left copy, right phone trio.
- * Matches the AfriShop reference design.
+ * Gazelle-style hero: short, wide blue banner with rotating phone showcases.
+ * Each slide stays visible for 45s so the homepage feels calmer and less ad-like.
  */
 export function GazelleHero() {
   const { language } = useLanguage();
   const isFr = language === 'fr' || language === 'ln';
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setIndex((i) => (i + 1) % SLIDES.length);
+    }, 45000);
+    return () => clearInterval(id);
+  }, []);
+
+  const slide = SLIDES[index];
 
   return (
-    <section className="px-3 sm:px-4 pt-3" aria-label={isFr ? 'Bienvenue' : 'Welcome'}>
-      <div className="max-w-[1440px] mx-auto">
+    <section className="px-2 sm:px-4 mb-4" aria-label={isFr ? 'Bienvenue' : 'Welcome'}>
+      <div className="max-w-7xl mx-auto">
         <div
-          className="relative overflow-hidden rounded-2xl border border-[#EAE2D6]"
+          className="relative overflow-hidden rounded-md"
           style={{
             background:
-              'linear-gradient(120deg, #f6efe2 0%, #efe5d2 55%, #e8dcc4 100%)',
+              'linear-gradient(135deg, hsl(230 70% 30%) 0%, hsl(230 75% 38%) 50%, hsl(230 70% 32%) 100%)',
           }}
         >
-          <div className="relative grid grid-cols-1 md:grid-cols-2 items-center gap-4 px-5 sm:px-8 md:px-12 py-8 sm:py-10 md:py-12 min-h-[260px] md:min-h-[320px]">
-            {/* Left: copy */}
-            <div className="relative z-10 max-w-xl">
-              <h1 className="text-2xl sm:text-3xl md:text-[40px] font-extrabold text-neutral-900 tracking-tight leading-[1.1]">
-                {isFr
-                  ? 'Achetez des smartphones des USA pour vos proches au Congo'
-                  : 'Buy smartphones from the USA for your loved ones in Congo'}
-              </h1>
-              <p className="mt-4 text-sm sm:text-base text-neutral-700 leading-relaxed">
-                {isFr
-                  ? 'Prix tout inclus (produits, taxes, livraison). Livraison rapide au Congo.'
-                  : 'All-inclusive pricing (product, taxes, shipping). Fast delivery to Congo.'}
-                <br />
-                {isFr ? 'Paiement 100% sécurisé.' : '100% secure payment.'}
-              </p>
+          {/* subtle wavy stripe texture */}
+          <div
+            aria-hidden
+            className="absolute inset-0 opacity-[0.18] pointer-events-none"
+            style={{
+              backgroundImage:
+                'repeating-linear-gradient(115deg, rgba(255,255,255,0.55) 0 2px, transparent 2px 26px)',
+              mixBlendMode: 'overlay',
+            }}
+          />
+          <div aria-hidden className="absolute -top-16 -left-16 w-64 h-64 rounded-full bg-white/10 blur-3xl" />
+          <div aria-hidden className="absolute -bottom-16 -right-16 w-72 h-72 rounded-full bg-cyan-300/10 blur-3xl" />
+
+          <div className="relative flex items-center justify-center min-h-[180px] sm:min-h-[220px] md:min-h-[260px] px-4 sm:px-10 md:px-16 py-6 sm:py-8">
+            {/* Left half of phone-pair image (crossfading) */}
+            <div className="hidden sm:block absolute left-0 top-0 bottom-0 w-[30%] md:w-[28%] lg:w-[26%] pointer-events-none overflow-hidden">
+              {SLIDES.map((s, i) => (
+                <img
+                  key={`L-${s.brand}`}
+                  src={s.src}
+                  alt=""
+                  aria-hidden
+                  draggable={false}
+                  className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-700 ease-out ${
+                    i === index ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  style={{ objectPosition: 'right center', transform: 'scale(1.05)' }}
+                />
+              ))}
             </div>
 
-            {/* Right: phone trio image */}
-            <div className="hidden md:block relative h-full min-h-[260px]">
-              <img
-                src={heroTrio}
-                alt=""
-                aria-hidden
-                draggable={false}
-                className="absolute right-0 top-1/2 -translate-y-1/2 h-[115%] w-auto object-contain"
-              />
+            {/* Right half of phone-pair image (crossfading) */}
+            <div className="hidden sm:block absolute right-0 top-0 bottom-0 w-[30%] md:w-[28%] lg:w-[26%] pointer-events-none overflow-hidden">
+              {SLIDES.map((s, i) => (
+                <img
+                  key={`R-${s.brand}`}
+                  src={s.src}
+                  alt=""
+                  aria-hidden
+                  draggable={false}
+                  className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-700 ease-out ${
+                    i === index ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  style={{ objectPosition: 'left center', transform: 'scale(1.05)' }}
+                />
+              ))}
+            </div>
+
+            {/* Centered text */}
+            <div className="relative text-center max-w-2xl mx-auto z-10">
+              <h1 className="text-2xl sm:text-4xl md:text-5xl font-extrabold text-white tracking-tight leading-[1.05] transition-opacity duration-500">
+                <span className="block sm:inline">{slide.brand} —</span>{' '}
+                <span className="block sm:inline">{isFr ? slide.titleFr : slide.titleEn}</span>
+              </h1>
+              <p className="mt-3 text-sm sm:text-base text-white/85 font-medium leading-snug transition-opacity duration-500">
+                {isFr ? slide.subFr : slide.subEn}
+              </p>
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                <a
+                  href="#phones-grid"
+                  className="inline-flex items-center justify-center rounded-full bg-white text-blue-700 hover:bg-white/95 font-semibold text-sm sm:text-base px-6 py-2.5 shadow-sm transition"
+                >
+                  {isFr ? 'Voir les téléphones' : 'Shop phones'}
+                </a>
+                <Link
+                  to="/category/phones"
+                  className="inline-flex items-center justify-center rounded-full border border-white/35 text-white hover:bg-white/10 font-medium text-sm sm:text-base px-6 py-2.5 transition"
+                >
+                  {isFr ? 'Tout parcourir' : 'Browse all'}
+                </Link>
+              </div>
+
+              {/* Slide indicator dots */}
+              <div className="mt-4 flex items-center justify-center gap-1.5">
+                {SLIDES.map((s, i) => (
+                  <button
+                    key={s.brand}
+                    type="button"
+                    onClick={() => setIndex(i)}
+                    aria-label={`Show ${s.brand}`}
+                    className={`h-1.5 rounded-full transition-all duration-300 ${
+                      i === index ? 'w-5 bg-white' : 'w-1.5 bg-white/40 hover:bg-white/60'
+                    }`}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         </div>

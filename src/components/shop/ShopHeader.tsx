@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LogIn, User, Menu, Globe, ChevronDown, Home, Package, Heart, Gift, Link2, MessageCircle } from 'lucide-react';
-import { useSupportContact } from '@/hooks/useSupportContact';
+import { LogIn, User, Menu, Globe, ChevronDown, Home, Package, Heart, Gift, Link2 } from 'lucide-react';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from './SearchBar';
@@ -28,76 +27,54 @@ export function ShopHeader() {
   const { user } = useAuth();
   const { savedItems } = useShopCart();
   const { language, setLanguage } = useLanguage();
-  const { whatsappUrl } = useSupportContact();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const t = translations[language] || translations.en;
   const shop = t.shop;
   const currentLanguage = languages.find(l => l.code === language) || languages[0];
 
-  const navItems = [
-    { label: language === 'fr' ? 'Accueil' : 'Home', to: '/' },
-    { label: 'iPhone', to: '/?tab=phones&brand=iphone' },
-    { label: 'Samsung', to: '/?tab=phones&brand=samsung' },
-    { label: 'Google Pixels', to: '/?tab=phones&brand=pixel' },
-    { label: language === 'fr' ? 'Comment ça marche' : 'How it works', to: '/how-it-works' },
-  ];
-
   return (
     <header className="fixed top-0 left-0 right-0 z-50">
-      <div className="bg-white border-b border-black/[0.06]">
-        <div className="container mx-auto px-3 md:px-6 py-2 md:py-3">
-          <div className="flex items-center gap-3 md:gap-6">
-            {/* Logo */}
-            <button
-              onClick={() => {
-                if (location.pathname === '/') window.location.href = '/';
-                else navigate('/');
-              }}
-              className="flex-shrink-0"
-              aria-label="AfriShop"
-            >
-              <img src={afrishopLogo} alt="AfriShop" className="h-9 w-auto" />
-            </button>
+      {/* Accent gradient line */}
+      <div className="h-[2px] bg-gradient-to-r from-blue-500 via-cyan-400 to-blue-500" />
+      <div className="bg-black/90 backdrop-blur-xl border-b border-white/10">
+      <div className="container mx-auto px-3 md:px-4 py-2 md:py-3">
+        <div className="flex items-center gap-2 md:gap-3">
+          {/* Logo - Far Left */}
+          <button
+            onClick={() => {
+              if (location.pathname === '/') {
+                // Already on homepage — force full reload to reset filters
+                window.location.href = '/';
+              } else {
+                navigate('/');
+              }
+            }}
+            className="flex-shrink-0"
+          >
+            <img src={afrishopLogo} alt="AfriShop" className="h-9 brightness-0 invert" />
+          </button>
 
-            {/* Center nav (desktop) */}
-            <nav className="hidden md:flex items-center justify-center gap-7 flex-1">
-              {navItems.map((n) => (
-                <Link
-                  key={n.label}
-                  to={n.to}
-                  className="text-[15px] font-medium text-neutral-800 hover:text-amber-600 transition-colors"
+          {/* Search Bar - Takes most space */}
+          <div className="flex-1 mx-1 md:mx-4">
+            <SearchBar className="w-full" />
+          </div>
+
+          {/* Right Side: Cart + Hamburger */}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <CartDrawer />
+
+            {/* Hamburger Menu - Far Right */}
+            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+              <SheetTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-white/70 hover:text-white hover:bg-white/10 rounded-full min-h-[44px] min-w-[44px] p-2"
                 >
-                  {n.label}
-                </Link>
-              ))}
-            </nav>
-
-            {/* Mobile search (hidden on desktop) */}
-            <div className="flex-1 mx-1 md:hidden">
-              <SearchBar className="w-full" />
-            </div>
-
-            {/* Right: account + cart + menu */}
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <Link
-                to={user ? '/profile' : '/shop-auth'}
-                className="hidden md:inline-flex items-center gap-2 px-3 py-2 rounded-md text-neutral-800 hover:bg-neutral-100 text-sm font-medium"
-              >
-                <User className="h-5 w-5" />
-                <span>{language === 'fr' ? 'Mon compte' : 'My account'}</span>
-              </Link>
-              <CartDrawer />
-              <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-                <SheetTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="md:hidden text-neutral-800 hover:bg-neutral-100 rounded-full min-h-[44px] min-w-[44px] p-2"
-                  >
-                    <Menu className="h-5 w-5" />
-                  </Button>
-                </SheetTrigger>
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
               <SheetContent side="right" className="w-72 bg-black/95 border-white/10 p-0">
                 <SheetHeader className="p-4 border-b border-white/10">
                   <SheetTitle className="text-white flex items-center gap-2">
@@ -235,10 +212,10 @@ export function ShopHeader() {
                   </div>
                 </div>
               </SheetContent>
-              </Sheet>
-            </div>
+            </Sheet>
           </div>
         </div>
+      </div>
       </div>
     </header>
   );

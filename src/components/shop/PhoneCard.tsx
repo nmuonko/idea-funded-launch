@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { collectProductImageCandidates, handleImageError, handleImageLoad, pickBestImage } from '@/lib/imageValidation';
 import { formatDisplayPriceUsd } from '@/lib/displayPrice';
+import { formatPhoneDisplayName } from '@/lib/phoneDisplayName';
 import type { Product } from './ProductCard';
 
 interface PhoneCardProps {

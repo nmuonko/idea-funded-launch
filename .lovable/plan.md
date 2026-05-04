@@ -1,66 +1,62 @@
+# Option B — Unify mobile + web homepage feed
 
+Make the frozen mobile app render the **exact same products in the exact same order** as the web app, sourced from a single cache. Removes the divergent code paths that cause banner placeholders and different product sets on mobile.
 
-## Plan: WhatsApp Product Sharing with Images
+## Root cause
 
-### The Problem
-WhatsApp `wa.me/?text=...` links only support plain text — you can't attach images directly. So just pasting an image URL in the message won't show the photo inline.
+The mobile homepage currently has **three competing sources**:
+1. `mobile-public-config.home.sections` → frozen app reads independent collections (`electronics_trending`, `best_sellers_electronics`, `deals_electronics`).
+2. `catalog-home` strict_sections cache (`n_mobile_sections_cache`) — separately curated.
+3. `catalog-home` web recipe cache — what the web actually shows.
 
-### The Solution: Shareable Product Pages with Open Graph
+Web app uses #3 with the homepage image policy + 725-ID Amazon banner blocklist. Mobile usually hits #1/#2, which lack those filters → banner placeholders + different ordering.
 
-Create a **public product page** for each generated link (e.g., `/share/hp/{id}`) that includes Open Graph meta tags with the product image. When you paste that URL into WhatsApp, **WhatsApp automatically fetches the page and shows the product image as a rich preview** — title, description, and 1-2 photos, no extra work needed.
+## Changes
 
-```text
-How it works:
+### 1. `supabase/functions/catalog-home/index.ts`
+- Capture `originalClientType` before forcing `clientType = "web"` for mobile homepage requests.
+- **Delete the entire `if (clientType === "mobile")` block** (~lines 1602-1723) covering: strict_sections call, recipe-cache primary read, recipe-cache stale fallback. All three are gone.
+- Keep the `else { /* WEB recipe cache */ }` branch but remove the `else` wrapper so it runs unconditionally.
+- After the response is built (in the `serve()` wrapper at the bottom), if `originalClientType === "mobile"`, run the body through `flattenMobilePayload(body, locale, true)` to:
+  - Strip `banners`, `promos`, `ads`, `hero`, `promotions`
+  - Drop imageless items via `hasValidImage()`
+  - Merge sections into a single `for_you` section preserving order
+  - Set `meta.client = "mobile"`, `meta.flattened = true`
+- Remove now-unused imports/helpers (`serveMobileSections`, `readMobileCache` if unused elsewhere — keep if referenced by Tier 3 bootstrap).
 
-  Admin clicks "Share on WhatsApp"
-       │
-       ▼
-  Opens wa.me with message containing:
-    🛒 *iPhone 15 Pro Max*
-    📱 French description...
-    💰 $1,250
-    👉 https://idea-funded-launch.lovable.app/share/hp/abc123
-       │
-       ▼
-  WhatsApp fetches that URL, reads og:image
-       │
-       ▼
-  Customer sees product photo + title + price
-  in the WhatsApp chat bubble automatically
+### 2. `supabase/functions/_shared/mobileSectionsCache.ts`
+- Bump `MOBILE_SECTIONS_SCHEMA_VERSION` (currently 27 → 28) so any old cached payloads are invalidated and ignored on read.
+
+### 3. `supabase/functions/mobile-public-config/index.ts`
+- Replace `home.sections` (3 sections: trending/best/deals) with **one** section:
+  ```ts
+  { key: "for_you", label_fr: "Pour vous", label_en: "For you",
+    collectionKey: "web_homepage_mirror", maxItems: 60 }
+  ```
+- The frozen app already renders sections from this config; one section = continuous grid.
+- Leave `collections` map intact for backward compatibility but the frozen app will now mostly call `catalog-home` directly via the bootstrap config.
+
+### 4. Cache invalidation
+After deploy, trigger `catalog-prewarm-home` once to repopulate the web cache so mobile immediately gets fresh items.
+
+## Validation
+
+Two parallel curls must return the same item IDs in the same order (page 1):
 ```
+curl ".../catalog-home?client=web&page=1"          → sections[0].items[*].id
+curl ".../catalog-home?client=mobile&flat=1&page=1" → sections[0].items[*].id
+```
+IDs and order must match. Mobile response also has `meta.client="mobile"`, `meta.flattened=true`, and zero entries in `banners/promos/ads`.
 
-### Steps
+## Non-regression guarantees
 
-1. **Database migration** — Add `description_fr` and `gallery_images` columns to `hot_products_showcase`
-   - `description_fr TEXT` — French product description (editable)
-   - `gallery_images TEXT[]` — store 1-2 extra product images from extraction
+- Frozen-app contract preserved: HTTP 200 + JSON shape (`{ok, sections, meta}`) unchanged.
+- Categories (`?category=phones` etc.) still hit the per-recipe web cache — unaffected.
+- Section browse (`?section=...`) still delegates to `catalog-category` — unaffected.
+- Tier 3 DB bootstrap still runs if cache is empty (prevents "Catalogue Indisponible").
+- Web app unchanged — same code path, same response.
 
-2. **Edge function: `translate-product`** — Auto-generate a short French product description from the English title using Lovable AI (Gemini Flash). Called during extraction, result is editable.
-
-3. **Update extraction flow** — When extracting a product, also save up to 2 gallery images (already returned by `extract-price`) into the new column.
-
-4. **Create `/share/hp/:id` public page** — A lightweight page that:
-   - Fetches the product from `hot_products_showcase`
-   - Sets `og:image`, `og:title`, `og:description` meta tags for WhatsApp preview
-   - Shows the product with 1-2 images, French description, and price
-   - Has a "Buy / Order" CTA button
-
-5. **Add WhatsApp share button** to the Generated Links list in admin — Opens `wa.me/?text=...` with a pre-formatted French message including the shareable product URL.
-
-6. **Make `description_fr` editable** — In both the extraction preview and the post-save edit mode, alongside the existing price fields.
-
-### What the Customer Sees in WhatsApp
-- A rich link preview with the product image (automatic from OG tags)
-- French product name and description
-- Price
-- A link they can tap to view the product and order
-
-### Files to Change
-| File | Change |
-|---|---|
-| DB migration | Add `description_fr`, `gallery_images` columns |
-| `supabase/functions/translate-product/index.ts` | New edge function for EN→FR |
-| `src/pages/share/HotProductShare.tsx` | New public share page with OG tags |
-| `src/pages/admin/HotProducts.tsx` | WhatsApp button, description field, gallery storage |
-| `src/App.tsx` | Add `/share/hp/:id` route |
-
+## Files touched
+- `supabase/functions/catalog-home/index.ts`
+- `supabase/functions/_shared/mobileSectionsCache.ts`
+- `supabase/functions/mobile-public-config/index.ts`

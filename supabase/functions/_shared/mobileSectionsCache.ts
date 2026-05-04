@@ -17,7 +17,7 @@ import { postProcessSection } from "./sectionPostProcess.ts";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const MOBILE_SECTIONS_SCHEMA_VERSION = 27; // v27: amazon banner-image purge (image_url cleanup)
+export const MOBILE_SECTIONS_SCHEMA_VERSION = 28; // v28: mobile/web unified — strict_sections cache deprecated, web cache is source of truth
 const DEFAULT_TTL_SECONDS = 1800; // 30 min default — overridden by admin settings
 const ITEMS_PER_SECTION_RESPONSE = 40; // returned to client
 const ITEMS_PER_SECTION_CACHE = 60; // stored in cache for stability

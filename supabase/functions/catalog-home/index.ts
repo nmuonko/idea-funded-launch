@@ -1586,143 +1586,28 @@ const __originalHandler = async (req: Request): Promise<Response> => {
       }
     }
 
-    // UNIFIED HOMEPAGE: mobile and web now share the SAME homepage payload.
-    // The frozen mobile app must show the exact same items in the exact same
-    // order as the web app's homepage (eBay live "featured" trending section).
-    // We force mobile to take the web code path below by overriding clientType
-    // for the rest of this request. The mobile-specific phones grid branch
-    // and the mobile-only sections cache are intentionally bypassed.
+    // UNIFIED HOMEPAGE (Option B): mobile and web share the SAME cache, same
+    // order, same items. The strict_sections cache and mobile recipe cache
+    // branches have been removed entirely — there is now ONE source of truth
+    // (the web recipe / cache pipeline). Mobile-detected requests fall through
+    // to the web code path; the response is then reshaped to the mobile JSON
+    // contract by the post-processor in the serve() wrapper at the bottom of
+    // this file (single "for_you" section, banners/ads/imageless items stripped).
+    const originalClientType = clientType;
     if (clientType === "mobile" && !category && !sectionKey) {
-      console.log(`[CATALOG_HOME] correlationId=${correlationId} unifying mobile→web homepage payload (frozen-app contract)`);
+      console.log(`[CATALOG_HOME] correlationId=${correlationId} unifying mobile→web homepage payload (Option B: single source of truth)`);
       clientType = "web";
     }
 
-    console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} detectedBy=${detectedBy} lang=${lang} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);
+    console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} originalClient=${originalClientType} detectedBy=${detectedBy} lang=${lang} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);
 
-    // ===== MOBILE: STRICT SECTIONS CACHE (PRIMARY) → RECIPE CACHE (FALLBACK) =====
-    // ===== WEB: RECIPE CACHE (PRIMARY) =====
+    // ===== WEB RECIPE CACHE (PRIMARY for both web and mobile) =====
     if (!forceLive) {
       try {
         const recipeSettings = await loadRefreshSettings(env);
-        
-        if (clientType === "mobile") {
-          // PRIMARY: Try strict sections cache (has provider filtering: SHEIN for clothing, Amazon for phones)
-          const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
-          const strictResponse = await serveMobileSections(
-            env,
-            envRequested,
-            langKey,
-            correlationId,
-            detectedBy,
-            [], // empty pool — force cache read or backfill from DB
-            recipeSettings.mobile_refresh_hours > 0 ? recipeSettings.mobile_refresh_hours * 3600 : 1800
-          );
-          
-          // Check if strict sections returned valid data
-          if (strictResponse.status === 200) {
-            const body = await strictResponse.json();
-            if (body.ok && body.sections && body.sections.length > 0) {
-              const totalItems = calculateTotalItems(body.sections);
-              if (totalItems > 0) {
-                console.log(`[CATALOG_HOME] strict_sections_hit correlationId=${correlationId} sections=${body.sections.length} totalItems=${totalItems}`);
-                const flat = url.searchParams.get("flat") !== "0";
-                return jsonResponse(flattenMobilePayload(body, locale, flat));
-              }
-            }
-          }
-          
-          // FALLBACK: Try recipe cache
-          console.log(`[CATALOG_HOME] strict_sections_miss, trying recipe_cache correlationId=${correlationId}`);
-          let mobileCache = await readMobileCache(env);
-          if ((!mobileCache.hit || !mobileCache.payload) && env !== "production") {
-            mobileCache = await readMobileCache("production");
-          }
-          if (mobileCache.hit && mobileCache.payload && mobileCache.schemaVersion === recipeSettings.mobile_schema_version) {
-            const payload = mobileCache.payload as Record<string, unknown>;
-            const sections = payload.sections as Array<Record<string, unknown>> || [];
-            if (sections.length > 0) {
-              const langKey2: "fr" | "en" = (locale === "en" ? "en" : "fr");
-              const normalized = sections.map(s => ({
-                ...s,
-                title: String((langKey2 === "fr" ? (s.title_fr || s.title) : (s.title_en || s.title)) ?? ""),
-                items: (s.items as unknown[] || []).slice(0, 40),
-              }));
-              const normalizedSections = normalizeSectionTitles(normalized as unknown as import("../_shared/titleNormalizer.ts").Section[], langKey2) as typeof normalized;
-              const totalItems = calculateTotalItems(normalizedSections);
-              const totalMs = Date.now() - startTime;
-              
-              const flat = url.searchParams.get("flat") !== "0";
-              return jsonResponse(flattenMobilePayload({
-                ok: true,
-                sections: normalizedSections,
-                page: 1,
-                pageSize: 40,
-                totalPages: 1,
-                totalItems,
-                hasMore: false,
-                hasMoreCached: false,
-                ttlSeconds: recipeSettings.mobile_refresh_hours * 3600,
-                correlationId,
-                meta: {
-                  client: "mobile",
-                  detectedBy,
-                  envUsed: env,
-                  envRequested,
-                  source: "recipe_cache_fallback",
-                  isStale: false,
-                  ageSeconds: mobileCache.ageSeconds,
-                  correlationId,
-                  ts: Date.now(),
-                  totalMs,
-                  schemaVersion: recipeSettings.mobile_schema_version,
-                },
-              }, locale, flat));
-            }
-          }
-          
-          // Stale recipe cache fallback
-          if (!mobileCache.hit && mobileCache.payload) {
-            const payload = mobileCache.payload as Record<string, unknown>;
-            const sections = payload.sections as Array<Record<string, unknown>> || [];
-            if (sections.length > 0) {
-              const langKey2: "fr" | "en" = (locale === "en" ? "en" : "fr");
-              const normalized = sections.map(s => ({
-                ...s,
-                title: String((langKey2 === "fr" ? (s.title_fr || s.title) : (s.title_en || s.title)) ?? ""),
-                items: (s.items as unknown[] || []).slice(0, 40),
-              }));
-              const normalizedSections = normalizeSectionTitles(normalized as unknown as import("../_shared/titleNormalizer.ts").Section[], langKey2) as unknown as typeof normalized;
-              const totalItems = calculateTotalItems(normalizedSections as unknown as import("../_shared/titleNormalizer.ts").Section[]);
-              
-              const flat = url.searchParams.get("flat") !== "0";
-              return jsonResponse(flattenMobilePayload({
-                ok: true,
-                sections: normalizedSections,
-                page: 1,
-                pageSize: 40,
-                totalPages: 1,
-                totalItems,
-                hasMore: false,
-                hasMoreCached: false,
-                ttlSeconds: recipeSettings.mobile_refresh_hours * 3600,
-                correlationId,
-                meta: {
-                  client: "mobile",
-                  detectedBy,
-                  envUsed: env,
-                  envRequested,
-                  source: "recipe_cache_stale",
-                  isStale: true,
-                  ageSeconds: mobileCache.ageSeconds,
-                  correlationId,
-                  ts: Date.now(),
-                  schemaVersion: recipeSettings.mobile_schema_version,
-                },
-              }, locale, flat));
-            }
-          }
-        } else {
-          // WEB: Try recipe web cache
+
+        {
+          // Single source of truth: read the web recipe cache for everyone.
           let webCache = await readWebCache(env);
           // Production fallback for web recipe cache
           if ((!webCache.hit || !webCache.payload) && env !== "production") {
@@ -2272,25 +2157,46 @@ const __originalHandler = async (req: Request): Promise<Response> => {
   }
 };
 
-// Wrapper: applies ?curated=1 post-processing to the JSON response body
-// without changing any of the existing response paths inside the handler.
+// Wrapper: applies ?curated=1 post-processing AND mobile flattening to the
+// JSON response body without changing any of the existing response paths
+// inside the handler. Mobile-detected requests get reshaped to a single
+// "for_you" section with banners/ads/imageless items stripped — guaranteeing
+// the frozen mobile app shows the same items in the same order as the web.
 serve(async (req: Request): Promise<Response> => {
   const res = await __originalHandler(req);
   try {
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("application/json")) return res;
+
     const url = new URL(req.url);
     const wantsCurated = url.searchParams.get("curated") === "1"
       || url.searchParams.get("curated") === "true";
-    if (!wantsCurated) return res;
-    const ct = res.headers.get("content-type") || "";
-    if (!ct.includes("application/json")) return res;
+
+    // Detect mobile from the request (same logic as the inner handler).
+    const detection = detectClientType(req);
+    const isMobile = detection.clientType === "mobile";
+    const locale = (url.searchParams.get("locale") || url.searchParams.get("lang") || "fr").toLowerCase();
+    const flat = url.searchParams.get("flat") !== "0";
+
+    if (!wantsCurated && !isMobile) return res;
+
     const text = await res.text();
     let body: unknown;
     try { body = JSON.parse(text); } catch { return new Response(text, { status: res.status, headers: res.headers }); }
-    const curated = applyCuratedHomepageRules(body);
+
+    let processed: unknown = body;
+    if (wantsCurated) processed = applyCuratedHomepageRules(processed);
+    if (isMobile && processed && typeof processed === "object") {
+      processed = flattenMobilePayload(processed as Record<string, unknown>, locale, flat);
+      // Mark in meta that this was reshaped for the frozen mobile app
+      const p = processed as Record<string, unknown>;
+      p.meta = { ...((p.meta as Record<string, unknown>) || {}), client: "mobile", unifiedSource: "web_cache" };
+    }
+
     const headers = new Headers(res.headers);
-    return new Response(JSON.stringify(curated), { status: res.status, headers });
+    return new Response(JSON.stringify(processed), { status: res.status, headers });
   } catch (e) {
-    console.warn("[CATALOG_HOME] curated post-process failed, returning raw:", e);
+    console.warn("[CATALOG_HOME] post-process failed, returning raw:", e);
     return res;
   }
 });

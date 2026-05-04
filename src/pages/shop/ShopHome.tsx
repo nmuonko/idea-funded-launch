@@ -1889,37 +1889,37 @@ export default function ShopHome() {
       <main className="pb-8 bg-white text-black">
         <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
           {/* Filters Toolbar — "Sort by: Featured ▾                                  323 products" */}
-          <div className="flex items-center justify-between gap-4 mb-5 pb-3 border-b border-white/10">
+          <div className="flex items-center justify-between gap-4 mb-5 pb-3 border-b border-black/10">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-white/60 font-normal">
+              <span className="text-sm text-black/60 font-normal">
                 {language === 'fr' ? 'Trier par :' : 'Sort by:'}
               </span>
               <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
-                <SelectTrigger className="w-auto min-w-[140px] bg-transparent border-0 text-white font-semibold hover:bg-white/5 rounded-md h-9 px-2 text-sm shadow-none focus:ring-0">
+                <SelectTrigger className="w-auto min-w-[140px] bg-transparent border-0 text-black font-semibold hover:bg-black/5 rounded-md h-9 px-2 text-sm shadow-none focus:ring-0">
                   <SelectValue placeholder={language === 'fr' ? 'En vedette' : 'Featured'} />
                 </SelectTrigger>
-                <SelectContent className="bg-black border border-white/20 z-[9999]">
-                  <SelectItem value="cheapest" className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer">
+                <SelectContent className="bg-white border border-black/10 z-[9999]">
+                  <SelectItem value="cheapest" className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer">
                     {language === 'fr' ? 'Moins cher d\'abord' : 'Cheapest first'}
                   </SelectItem>
-                  <SelectItem value="newest" className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer">
+                  <SelectItem value="newest" className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer">
                     {language === 'fr' ? 'Nouveautés' : 'Newest'}
                   </SelectItem>
-                  <SelectItem value="priciest" className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer">
+                  <SelectItem value="priciest" className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer">
                     {language === 'fr' ? 'Plus cher d\'abord' : 'Priciest first'}
                   </SelectItem>
                 </SelectContent>
               </Select>
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="hidden w-[140px] sm:w-[170px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
+                <SelectTrigger className="hidden w-[140px] sm:w-[170px] bg-transparent border border-black/15 text-black hover:bg-black/5 rounded-md h-9 px-3 text-xs sm:text-sm">
                   <SelectValue placeholder={language === 'fr' ? 'Catégorie' : 'Category'} />
                 </SelectTrigger>
-                <SelectContent className="bg-black border border-white/20 z-[9999]">
+                <SelectContent className="bg-white border border-black/10 z-[9999]">
                   {CATEGORY_FILTER_OPTIONS.map((opt) => (
                     <SelectItem
                       key={opt.value}
                       value={opt.value}
-                      className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
+                      className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer"
                     >
                       {language === 'fr' ? opt.labelFr : opt.labelEn}
                     </SelectItem>
@@ -1927,13 +1927,13 @@ export default function ShopHome() {
                 </SelectContent>
               </Select>
               <Select value={providerFilter} onValueChange={setProviderFilter}>
-                <SelectTrigger className="hidden w-[140px] sm:w-[180px] bg-transparent border border-white/15 text-white/90 hover:bg-white/5 rounded-md h-9 px-3 text-xs sm:text-sm">
+                <SelectTrigger className="hidden w-[140px] sm:w-[180px] bg-transparent border border-black/15 text-black hover:bg-black/5 rounded-md h-9 px-3 text-xs sm:text-sm">
                   <SelectValue placeholder={language === 'fr' ? 'Boutique' : 'Store'} />
                 </SelectTrigger>
-                <SelectContent className="bg-black border border-white/20 z-[9999]">
+                <SelectContent className="bg-white border border-black/10 z-[9999]">
                   <SelectItem
                     value="all"
-                    className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
+                    className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer"
                   >
                     {language === 'fr' ? 'Tous les magasins' : 'All Stores'}
                   </SelectItem>
@@ -1941,7 +1941,7 @@ export default function ShopHome() {
                     <SelectItem
                       key={opt.value}
                       value={opt.value}
-                      className="text-white hover:bg-white/10 focus:bg-white/10 focus:text-white cursor-pointer"
+                      className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer"
                     >
                       {opt.label} ({opt.count.toLocaleString()})
                     </SelectItem>
@@ -1949,7 +1949,7 @@ export default function ShopHome() {
                 </SelectContent>
               </Select>
             </div>
-            <span className="text-sm text-white/60 font-normal whitespace-nowrap">
+            <span className="text-sm text-black/60 font-normal whitespace-nowrap">
               {bulkPhonesTotal > 0
                 ? `${bulkPhonesTotal.toLocaleString()} ${language === 'fr' ? 'produits' : 'products'}`
                 : ''}

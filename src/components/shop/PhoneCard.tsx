@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { Heart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { collectProductImageCandidates, handleImageError, handleImageLoad, pickBestImage } from '@/lib/imageValidation';

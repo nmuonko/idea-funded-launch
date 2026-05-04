@@ -60,10 +60,10 @@ export function GazelleHero() {
   const slide = SLIDES[index];
 
   return (
-    <section className="bg-white pt-3 pb-4" aria-label={isFr ? 'Bienvenue' : 'Welcome'}>
-      <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
+    <section aria-label={isFr ? 'Bienvenue' : 'Welcome'}>
+      <div className="w-full">
         <div
-          className="relative overflow-hidden rounded-2xl shadow-sm ring-1 ring-black/5"
+          className="relative overflow-hidden shadow-sm"
           style={{
             background:
               'radial-gradient(circle at 20% 20%, hsl(220 90% 55%) 0%, transparent 55%), radial-gradient(circle at 85% 80%, hsl(260 75% 45%) 0%, transparent 50%), linear-gradient(135deg, hsl(225 75% 22%) 0%, hsl(230 80% 32%) 50%, hsl(240 70% 25%) 100%)',

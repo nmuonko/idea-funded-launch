@@ -1877,7 +1877,7 @@ export default function ShopHome() {
   const isInitialLoading = accueilLoading && Object.values(categoryLoadingMap).every(v => v);
 
   return (
-    <div className="min-h-screen bg-[#0f1115] pb-safe-nav">
+    <div className="min-h-screen bg-[#faf7f1] pb-safe-nav">
       <ShopHeader />
       <div className="pt-16 md:pt-20" />
 

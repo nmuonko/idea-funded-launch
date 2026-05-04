@@ -172,22 +172,22 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
       {canScrollLeft && (
         <button
           onClick={() => scroll('left')}
-          className="absolute left-0 top-1/2 -translate-y-1/2 z-20 h-9 w-9 flex items-center justify-center rounded-full bg-[#111318]/90 border border-white/10 text-white/80 hover:text-white hover:bg-[#1a1d23] shadow-lg"
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-20 h-9 w-9 flex items-center justify-center rounded-full bg-white border border-black/10 text-black/70 hover:text-black hover:bg-neutral-50 shadow-md"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
       )}
-      
+
       {/* Right fade gradient */}
       {canScrollRight && (
-        <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-14 bg-gradient-to-l from-[#111318] to-transparent z-10" />
+        <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-14 bg-gradient-to-l from-[#f5f3ef] to-transparent z-10" />
       )}
-      
+
       {/* Right arrow */}
       {canScrollRight && (
         <button
           onClick={() => scroll('right')}
-          className="absolute right-0 top-1/2 -translate-y-1/2 z-20 h-9 w-9 flex items-center justify-center rounded-full bg-[#111318]/90 border border-white/10 text-white/80 hover:text-white hover:bg-[#1a1d23] shadow-lg"
+          className="absolute right-0 top-1/2 -translate-y-1/2 z-20 h-9 w-9 flex items-center justify-center rounded-full bg-white border border-black/10 text-black/70 hover:text-black hover:bg-neutral-50 shadow-md"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
@@ -203,10 +203,10 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
             key={tab.key}
             onClick={() => handleTabClick(tab.key)}
             className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap min-h-[40px] flex-shrink-0",
+              "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap min-h-[40px] flex-shrink-0 border",
               currentCategory === tab.key
-                ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-md shadow-blue-500/20"
-                : "bg-white/[0.08] text-white/70 hover:bg-white/[0.12] hover:text-white border border-white/10"
+                ? "bg-orange-500 text-white border-orange-500 shadow-sm"
+                : "bg-white text-black/80 hover:bg-neutral-50 border-black/10"
             )}
           >
             {tab.icon}

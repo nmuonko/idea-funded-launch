@@ -1888,7 +1888,7 @@ export default function ShopHome() {
       <div id="shop-categories-anchor" />
 
       <main className="pb-8 bg-[#faf7f1] text-black">
-        <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
+        <div className="container mx-auto px-3 sm:px-4 max-w-[1440px]">
           {/* Brand filter chips */}
           {(() => {
             const params = new URLSearchParams(window.location.search);
@@ -1898,8 +1898,6 @@ export default function ShopHome() {
               { key: 'iphone', label: 'iPhone' },
               { key: 'samsung', label: 'Samsung' },
               { key: 'pixel', label: 'Google Pixels' },
-              { key: 'refurbished', label: language === 'fr' ? 'Reconditionné' : 'Refurbished' },
-              { key: 'new', label: language === 'fr' ? 'Neuf' : 'New' },
               { key: 'deals', label: language === 'fr' ? '⭐ Meilleures offres' : '⭐ Best deals' },
             ];
             return (
@@ -2131,7 +2129,7 @@ export default function ShopHome() {
                 </div>
               ) : sortedPhones.length > 0 ? (
                 <>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 max-w-[1200px] mx-auto">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-2 sm:gap-3">
                     {sortedPhones.map((p, i) => (
                       <PhoneCard key={`${p.id}-${i}`} product={p} />
                     ))}

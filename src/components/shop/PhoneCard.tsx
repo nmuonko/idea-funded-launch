@@ -103,6 +103,12 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
         ) : (
           <div className="text-neutral-400 text-xs">No image</div>
         )}
+        <span
+          className="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded-full bg-white border border-[#EAE2D6] text-neutral-400"
+          aria-hidden
+        >
+          <Heart className="w-3.5 h-3.5" />
+        </span>
       </div>
 
       {/* Text area — clean, catalog-style */}

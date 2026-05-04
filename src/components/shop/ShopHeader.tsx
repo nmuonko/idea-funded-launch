@@ -233,10 +233,10 @@ export function ShopHeader() {
                   </div>
                 </div>
               </SheetContent>
-            </Sheet>
+              </Sheet>
+            </div>
           </div>
         </div>
-      </div>
       </div>
     </header>
   );

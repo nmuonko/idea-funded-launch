@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { Heart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { collectProductImageCandidates, handleImageError, handleImageLoad, pickBestImage } from '@/lib/imageValidation';
@@ -102,6 +103,12 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
         ) : (
           <div className="text-neutral-400 text-xs">No image</div>
         )}
+        <span
+          className="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded-full bg-white border border-[#EAE2D6] text-neutral-400"
+          aria-hidden
+        >
+          <Heart className="w-3.5 h-3.5" />
+        </span>
       </div>
 
       {/* Text area — clean, catalog-style */}

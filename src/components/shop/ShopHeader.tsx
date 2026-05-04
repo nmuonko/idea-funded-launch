@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LogIn, User, Menu, Globe, ChevronDown, Home, Package, Heart, Gift, Link2 } from 'lucide-react';
+import { LogIn, User, Menu, Globe, ChevronDown, Home, Package, Heart, Gift, Link2, MessageCircle } from 'lucide-react';
+import { useSupportContact } from '@/hooks/useSupportContact';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from './SearchBar';
@@ -27,6 +28,7 @@ export function ShopHeader() {
   const { user } = useAuth();
   const { savedItems } = useShopCart();
   const { language, setLanguage } = useLanguage();
+  const { whatsappUrl } = useSupportContact();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const t = translations[language] || translations.en;
@@ -69,6 +71,21 @@ export function ShopHeader() {
                   {n.label}
                 </Link>
               ))}
+              <a
+                href={whatsappUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-[15px] font-medium text-neutral-800 hover:text-[#25D366] transition-colors"
+              >
+                <span
+                  className="inline-flex items-center justify-center w-6 h-6 rounded-full"
+                  style={{ background: '#25D366' }}
+                  aria-hidden
+                >
+                  <MessageCircle className="w-3.5 h-3.5 text-white" fill="white" strokeWidth={0} />
+                </span>
+                WhatsApp
+              </a>
             </nav>
 
             {/* Mobile search (hidden on desktop) */}

@@ -66,7 +66,6 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
     { key: 'sporting_goods', title: shop.sportingGoods || shop.sportsOutdoors || 'Sport', icon: <Dumbbell className="h-4 w-4" /> },
     { key: 'jewelry_watches', title: shop.jewelryWatches || shop.watches || 'Montres', icon: <Watch className="h-4 w-4" /> },
     { key: 'parts_accessories', title: shop.partsAccessories || 'Pièces Auto', icon: <Package className="h-4 w-4" /> },
-    { key: 'refurbished', title: shop.refurbished || 'Reconditionné', icon: <Sparkles className="h-4 w-4" /> },
   ];
 
   useEffect(() => {

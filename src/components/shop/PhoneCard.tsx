@@ -102,7 +102,7 @@ export function PhoneCard({ product, className }: PhoneCardProps) {
       </div>
 
       {/* Text area — clean, catalog-style */}
-      <div className="px-3.5 pt-3 pb-3.5 bg-white">
+      <div className="px-3.5 pt-3 pb-3.5 bg-transparent">
         <h3 className="text-[13px] sm:text-sm font-medium text-neutral-800 leading-snug line-clamp-2 min-h-[2.4rem]">
           {product.title}
         </h3>

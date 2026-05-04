@@ -28,6 +28,7 @@ export function ShopHeader() {
   const { user } = useAuth();
   const { savedItems } = useShopCart();
   const { language, setLanguage } = useLanguage();
+  const { whatsappUrl } = useSupportContact();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const t = translations[language] || translations.en;

@@ -1886,7 +1886,7 @@ export default function ShopHome() {
       <AvailableInRow />
       <div id="shop-categories-anchor" />
 
-      <main className="pb-8">
+      <main className="pb-8 bg-white text-warning-dark">
         <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
           {/* Filters Toolbar — "Sort by: Featured ▾                                  323 products" */}
           <div className="flex items-center justify-between gap-4 mb-5 pb-3 border-b border-white/10">

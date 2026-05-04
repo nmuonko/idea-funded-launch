@@ -148,7 +148,7 @@ export function ProductCard({ product, className, compact = false, coverImage = 
       to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}
       state={{ product: { id: product.id, provider: product.provider, title: product.title, imageUrl: product.imageUrl, priceUsd: product.priceUsd, rating: product.rating, productUrl: product.productUrl } }}
       className={cn(
-        "group block bg-[#1a1d23] border border-white/10 rounded-xl sm:rounded-2xl overflow-hidden transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:shadow-black/30",
+        "group block bg-white rounded-xl sm:rounded-2xl overflow-hidden transition-all duration-200 hover:shadow-lg hover:shadow-black/10",
         className
       )}
     >

@@ -71,6 +71,21 @@ export function ShopHeader() {
                   {n.label}
                 </Link>
               ))}
+              <a
+                href={whatsappUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-[15px] font-medium text-neutral-800 hover:text-[#25D366] transition-colors"
+              >
+                <span
+                  className="inline-flex items-center justify-center w-6 h-6 rounded-full"
+                  style={{ background: '#25D366' }}
+                  aria-hidden
+                >
+                  <MessageCircle className="w-3.5 h-3.5 text-white" fill="white" strokeWidth={0} />
+                </span>
+                WhatsApp
+              </a>
             </nav>
 
             {/* Mobile search (hidden on desktop) */}

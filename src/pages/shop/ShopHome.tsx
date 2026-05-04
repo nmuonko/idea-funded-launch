@@ -1891,7 +1891,7 @@ export default function ShopHome() {
           {/* Filters Toolbar — "Sort by: Featured ▾                                  323 products" */}
           <div className="flex items-center justify-between gap-4 mb-5 pb-3 border-b border-black/10">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-black/60 font-normal">
+              <span className="text-sm text-black font-semibold">
                 {language === 'fr' ? 'Trier par :' : 'Sort by:'}
               </span>
               <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>

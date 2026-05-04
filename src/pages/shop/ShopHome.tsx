@@ -1888,7 +1888,7 @@ export default function ShopHome() {
       <div id="shop-categories-anchor" />
 
       <main className="pb-8 bg-[#faf7f1] text-black">
-        <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
+        <div className="container mx-auto px-3 sm:px-4 max-w-[1440px]">
           {/* Brand filter chips */}
           {(() => {
             const params = new URLSearchParams(window.location.search);

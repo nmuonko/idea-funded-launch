@@ -37,13 +37,13 @@ export function GazelleHero() {
             </div>
 
             {/* Right: phone image */}
-            <div className="hidden md:block relative h-full">
+            <div className="hidden md:block relative h-full min-h-[220px]">
               <img
                 src={heroIphone}
                 alt=""
                 aria-hidden
                 draggable={false}
-                className="absolute right-0 top-1/2 -translate-y-1/2 h-[110%] w-auto object-contain"
+                className="absolute right-[-10%] top-1/2 -translate-y-1/2 h-[140%] w-auto object-contain"
               />
             </div>
           </div>

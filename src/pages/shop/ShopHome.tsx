@@ -17,6 +17,7 @@ import { PhoneCard } from '@/components/shop/PhoneCard';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
+import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { translations } from '@/lib/i18n/translations';
@@ -1888,8 +1889,65 @@ export default function ShopHome() {
 
       <main className="pb-8 bg-[#faf7f1] text-black">
         <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
-          {/* Filters Toolbar — "Sort by: Featured ▾                                  323 products" */}
-          <div className="flex items-center justify-between gap-4 mb-5 pb-3 border-b border-black/10">
+          {/* Brand filter chips */}
+          {(() => {
+            const params = new URLSearchParams(window.location.search);
+            const activeBrand = (params.get('brand') || 'all').toLowerCase();
+            const chips = [
+              { key: 'all', label: language === 'fr' ? 'Tous les téléphones' : 'All phones' },
+              { key: 'iphone', label: 'iPhone' },
+              { key: 'samsung', label: 'Samsung' },
+              { key: 'pixel', label: 'Google Pixels' },
+              { key: 'deals', label: language === 'fr' ? '⭐ Meilleures offres' : '⭐ Best deals' },
+            ];
+            return (
+              <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
+                <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
+                  {chips.map((c) => {
+                    const active = activeBrand === c.key || (c.key === 'all' && activeBrand === 'all');
+                    return (
+                      <a
+                        key={c.key}
+                        href={c.key === 'all' ? '/' : `/?brand=${c.key}`}
+                        className={cn(
+                          'inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border whitespace-nowrap transition-all',
+                          active
+                            ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                            : 'bg-white text-neutral-800 border-black/10 hover:bg-neutral-50',
+                        )}
+                      >
+                        {c.label}
+                      </a>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-2 ml-auto">
+                  <span className="text-sm text-neutral-600">
+                    {language === 'fr' ? 'Trier par :' : 'Sort by:'}
+                  </span>
+                  <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+                    <SelectTrigger className="w-auto min-w-[200px] bg-white border border-black/10 text-black font-medium hover:bg-neutral-50 rounded-md h-9 px-3 text-sm shadow-none focus:ring-0">
+                      <SelectValue placeholder={language === 'fr' ? 'Prix : du plus bas au plus élevé' : 'Price: low to high'} />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white border border-black/10 z-[9999]">
+                      <SelectItem value="cheapest" className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer">
+                        {language === 'fr' ? 'Prix : du plus bas au plus élevé' : 'Price: low to high'}
+                      </SelectItem>
+                      <SelectItem value="priciest" className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer">
+                        {language === 'fr' ? 'Prix : du plus élevé au plus bas' : 'Price: high to low'}
+                      </SelectItem>
+                      <SelectItem value="newest" className="text-black hover:bg-black/5 focus:bg-black/5 focus:text-black cursor-pointer">
+                        {language === 'fr' ? 'Nouveautés' : 'Newest'}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Filters Toolbar — legacy (hidden, kept for unused state) */}
+          <div className="hidden flex items-center justify-between gap-4 mb-5 pb-3 border-b border-black/10">
             <div className="flex items-center gap-2">
               <span className="text-sm text-black font-normal">
                 {language === 'fr' ? 'Trier par :' : 'Sort by:'}

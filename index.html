@@ -43,6 +43,20 @@
   <meta name="twitter:description" content="Shop from top USA stores like Amazon & eBay, delivered directly to DR Congo. Fast, reliable, and affordable shopping with AfriShop.">
   <meta property="og:image" content="https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/f6837956-cb37-470d-abe4-1d3a6dc2112b/id-preview-a5a94eb4--be032233-aa83-4242-8bb0-99d7374821f2.lovable.app-1771132505550.png">
   <meta name="twitter:image" content="https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/f6837956-cb37-470d-abe4-1d3a6dc2112b/id-preview-a5a94eb4--be032233-aa83-4242-8bb0-99d7374821f2.lovable.app-1771132505550.png">
+    <script>
+      // Prevent duplicate-content indexing of preview/published lovable.app mirrors.
+      // Only afrishop-usa.com should be indexed; other hosts get noindex.
+      (function () {
+        try {
+          var canonicalHost = 'afrishop-usa.com';
+          if (location.hostname !== canonicalHost) {
+            var m = document.querySelector('meta[name="robots"]');
+            if (!m) { m = document.createElement('meta'); m.setAttribute('name','robots'); document.head.appendChild(m); }
+            m.setAttribute('content', 'noindex, nofollow');
+          }
+        } catch (e) {}
+      })();
+    </script>
 </head>
 
   <body>

@@ -358,6 +358,72 @@ async function notifyAllAdminsNewMessage(supabase: any, conversationId: string, 
   }
 }
 
+// ───────────────────────────────────────────────────────────
+// AI assistant powered by Lovable AI (Gemini). Falls back to FAQ matching.
+// ───────────────────────────────────────────────────────────
+
+const SHOP_SYSTEM_PROMPT = `You are AfriShop's friendly multilingual customer support assistant.
+AfriShop helps customers in DR Congo buy products from US stores (Amazon, eBay, SHEIN) and ships them to DRC.
+
+KEY FACTS — always use these exact values:
+• Shipping time: 7 to 21 days from US to DRC, depending on city.
+• Offices: Lubumbashi (114 Croisement Av. Ndjamena & Kasaï, Q. Makutano) and Kinshasa (1 Boulevard Sendwe, Matonge, C/Kalamu — near Bureau SONAS). We deliver everywhere in DRC.
+• Payments accepted: Mobile Money (M-Pesa, Airtel Money, Orange Money), bank transfers, credit/debit cards.
+• Prices are FINAL and NON-NEGOTIABLE. They already include product cost + shipping + customs + handling. Prices shown are in USD.
+• Refunds: only for damaged or non-conforming items; processed in 5–10 business days. The customer must contact a human agent to start a refund.
+• Order tracking: customers see status in "My Orders" (Pending, Paid, Processing, Shipped, Delivered).
+• WhatsApp support: +243 973 141 627 — share as a clickable link: https://wa.me/243973141627
+• Email support: nkadimisha@afrishop-usa.com
+• We do NOT sell books, digital content, subscriptions, or adult/NSFW items.
+
+TONE:
+• Warm, concise, professional. Use the customer's language (French, English, Swahili, Lingala) — match the language of their last message.
+• Use short paragraphs and bullet points when listing options. Emojis are OK in moderation.
+• Always render the WhatsApp number as a Markdown link when relevant: [+243 973 141 627](https://wa.me/243973141627).
+
+BEHAVIOR:
+• If you don't know a specific order/payment detail, say so honestly and offer to connect a human agent.
+• If the customer asks for a specific product price, explain prices are visible on the product page in the app/website (USD), and shipping is calculated at checkout.
+• If the user is angry, asks for a human, mentions a complaint, fraud, refund, or anything you cannot resolve confidently, set ESCALATE=true.
+• Never invent tracking numbers, prices, or order details.
+
+When you reply, return ONLY the chat message text (no JSON, no preface). Escalation is decided separately based on intent keywords.`;
+
+const ESCALATION_INTENT = /\b(agent|human|humain|wakala|moto|complaint|plainte|refund|rembours|scam|arnaque|stolen|vol[eé]|lawyer|avocat|urgent|broken|cass[eé]|wrong order|mauvaise commande|n'est pas arriv|did not arrive|hasn't arrived|spoke to|parler[ \-]?[àa]|real person|vraie personne|speak to someone)\b/i;
+
+async function callLovableAI(messages: Array<{ role: string; content: string }>): Promise<string | null> {
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+  if (!LOVABLE_API_KEY) {
+    console.warn('[support-service] LOVABLE_API_KEY not set — falling back to FAQ');
+    return null;
+  }
+  try {
+    const resp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [{ role: 'system', content: SHOP_SYSTEM_PROMPT }, ...messages],
+        temperature: 0.4,
+      }),
+    });
+    if (!resp.ok) {
+      const txt = await resp.text();
+      console.error('[support-service] Lovable AI error', resp.status, txt);
+      return null;
+    }
+    const data = await resp.json();
+    const content: string | undefined = data?.choices?.[0]?.message?.content;
+    return content?.trim() || null;
+  } catch (e) {
+    console.error('[support-service] Lovable AI exception', e);
+    return null;
+  }
+}
+
 async function handleChatBot(userId: string, body: any, req: Request): Promise<Response> {
   const supabase = createServiceClient();
   const { conversation_id, message, language = 'fr' } = body;
@@ -366,83 +432,91 @@ async function handleChatBot(userId: string, body: any, req: Request): Promise<R
     return jsonRes({ error: 'conversation_id and message are required' }, 400);
   }
 
-  // Verify conversation ownership
   const { data: conversation, error: convError } = await supabase
     .from('support_conversations')
     .select('user_id, status')
     .eq('id', conversation_id)
     .single();
 
-  if (convError || !conversation) {
-    return jsonRes({ error: 'Conversation not found' }, 404);
-  }
-  if (conversation.user_id !== userId) {
-    return jsonRes({ error: 'Forbidden - not your conversation' }, 403);
-  }
+  if (convError || !conversation) return jsonRes({ error: 'Conversation not found' }, 404);
+  if (conversation.user_id !== userId) return jsonRes({ error: 'Forbidden' }, 403);
 
-  // If conversation is already escalated (waiting_agent or assigned), don't run bot logic
+  // If already with a human agent, just notify and acknowledge
   if (conversation.status === 'waiting_agent' || conversation.status === 'assigned') {
-    // Just acknowledge — an agent will respond
     await supabase.from('support_messages').insert({
       conversation_id,
       sender_type: 'bot',
       content: ALREADY_ESCALATED_MESSAGES[language] || ALREADY_ESCALATED_MESSAGES.fr,
       meta: { alreadyEscalated: true },
     });
-
-    // Notify admins of the new message
     notifyAllAdminsNewMessage(supabase, conversation_id, message, userId).catch(() => {});
-
     return jsonRes({ success: true, escalated: true, alreadyEscalated: true });
   }
 
-  // Fetch FAQ from database
-  const dbFaq = await fetchFaqFromDb(supabase, language);
+  // Detect explicit escalation intent up-front
+  const wantsHuman = ESCALATION_INTENT.test(message);
 
-  const { answer, confidence, shouldEscalate, matched } = findBestAnswer(message, language, dbFaq);
-
-  // Log unanswered questions
-  if (!matched && !shouldEscalate) {
-    await supabase.from('support_unanswered_questions').insert({
-      conversation_id,
-      user_id: userId,
-      question: message,
-      language,
-    }).then(() => {}).catch((e: any) => console.error('[support-service] Failed to log unanswered question:', e));
-  }
-
-  if (shouldEscalate) {
-    // Escalate to agent
+  if (wantsHuman) {
     await supabase.from('support_messages').insert({
       conversation_id,
       sender_type: 'bot',
       content: ESCALATION_MESSAGES[language] || ESCALATION_MESSAGES.fr,
-      meta: { confidence: 0, shouldEscalate: true },
+      meta: { escalated: true },
     });
     await supabase.from('support_conversations')
       .update({ status: 'waiting_agent', updated_at: new Date().toISOString() })
       .eq('id', conversation_id);
-
-    // Notify admins
     notifyAllAdminsNewMessage(supabase, conversation_id, message, userId).catch(() => {});
-
     return jsonRes({ success: true, escalated: true });
   }
 
-  // Insert bot response
+  // Build conversation history for AI (last 12 messages)
+  const { data: history } = await supabase
+    .from('support_messages')
+    .select('sender_type, content')
+    .eq('conversation_id', conversation_id)
+    .order('created_at', { ascending: true })
+    .limit(12);
+
+  const aiMessages = (history || [])
+    .filter((m: any) => m.content)
+    .map((m: any) => ({
+      role: m.sender_type === 'user' ? 'user' : 'assistant',
+      content: m.content,
+    }));
+  // Append the current user message (it may not yet be in history depending on race)
+  if (!aiMessages.length || aiMessages[aiMessages.length - 1].content !== message) {
+    aiMessages.push({ role: 'user', content: message });
+  }
+  // Hint language
+  aiMessages.unshift({ role: 'system' as any, content: `User language: ${language}. Reply in this language unless the user clearly switches.` });
+
+  const aiAnswer = await callLovableAI(aiMessages as any);
+
+  let answer = aiAnswer;
+  let matched = !!aiAnswer;
+
+  // Fallback to FAQ if AI is unavailable
+  if (!aiAnswer) {
+    const dbFaq = await fetchFaqFromDb(supabase, language);
+    const faq = findBestAnswer(message, language, dbFaq);
+    answer = faq.answer;
+    matched = faq.matched;
+  }
+
+  // Log unanswered for ops if we had to fall back AND nothing matched
+  if (!matched) {
+    await supabase.from('support_unanswered_questions').insert({
+      conversation_id, user_id: userId, question: message, language,
+    }).then(() => {}).catch(() => {});
+  }
+
   await supabase.from('support_messages').insert({
     conversation_id,
     sender_type: 'bot',
     content: answer,
-    meta: { confidence, matched },
+    meta: { source: aiAnswer ? 'ai' : 'faq', matched },
   });
-
-  // If confidence is low, also suggest escalation but DON'T auto-escalate
-  if (confidence < 0.4 && !matched) {
-    // Already included in the noMatchResponses answer text
-    // Notify admins about low-confidence question
-    notifyAllAdminsNewMessage(supabase, conversation_id, message, userId).catch(() => {});
-  }
 
   await supabase.from('support_conversations')
     .update({ last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() })

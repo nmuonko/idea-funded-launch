@@ -379,6 +379,17 @@ export function SupportChat() {
           </Button>
         ) : (
           <div className="space-y-4">
+            {/* WhatsApp shortcut */}
+            <a
+              href={getWhatsAppUrl(user?.email)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 rounded-md bg-[#25D366] hover:bg-[#1ebe57] text-white text-sm font-medium px-3 py-2 transition-colors"
+            >
+              <svg viewBox="0 0 32 32" className="h-4 w-4 fill-current"><path d="M19.11 17.205c-.372 0-1.088 1.39-1.518 1.39a.63.63 0 0 1-.315-.1c-.802-.402-1.504-.817-2.163-1.447-.545-.516-1.146-1.29-1.46-1.963a.426.426 0 0 1-.073-.215c0-.33.99-.945.99-1.49 0-.143-.73-2.09-.832-2.335-.143-.372-.214-.487-.6-.487-.187 0-.36-.043-.53-.043-.302 0-.53.115-.746.315-.688.645-1.032 1.318-1.06 2.264v.114c-.015.99.472 1.977 1.017 2.78.515.747 1.075 1.464 1.747 2.063 1.418 1.272 3.184 2.235 4.96 2.766.39.116.794.196 1.2.272.39.057.79.057 1.16-.072.46-.157.97-.546 1.247-.946.272-.402.272-.747.187-1.146-.027-.057-.115-.099-.272-.157-.156-.058-1.704-.847-1.96-.945ZM16 4C9.37 4 4 9.37 4 16c0 2.327.668 4.498 1.815 6.336L4 28l5.857-1.798A11.94 11.94 0 0 0 16 28c6.63 0 12-5.37 12-12S22.63 4 16 4Zm0 21.7c-1.97 0-3.808-.617-5.317-1.668l-.38-.227-3.572 1.094 1.108-3.466-.247-.398A9.704 9.704 0 0 1 6.3 16c0-5.36 4.34-9.7 9.7-9.7 5.36 0 9.7 4.34 9.7 9.7 0 5.36-4.34 9.7-9.7 9.7Z"/></svg>
+              {language === 'fr' ? `WhatsApp ${SUPPORT_WHATSAPP_DISPLAY}` : `WhatsApp ${SUPPORT_WHATSAPP_DISPLAY}`}
+            </a>
+
             {/* Chat Messages */}
             <ScrollArea className="h-[300px] rounded-md border p-4">
               {loading ? (

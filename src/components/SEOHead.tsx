@@ -22,13 +22,25 @@ export function SEOHead({
   availability,
 }: SEOHeadProps) {
   const fullTitle = title.includes('AfriShop') ? title : `${title} | AfriShop`;
-  const canonical = url || (typeof window !== 'undefined' ? window.location.href : '');
+  const CANONICAL_ORIGIN = 'https://afrishop-usa.com';
+
+  // Build a clean canonical: fixed production origin + pathname only (no query, no hash, no trailing slash).
+  const buildCanonical = () => {
+    if (url) return url;
+    if (typeof window === 'undefined') return CANONICAL_ORIGIN;
+    let path = window.location.pathname || '/';
+    if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
+    return `${CANONICAL_ORIGIN}${path}`;
+  };
+  const canonical = buildCanonical();
 
   return (
     <Helmet>
       <title>{fullTitle}</title>
       <meta name="description" content={description} />
       <link rel="canonical" href={canonical} />
+      <meta name="robots" content="index, follow, max-image-preview:large" />
+
 
       {/* Open Graph */}
       <meta property="og:title" content={fullTitle} />

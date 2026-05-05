@@ -47,11 +47,9 @@ export const ReelsViewer = ({ reels, startIndex, onClose }: Props) => {
             const reel = reels[idx];
             if (reel && !viewedRef.current.has(reel.id)) {
               viewedRef.current.add(reel.id);
-              supabase.rpc('increment' as never, {} as never).catch?.(() => {});
-              // best-effort view bump via direct update
               supabase.from('ad_reels').select('views_count').eq('id', reel.id).single().then(({ data }) => {
                 if (data) {
-                  supabase.from('ad_reels').update({ views_count: (data.views_count ?? 0) + 1 }).eq('id', reel.id);
+                  void supabase.from('ad_reels').update({ views_count: (data.views_count ?? 0) + 1 }).eq('id', reel.id);
                 }
               });
             }

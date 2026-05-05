@@ -9,6 +9,7 @@ import { SectionBlock } from '@/components/shop/SectionBlock';
 import { HeroBannerCarousel } from '@/components/shop/HeroBannerCarousel';
 import { CategoryIconsRow } from '@/components/shop/CategoryIconsRow';
 import { GazelleHero } from '@/components/shop/GazelleHero';
+import { ReelsStrip } from '@/components/shop/ReelsStrip';
 import { AvailableInRow } from '@/components/shop/AvailableInRow';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
@@ -1884,6 +1885,7 @@ export default function ShopHome() {
       {/* 1) Gazelle-style hero + trust bar */}
       <GazelleHero />
       <AvailableInRow />
+      <ReelsStrip />
       <div id="shop-categories-anchor" />
 
       <main className="pb-8 bg-white text-black">

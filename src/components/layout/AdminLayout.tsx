@@ -12,7 +12,7 @@ import {
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, Home,
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
   Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe,
-  ChevronDown, Database, Store, Gift, Archive, Brain, MapPin, Flame, TrendingUp, Package, Send
+  ChevronDown, Database, Store, Gift, Archive, Brain, MapPin, Flame, TrendingUp, Package, Send, Film
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AdminNotificationsBell } from '@/components/admin/AdminNotificationsBell';
@@ -76,6 +76,7 @@ export function AdminLayout() {
       title: language === 'fr' ? 'Marketing' : 'Marketing',
       items: [
         { to: '/admin/hot-products', icon: Flame, label: language === 'fr' ? 'Produits Vedettes' : 'Hot Products', permission: 'can_view_marketing' as const },
+        { to: '/admin/reels', icon: Film, label: language === 'fr' ? 'Reels (Vidéos)' : 'Reels (Videos)', permission: 'can_view_marketing' as const },
         { to: '/admin/international-products', icon: Globe, label: language === 'fr' ? 'Produits Internationaux' : 'International Products', permission: 'can_view_marketing' as const },
         { to: '/admin/telegram-import', icon: Send, label: language === 'fr' ? 'Import Telegram' : 'Telegram Import', permission: 'can_view_marketing' as const },
         { to: '/admin/bundle-links', icon: Package, label: language === 'fr' ? 'Packs Produits' : 'Bundle Links', permission: 'can_view_marketing' as const },

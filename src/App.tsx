@@ -60,6 +60,7 @@ const PaymentsSettings = lazy(() => import("./pages/admin/PaymentsSettings"));
 const ServiceZones = lazy(() => import("./pages/admin/ServiceZones"));
 const AdminDelivery = lazy(() => import("./pages/admin/Delivery"));
 const AdminHotProducts = lazy(() => import("./pages/admin/HotProducts"));
+const AdminReels = lazy(() => import("./pages/admin/Reels"));
 const AdminBundleLinks = lazy(() => import("./pages/admin/BundleLinks"));
 const AdminInternationalProducts = lazy(() => import("./pages/admin/InternationalProducts"));
 const AdminTelegramImport = lazy(() => import("./pages/admin/TelegramImport"));
@@ -419,6 +420,11 @@ const App = () => {
               <Route path="hot-products" element={
                 <AdminRouteGuard requiredPermission="can_view_marketing">
                   <AdminHotProducts />
+                </AdminRouteGuard>
+              } />
+              <Route path="reels" element={
+                <AdminRouteGuard requiredPermission="can_view_marketing">
+                  <AdminReels />
                 </AdminRouteGuard>
               } />
               <Route path="bundle-links" element={

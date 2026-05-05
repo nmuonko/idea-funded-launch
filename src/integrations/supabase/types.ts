@@ -14,6 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
+      ad_reels: {
+        Row: {
+          caption: string | null
+          clicks_count: number
+          created_at: string
+          created_by: string | null
+          cta_label: string | null
+          cta_url: string | null
+          id: string
+          is_active: boolean
+          poster_url: string | null
+          product_id: string | null
+          product_provider: string | null
+          sort_order: number
+          title: string
+          updated_at: string
+          video_url: string
+          views_count: number
+        }
+        Insert: {
+          caption?: string | null
+          clicks_count?: number
+          created_at?: string
+          created_by?: string | null
+          cta_label?: string | null
+          cta_url?: string | null
+          id?: string
+          is_active?: boolean
+          poster_url?: string | null
+          product_id?: string | null
+          product_provider?: string | null
+          sort_order?: number
+          title: string
+          updated_at?: string
+          video_url: string
+          views_count?: number
+        }
+        Update: {
+          caption?: string | null
+          clicks_count?: number
+          created_at?: string
+          created_by?: string | null
+          cta_label?: string | null
+          cta_url?: string | null
+          id?: string
+          is_active?: boolean
+          poster_url?: string | null
+          product_id?: string | null
+          product_provider?: string | null
+          sort_order?: number
+          title?: string
+          updated_at?: string
+          video_url?: string
+          views_count?: number
+        }
+        Relationships: []
+      }
       admin_audit_logs: {
         Row: {
           action_type: string

@@ -23,6 +23,8 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import ReactMarkdown from 'react-markdown';
+import { getWhatsAppUrl, SUPPORT_WHATSAPP_DISPLAY } from '@/lib/supportConfig';
 
 interface Message {
   id: string;
@@ -415,7 +417,21 @@ export function SupportChat() {
                           ? 'bg-primary text-primary-foreground'
                           : 'bg-muted'
                       )}>
-                        {msg.content}
+                        {msg.sender_type === 'user' ? (
+                          msg.content
+                        ) : (
+                          <div className="prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-a:text-primary prose-a:underline break-words">
+                            <ReactMarkdown
+                              components={{
+                                a: ({ href, children }) => (
+                                  <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+                                ),
+                              }}
+                            >
+                              {msg.content}
+                            </ReactMarkdown>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

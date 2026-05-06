@@ -1325,6 +1325,83 @@ serve(async (req) => {
     }
 
     // ============================================
+    // PRICE DRIFT SAFETY NET
+    // For items linked to a catalog product, run a fresh live-price check.
+    // Block checkout if any item is flagged with a large drift (>10%).
+    // ============================================
+    try {
+      const cartUrls = dbItems
+        .map((it: any) => (typeof it.product_url === 'string' ? it.product_url : ''))
+        .filter(Boolean);
+
+      if (cartUrls.length > 0) {
+        const { createClient } = await import("@supabase/supabase-js");
+        const supabaseAdmin = createClient(
+          Deno.env.get('SUPABASE_URL')!,
+          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+        );
+        const { data: catalogMatches } = await supabaseAdmin
+          .from('catalog_items')
+          .select('id, product_url, price_usd, needs_price_review, last_price_check_at')
+          .in('product_url', cartUrls)
+          .limit(50);
+
+        const matches = catalogMatches || [];
+        // Items that need a fresh check: never checked, or older than 6h
+        const sixHoursAgo = Date.now() - 6 * 3600_000;
+        const idsToVerify = matches
+          .filter((m: any) => !m.last_price_check_at || new Date(m.last_price_check_at).getTime() < sixHoursAgo)
+          .map((m: any) => m.id);
+
+        if (idsToVerify.length > 0) {
+          await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/price-checker`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+            },
+            body: JSON.stringify({ mode: 'items', itemIds: idsToVerify }),
+          }).catch((e) => console.warn('[mobile-checkout] price-checker call failed', e));
+        }
+
+        // Re-read flags after verification
+        const { data: refreshed } = await supabaseAdmin
+          .from('catalog_items')
+          .select('id, product_url, price_usd, needs_price_review, last_known_live_price_usd')
+          .in('product_url', cartUrls)
+          .eq('needs_price_review', true);
+
+        const flaggedUrls = new Set((refreshed || []).map((r: any) => r.product_url));
+        if (flaggedUrls.size > 0) {
+          const flaggedItems = dbItems.filter((it: any) => flaggedUrls.has(it.product_url));
+          console.log('[mobile-checkout] CHECKOUT_PRICE_DRIFT_BLOCKED', {
+            count: flaggedItems.length,
+          });
+          return jsonResponse({
+            ok: false,
+            success: false,
+            code: 'PRICE_DRIFT_DETECTED',
+            message_fr: "Le prix d'un ou plusieurs articles a changé. Veuillez vérifier votre panier avant de payer.",
+            message_en: "The price of one or more items has changed. Please review your cart before paying.",
+            flaggedItems: flaggedItems.map((it: any) => {
+              const live = (refreshed || []).find((r: any) => r.product_url === it.product_url);
+              return {
+                id: it.id,
+                name: it.title || 'Unknown item',
+                url: it.product_url,
+                oldPrice: it.product_price ?? it.price_usd ?? null,
+                newPrice: live?.last_known_live_price_usd ?? null,
+              };
+            }),
+          }, 409);
+        }
+      }
+    } catch (e) {
+      console.warn('[mobile-checkout] price drift safety net error', (e as Error).message);
+      // Do not fail checkout on safety-net errors
+    }
+
+    // ============================================
     // CHECKOUT_DEDUPED: Deduplicate cart items
     // ============================================
     const { deduped, duplicatesRemoved, dedupeLog } = deduplicateCartItems(dbItems);

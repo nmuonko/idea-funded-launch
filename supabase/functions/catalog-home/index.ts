@@ -396,6 +396,7 @@ async function fetchHomepagePhoneRows(
   params.set("select", "id,provider,provider_product_id,title,image_url,images,product_url,price_usd,in_stock");
   params.set("is_active", "eq.true");
   params.set("is_disallowed", "eq.false");
+  params.set("needs_price_review", "is.false");
   params.append("price_usd", "gte.80");
   params.append("price_usd", "lte.1800");
   params.set("provider", "in.(amazon,rainforest)");
@@ -875,7 +876,7 @@ async function bootstrapFromDatabase(correlationId: string): Promise<CatalogItem
     // Fetch recent items from catalog_items table
     // Order by updated_at desc to get freshest items
     const res = await fetch(
-      `${supabaseUrl}/rest/v1/catalog_items?provider=in.(amazon,ebay,cargurus,carvana,shein)&price_usd=gt.0&image_url=neq.null&is_disallowed=eq.false&order=updated_at.desc.nullslast&limit=300`,
+      `${supabaseUrl}/rest/v1/catalog_items?provider=in.(amazon,ebay,cargurus,carvana,shein)&price_usd=gt.0&image_url=neq.null&is_disallowed=eq.false&needs_price_review=is.false&order=updated_at.desc.nullslast&limit=300`,
       {
         headers: {
           apikey: serviceRoleKey,

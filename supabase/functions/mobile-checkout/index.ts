@@ -1335,6 +1335,7 @@ serve(async (req) => {
         .filter(Boolean);
 
       if (cartUrls.length > 0) {
+        const { createClient } = await import("@supabase/supabase-js");
         const supabaseAdmin = createClient(
           Deno.env.get('SUPABASE_URL')!,
           Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!

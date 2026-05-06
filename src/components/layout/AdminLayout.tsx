@@ -105,6 +105,7 @@ export function AdminLayout() {
       title: language === 'fr' ? 'Système' : 'System',
       items: [
         { to: '/admin/home-recipes', icon: Home, label: language === 'fr' ? 'Curation Accueil' : 'Home Curation', exact: false, permission: 'can_view_settings' as const },
+        { to: '/admin/price-review', icon: Activity, label: language === 'fr' ? 'Révision Prix' : 'Price Review', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/catalog-sources', icon: Store, label: language === 'fr' ? 'Config Catalogue' : 'Catalog Config', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/catalog-cache', icon: Archive, label: language === 'fr' ? 'Cache Catalogue' : 'Catalog Cache', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/auto-learning', icon: Brain, label: 'Auto-Learning', exact: false, permission: 'can_view_settings' as const },

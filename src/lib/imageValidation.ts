@@ -16,6 +16,28 @@ type ImageCheckResult = {
   normalizedUrl?: string;
 };
 
+// Amazon image IDs reused across many products as shared banners, "Amazon
+// Business" promo strips, or AI-generated "In the box" infographics.
+const KNOWN_AMAZON_BANNER_IDS = new Set<string>([
+  '21dM81tBHEL', '11KzL4MVpQL', '21mfYj1UciL', '21-qgjdkM4L', '11SZyH2kDLL',
+  '215NmhaRfyL', '31pOhhzbBeL', '31WB-8JsNXL', '21fmKqMiaNL', '31BeYpeDggL',
+  '21VoHciwTRL', '415us9ymAwL', '41lpf5AZSIL', '31VmBZt4mVL', '31vgq23ApFL',
+  '317BjXJ4y3L', '31UAKni9NnL', '31kxREMYTSL', '214SLropeKL', '21IZEUMzcYL',
+  '21e94o0y6gL', '31YL2h4EMnL', '31xjYzzmnqL', '41RcrlKDm0L', '31BfQNw12GL',
+  '21SEzszH2cL', '31woWOz6O0L', '31AYkeymgTL', '111Or6-IIAL', '31vlNct1IyL',
+  '51V8CTFfTrL',
+  '41msggSuaoL', '11X1grO0K6L', '41xG8Yh0rlL', '41H7OUC9vdL', '11m5NyTwLVL',
+  '11MpO5lMksL', '41UPkD0ruML', '319FsWgMWuL', '31rW3fTIXdL', '51scuWM9RNL',
+  '51Pk2LXYGOL', '71NYtizuhbL', '216-OX9rBaL', '61KtwlbHIQL', '113x2hKibOL',
+  '51PtFHUPjBL', '617jA2aIWiL', '41kjNf9eLDL', '61pP6zBQIOL', '71n5MliBPiL',
+  '611ttvSIlhL', 'B1pppR4gVKL', '41AnTRJUFPL', '41WhKIMKHlL',
+]);
+
+function amazonImageIdFromUrl(url: string): string | null {
+  const m = url.match(/\/images\/I\/([A-Za-z0-9+_-]+?)(?:\.|_|$)/);
+  return m ? m[1] : null;
+}
+
 const BLOCKED_TOKENS = [
   // Seller branding
   'lovegrown', 'love-grown', 'love_grown',

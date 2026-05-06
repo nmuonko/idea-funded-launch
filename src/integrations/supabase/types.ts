@@ -1473,11 +1473,17 @@ export type Database = {
           is_active: boolean | null
           is_disallowed: boolean | null
           last_checked_at: string | null
+          last_known_live_price_usd: number | null
+          last_price_check_at: string | null
           last_seen_at: string | null
           listing_type: string | null
           metadata: Json | null
+          needs_price_review: boolean
           parts_subkey: string | null
           popularity_score: number | null
+          price_check_error: string | null
+          price_check_status: string | null
+          price_drift_pct: number | null
           price_updated_at: string | null
           price_usd: number | null
           product_url: string | null
@@ -1511,11 +1517,17 @@ export type Database = {
           is_active?: boolean | null
           is_disallowed?: boolean | null
           last_checked_at?: string | null
+          last_known_live_price_usd?: number | null
+          last_price_check_at?: string | null
           last_seen_at?: string | null
           listing_type?: string | null
           metadata?: Json | null
+          needs_price_review?: boolean
           parts_subkey?: string | null
           popularity_score?: number | null
+          price_check_error?: string | null
+          price_check_status?: string | null
+          price_drift_pct?: number | null
           price_updated_at?: string | null
           price_usd?: number | null
           product_url?: string | null
@@ -1549,11 +1561,17 @@ export type Database = {
           is_active?: boolean | null
           is_disallowed?: boolean | null
           last_checked_at?: string | null
+          last_known_live_price_usd?: number | null
+          last_price_check_at?: string | null
           last_seen_at?: string | null
           listing_type?: string | null
           metadata?: Json | null
+          needs_price_review?: boolean
           parts_subkey?: string | null
           popularity_score?: number | null
+          price_check_error?: string | null
+          price_check_status?: string | null
+          price_drift_pct?: number | null
           price_updated_at?: string | null
           price_usd?: number | null
           product_url?: string | null
@@ -4363,6 +4381,45 @@ export type Database = {
           source?: string
           store?: string
           title?: string | null
+        }
+        Relationships: []
+      }
+      price_check_log: {
+        Row: {
+          action: string
+          catalog_item_id: string
+          created_at: string
+          drift_pct: number | null
+          error: string | null
+          id: string
+          new_price_usd: number | null
+          old_price_usd: number | null
+          provider: string | null
+          provider_product_id: string | null
+        }
+        Insert: {
+          action: string
+          catalog_item_id: string
+          created_at?: string
+          drift_pct?: number | null
+          error?: string | null
+          id?: string
+          new_price_usd?: number | null
+          old_price_usd?: number | null
+          provider?: string | null
+          provider_product_id?: string | null
+        }
+        Update: {
+          action?: string
+          catalog_item_id?: string
+          created_at?: string
+          drift_pct?: number | null
+          error?: string | null
+          id?: string
+          new_price_usd?: number | null
+          old_price_usd?: number | null
+          provider?: string | null
+          provider_product_id?: string | null
         }
         Relationships: []
       }

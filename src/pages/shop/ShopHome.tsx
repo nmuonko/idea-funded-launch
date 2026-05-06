@@ -1814,24 +1814,51 @@ export default function ShopHome() {
       const catsToFetch = ALL_HOMEPAGE_CATEGORIES.filter(k => (grouped[k]?.length || 0) < 4);
 
       const accueilPromise = (async () => {
-        setAccueilLoading(true);
         setError(null);
+
+        // STABILITY: Show the locked homepage feed immediately if we have one,
+        // so the products users saw on their last visit don't re-shuffle on reload.
+        const locked = loadLockedHomepageFeed();
+        const hasLocked = !!(locked && locked.length);
+        if (hasLocked) {
+          setAccueilProducts(curateHomepageProducts(filterHomepageProducts(locked!), 'initial-locked'));
+          setAccueilLoading(false);
+        } else {
+          setAccueilLoading(true);
+        }
+
         try {
+          // Use the cached fetch (no skipCache) so repeated reloads serve the
+          // exact same payload until the server-side cache TTL expires. This is
+          // what stops products from "changing" between reloads.
           const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
             page: 1,
             pageSize: 100,
             client: 'web',
             curated: 1, // server-side curation: matches mobile for 1:1 parity
-          }, { skipCache: true });
+          });
           if (data?.sections?.length) {
             const all = curateHomepageProducts(filterHomepageProducts(
               data.sections.flatMap(s => s.items).map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0)
             ), 'initial-accueil');
-            setAccueilProducts(all);
-            if (all.length) saveLockedHomepageFeed(all);
+            // Only replace the on-screen list when we either had no locked
+            // feed yet, or the freshly-fetched feed differs from the locked
+            // one. This prevents a visible re-order flash on every reload.
+            if (all.length) {
+              if (!hasLocked) {
+                setAccueilProducts(all);
+              } else {
+                const lockedIds = (locked || []).map(p => p.id).join('|');
+                const freshIds = all.map(p => p.id).join('|');
+                if (lockedIds !== freshIds) {
+                  setAccueilProducts(all);
+                }
+              }
+              saveLockedHomepageFeed(all);
+            }
           }
         } catch (err: any) {
-          setError(err.message || 'Failed to load');
+          if (!hasLocked) setError(err.message || 'Failed to load');
         } finally {
           setAccueilLoading(false);
         }

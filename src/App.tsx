@@ -232,6 +232,10 @@ const App = () => {
             
             <Route path="/admin-login" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/auth/login" element={<Navigate to="/auth" replace />} />
+            <Route path="/auth/signup" element={<Navigate to="/auth" replace />} />
+            <Route path="/login" element={<Navigate to="/auth" replace />} />
+            <Route path="/signup" element={<Navigate to="/auth" replace />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/auth/reset-password" element={<ResetPassword />} />
             <Route path="/profile" element={

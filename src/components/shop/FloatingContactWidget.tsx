@@ -335,7 +335,7 @@
                      variant="outline"
                      size="sm"
                        className="mt-4"
-                     onClick={() => window.location.href = '/auth/login'}
+                     onClick={() => window.location.href = '/auth'}
                    >
                      Sign In
                    </Button>

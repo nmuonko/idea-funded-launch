@@ -377,6 +377,10 @@ function evaluateImageUrl(url?: string | null, policy: ImageValidationPolicy = '
     if (!lower.includes('/images/i/')) {
       return { ok: false, reason: 'amazon-non-product-path' };
     }
+    const imgId = amazonImageIdFromUrl(normalizedUrl);
+    if (imgId && KNOWN_AMAZON_BANNER_IDS.has(imgId)) {
+      return { ok: false, reason: 'amazon-known-banner-id' };
+    }
   }
 
   if (lower.includes('i.ebayimg.com') && !lower.includes('/d/') && !lower.includes('/g/') && !lower.includes('/s-l')) {

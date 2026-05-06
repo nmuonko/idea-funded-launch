@@ -441,16 +441,16 @@ async function handleChatBot(userId: string, body: any, req: Request): Promise<R
   if (convError || !conversation) return jsonRes({ error: 'Conversation not found' }, 404);
   if (conversation.user_id !== userId) return jsonRes({ error: 'Forbidden' }, 403);
 
-  // If already with a human agent, just notify and acknowledge
-  if (conversation.status === 'waiting_agent' || conversation.status === 'assigned') {
-    await supabase.from('support_messages').insert({
-      conversation_id,
-      sender_type: 'bot',
-      content: ALREADY_ESCALATED_MESSAGES[language] || ALREADY_ESCALATED_MESSAGES.fr,
-      meta: { alreadyEscalated: true },
-    });
+  // If a human agent is already assigned, stay quiet (only notify admin)
+  if (conversation.status === 'assigned') {
     notifyAllAdminsNewMessage(supabase, conversation_id, message, userId).catch(() => {});
     return jsonRes({ success: true, escalated: true, alreadyEscalated: true });
+  }
+
+  // If waiting for an agent, still let the AI keep helping in the meantime
+  if (conversation.status === 'waiting_agent') {
+    notifyAllAdminsNewMessage(supabase, conversation_id, message, userId).catch(() => {});
+    // fall through to AI reply below
   }
 
   // Detect explicit escalation intent up-front

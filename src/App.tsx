@@ -53,6 +53,7 @@ const QuoteRequests = lazy(() => import("./pages/admin/QuoteRequests"));
 const AdminHealth = lazy(() => import("./pages/admin/Health"));
 const CatalogSourcesSettings = lazy(() => import("./pages/admin/CatalogSourcesSettings"));
 const HomeRecipes = lazy(() => import("./pages/admin/HomeRecipes"));
+const PriceReview = lazy(() => import("./pages/admin/PriceReview"));
 const CatalogCache = lazy(() => import("./pages/admin/CatalogCache"));
 const AutoLearning = lazy(() => import("./pages/admin/AutoLearning"));
 const AdminReferrals = lazy(() => import("./pages/admin/Referrals"));
@@ -413,6 +414,11 @@ const App = () => {
               <Route path="home-recipes" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <HomeRecipes />
+                </AdminRouteGuard>
+              } />
+              <Route path="price-review" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <PriceReview />
                 </AdminRouteGuard>
               } />
               {/* search-relevancy route removed */}

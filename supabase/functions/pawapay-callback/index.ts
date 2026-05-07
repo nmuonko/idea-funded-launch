@@ -103,10 +103,21 @@ interface CallbackSecurityConfig {
 }
 
 function getSecurityConfig(): CallbackSecurityConfig {
-  const env = (Deno.env.get('PAWAPAY_ENV') || 'sandbox') as 'sandbox' | 'production';
+  // Derive env from PAWAPAY_BASE_URL (canonical source of truth, matches adapter).
+  // Fallback to PAWAPAY_ENV, then default to 'production' (safer than sandbox).
+  const baseUrl = (Deno.env.get('PAWAPAY_BASE_URL') || '').toLowerCase();
+  let env: 'sandbox' | 'production';
+  if (baseUrl.includes('sandbox')) {
+    env = 'sandbox';
+  } else if (baseUrl.includes('pawapay.io')) {
+    env = 'production';
+  } else {
+    env = (Deno.env.get('PAWAPAY_ENV') === 'sandbox' ? 'sandbox' : 'production');
+  }
   const verifySignatures = Deno.env.get('PAWAPAY_VERIFY_SIGNATURES') !== 'false'; // Default true
   const allowUnsignedWithIpCheck = Deno.env.get('PAWAPAY_ALLOW_UNSIGNED_WITH_IP_CHECK') !== 'false'; // Default true
   
+  console.log('[pawapay-callback] security_config:', { env, verifySignatures, allowUnsignedWithIpCheck, baseUrlDomain: baseUrl ? new URL(baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`).hostname : 'N/A' });
   return { env, verifySignatures, allowUnsignedWithIpCheck };
 }
 

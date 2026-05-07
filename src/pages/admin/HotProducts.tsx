@@ -1551,13 +1551,35 @@ export default function HotProducts() {
                                   <span className="hidden sm:inline">{t('Caption', 'Texte')}</span>
                                 </Button>
                               </DialogTrigger>
-                              <DialogContent className="max-w-md">
+                              <DialogContent className="max-w-lg">
                                 <DialogHeader>
                                   <DialogTitle>{t('Caption Preview', 'Aperçu du texte')}</DialogTitle>
                                 </DialogHeader>
-                                <pre className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md border max-h-60 overflow-y-auto font-sans">
-                                  {buildCaption(link, getShareUrl(link.id))}
-                                </pre>
+                                <div className="space-y-3">
+                                  {/* Price badge */}
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="text-lg font-bold text-primary">
+                                      ${Math.ceil(link.total_price_usd)} <span className="text-xs font-normal text-muted-foreground">· {t('All inclusive', 'Tout inclus')} 🇨🇩</span>
+                                    </div>
+                                    {link.gallery_images.length > 0 && (
+                                      <Badge variant="secondary" className="text-xs">{link.gallery_images.length} {t('images', 'images')}</Badge>
+                                    )}
+                                  </div>
+                                  {/* Image gallery preview */}
+                                  {link.gallery_images.length > 0 && (
+                                    <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto">
+                                      {link.gallery_images.slice(0, 8).map((img, i) => (
+                                        <div key={i} className="aspect-square rounded-md border border-border bg-white overflow-hidden">
+                                          <img src={img} alt="" className="w-full h-full object-contain p-1" loading="lazy" />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {/* Caption text */}
+                                  <pre className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md border max-h-60 overflow-y-auto font-sans">
+                                    {buildCaption(link, getShareUrl(link.id))}
+                                  </pre>
+                                </div>
                                 <div className="flex justify-end">
                                   <Button
                                     size="sm"

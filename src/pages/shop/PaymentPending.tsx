@@ -54,8 +54,7 @@ export default function PaymentPending() {
             cartClearedRef.current = true;
             const purchaseTotal = order.total_usd || (urlTotalUsd ? parseFloat(urlTotalUsd) : 0);
             trackPurchase(purchaseTotal);
-            // Meta Pixel: Purchase (deduped by orderId)
-            trackMetaPurchase(orderId || '', purchaseTotal);
+            // Meta Pixel Purchase intentionally NOT fired here — only on /payment-success
             await clearCartOnPaymentSuccess();
             console.log('[PAYMENT] success orderId=', orderId, '-> cart cleared');
           }

@@ -569,6 +569,9 @@ export default function BundleLinks() {
                         <Copy className="w-3 h-3" />
                         {copiedId === bundle.id ? t('Copied!', 'Copié !') : t('Copy Link', 'Copier')}
                       </Button>
+                      <Button variant="outline" size="sm" onClick={() => openExportDialog(bundle)} className="gap-1">
+                        <Download className="w-3 h-3" /> CSV
+                      </Button>
                       <Button variant="outline" size="sm" onClick={() => shareBundleWhatsApp(bundle)} className="gap-1">
                         <Share2 className="w-3 h-3" /> WhatsApp
                       </Button>

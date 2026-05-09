@@ -285,8 +285,7 @@ export default function Checkout() {
       email: sessionUser?.email ?? undefined,
       userId: sessionUser?.id ?? undefined,
     });
-    // Meta Pixel: InitiateCheckout
-    trackMetaInitiateCheckout(effectiveCheckoutTotal);
+    // Meta Pixel InitiateCheckout already fired on /checkout mount
 
     setLoading(true);
     setCheckoutError(null);

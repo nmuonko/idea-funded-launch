@@ -643,10 +643,13 @@ export default function HotProducts() {
       });
       if (basePrice > 0) setLinkGenManualPrice(basePrice.toFixed(0));
 
-      // Auto-translate title to French
+      // Auto-translate title to French — pass the all-inclusive total so the
+      // generated description shows the customer-facing price, not the raw item price.
       if (title) {
+        const { markup: estMarkup, shipping: estShipping } = calcProductTotals(basePrice, feeSettings, title);
+        const estTotal = Math.ceil((basePrice || 0) + estMarkup + estShipping);
         setTranslatingFr(true);
-        supabase.functions.invoke('translate-product', { body: { title, price: basePrice } })
+        supabase.functions.invoke('translate-product', { body: { title, price: estTotal || basePrice } })
           .then(({ data: trData }) => {
             if (trData?.description_fr) setLinkGenDescFr(trData.description_fr);
           })

@@ -137,31 +137,59 @@ export default function BundleLinks() {
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // CSV export dialog
-  const [exportBundle, setExportBundle] = useState<Bundle | null>(null);
+  // CSV export dialog (multi-bundle)
+  const [exportOpen, setExportOpen] = useState(false);
   const [exportSelected, setExportSelected] = useState<Set<string>>(new Set());
 
-  function openExportDialog(bundle: Bundle) {
-    setExportBundle(bundle);
-    setExportSelected(new Set(bundle.items.map((_, idx) => String(idx))));
+  const exportKey = (bundleId: string, idx: number) => `${bundleId}::${idx}`;
+
+  function openGlobalExport() {
+    const all = new Set<string>();
+    bundles.forEach(b => b.items.forEach((_, idx) => all.add(exportKey(b.id, idx))));
+    setExportSelected(all);
+    setExportOpen(true);
   }
 
-  function toggleExportItem(idx: number) {
+  function toggleExportItem(bundleId: string, idx: number) {
     setExportSelected(prev => {
       const next = new Set(prev);
-      const key = String(idx);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      const k = exportKey(bundleId, idx);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  }
+
+  function toggleBundleAll(bundle: Bundle) {
+    const keys = bundle.items.map((_, idx) => exportKey(bundle.id, idx));
+    const allSelected = keys.every(k => exportSelected.has(k));
+    setExportSelected(prev => {
+      const next = new Set(prev);
+      if (allSelected) keys.forEach(k => next.delete(k));
+      else keys.forEach(k => next.add(k));
       return next;
     });
   }
 
   function confirmExportCsv() {
-    if (!exportBundle) return;
-    const items = exportBundle.items.filter((_, idx) => exportSelected.has(String(idx)));
-    if (items.length === 0) { toast.error(t('Select at least one product', 'Sélectionnez au moins un produit')); return; }
-    downloadBundleItemsCsv(exportBundle.title, items);
+    const rows: { bundle: Bundle; item: BundleItem }[] = [];
+    bundles.forEach(b => b.items.forEach((item, idx) => {
+      if (exportSelected.has(exportKey(b.id, idx))) rows.push({ bundle: b, item });
+    }));
+    if (rows.length === 0) { toast.error(t('Select at least one product', 'Sélectionnez au moins un produit')); return; }
+    const header = ['bundle_title', 'bundle_id', 'title', 'price_usd', 'image_url', 'product_url', 'source_type', 'source_id'];
+    const data = rows.map(({ bundle, item }) => [bundle.title, bundle.id, item.title, item.price_usd, item.image_url, item.product_url, item.source_type, item.source_id]);
+    const csv = [header, ...data].map(r => r.map(escapeCsvCell).join(',')).join('\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bundle-products-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
     toast.success(t('CSV downloaded', 'CSV téléchargé'));
-    setExportBundle(null);
+    setExportOpen(false);
   }
 
   const loadBundles = useCallback(async () => {

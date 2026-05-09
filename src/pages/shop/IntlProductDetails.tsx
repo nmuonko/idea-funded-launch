@@ -227,6 +227,7 @@ export default function IntlProductDetails() {
         isVehicle: false,
         requiresManualQuote: false,
       });
+      trackMetaAddToCart({ id: `intl_${product.id}`, title: product.title, price: totals.total });
       toast.success(isFr ? 'Ajouté au panier' : 'Added to cart');
       if (buyNow) navigate('/cart');
     } catch {

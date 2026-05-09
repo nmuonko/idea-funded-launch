@@ -137,6 +137,33 @@ export default function BundleLinks() {
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // CSV export dialog
+  const [exportBundle, setExportBundle] = useState<Bundle | null>(null);
+  const [exportSelected, setExportSelected] = useState<Set<string>>(new Set());
+
+  function openExportDialog(bundle: Bundle) {
+    setExportBundle(bundle);
+    setExportSelected(new Set(bundle.items.map((_, idx) => String(idx))));
+  }
+
+  function toggleExportItem(idx: number) {
+    setExportSelected(prev => {
+      const next = new Set(prev);
+      const key = String(idx);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function confirmExportCsv() {
+    if (!exportBundle) return;
+    const items = exportBundle.items.filter((_, idx) => exportSelected.has(String(idx)));
+    if (items.length === 0) { toast.error(t('Select at least one product', 'Sélectionnez au moins un produit')); return; }
+    downloadBundleItemsCsv(exportBundle.title, items);
+    toast.success(t('CSV downloaded', 'CSV téléchargé'));
+    setExportBundle(null);
+  }
+
   const loadBundles = useCallback(async () => {
     const { data: bundlesData } = await supabase
       .from('product_bundles')

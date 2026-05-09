@@ -527,6 +527,52 @@ export default function BundleLinks() {
         </DialogContent>
       </Dialog>
 
+      {/* CSV Export Dialog */}
+      <Dialog open={!!exportBundle} onOpenChange={(open) => !open && setExportBundle(null)}>
+        <DialogContent className="max-w-lg max-h-[85vh]">
+          <DialogHeader>
+            <DialogTitle>{t('Export Products to CSV', 'Exporter les Produits en CSV')}</DialogTitle>
+          </DialogHeader>
+          {exportBundle && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  {exportSelected.size} / {exportBundle.items.length} {t('selected', 'sélectionnés')}
+                </span>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setExportSelected(new Set(exportBundle.items.map((_, i) => String(i))))}>
+                    {t('Select all', 'Tout sélectionner')}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setExportSelected(new Set())}>
+                    {t('Clear', 'Effacer')}
+                  </Button>
+                </div>
+              </div>
+              <ScrollArea className="max-h-[50vh] pr-2">
+                <div className="space-y-2">
+                  {exportBundle.items.map((item, idx) => {
+                    const checked = exportSelected.has(String(idx));
+                    return (
+                      <label key={idx} className="flex items-center gap-3 p-2 border rounded-md cursor-pointer hover:bg-muted/40">
+                        <Checkbox checked={checked} onCheckedChange={() => toggleExportItem(idx)} />
+                        {item.image_url && <img src={item.image_url} alt="" className="w-10 h-10 rounded object-cover" />}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{item.title}</p>
+                          <p className="text-xs text-muted-foreground">${item.price_usd}</p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+              <Button onClick={confirmExportCsv} className="w-full gap-2">
+                <Download className="w-4 h-4" /> {t('Download CSV', 'Télécharger le CSV')}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Bundles List */}
       {bundles.length === 0 ? (
         <Card>

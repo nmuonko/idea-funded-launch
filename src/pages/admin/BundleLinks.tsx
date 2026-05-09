@@ -358,9 +358,14 @@ export default function BundleLinks() {
             {t('Create shareable product bundles for customers', 'Créez des packs de produits partageables pour les clients')}
           </p>
         </div>
-        <Button onClick={() => setShowCreate(true)} className="gap-2">
-          <Plus className="w-4 h-4" /> {t('New Bundle', 'Nouveau Pack')}
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={openGlobalExport} className="gap-2">
+            <Download className="w-4 h-4" /> {t('Export CSV', 'Exporter CSV')}
+          </Button>
+          <Button onClick={() => setShowCreate(true)} className="gap-2">
+            <Plus className="w-4 h-4" /> {t('New Bundle', 'Nouveau Pack')}
+          </Button>
+        </div>
       </div>
 
       {/* Create Bundle Dialog */}

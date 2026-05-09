@@ -8,6 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { trackPurchase } from '@/lib/tiktokPixel';
+import { trackMetaPurchase } from '@/lib/metaPixel';
 
 export default function PaymentSuccess() {
   const [searchParams] = useSearchParams();
@@ -82,6 +83,8 @@ export default function PaymentSuccess() {
               email: activeSession?.user?.email ?? undefined,
               userId: activeSession?.user?.id ?? undefined,
             });
+            // Meta Pixel: Purchase (deduped by orderId)
+            trackMetaPurchase(orderId || '', order?.total_usd || 0);
             await clearCartOnPaymentSuccess();
             console.log('[PAYMENT] success orderId=', orderId, '-> cart cleared');
           }

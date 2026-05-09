@@ -18,8 +18,31 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import {
   Package, Plus, Trash2, Copy, Share2, CalendarIcon, Search,
-  Loader2, ExternalLink, Link as LinkIcon, ShoppingCart, X, Sparkles
+  Loader2, ExternalLink, Link as LinkIcon, ShoppingCart, X, Sparkles, Download
 } from 'lucide-react';
+
+function escapeCsvCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  const s = String(value);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function downloadBundleItemsCsv(bundleTitle: string, items: BundleItem[]) {
+  const header = ['title', 'price_usd', 'image_url', 'product_url', 'source_type', 'source_id'];
+  const rows = items.map(i => [i.title, i.price_usd, i.image_url, i.product_url, i.source_type, i.source_id]);
+  const csv = [header, ...rows].map(r => r.map(escapeCsvCell).join(',')).join('\n');
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const safe = bundleTitle.replace(/[^a-z0-9-_]+/gi, '_').slice(0, 60) || 'bundle';
+  a.download = `${safe}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 interface BundleItem {
   id?: string;

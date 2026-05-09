@@ -18,8 +18,31 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import {
   Package, Plus, Trash2, Copy, Share2, CalendarIcon, Search,
-  Loader2, ExternalLink, Link as LinkIcon, ShoppingCart, X, Sparkles
+  Loader2, ExternalLink, Link as LinkIcon, ShoppingCart, X, Sparkles, Download
 } from 'lucide-react';
+
+function escapeCsvCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  const s = String(value);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function downloadBundleItemsCsv(bundleTitle: string, items: BundleItem[]) {
+  const header = ['title', 'price_usd', 'image_url', 'product_url', 'source_type', 'source_id'];
+  const rows = items.map(i => [i.title, i.price_usd, i.image_url, i.product_url, i.source_type, i.source_id]);
+  const csv = [header, ...rows].map(r => r.map(escapeCsvCell).join(',')).join('\n');
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const safe = bundleTitle.replace(/[^a-z0-9-_]+/gi, '_').slice(0, 60) || 'bundle';
+  a.download = `${safe}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 interface BundleItem {
   id?: string;
@@ -113,6 +136,33 @@ export default function BundleLinks() {
   const [loadingSource, setLoadingSource] = useState(false);
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // CSV export dialog
+  const [exportBundle, setExportBundle] = useState<Bundle | null>(null);
+  const [exportSelected, setExportSelected] = useState<Set<string>>(new Set());
+
+  function openExportDialog(bundle: Bundle) {
+    setExportBundle(bundle);
+    setExportSelected(new Set(bundle.items.map((_, idx) => String(idx))));
+  }
+
+  function toggleExportItem(idx: number) {
+    setExportSelected(prev => {
+      const next = new Set(prev);
+      const key = String(idx);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function confirmExportCsv() {
+    if (!exportBundle) return;
+    const items = exportBundle.items.filter((_, idx) => exportSelected.has(String(idx)));
+    if (items.length === 0) { toast.error(t('Select at least one product', 'Sélectionnez au moins un produit')); return; }
+    downloadBundleItemsCsv(exportBundle.title, items);
+    toast.success(t('CSV downloaded', 'CSV téléchargé'));
+    setExportBundle(null);
+  }
 
   const loadBundles = useCallback(async () => {
     const { data: bundlesData } = await supabase
@@ -477,6 +527,52 @@ export default function BundleLinks() {
         </DialogContent>
       </Dialog>
 
+      {/* CSV Export Dialog */}
+      <Dialog open={!!exportBundle} onOpenChange={(open) => !open && setExportBundle(null)}>
+        <DialogContent className="max-w-lg max-h-[85vh]">
+          <DialogHeader>
+            <DialogTitle>{t('Export Products to CSV', 'Exporter les Produits en CSV')}</DialogTitle>
+          </DialogHeader>
+          {exportBundle && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  {exportSelected.size} / {exportBundle.items.length} {t('selected', 'sélectionnés')}
+                </span>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setExportSelected(new Set(exportBundle.items.map((_, i) => String(i))))}>
+                    {t('Select all', 'Tout sélectionner')}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setExportSelected(new Set())}>
+                    {t('Clear', 'Effacer')}
+                  </Button>
+                </div>
+              </div>
+              <ScrollArea className="max-h-[50vh] pr-2">
+                <div className="space-y-2">
+                  {exportBundle.items.map((item, idx) => {
+                    const checked = exportSelected.has(String(idx));
+                    return (
+                      <label key={idx} className="flex items-center gap-3 p-2 border rounded-md cursor-pointer hover:bg-muted/40">
+                        <Checkbox checked={checked} onCheckedChange={() => toggleExportItem(idx)} />
+                        {item.image_url && <img src={item.image_url} alt="" className="w-10 h-10 rounded object-cover" />}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{item.title}</p>
+                          <p className="text-xs text-muted-foreground">${item.price_usd}</p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+              <Button onClick={confirmExportCsv} className="w-full gap-2">
+                <Download className="w-4 h-4" /> {t('Download CSV', 'Télécharger le CSV')}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Bundles List */}
       {bundles.length === 0 ? (
         <Card>
@@ -518,6 +614,9 @@ export default function BundleLinks() {
                       <Button variant="outline" size="sm" onClick={() => copyBundleLink(bundle.id)} className="gap-1">
                         <Copy className="w-3 h-3" />
                         {copiedId === bundle.id ? t('Copied!', 'Copié !') : t('Copy Link', 'Copier')}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => openExportDialog(bundle)} className="gap-1">
+                        <Download className="w-3 h-3" /> CSV
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => shareBundleWhatsApp(bundle)} className="gap-1">
                         <Share2 className="w-3 h-3" /> WhatsApp

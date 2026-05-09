@@ -215,6 +215,16 @@ export default function Checkout() {
     }
   }, [initialized, cartLoading, items.length]);
 
+  // Meta Pixel: InitiateCheckout — fire once when /checkout opens with a non-zero total
+  const metaInitiateFiredRef = useRef(false);
+  useEffect(() => {
+    if (metaInitiateFiredRef.current) return;
+    if (effectiveCheckoutTotal && effectiveCheckoutTotal > 0) {
+      metaInitiateFiredRef.current = true;
+      trackMetaInitiateCheckout(effectiveCheckoutTotal);
+    }
+  }, [effectiveCheckoutTotal]);
+
   // Load profile data
   useEffect(() => {
     const loadProfile = async () => {
@@ -275,8 +285,7 @@ export default function Checkout() {
       email: sessionUser?.email ?? undefined,
       userId: sessionUser?.id ?? undefined,
     });
-    // Meta Pixel: InitiateCheckout
-    trackMetaInitiateCheckout(effectiveCheckoutTotal);
+    // Meta Pixel InitiateCheckout already fired on /checkout mount
 
     setLoading(true);
     setCheckoutError(null);

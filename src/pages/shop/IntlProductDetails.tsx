@@ -11,6 +11,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { toast } from 'sonner';
 import { collectProductImageCandidates, pickBestImage } from '@/lib/imageValidation';
+import { trackMetaViewContent, trackMetaAddToCart } from '@/lib/metaPixel';
 
 interface CountryMeta {
   country: string;
@@ -175,6 +176,12 @@ export default function IntlProductDetails() {
     return { markup, shipping, total };
   }, [product, meta, globalMarkupPercent]);
 
+  // Meta Pixel: ViewContent on product detail load
+  useEffect(() => {
+    if (!product || !totals) return;
+    trackMetaViewContent({ id: `intl_${product.id}`, title: product.title, price: totals.total });
+  }, [product, totals]);
+
   const gallery = useMemo(() => {
     if (!product) return [];
     return (Array.isArray(product.images) && product.images.length > 0) ? product.images : [product.image_url];
@@ -220,6 +227,7 @@ export default function IntlProductDetails() {
         isVehicle: false,
         requiresManualQuote: false,
       });
+      trackMetaAddToCart({ id: `intl_${product.id}`, title: product.title, price: totals.total });
       toast.success(isFr ? 'Ajouté au panier' : 'Added to cart');
       if (buyNow) navigate('/cart');
     } catch {

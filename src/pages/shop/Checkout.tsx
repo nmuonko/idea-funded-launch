@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { trackInitiateCheckout } from '@/lib/tiktokPixel';
+import { trackMetaInitiateCheckout } from '@/lib/metaPixel';
 import { sanitizeCartImage } from '@/lib/imageValidation';
 
 interface ShippingAddress {
@@ -274,6 +275,8 @@ export default function Checkout() {
       email: sessionUser?.email ?? undefined,
       userId: sessionUser?.id ?? undefined,
     });
+    // Meta Pixel: InitiateCheckout
+    trackMetaInitiateCheckout(effectiveCheckoutTotal);
 
     setLoading(true);
     setCheckoutError(null);

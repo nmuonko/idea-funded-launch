@@ -9,6 +9,7 @@ import { useShopCart } from '@/contexts/ShopCartContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { trackPurchase } from '@/lib/tiktokPixel';
+import { trackMetaPurchase } from '@/lib/metaPixel';
 
 export default function PaymentPending() {
   const [searchParams] = useSearchParams();
@@ -52,7 +53,10 @@ export default function PaymentPending() {
           setStatus('paid');
           if (!cartClearedRef.current) {
             cartClearedRef.current = true;
-            trackPurchase(order.total_usd || (urlTotalUsd ? parseFloat(urlTotalUsd) : 0));
+            const purchaseTotal = order.total_usd || (urlTotalUsd ? parseFloat(urlTotalUsd) : 0);
+            trackPurchase(purchaseTotal);
+            // Meta Pixel: Purchase (deduped by orderId)
+            trackMetaPurchase(orderId || '', purchaseTotal);
             await clearCartOnPaymentSuccess();
             console.log('[PAYMENT] success orderId=', orderId, '-> cart cleared');
           }

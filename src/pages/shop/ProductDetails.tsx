@@ -3,6 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import { useParams, Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { trackRecentlyViewed } from '@/lib/recentlyViewed';
 import { trackViewContent, trackAddToCart } from '@/lib/tiktokPixel';
+import { trackMetaViewContent, trackMetaAddToCart } from '@/lib/metaPixel';
 import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { filterGalleryImages } from '@/lib/imageValidation';
@@ -430,6 +431,12 @@ export default function ProductDetailsPage() {
           { id: cleanProductId, title: item.title || '', price: item.priceUsd ?? item.price_usd ?? 0 },
           { email: user?.email ?? undefined, userId: user?.id ?? undefined },
         );
+        // Meta Pixel: ViewContent
+        trackMetaViewContent({
+          id: cleanProductId,
+          title: item.title || '',
+          price: item.priceUsd ?? item.price_usd ?? 0,
+        });
       } catch (err: any) {
         if (controller.signal.aborted) return;
         console.error('[ProductDetails] fetch error', {
@@ -657,6 +664,8 @@ export default function ProductDetailsPage() {
         { id: product.id, title: product.title, price: finalPrice },
         { email: user?.email ?? undefined, userId: user?.id ?? undefined },
       );
+      // Meta Pixel: AddToCart
+      trackMetaAddToCart({ id: product.id, title: product.title, price: finalPrice });
       setAdded(true);
       setTimeout(() => setAdded(false), 3000);
     } finally {

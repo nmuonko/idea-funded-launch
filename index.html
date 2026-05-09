@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <!-- CSP - allows Supabase and Stripe connections -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co wss://*.supabase.in https://api.stripe.com https://maps.stripe.com https://analytics.tiktok.com blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://analytics.tiktok.com blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data: https://fonts.gstatic.com; frame-src 'self' https://js.stripe.com https://hooks.stripe.com; frame-ancestors 'self'; worker-src 'self' blob:;" />
+    <!-- CSP - allows Supabase, Stripe, TikTok and Meta connections -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co wss://*.supabase.in https://api.stripe.com https://maps.stripe.com https://analytics.tiktok.com https://www.facebook.com blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://analytics.tiktok.com https://connect.facebook.net blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data: https://fonts.gstatic.com; frame-src 'self' https://js.stripe.com https://hooks.stripe.com; frame-ancestors 'self'; worker-src 'self' blob:;" />
     <!-- TikTok Pixel Code Start -->
     <script>
     !function (w, d, t) {
@@ -16,6 +16,20 @@
     }(window, document, 'ttq');
     </script>
     <!-- TikTok Pixel Code End -->
+    <!-- Meta Pixel Code -->
+    <script>
+    !function(f,b,e,v,n,t,s)
+    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+    n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t,s)}(window, document,'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', '876707781495600');
+    fbq('track', 'PageView');
+    </script>
+    <!-- End Meta Pixel Code -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="icon" type="image/png" href="/favicon.png">
@@ -61,6 +75,10 @@
 
   <body>
     <div id="root"></div>
+    <!-- Meta Pixel noscript fallback -->
+    <noscript><img height="1" width="1" style="display:none"
+    src="https://www.facebook.com/tr?id=876707781495600&ev=PageView&noscript=1"
+    /></noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

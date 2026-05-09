@@ -176,6 +176,12 @@ export default function IntlProductDetails() {
     return { markup, shipping, total };
   }, [product, meta, globalMarkupPercent]);
 
+  // Meta Pixel: ViewContent on product detail load
+  useEffect(() => {
+    if (!product || !totals) return;
+    trackMetaViewContent({ id: `intl_${product.id}`, title: product.title, price: totals.total });
+  }, [product, totals]);
+
   const gallery = useMemo(() => {
     if (!product) return [];
     return (Array.isArray(product.images) && product.images.length > 0) ? product.images : [product.image_url];

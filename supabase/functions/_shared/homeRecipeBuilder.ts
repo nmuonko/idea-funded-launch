@@ -668,7 +668,16 @@ export async function readMobileCache(env: string): Promise<{ hit: boolean; payl
   if (ageSeconds > row.ttl_seconds) {
     return { hit: false, payload: row.payload, ageSeconds, schemaVersion: row.schema_version };
   }
-  
+  // Empty payload → treat as miss so auto-refresh rebuilds instead of serving
+  // (and pinning) an empty cache for the full TTL.
+  const mItems = (row.payload as { items?: unknown[]; sections?: Array<{ items?: unknown[] }> })?.items;
+  const mSections = (row.payload as { sections?: Array<{ items?: unknown[] }> })?.sections;
+  const mCount = (Array.isArray(mItems) ? mItems.length : 0)
+    + (Array.isArray(mSections) ? mSections.reduce((n, s) => n + (Array.isArray(s.items) ? s.items.length : 0), 0) : 0);
+  if (mCount === 0) {
+    return { hit: false, payload: row.payload, ageSeconds, schemaVersion: row.schema_version };
+  }
+
   return { hit: true, payload: row.payload, ageSeconds, schemaVersion: row.schema_version };
 }
 
@@ -714,7 +723,12 @@ export async function readWebCache(env: string): Promise<{ hit: boolean; payload
   if (ageSeconds > row.ttl_seconds) {
     return { hit: false, payload: row.payload, ageSeconds, schemaVersion: row.schema_version };
   }
-  
+  // Empty payload → treat as miss (same rationale as readMobileCache).
+  const wItems = (row.payload as { items?: unknown[] })?.items;
+  if (!Array.isArray(wItems) || wItems.length === 0) {
+    return { hit: false, payload: row.payload, ageSeconds, schemaVersion: row.schema_version };
+  }
+
   return { hit: true, payload: row.payload, ageSeconds, schemaVersion: row.schema_version };
 }
 

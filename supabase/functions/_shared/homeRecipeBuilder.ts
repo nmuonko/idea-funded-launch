@@ -723,7 +723,12 @@ export async function readWebCache(env: string): Promise<{ hit: boolean; payload
   if (ageSeconds > row.ttl_seconds) {
     return { hit: false, payload: row.payload, ageSeconds, schemaVersion: row.schema_version };
   }
-  
+  // Empty payload → treat as miss (same rationale as readMobileCache).
+  const wItems = (row.payload as { items?: unknown[] })?.items;
+  if (!Array.isArray(wItems) || wItems.length === 0) {
+    return { hit: false, payload: row.payload, ageSeconds, schemaVersion: row.schema_version };
+  }
+
   return { hit: true, payload: row.payload, ageSeconds, schemaVersion: row.schema_version };
 }
 

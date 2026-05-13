@@ -630,12 +630,13 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       providers: (dbConfig.providers as RuntimeProvider[]) || DEFAULT_RUNTIME_CONFIG.providers,
       ui: (dbConfig.ui as RuntimeUI) || DEFAULT_RUNTIME_CONFIG.ui,
       search: (dbConfig.search as RuntimeSearchConfig) || DEFAULT_RUNTIME_CONFIG.search,
-      home: (dbConfig.home as RuntimeHomeConfig) || DEFAULT_RUNTIME_CONFIG.home,
+      home: UNIFIED_SMARTPHONE_HOME_CONFIG,
       blocks: (dbConfig.blocks as RuntimeBlocksConfig) || DEFAULT_RUNTIME_CONFIG.blocks,
     };
     console.log("[mobile-public-config] Loaded runtime config from DB, version:", runtimeConfig.version);
   } else {
     console.log("[mobile-public-config] Using default runtime config");
+    runtimeConfig = { ...runtimeConfig, home: UNIFIED_SMARTPHONE_HOME_CONFIG };
   }
 
   if (!settings) {

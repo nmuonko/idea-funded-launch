@@ -26,9 +26,10 @@ import { clearImageValidationCaches, collectProductImageCandidates, isRenderable
 import { supabase } from '@/integrations/supabase/client';
 import { applyServerPrices, resolveDisplayPrice } from '@/lib/serverPricing';
 
+import { SEOHead } from '@/components/SEOHead';
+
 // Import static data and helpers from extracted module
 import {
-import { SEOHead } from '@/components/SEOHead';
   CATEGORY_TITLE_MAP,
   CATEGORY_SEARCH_QUERIES,
   CATEGORY_KEYWORDS,

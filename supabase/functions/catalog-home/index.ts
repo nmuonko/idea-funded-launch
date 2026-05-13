@@ -1453,21 +1453,24 @@ function curatedPhoneBucket(it: CuratedItem): "iphone" | "galaxy" | "pixel" | "o
 }
 
 function curatedInterleavePhoneBrands(items: CuratedItem[]): CuratedItem[] {
+  // Phones first (round-robin iPhone → Galaxy → Pixel), then everything else
+  // in original (price-asc) order. This guarantees the homepage opens with
+  // smartphones rather than cheap accessories.
   const buckets: Record<"iphone" | "galaxy" | "pixel" | "other", CuratedItem[]> = {
     iphone: [], galaxy: [], pixel: [], other: [],
   };
   for (const it of items) buckets[curatedPhoneBucket(it)].push(it);
-  const order: Array<keyof typeof buckets> = ["iphone", "galaxy", "pixel", "other"];
-  const out: CuratedItem[] = [];
+  const phoneOrder: Array<"iphone" | "galaxy" | "pixel"> = ["iphone", "galaxy", "pixel"];
+  const phones: CuratedItem[] = [];
   let added = true;
   while (added) {
     added = false;
-    for (const k of order) {
+    for (const k of phoneOrder) {
       const next = buckets[k].shift();
-      if (next) { out.push(next); added = true; }
+      if (next) { phones.push(next); added = true; }
     }
   }
-  return out;
+  return [...phones, ...buckets.other];
 }
 
 function applyCuratedHomepageRules(body: unknown): unknown {

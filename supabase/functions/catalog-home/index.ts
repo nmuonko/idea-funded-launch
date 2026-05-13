@@ -1817,9 +1817,18 @@ const __originalHandler = async (req: Request): Promise<Response> => {
                   return rk === recipeKeyFilter;
                 });
             if (isUnifiedHomepageStale) {
+              try {
+                const ps = await loadPricingSettings();
+                allItems = applyAllInclusivePricingToItems(
+                  allItems as unknown as Record<string, unknown>[],
+                  ps,
+                ) as typeof allItems;
+              } catch (e) {
+                console.warn(`[CATALOG_HOME] unified_pricing_pre_sort_stale_failed`, e);
+              }
               allItems = [...allItems].sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
-                const pa = Number((a.price_usd as number) ?? (a.priceUsd as number) ?? Infinity);
-                const pb = Number((b.price_usd as number) ?? (b.priceUsd as number) ?? Infinity);
+                const pa = Number((a.priceUsd as number) ?? (a.price_usd as number) ?? Infinity);
+                const pb = Number((b.priceUsd as number) ?? (b.price_usd as number) ?? Infinity);
                 return (isFinite(pa) ? pa : Infinity) - (isFinite(pb) ? pb : Infinity);
               });
             }

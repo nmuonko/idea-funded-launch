@@ -20,7 +20,8 @@ const PaymentsCompliance = () => {
   ];
 
   return (
-    <SEOHead title="Payments & Compliance" description="Accepted payment methods at AfriShop: mobile money, cards, and our compliance practices." />
+    <>
+      <SEOHead title="Payments & Compliance" description="Accepted payment methods at AfriShop: mobile money, cards, and our compliance practices." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 
@@ -180,6 +181,7 @@ const PaymentsCompliance = () => {
 
        <ShopFooter />
     </div>
+    </>
   );
 };
 

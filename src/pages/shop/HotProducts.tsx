@@ -188,7 +188,8 @@ export default function HotProducts() {
   const locale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
 
   return (
-    <SEOHead title="Hot Products" description="Trending and discounted products handpicked by AfriShop, ready to ship from the USA to DR Congo." />
+    <>
+      <SEOHead title="Hot Products" description="Trending and discounted products handpicked by AfriShop, ready to ship from the USA to DR Congo." />
     <div className="min-h-screen bg-black pb-safe-nav">
       <ShopHeader />
 
@@ -364,5 +365,6 @@ export default function HotProducts() {
       <ShopFooter />
       <BottomNavigation />
     </div>
+    </>
   );
 }

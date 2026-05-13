@@ -43,7 +43,8 @@ const HowItWorks = () => {
   ];
 
   return (
-    <SEOHead title="How It Works" description="Step-by-step: order from USA stores, pay locally, and get door-to-door delivery in DR Congo with AfriShop." />
+    <>
+      <SEOHead title="How It Works" description="Step-by-step: order from USA stores, pay locally, and get door-to-door delivery in DR Congo with AfriShop." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 
@@ -321,6 +322,7 @@ const HowItWorks = () => {
 
        <ShopFooter />
     </div>
+    </>
   );
 };
 

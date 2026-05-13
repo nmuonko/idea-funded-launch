@@ -254,7 +254,8 @@ export default function Cars() {
     };
 
     return (
-      <SEOHead title="Import Cars from USA to DR Congo" description="Order vehicles from the USA with AfriShop: transparent pricing, shipping, customs and delivery to the DRC." />
+      <>
+        <SEOHead title="Import Cars from USA to DR Congo" description="Order vehicles from the USA with AfriShop: transparent pricing, shipping, customs and delivery to the DRC." />
       <div className="aspect-video relative bg-muted group">
         {images.length > 0 ? (
           <>
@@ -307,6 +308,7 @@ export default function Cars() {
           </div>
         )}
       </div>
+      </>
     );
   };
 

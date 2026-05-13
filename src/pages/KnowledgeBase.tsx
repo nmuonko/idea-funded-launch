@@ -94,7 +94,8 @@ export default function KnowledgeBase() {
   const categories = Array.from(new Set(articles.map(a => a.category)));
 
   return (
-    <SEOHead title="Knowledge Base" description="FAQs and help articles for shopping USA products and getting them delivered to DR Congo with AfriShop." />
+    <>
+      <SEOHead title="Knowledge Base" description="FAQs and help articles for shopping USA products and getting them delivered to DR Congo with AfriShop." />
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="text-center space-y-2">
@@ -219,5 +220,6 @@ export default function KnowledgeBase() {
         </Dialog>
       </div>
     </div>
+    </>
   );
 }

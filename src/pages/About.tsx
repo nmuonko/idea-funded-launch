@@ -25,7 +25,8 @@ const About = () => {
   ];
 
   return (
-    <SEOHead title="About AfriShop" description="AfriShop bridges USA retailers and customers in DR Congo with all-inclusive pricing and reliable delivery." />
+    <>
+      <SEOHead title="About AfriShop" description="AfriShop bridges USA retailers and customers in DR Congo with all-inclusive pricing and reliable delivery." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 
@@ -189,6 +190,7 @@ const About = () => {
 
        <ShopFooter />
     </div>
+    </>
   );
 };
 

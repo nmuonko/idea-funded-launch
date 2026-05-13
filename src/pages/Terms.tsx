@@ -21,7 +21,8 @@ const Terms = () => {
   ];
 
   return (
-    <SEOHead title="Terms of Service" description="The terms and conditions that govern your use of AfriShop and our delivery service." />
+    <>
+      <SEOHead title="Terms of Service" description="The terms and conditions that govern your use of AfriShop and our delivery service." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 
@@ -371,6 +372,7 @@ const Terms = () => {
 
        <ShopFooter />
     </div>
+    </>
   );
 };
 

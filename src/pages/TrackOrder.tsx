@@ -168,7 +168,8 @@ export default function TrackOrder() {
   };
 
   return (
-    <SEOHead title="Track Your Order" description="Track the live status of your AfriShop order from purchase to door-to-door delivery in DR Congo." />
+    <>
+      <SEOHead title="Track Your Order" description="Track the live status of your AfriShop order from purchase to door-to-door delivery in DR Congo." />
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground py-12 px-4">
@@ -430,5 +431,6 @@ export default function TrackOrder() {
       {/* Footer spacing */}
       <div className="h-16" />
     </div>
+    </>
   );
 }

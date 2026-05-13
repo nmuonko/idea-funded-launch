@@ -1715,6 +1715,12 @@ const __originalHandler = async (req: Request): Promise<Response> => {
                 const pb = Number((b.priceUsd as number) ?? (b.price_usd as number) ?? Infinity);
                 return (isFinite(pa) ? pa : Infinity) - (isFinite(pb) ? pb : Infinity);
               });
+              // Phones first (round-robin iPhone/Galaxy/Pixel), then everything
+              // else in price-asc order. Applied to the WHOLE pool BEFORE
+              // pagination so page 1 actually shows smartphones (matches web).
+              allItems = curatedInterleavePhoneBrands(
+                allItems as unknown as CuratedItem[],
+              ) as unknown as typeof allItems;
             }
             
             // DIAGNOSTIC: log zero-match so mismatches are visible in logs

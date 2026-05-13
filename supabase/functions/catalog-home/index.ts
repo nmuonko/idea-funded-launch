@@ -2296,7 +2296,8 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     const headers = new Headers(res.headers);
-    return new Response(JSON.stringify(processed), { status: res.status, headers });
+    const finalProcessed = res.status >= 400 ? processed : normalizeResponseImages(processed);
+    return new Response(JSON.stringify(finalProcessed), { status: res.status, headers });
   } catch (e) {
     console.warn("[CATALOG_HOME] post-process failed, returning raw:", e);
     return res;

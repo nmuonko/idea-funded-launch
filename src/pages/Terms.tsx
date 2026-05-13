@@ -1,5 +1,6 @@
 import { FileText, AlertTriangle, Scale, Ban, RefreshCw, Building2, CreditCard, Mail, MapPin, Gavel } from "lucide-react";
 import { motion } from "framer-motion";
+import { SEOHead } from '@/components/SEOHead';
  import { PublicHeader } from "@/components/public/PublicLayout";
  import { ShopFooter } from "@/components/shop/ShopFooter";
 
@@ -20,6 +21,7 @@ const Terms = () => {
   ];
 
   return (
+    <SEOHead title="Terms of Service" description="The terms and conditions that govern your use of AfriShop and our delivery service." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 

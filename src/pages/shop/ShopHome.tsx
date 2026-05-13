@@ -28,6 +28,7 @@ import { applyServerPrices, resolveDisplayPrice } from '@/lib/serverPricing';
 
 // Import static data and helpers from extracted module
 import {
+import { SEOHead } from '@/components/SEOHead';
   CATEGORY_TITLE_MAP,
   CATEGORY_SEARCH_QUERIES,
   CATEGORY_KEYWORDS,
@@ -1905,6 +1906,7 @@ export default function ShopHome() {
   const isInitialLoading = accueilLoading && Object.values(categoryLoadingMap).every(v => v);
 
   return (
+    <SEOHead title="AfriShop — Shop USA, Delivered to DR Congo" description="Shop trending products from Amazon, eBay, Walmart and more — delivered door-to-door to DR Congo with all-inclusive pricing." />
     <div className="min-h-screen bg-[#0f1115] pb-safe-nav">
       <ShopHeader />
       <div className="pt-16 md:pt-20" />

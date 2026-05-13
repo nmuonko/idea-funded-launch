@@ -12,3 +12,21 @@ Allow: /
 
 User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /admin/
+Disallow: /auth
+Disallow: /shop-auth
+Disallow: /checkout
+Disallow: /card-payment
+Disallow: /payment-callback
+Disallow: /account
+Disallow: /profile
+Disallow: /orders
+Disallow: /my-orders
+Disallow: /cart
+Disallow: /saved
+Disallow: /onboarding
+Disallow: /accept-invite
+Disallow: /delete-account
+
+Sitemap: https://afrishop-usa.com/sitemap.xml

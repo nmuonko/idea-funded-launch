@@ -1,0 +1,28 @@
+# AfriShop
+
+> AfriShop lets customers in the Democratic Republic of Congo shop products from top USA retailers (Amazon, eBay, Walmart, SHEIN, Tesla and more) with all-inclusive pricing, mobile-money payments, and door-to-door delivery from the USA to the DRC.
+
+AfriShop handles sourcing, US-side purchase, customs, shipping, and last-mile delivery. Final prices include product cost, US sales tax, international shipping, customs, and local delivery — no surprise fees at checkout. Payments are accepted via mobile money (M-Pesa, Orange Money, Airtel Money) and international cards.
+
+## Pages
+
+- [Home](/): Browse the curated USA product feed.
+- [How it works](/how-it-works): End-to-end flow from order to delivery in the DRC.
+- [About](/about): Who AfriShop is and the markets we serve.
+- [Coverage](/coverage): Cities and regions where we deliver in the DRC.
+- [Contact](/contact): Customer support contacts (WhatsApp, email, phone).
+- [Cars](/cars): Vehicle import service from the USA to the DRC.
+- [Hot products](/hot-products): Currently trending and discounted items.
+- [Paste a link](/paste-link): Submit any USA product URL for a delivered-to-DRC quote.
+- [Get the app](/get): Download the AfriShop mobile app.
+- [Track an order](/track-order): Look up the status of an existing order.
+- [Knowledge base](/knowledge-base): FAQs and help articles.
+- [Refunds policy](/refunds): When and how refunds are issued.
+- [Payments & compliance](/payments-compliance): Accepted payment methods and KYC.
+- [Payouts](/payouts): Referral and partner payout policy.
+- [Share & earn](/share): Referral program details.
+
+## Optional
+
+- [Privacy policy](/privacy)
+- [Terms of service](/terms)

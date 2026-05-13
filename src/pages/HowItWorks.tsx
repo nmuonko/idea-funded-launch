@@ -2,6 +2,7 @@ import { ArrowRight, Download, Package, Globe, Truck, Shield, HeadphonesIcon, Sm
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
+import { SEOHead } from '@/components/SEOHead';
  import { PublicHeader } from "@/components/public/PublicLayout";
  import { ShopFooter } from "@/components/shop/ShopFooter";
 
@@ -42,6 +43,7 @@ const HowItWorks = () => {
   ];
 
   return (
+    <SEOHead title="How It Works" description="Step-by-step: order from USA stores, pay locally, and get door-to-door delivery in DR Congo with AfriShop." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 

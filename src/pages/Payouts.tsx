@@ -1,5 +1,6 @@
 import { Wallet, ArrowDown, Users, ShieldCheck, FileText, AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
+import { SEOHead } from '@/components/SEOHead';
  import { PublicHeader } from "@/components/public/PublicLayout";
  import { ShopFooter } from "@/components/shop/ShopFooter";
 
@@ -25,6 +26,7 @@ const Payouts = () => {
   ];
 
   return (
+    <SEOHead title="Referral Payouts" description="How AfriShop pays referral commissions via mobile money in DR Congo." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 

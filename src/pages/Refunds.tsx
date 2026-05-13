@@ -4,6 +4,7 @@ import { PublicHeader } from "@/components/public/PublicLayout";
 import { ShopFooter } from "@/components/shop/ShopFooter";
 import { RefundRequestForm } from "@/components/shop/RefundRequestForm";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { SEOHead } from '@/components/SEOHead';
 
 const Refunds = () => {
   const { language } = useLanguage();
@@ -31,6 +32,7 @@ const Refunds = () => {
   ];
 
   return (
+    <SEOHead title="Refunds Policy" description="When AfriShop issues refunds, how to request one, and the timelines for each case." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 

@@ -1,5 +1,6 @@
 import { Mail, MessageCircle, MapPin, Phone, Building2, Clock } from "lucide-react";
 import { motion } from "framer-motion";
+import { SEOHead } from '@/components/SEOHead';
  import { PublicHeader } from "@/components/public/PublicLayout";
  import { ShopFooter } from "@/components/shop/ShopFooter";
 
@@ -32,6 +33,7 @@ const Contact = () => {
   ];
 
   return (
+    <SEOHead title="Contact AfriShop Support" description="Reach AfriShop via WhatsApp, email or phone for orders, deliveries and customer support in DR Congo." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 

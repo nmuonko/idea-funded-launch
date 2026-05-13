@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
  import { PublicHeader } from "@/components/public/PublicLayout";
  import { ShopFooter } from "@/components/shop/ShopFooter";
 import afrishopLogo from "@/assets/afrishop-logo.png";
+import { SEOHead } from '@/components/SEOHead';
 
 const About = () => {
   const services = [
@@ -24,6 +25,7 @@ const About = () => {
   ];
 
   return (
+    <SEOHead title="About AfriShop" description="AfriShop bridges USA retailers and customers in DR Congo with all-inclusive pricing and reliable delivery." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 

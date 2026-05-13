@@ -1,5 +1,6 @@
 import { CreditCard, Shield, CheckCircle, Building2, Smartphone, Lock } from "lucide-react";
 import { motion } from "framer-motion";
+import { SEOHead } from '@/components/SEOHead';
  import { PublicHeader } from "@/components/public/PublicLayout";
  import { ShopFooter } from "@/components/shop/ShopFooter";
 
@@ -19,6 +20,7 @@ const PaymentsCompliance = () => {
   ];
 
   return (
+    <SEOHead title="Payments & Compliance" description="Accepted payment methods at AfriShop: mobile money, cards, and our compliance practices." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 

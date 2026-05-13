@@ -206,6 +206,19 @@ function isValidVehicle(item: any): boolean {
   return hasVehicleType || isExpensiveEnough;
 }
 
+function isHomepagePhoneAccessoryTitle(title: string): boolean {
+  return /\b(case|cover|glass|screen protector|protector|tempered glass|charger|cable|usb-?c|lightning|magsafe|adapter|mount|stand|holder|keyboard|mouse|watch\s*case|watch|band|bands|replacement|repair|parts?|battery|lens|stylus|dock|wallet|for\s+(iphone|samsung|galaxy|pixel)|compatible\s+with\s+(iphone|samsung|galaxy|pixel))\b/i.test(title);
+}
+
+function isHomepageSmartphoneTitle(title: string): boolean {
+  if (isHomepagePhoneAccessoryTitle(title)) return false;
+  const lower = title.toLowerCase();
+  return /\biphone\s?(se|1[1-6]|xr|xs|x)\b/.test(lower)
+    || /\bpixel\s?(6|7|8|9)\b/.test(lower)
+    || /\b(samsung\s+)?galaxy\s+(s\d{1,2}|note\s?\d*|z\s?(fold|flip))\b/.test(lower)
+    || /\boneplus\s+\d+/i.test(lower);
+}
+
 function isAuctionItem(item: any): boolean {
   // Check buyingOptions
   const buyingOptions = item.buyingOptions || [];

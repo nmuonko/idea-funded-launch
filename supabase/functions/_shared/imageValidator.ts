@@ -414,3 +414,118 @@ export function bestProductImage(
   }
   return null;
 }
+
+// ─── DISPLAY (THUMBNAIL) IMAGE NORMALIZATION ──────────────────────────────────
+// Mirrors the frontend src/lib/imageResize.ts logic so the backend can return
+// the exact same final display image URL the web ProductCard renders.
+// This guarantees mobile + web visual parity without per-client image logic.
+
+const EBAY_DISPLAY_SIZE = 500;
+const AMAZON_DISPLAY_TOKEN = "_SL480";
+
+/**
+ * Rewrite a (sanitized) image URL to a thumbnail-sized display URL.
+ * Amazon: _SL/_SX/_SY/_AC_SL/_UY/_US tokens → _SL480
+ * eBay:   s-l#### → s-l500
+ * SHEIN:  strip _thumbnail_NNNxNNN
+ * Other CDNs: returned as-is.
+ */
+export function toDisplayImageUrl(url: string | null | undefined): string | null {
+  if (!url || typeof url !== "string") return null;
+  let out = url;
+
+  if (out.includes("media-amazon.com") || out.includes("images-amazon.com") || out.includes("ssl-images-amazon.com")) {
+    out = out
+      .replace(/_SL\d{2,4}([_.])/gi, `${AMAZON_DISPLAY_TOKEN}$1`)
+      .replace(/_SS\d{2,4}([_.])/gi, `${AMAZON_DISPLAY_TOKEN}$1`)
+      .replace(/_SX\d{2,4}([_.])/gi, `${AMAZON_DISPLAY_TOKEN}$1`)
+      .replace(/_SY\d{2,4}([_.])/gi, `${AMAZON_DISPLAY_TOKEN}$1`)
+      .replace(/_AC_SL\d{2,4}/gi, `_AC_SL480`)
+      .replace(/_AC_UY\d{2,4}/gi, `_AC_SL480`)
+      .replace(/_AC_US\d{2,4}/gi, `_AC_SL480`)
+      .replace(/_AC_UL\d{2,4}/gi, `_AC_SL480`)
+      .replace(/_UY\d{2,4}([_.])/gi, `${AMAZON_DISPLAY_TOKEN}$1`)
+      .replace(/_US\d{2,4}([_.])/gi, `${AMAZON_DISPLAY_TOKEN}$1`)
+      .replace(/_SR\d+,\d+([_.])/gi, `${AMAZON_DISPLAY_TOKEN}$1`);
+    return out;
+  }
+
+  if (out.includes("ebayimg.com")) {
+    return out.replace(/s-l\d+/gi, `s-l${EBAY_DISPLAY_SIZE}`);
+  }
+
+  if (out.includes("ltwebstatic.com")) {
+    return out.replace(/_thumbnail_\d+x\d*/gi, "");
+  }
+
+  return out;
+}
+
+const IMAGE_STRING_KEYS = new Set([
+  "imageUrl", "image_url", "mainImageUrl", "thumbnail", "thumb",
+]);
+const IMAGE_ARRAY_KEYS = new Set(["images", "imageUrls", "gallery"]);
+const SKIP_WALK_KEYS = new Set(["meta", "debug", "scoring", "intent", "timings"]);
+
+function rewriteImageString(value: unknown): string | null | undefined {
+  if (value == null) return value as null | undefined;
+  if (typeof value !== "string") return value as undefined;
+  if (!value.startsWith("http")) return value;
+  // Validate first; if backend somehow has an unsanitized URL, sanitize then resize.
+  const safe = sanitizeImageUrl(value) ?? value;
+  return toDisplayImageUrl(safe) ?? safe;
+}
+
+/**
+ * Recursively walk a response payload and rewrite any image URL fields to
+ * thumbnail/display size, preserving the high-res original in `rawImageUrl`
+ * (added per-object only when an `imageUrl`/`image_url` field is rewritten).
+ */
+export function normalizeResponseImages<T>(payload: T, _depth = 0): T {
+  if (_depth > 10 || payload == null) return payload;
+  if (Array.isArray(payload)) {
+    for (let i = 0; i < payload.length; i++) {
+      payload[i] = normalizeResponseImages(payload[i], _depth + 1);
+    }
+    return payload;
+  }
+  if (typeof payload !== "object") return payload;
+
+  const obj = payload as Record<string, unknown>;
+  let primaryRaw: string | null = null;
+  let primaryNew: string | null = null;
+
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (val == null) continue;
+
+    if (IMAGE_STRING_KEYS.has(key) && typeof val === "string") {
+      const rewritten = rewriteImageString(val);
+      if (typeof rewritten === "string" && rewritten !== val) {
+        if (!primaryRaw && (key === "imageUrl" || key === "image_url" || key === "mainImageUrl")) {
+          primaryRaw = val;
+          primaryNew = rewritten;
+        }
+        obj[key] = rewritten;
+      }
+      continue;
+    }
+
+    if (IMAGE_ARRAY_KEYS.has(key) && Array.isArray(val)) {
+      obj[key] = val.map((u) => (typeof u === "string" ? rewriteImageString(u) : u));
+      continue;
+    }
+
+    if (SKIP_WALK_KEYS.has(key)) continue;
+
+    if (typeof val === "object") {
+      obj[key] = normalizeResponseImages(val, _depth + 1);
+    }
+  }
+
+  if (primaryRaw && primaryNew && typeof obj["rawImageUrl"] === "undefined") {
+    obj["rawImageUrl"] = primaryRaw;
+  }
+
+  return payload;
+}

@@ -523,7 +523,8 @@ async function getItemsFromDB(
   categoryKey: string,
   page: number,
   pageSize: number,
-  isVehicle: boolean = false
+  isVehicle: boolean = false,
+  smartphoneOnly: boolean = false
 ): Promise<{ items: CollectionItem[]; total: number }> {
   const offset = (page - 1) * pageSize;
 
@@ -538,8 +539,21 @@ async function getItemsFromDB(
     query = query.eq("provider", provider);
   }
 
+  if (smartphoneOnly) {
+    query = query
+      .eq("is_active", true)
+      .gte("price_usd", 80)
+      .lte("price_usd", 1800)
+      .in("provider", provider === "all" ? ["amazon", "rainforest"] : [provider])
+      .or([
+        "title.ilike.%iphone 11%", "title.ilike.%iphone 12%", "title.ilike.%iphone 13%", "title.ilike.%iphone 14%", "title.ilike.%iphone 15%", "title.ilike.%iphone 16%", "title.ilike.%iphone se%",
+        "title.ilike.%galaxy s21%", "title.ilike.%galaxy s22%", "title.ilike.%galaxy s23%", "title.ilike.%galaxy s24%", "title.ilike.%galaxy s25%", "title.ilike.%galaxy note%", "title.ilike.%galaxy z fold%", "title.ilike.%galaxy z flip%",
+        "title.ilike.%pixel 7%", "title.ilike.%pixel 8%", "title.ilike.%pixel 9%", "title.ilike.%oneplus %",
+      ].join(","));
+  }
+
   // Match category_key
-  if (categoryKey) {
+  if (categoryKey && !smartphoneOnly) {
     query = query.eq("category_key", categoryKey);
   }
 
@@ -557,6 +571,7 @@ async function getItemsFromDB(
   for (const row of (rows || [])) {
     const title = row.title || "Unknown";
     if (isBlockedTitle(title, isVehicle)) continue;
+    if (smartphoneOnly && !isHomepageSmartphoneTitle(title)) continue;
 
     items.push({
       id: row.id,
@@ -571,7 +586,11 @@ async function getItemsFromDB(
     });
   }
 
-  return { items, total: count || items.length };
+  if (smartphoneOnly) {
+    items.sort((a, b) => (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
+  }
+
+  return { items, total: smartphoneOnly ? items.length : (count || items.length) };
 }
 
 async function saveToCache(

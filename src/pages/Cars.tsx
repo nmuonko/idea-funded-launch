@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Car, Search, ShoppingCart, MessageCircle, AlertTriangle, ChevronLeft, ChevronRight, ImageIcon } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { filterGalleryImages, isRenderableImageUrl } from "@/lib/imageValidation";
+import { SEOHead } from '@/components/SEOHead';
 
 interface CarListing {
   id: string;
@@ -253,6 +254,7 @@ export default function Cars() {
     };
 
     return (
+      <SEOHead title="Import Cars from USA to DR Congo" description="Order vehicles from the USA with AfriShop: transparent pricing, shipping, customs and delivery to the DRC." />
       <div className="aspect-video relative bg-muted group">
         {images.length > 0 ? (
           <>

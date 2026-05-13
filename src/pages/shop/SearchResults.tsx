@@ -15,6 +15,7 @@ import { normalizeQuery, stableStringify, cachedCatalogFetchWithSwr, cachedCatal
 import { collectProductImageCandidates, pickBestImage } from '@/lib/imageValidation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
+import { SEOHead } from '@/components/SEOHead';
 const PAGE_SIZE = 500;
 const HARD_MAX_ITEMS = 2000;
 const MAX_PAGES = Math.ceil(HARD_MAX_ITEMS / PAGE_SIZE); // 4
@@ -583,6 +584,7 @@ export default function SearchResults() {
   const showEmpty = hasSearched && !loading && !loadingMore && !prefetchingNext && !isRevalidating && !incomplete && products.length === 0;
 
   return (
+    <SEOHead title="Search Results" description="Search USA products and get delivered-to-DRC pricing instantly with AfriShop." />
     <div className="min-h-screen bg-black pb-safe-nav">
       <ShopHeader />
 

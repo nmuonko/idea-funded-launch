@@ -7,6 +7,7 @@ import { Globe, MessageCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import afrishopLogo from '@/assets/afrishop-logo.png';
 import { motion } from 'framer-motion';
+import { SEOHead } from '@/components/SEOHead';
 
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.afrishop.usadrc';
 const WEBSITE_URL = 'https://afrishop-usa.com';
@@ -94,6 +95,7 @@ export default function GetApp() {
   const webUrlWithParams = buildUrlWithParams(WEBSITE_URL, params);
 
   return (
+    <SEOHead title="Get the AfriShop Mobile App" description="Download the AfriShop app to shop USA stores and track deliveries to DR Congo on Android." />
     <div className="min-h-screen bg-[hsl(222,47%,5%)] text-white flex flex-col items-center justify-center px-4 py-8 relative overflow-hidden">
       {/* Ambient glow effects */}
       <div className="absolute inset-0 pointer-events-none">

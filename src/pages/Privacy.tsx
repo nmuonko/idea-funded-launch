@@ -1,5 +1,6 @@
 import { Shield, Mail, Lock, Eye, UserCheck, Database, ShieldCheck, Clock, Share2, Building2 } from "lucide-react";
 import { motion } from "framer-motion";
+import { SEOHead } from '@/components/SEOHead';
  import { PublicHeader } from "@/components/public/PublicLayout";
  import { ShopFooter } from "@/components/shop/ShopFooter";
 
@@ -65,6 +66,7 @@ const Privacy = () => {
   ];
 
   return (
+    <SEOHead title="Privacy Policy" description="How AfriShop collects, uses and protects your personal data and order information." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 

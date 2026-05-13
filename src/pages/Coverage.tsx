@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { SEOHead } from '@/components/SEOHead';
 
 // Fix for default marker icons in react-leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -123,6 +124,7 @@ export default function Coverage() {
   };
 
   return (
+    <SEOHead title="Delivery Coverage in DR Congo" description="Cities and regions in the DRC where AfriShop delivers: Kinshasa, Lubumbashi, Goma and more." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 

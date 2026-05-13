@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { SEOHead } from '@/components/SEOHead';
 
 interface OrderData {
   id: string;
@@ -167,6 +168,7 @@ export default function TrackOrder() {
   };
 
   return (
+    <SEOHead title="Track Your Order" description="Track the live status of your AfriShop order from purchase to door-to-door delivery in DR Congo." />
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground py-12 px-4">

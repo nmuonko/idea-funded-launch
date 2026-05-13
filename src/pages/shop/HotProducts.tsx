@@ -13,6 +13,7 @@ import { useShopCart } from '@/hooks/useShopCart';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSupportContact } from '@/hooks/useSupportContact';
 import { toast } from 'sonner';
+import { SEOHead } from '@/components/SEOHead';
 
 const HP_ADDED_KEY = 'hp_added_';
 
@@ -187,6 +188,7 @@ export default function HotProducts() {
   const locale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
 
   return (
+    <SEOHead title="Hot Products" description="Trending and discounted products handpicked by AfriShop, ready to ship from the USA to DR Congo." />
     <div className="min-h-screen bg-black pb-safe-nav">
       <ShopHeader />
 

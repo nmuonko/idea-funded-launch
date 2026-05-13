@@ -222,8 +222,11 @@ interface CatalogItem {
   currency: string;
   image_url: string | null;
   imageUrl: string | null;
+  images?: string[];
+  imageUrls?: string[];
   product_url: string | null;
   productUrl: string | null;
+  rating?: number;
   in_stock: boolean;
   segment?: string;
 }

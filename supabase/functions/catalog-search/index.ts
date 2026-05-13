@@ -11,7 +11,14 @@
 
 import { createAdminPostgrestClient } from "../_shared/postgrest.ts";
 import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
-import { sanitizeImageUrl, upgradeToHighRes } from "../_shared/imageValidator.ts";
+import { sanitizeImageUrl, upgradeToHighRes, normalizeResponseImages } from "../_shared/imageValidator.ts";
+
+// Stringify a response payload after rewriting image URLs to display
+// (thumbnail) size — keeps web + mobile rendering pixel-identical without
+// per-client image logic. Used in place of JSON.stringify for HTTP responses.
+function stringifyDisplay(payload: unknown): string {
+  return JSON.stringify(normalizeResponseImages(payload));
+}
 import { isBlockedSearchQuery, getBlockedSearchMessage, filterDisallowedItems } from "../_shared/contentBlocker.ts";
 import { getCatalogSettings, getEffectiveMode } from "../_shared/catalogSettings.ts";
 import {

@@ -1765,7 +1765,7 @@ const __originalHandler = async (req: Request): Promise<Response> => {
               sections = normalizeSectionTitles(sections, langKey) as typeof sections;
               
               const totalMs = Date.now() - startTime;
-              console.log(`[CATALOG_HOME] recipe_web_cache_hit correlationId=${correlationId} poolSize=${allItems.length} page=${page}/${totalPages} items=${pageItems.length} ms=${totalMs}`);
+              console.log(`[CATALOG_HOME] recipe_web_cache_hit correlationId=${correlationId} poolSize=${allItems.length} page=${page}/${totalPages} items=${pageItems.length} ms=${totalMs} sortedFirstPrice=${(allItems[0] as Record<string, unknown>)?.price_usd} unified=${isUnifiedHomepage}`);
               
               return jsonResponse({
                 ok: true,

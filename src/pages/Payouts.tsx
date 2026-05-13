@@ -26,7 +26,8 @@ const Payouts = () => {
   ];
 
   return (
-    <SEOHead title="Referral Payouts" description="How AfriShop pays referral commissions via mobile money in DR Congo." />
+    <>
+      <SEOHead title="Referral Payouts" description="How AfriShop pays referral commissions via mobile money in DR Congo." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 
@@ -251,6 +252,7 @@ const Payouts = () => {
 
        <ShopFooter />
     </div>
+    </>
   );
 };
 

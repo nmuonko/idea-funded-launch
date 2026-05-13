@@ -138,7 +138,8 @@ export default function PasteLink() {
   };
 
   return (
-    <SEOHead title="Paste a USA Product Link" description="Paste any Amazon, eBay, Walmart or SHEIN URL to get an all-inclusive delivered-to-DRC quote." />
+    <>
+      <SEOHead title="Paste a USA Product Link" description="Paste any Amazon, eBay, Walmart or SHEIN URL to get an all-inclusive delivered-to-DRC quote." />
     <div className="min-h-screen bg-[#0f1115] pb-safe-nav">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-[#0f1115]/95 backdrop-blur-xl border-b border-white/[0.06]">
@@ -323,5 +324,6 @@ export default function PasteLink() {
 
       <BottomNavigation />
     </div>
+    </>
   );
 }

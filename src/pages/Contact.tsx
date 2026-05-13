@@ -33,7 +33,8 @@ const Contact = () => {
   ];
 
   return (
-    <SEOHead title="Contact AfriShop Support" description="Reach AfriShop via WhatsApp, email or phone for orders, deliveries and customer support in DR Congo." />
+    <>
+      <SEOHead title="Contact AfriShop Support" description="Reach AfriShop via WhatsApp, email or phone for orders, deliveries and customer support in DR Congo." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 
@@ -207,6 +208,7 @@ const Contact = () => {
 
        <ShopFooter />
     </div>
+    </>
   );
 };
 

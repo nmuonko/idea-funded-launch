@@ -272,7 +272,8 @@ export default function CategoryResultsPage() {
   const hasMore = !exhaustedRef.current;
 
   return (
-    <SEOHead title="Browse Category" description="Browse AfriShop products by category with all-inclusive USA-to-DRC pricing." />
+    <>
+      <SEOHead title="Browse Category" description="Browse AfriShop products by category with all-inclusive USA-to-DRC pricing." />
     <div className="min-h-screen bg-[#0f1115] pb-safe-nav">
       <ShopHeader />
       <div className="pt-16 md:pt-20" />
@@ -352,5 +353,6 @@ export default function CategoryResultsPage() {
       <ShopFooter />
       <BottomNavigation />
     </div>
+    </>
   );
 }

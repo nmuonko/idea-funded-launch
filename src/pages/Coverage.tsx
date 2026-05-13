@@ -124,7 +124,8 @@ export default function Coverage() {
   };
 
   return (
-    <SEOHead title="Delivery Coverage in DR Congo" description="Cities and regions in the DRC where AfriShop delivers: Kinshasa, Lubumbashi, Goma and more." />
+    <>
+      <SEOHead title="Delivery Coverage in DR Congo" description="Cities and regions in the DRC where AfriShop delivers: Kinshasa, Lubumbashi, Goma and more." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 
@@ -360,5 +361,6 @@ export default function Coverage() {
 
        <ShopFooter />
     </div>
+    </>
   );
 }

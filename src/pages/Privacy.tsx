@@ -66,7 +66,8 @@ const Privacy = () => {
   ];
 
   return (
-    <SEOHead title="Privacy Policy" description="How AfriShop collects, uses and protects your personal data and order information." />
+    <>
+      <SEOHead title="Privacy Policy" description="How AfriShop collects, uses and protects your personal data and order information." />
     <div className="min-h-screen bg-black text-white">
       <PublicHeader />
 
@@ -243,6 +244,7 @@ const Privacy = () => {
 
        <ShopFooter />
     </div>
+    </>
   );
 };
 

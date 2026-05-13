@@ -1634,6 +1634,23 @@ const __originalHandler = async (req: Request): Promise<Response> => {
       }
     }
 
+    // Actual web homepage source of truth: the visible first grid is the
+    // DB-backed bulk phone feed in ShopHome.tsx, not the old recipe cache.
+    // Serve that same phone feed for both web and mobile homepage requests so
+    // frozen mobile builds display exactly what stakeholders see on web.
+    if (!category && !sectionKey && !forceLive) {
+      const phoneFeed = await buildMobileHomepagePhonesResponse(
+        page,
+        pageSize,
+        locale,
+        correlationId,
+        env,
+        envRequested,
+        detectedBy,
+      );
+      if (phoneFeed) return phoneFeed;
+    }
+
     // UNIFIED HOMEPAGE (Option B): mobile and web share the SAME cache, same
     // order, same items. The strict_sections cache and mobile recipe cache
     // branches have been removed entirely — there is now ONE source of truth

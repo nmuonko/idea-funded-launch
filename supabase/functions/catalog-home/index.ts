@@ -2232,7 +2232,12 @@ serve(async (req: Request): Promise<Response> => {
     if (!ct.includes("application/json")) return res;
 
     const url = new URL(req.url);
-    const wantsCurated = url.searchParams.get("curated") === "1"
+    const hasCategory = !!(url.searchParams.get("category") || url.searchParams.get("category_key"));
+    const isUnifiedHome = !hasCategory;
+    // Force curated rules on the unified homepage for ALL clients so mobile
+    // and web render the same smartphone-first feed. Categories are unaffected.
+    const wantsCurated = isUnifiedHome
+      || url.searchParams.get("curated") === "1"
       || url.searchParams.get("curated") === "true";
 
     // Unified homepage: always flatten to a single "for_you" feed for ALL

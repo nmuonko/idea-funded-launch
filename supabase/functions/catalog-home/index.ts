@@ -1695,6 +1695,10 @@ const __originalHandler = async (req: Request): Promise<Response> => {
               const homepageFallbackItems = rawItems.filter((item: Record<string, unknown>) => {
                 const rk = item._recipeKey as string;
                 return !rk || rk === "homepage";
+              }).sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+                const pa = Number((a.price_usd as number) ?? (a.priceUsd as number) ?? Infinity);
+                const pb = Number((b.price_usd as number) ?? (b.priceUsd as number) ?? Infinity);
+                return (isFinite(pa) ? pa : Infinity) - (isFinite(pb) ? pb : Infinity);
               });
               if (homepageFallbackItems.length > 0) {
                 const totalPages = Math.ceil(homepageFallbackItems.length / pageSize) || 1;

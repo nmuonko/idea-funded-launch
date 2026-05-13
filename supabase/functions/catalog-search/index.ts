@@ -725,9 +725,17 @@ Deno.serve(async (req: Request) => {
     }
 
     // ─── CACHE CHECK (GLOBAL — no user identifiers) ─────────────────────────
+    // CRITICAL: cache key must be deterministic for the same raw user input.
+    // We intentionally key on the RAW (trim+lowercase+collapse-whitespace) query, NOT on
+    // qNorm/translated/rewritten text — translation output can vary between runs
+    // (OpenAI fallback, dynamic norm, cache warm/cold), which previously caused
+    // identical raw queries to hit different cache rows and fall through to
+    // fuzzy near-match. Translation still drives the actual search; it just no
+    // longer destabilizes the cache key.
+    const rawCacheQuery = qOriginal.toLowerCase().replace(/\s+/g, " ").trim();
     const cacheStart = Date.now();
     let globalCacheKey = buildCacheKey("search", {
-      env: effectiveEnv, query: qNorm, provider: providerParam || "all",
+      env: effectiveEnv, query: rawCacheQuery, provider: providerParam || "all",
       category: categoryKey || undefined,
       page: pageParam + 1, pageSize: limit,
       minPrice: catalogFilters.minPrice, maxPrice: catalogFilters.maxPrice,

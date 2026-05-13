@@ -535,7 +535,7 @@ async function getItemsFromDB(
   // Filter out disallowed items
   query = query.or("is_disallowed.is.null,is_disallowed.eq.false");
 
-  if (provider !== "all") {
+  if (provider !== "all" && !smartphoneOnly) {
     query = query.eq("provider", provider);
   }
 
@@ -544,7 +544,7 @@ async function getItemsFromDB(
       .eq("is_active", true)
       .gte("price_usd", 80)
       .lte("price_usd", 1800)
-      .in("provider", provider === "all" ? ["amazon", "rainforest"] : [provider])
+      .in("provider", ["amazon", "rainforest"])
       .or([
         "title.ilike.%iphone 11%", "title.ilike.%iphone 12%", "title.ilike.%iphone 13%", "title.ilike.%iphone 14%", "title.ilike.%iphone 15%", "title.ilike.%iphone 16%", "title.ilike.%iphone se%",
         "title.ilike.%galaxy s21%", "title.ilike.%galaxy s22%", "title.ilike.%galaxy s23%", "title.ilike.%galaxy s24%", "title.ilike.%galaxy s25%", "title.ilike.%galaxy note%", "title.ilike.%galaxy z fold%", "title.ilike.%galaxy z flip%",

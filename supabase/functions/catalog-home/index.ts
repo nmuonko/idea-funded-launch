@@ -8,7 +8,7 @@ import {
   nonEmpty
 } from "../_shared/titleNormalizer.ts";
 import { buildStrictMobileSections, type SectionItem } from "../_shared/sectionProfiles.ts";
-import { sanitizeImageUrl, bestProductImage, normalizeResponseImages } from "../_shared/imageValidator.ts";
+import { sanitizeImageUrl, bestProductImage, sanitizeGallery, normalizeResponseImages } from "../_shared/imageValidator.ts";
 import { serveMobileSections, emptyMobileSectionsResponse } from "../_shared/mobileSectionsCache.ts";
 import { loadPricingSettings, applyAllInclusivePricingToItems } from "../_shared/allInclusivePricing.ts";
 import {
@@ -222,8 +222,11 @@ interface CatalogItem {
   currency: string;
   image_url: string | null;
   imageUrl: string | null;
+  images?: string[];
+  imageUrls?: string[];
   product_url: string | null;
   productUrl: string | null;
+  rating?: number;
   in_stock: boolean;
   segment?: string;
 }
@@ -393,16 +396,16 @@ async function fetchHomepagePhoneRows(
   withCount = false,
 ): Promise<{ rows: Array<Record<string, unknown>>; count: number | null }> {
   const params = new URLSearchParams();
-  params.set("select", "id,provider,provider_product_id,title,image_url,images,product_url,price_usd,in_stock");
+  params.set("select", "id,provider,provider_product_id,title,image_url,images,product_url,price_usd,rating,in_stock");
   params.set("is_active", "eq.true");
   params.set("is_disallowed", "eq.false");
-  params.set("needs_price_review", "is.false");
   params.append("price_usd", "gte.80");
   params.append("price_usd", "lte.1800");
   params.set("provider", "in.(amazon,rainforest)");
   params.set("or", `(${orFilter})`);
-  // Cheapest first per page (web parity). Tie-break by recency for stability.
-  params.set("order", "price_usd.asc.nullslast,updated_at.desc.nullslast");
+  // Match the web homepage bulk-phone query exactly: newest catalog rows form
+  // the candidate pool, then final all-inclusive prices sort the visible grid.
+  params.set("order", "updated_at.desc.nullslast");
   params.set("offset", String(offset));
   params.set("limit", String(limit));
 
@@ -440,11 +443,13 @@ function mapHomepagePhoneRows(rows: Array<Record<string, unknown>>): CatalogItem
     // Hard-block any tile whose title smells like an ad/banner row
     if (/\b(shop now|buy now|sponsored|advertisement|promo|deal of the day|limited time|love grown|cereal)\b/i.test(lowerTitle)) continue;
 
-    // Strict: only accept the PRIMARY image after sanitization. No gallery fallback —
-    // gallery fallbacks are how banner thumbnails sneak into product tiles.
     const primary = typeof row.image_url === "string" ? row.image_url : null;
-    const image = sanitizeImageUrl(primary);
+    const image = bestProductImage(primary, row.images) || null;
     if (!image) continue;
+    const gallery = sanitizeGallery([
+      ...(primary ? [primary] : []),
+      ...(Array.isArray(row.images) ? row.images.filter((u): u is string => typeof u === "string") : []),
+    ]);
 
     const provider = String(row.provider || "amazon");
     const providerProductId = String(row.provider_product_id || row.id || "").trim();
@@ -465,19 +470,20 @@ function mapHomepagePhoneRows(rows: Array<Record<string, unknown>>): CatalogItem
       currency: "USD",
       image_url: image,
       imageUrl: image,
+      images: gallery.length > 0 ? gallery : [image],
+      imageUrls: gallery.length > 0 ? gallery : [image],
       product_url: productUrl,
       productUrl: productUrl,
       in_stock: row.in_stock !== false,
+      rating: typeof row.rating === "number" ? row.rating : Number(row.rating || 0) || undefined,
     });
   }
-  // Final cheapest-first guarantee at the mapper level (defensive, in case
-  // upstream merging from multiple brand-seed queries reorders items).
-  mapped.sort((a, b) => (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
   return mapped;
 }
 
 async function buildMobileHomepagePhonesResponse(
   page: number,
+  requestedPageSize: number,
   locale: string,
   correlationId: string,
   envUsed: string,
@@ -516,10 +522,11 @@ async function buildMobileHomepagePhonesResponse(
 
   try {
     const safePage = Math.max(1, page || 1);
+    const outputPageSize = Math.min(Math.max(requestedPageSize || MOBILE_SMARTPHONE_PAGE_SIZE, 1), MOBILE_SMARTPHONE_PAGE_SIZE);
     const zeroBasedPage = safePage - 1;
     const offset = zeroBasedPage * MOBILE_SMARTPHONE_PAGE_SIZE;
     const generalLimit = zeroBasedPage === 0
-      ? MOBILE_SMARTPHONE_PAGE_SIZE + MOBILE_PHONE_RESERVED_COUNT + 24
+      ? MOBILE_SMARTPHONE_PAGE_SIZE + MOBILE_PHONE_RESERVED_COUNT + 25
       : MOBILE_SMARTPHONE_PAGE_SIZE;
     const brandSeedLimit = MOBILE_PHONE_ROW_SIZE * 8;
 
@@ -552,9 +559,14 @@ async function buildMobileHomepagePhonesResponse(
     } catch (e) {
       console.error(`[CATALOG_HOME] mobile_phones pricing transform error:`, e);
     }
-    // Re-sort cheapest-first AFTER all-inclusive pricing (markup can shift order).
-    items.sort((a, b) => (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
+    // Web parity: first build the same 50-item phone page as the web app, then
+    // apply the visible default sort (cheapest first) and finally honor `limit`.
+    if (zeroBasedPage === 0) {
+      items = prioritizeHomepageSmartphoneRows(items);
+    }
     items = items.slice(0, MOBILE_SMARTPHONE_PAGE_SIZE);
+    items.sort((a, b) => (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
+    items = items.slice(0, outputPageSize);
 
     const totalItems = Math.max(generalRes.count || 0, items.length);
     const totalPages = Math.max(1, Math.ceil(totalItems / MOBILE_SMARTPHONE_PAGE_SIZE));
@@ -575,7 +587,7 @@ async function buildMobileHomepagePhonesResponse(
         },
       ], langKey),
       page: safePage,
-      pageSize: MOBILE_SMARTPHONE_PAGE_SIZE,
+      pageSize: outputPageSize,
       totalPages,
       totalItems,
       hasMore: safePage < totalPages,
@@ -587,11 +599,11 @@ async function buildMobileHomepagePhonesResponse(
       promotions: [],
       correlationId,
       meta: {
-        client: "mobile",
+        client: "web",
         detectedBy,
         envUsed,
         envRequested,
-        source: "mobile_homepage_phones_db",
+        source: "homepage_phones_db",
         pageMode: "numeric",
         matchesWebHomepagePhones: true,
       },
@@ -1620,6 +1632,23 @@ const __originalHandler = async (req: Request): Promise<Response> => {
           console.warn(`[CATALOG_HOME] section_browse delegation error: ${err}`);
         }
       }
+    }
+
+    // Actual web homepage source of truth: the visible first grid is the
+    // DB-backed bulk phone feed in ShopHome.tsx, not the old recipe cache.
+    // Serve that same phone feed for both web and mobile homepage requests so
+    // frozen mobile builds display exactly what stakeholders see on web.
+    if (!category && !sectionKey && !forceLive) {
+      const phoneFeed = await buildMobileHomepagePhonesResponse(
+        page,
+        pageSize,
+        locale,
+        correlationId,
+        env,
+        envRequested,
+        detectedBy,
+      );
+      if (phoneFeed) return phoneFeed;
     }
 
     // UNIFIED HOMEPAGE (Option B): mobile and web share the SAME cache, same

@@ -1512,13 +1512,15 @@ function applyCuratedHomepageRules(body: unknown): unknown {
   const obj = body as Record<string, unknown>;
   const sections = obj.sections;
   if (!Array.isArray(sections)) return body;
+  const meta = (obj.meta && typeof obj.meta === "object") ? obj.meta as Record<string, unknown> : {};
+  const preservePhoneFeedOrder = meta.source === "homepage_phones_db";
 
   const newSections = sections.map((s) => {
     if (!s || typeof s !== "object") return s;
     const sec = s as Record<string, unknown>;
     const items = Array.isArray(sec.items) ? (sec.items as CuratedItem[]) : [];
     const filtered = items.filter(curatedAllowItem);
-    const reordered = curatedInterleavePhoneBrands(filtered);
+    const reordered = preservePhoneFeedOrder ? filtered : curatedInterleavePhoneBrands(filtered);
     return { ...sec, items: reordered };
   });
 
@@ -1527,8 +1529,6 @@ function applyCuratedHomepageRules(body: unknown): unknown {
     const items = (s as Record<string, unknown>).items;
     if (Array.isArray(items)) totalItems += items.length;
   }
-
-  const meta = (obj.meta && typeof obj.meta === "object") ? obj.meta as Record<string, unknown> : {};
 
   return {
     ...obj,

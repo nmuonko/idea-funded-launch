@@ -478,14 +478,12 @@ function mapHomepagePhoneRows(rows: Array<Record<string, unknown>>): CatalogItem
       rating: typeof row.rating === "number" ? row.rating : Number(row.rating || 0) || undefined,
     });
   }
-  // Final cheapest-first guarantee at the mapper level (defensive, in case
-  // upstream merging from multiple brand-seed queries reorders items).
-  mapped.sort((a, b) => (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
   return mapped;
 }
 
 async function buildMobileHomepagePhonesResponse(
   page: number,
+  requestedPageSize: number,
   locale: string,
   correlationId: string,
   envUsed: string,
@@ -524,10 +522,11 @@ async function buildMobileHomepagePhonesResponse(
 
   try {
     const safePage = Math.max(1, page || 1);
+    const outputPageSize = Math.min(Math.max(requestedPageSize || MOBILE_SMARTPHONE_PAGE_SIZE, 1), MOBILE_SMARTPHONE_PAGE_SIZE);
     const zeroBasedPage = safePage - 1;
     const offset = zeroBasedPage * MOBILE_SMARTPHONE_PAGE_SIZE;
     const generalLimit = zeroBasedPage === 0
-      ? MOBILE_SMARTPHONE_PAGE_SIZE + MOBILE_PHONE_RESERVED_COUNT + 24
+      ? MOBILE_SMARTPHONE_PAGE_SIZE + MOBILE_PHONE_RESERVED_COUNT + 25
       : MOBILE_SMARTPHONE_PAGE_SIZE;
     const brandSeedLimit = MOBILE_PHONE_ROW_SIZE * 8;
 
@@ -560,13 +559,14 @@ async function buildMobileHomepagePhonesResponse(
     } catch (e) {
       console.error(`[CATALOG_HOME] mobile_phones pricing transform error:`, e);
     }
-    // Web parity: first page shows iPhone → Pixel → Galaxy rows; user-selected
-    // cheapest sort then orders the final visible grid by all-inclusive price.
+    // Web parity: first build the same 50-item phone page as the web app, then
+    // apply the visible default sort (cheapest first) and finally honor `limit`.
     if (zeroBasedPage === 0) {
       items = prioritizeHomepageSmartphoneRows(items);
     }
-    items.sort((a, b) => (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
     items = items.slice(0, MOBILE_SMARTPHONE_PAGE_SIZE);
+    items.sort((a, b) => (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
+    items = items.slice(0, outputPageSize);
 
     const totalItems = Math.max(generalRes.count || 0, items.length);
     const totalPages = Math.max(1, Math.ceil(totalItems / MOBILE_SMARTPHONE_PAGE_SIZE));
@@ -587,7 +587,7 @@ async function buildMobileHomepagePhonesResponse(
         },
       ], langKey),
       page: safePage,
-      pageSize: MOBILE_SMARTPHONE_PAGE_SIZE,
+      pageSize: outputPageSize,
       totalPages,
       totalItems,
       hasMore: safePage < totalPages,
@@ -599,11 +599,11 @@ async function buildMobileHomepagePhonesResponse(
       promotions: [],
       correlationId,
       meta: {
-        client: "mobile",
+        client: "web",
         detectedBy,
         envUsed,
         envRequested,
-        source: "mobile_homepage_phones_db",
+        source: "homepage_phones_db",
         pageMode: "numeric",
         matchesWebHomepagePhones: true,
       },

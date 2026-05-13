@@ -716,21 +716,24 @@ Deno.serve(async (req: Request) => {
     // Get collection config (default to electronics if unknown)
     const collectionConfig = COLLECTION_QUERIES[collectionKey] || COLLECTION_QUERIES["electronics_trending"];
     const isVehicle = collectionConfig.isVehicle === true;
+    const smartphoneCompat = HOMEPAGE_SMARTPHONE_COMPAT_COLLECTIONS.has(collectionKey);
 
     const cacheKey = `${provider}:${collectionKey}:${page}:${pageSize}`;
 
     // Step 1: Try to serve from collection cache
-    const cached = await getCachedCollection(supabase, cacheKey);
-    if (cached.hit && cached.items.length > 0) {
-      return buildResponse("success", cached.items, cached.total, null);
+    if (!smartphoneCompat) {
+      const cached = await getCachedCollection(supabase, cacheKey);
+      if (cached.hit && cached.items.length > 0) {
+        return buildResponse("success", cached.items, cached.total, null);
+      }
     }
 
     // Step 2: If mode=db (production default), try to build from existing DB items
     if (!allowLive) {
-      const dbResult = await getItemsFromDB(supabase, provider, collectionConfig.categoryKey, page, pageSize, isVehicle);
+      const dbResult = await getItemsFromDB(supabase, provider, collectionConfig.categoryKey, page, pageSize, isVehicle, smartphoneCompat);
       
       // Cache the result (shorter TTL if few items)
-      if (dbResult.items.length > 0) {
+      if (dbResult.items.length > 0 && !smartphoneCompat) {
         await saveToCache(supabase, cacheKey, provider, collectionKey, page, pageSize, dbResult.items, dbResult.total, Math.min(collectionConfig.ttlSeconds, 3600));
       }
       

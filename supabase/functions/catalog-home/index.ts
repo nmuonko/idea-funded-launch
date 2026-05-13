@@ -1793,11 +1793,21 @@ const __originalHandler = async (req: Request): Promise<Response> => {
           if (!webCache.hit && webCache.payload) {
             const payload = webCache.payload as Record<string, unknown>;
             const rawStaleItems = payload.items as Array<Record<string, unknown>> || [];
-            const allItems = rawStaleItems.filter((item: Record<string, unknown>) => {
-              const rk = item._recipeKey as string;
-              if (!rk) return recipeKeyFilter === "homepage";
-              return rk === recipeKeyFilter;
-            });
+            const isUnifiedHomepageStale = !category;
+            let allItems = isUnifiedHomepageStale
+              ? rawStaleItems
+              : rawStaleItems.filter((item: Record<string, unknown>) => {
+                  const rk = item._recipeKey as string;
+                  if (!rk) return recipeKeyFilter === "homepage";
+                  return rk === recipeKeyFilter;
+                });
+            if (isUnifiedHomepageStale) {
+              allItems = [...allItems].sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+                const pa = Number((a.price_usd as number) ?? (a.priceUsd as number) ?? Infinity);
+                const pb = Number((b.price_usd as number) ?? (b.priceUsd as number) ?? Infinity);
+                return (isFinite(pa) ? pa : Infinity) - (isFinite(pb) ? pb : Infinity);
+              });
+            }
             if (allItems.length > 0) {
               console.log(`[CATALOG_HOME] recipe_web_cache_stale correlationId=${correlationId} serving_stale poolSize=${allItems.length}`);
               const totalPages = Math.ceil(allItems.length / pageSize) || 1;

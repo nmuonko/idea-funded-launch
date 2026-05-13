@@ -1559,6 +1559,16 @@ const __originalHandler = async (req: Request): Promise<Response> => {
       amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
       locale = (url.searchParams.get("locale") || url.searchParams.get("lang") || lang) as "fr" | "en";
       forceLive = url.searchParams.get("live") === "1" || url.searchParams.get("source") === "live";
+      // Honor caller-provided limit so mobile (limit=20) and web (limit=20)
+      // paginate identically over the unified web cache pool. Cap at 100 to
+      // protect the cache reader. Falls back to DEFAULT_PAGE_SIZE.
+      const limitParam = url.searchParams.get("limit");
+      if (limitParam) {
+        const parsed = parseInt(limitParam);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          pageSize = Math.min(100, parsed);
+        }
+      }
     }
 
     // If section is specified, redirect to catalog-category for "Voir Tout" browsing
@@ -1652,13 +1662,19 @@ const __originalHandler = async (req: Request): Promise<Response> => {
         if (webCache.hit && webCache.payload && webCache.schemaVersion === recipeSettings.web_schema_version) {
             const payload = webCache.payload as Record<string, unknown>;
             const rawItems = withoutEbayClothing(payload.items as Array<Record<string, unknown>> || []);
-            
-            // Filter items by _recipeKey
-            const allItems = rawItems.filter((item: Record<string, unknown>) => {
-              const rk = item._recipeKey as string;
-              if (!rk) return recipeKeyFilter === "homepage"; // untagged items default to homepage
-              return rk === recipeKeyFilter;
-            });
+
+            // Unified homepage pool: when no category is requested, include
+            // EVERY recipe-tagged item (phones, gaming, electronics, etc.) so
+            // both web and mobile paginate through the same 294-item pool in
+            // the same order. Category requests still filter strictly.
+            const isUnifiedHomepage = !category;
+            const allItems = isUnifiedHomepage
+              ? rawItems
+              : rawItems.filter((item: Record<string, unknown>) => {
+                  const rk = item._recipeKey as string;
+                  if (!rk) return recipeKeyFilter === "homepage";
+                  return rk === recipeKeyFilter;
+                });
             
             // DIAGNOSTIC: log zero-match so mismatches are visible in logs
             if (allItems.length === 0) {

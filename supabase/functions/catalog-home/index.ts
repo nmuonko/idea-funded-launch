@@ -1444,7 +1444,25 @@ function curatedAllowItem(it: CuratedItem): boolean {
   return true;
 }
 
+// Accessory keywords — items whose title contains any of these are NEVER
+// classified as a phone, even if the title also mentions iPhone/Galaxy/Pixel.
+const CURATED_ACCESSORY_PATTERNS: RegExp[] = [
+  /\bcase\b/i, /\bcover\b/i, /\bskin\b/i, /\bsleeve\b/i, /\bpouch\b/i,
+  /\bscreen protector\b/i, /\btempered glass\b/i,
+  /\bcharger\b/i, /\bcable\b/i, /\badapter\b/i, /\bdock\b/i, /\bstand\b/i, /\bmount\b/i, /\bholder\b/i,
+  /\bkeyboard\b/i, /\bmouse\b/i, /\bheadphone/i, /\bearbud/i, /\bearphone/i,
+  /\bstylus\b/i, /\blanyard\b/i, /\bstrap\b/i, /\bband\b/i,
+  /\bbattery\b/i, /\bpower bank\b/i, /\bvibration motor\b/i, /\breplacement\b/i,
+  /\bfor\s+(iphone|galaxy|samsung|pixel|magsafe)/i,
+];
+
+function curatedIsAccessory(it: CuratedItem): boolean {
+  const t = curatedGetTitle(it);
+  return CURATED_ACCESSORY_PATTERNS.some(p => p.test(t));
+}
+
 function curatedPhoneBucket(it: CuratedItem): "iphone" | "galaxy" | "pixel" | "other" {
+  if (curatedIsAccessory(it)) return "other";
   const t = curatedGetTitle(it).toLowerCase();
   if (t.includes("iphone")) return "iphone";
   if (t.includes("pixel")) return "pixel";

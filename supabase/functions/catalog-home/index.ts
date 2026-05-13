@@ -1668,13 +1668,22 @@ const __originalHandler = async (req: Request): Promise<Response> => {
             // both web and mobile paginate through the same 294-item pool in
             // the same order. Category requests still filter strictly.
             const isUnifiedHomepage = !category;
-            const allItems = isUnifiedHomepage
+            let allItems = isUnifiedHomepage
               ? rawItems
               : rawItems.filter((item: Record<string, unknown>) => {
                   const rk = item._recipeKey as string;
                   if (!rk) return recipeKeyFilter === "homepage";
                   return rk === recipeKeyFilter;
                 });
+            // Default-sort the unified homepage by price ascending so web and
+            // mobile both show cheapest products first (single source of truth).
+            if (isUnifiedHomepage) {
+              allItems = [...allItems].sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+                const pa = Number((a.price_usd as number) ?? (a.priceUsd as number) ?? Infinity);
+                const pb = Number((b.price_usd as number) ?? (b.priceUsd as number) ?? Infinity);
+                return (isFinite(pa) ? pa : Infinity) - (isFinite(pb) ? pb : Infinity);
+              });
+            }
             
             // DIAGNOSTIC: log zero-match so mismatches are visible in logs
             if (allItems.length === 0) {

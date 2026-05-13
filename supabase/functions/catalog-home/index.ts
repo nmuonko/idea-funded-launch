@@ -1662,13 +1662,19 @@ const __originalHandler = async (req: Request): Promise<Response> => {
         if (webCache.hit && webCache.payload && webCache.schemaVersion === recipeSettings.web_schema_version) {
             const payload = webCache.payload as Record<string, unknown>;
             const rawItems = withoutEbayClothing(payload.items as Array<Record<string, unknown>> || []);
-            
-            // Filter items by _recipeKey
-            const allItems = rawItems.filter((item: Record<string, unknown>) => {
-              const rk = item._recipeKey as string;
-              if (!rk) return recipeKeyFilter === "homepage"; // untagged items default to homepage
-              return rk === recipeKeyFilter;
-            });
+
+            // Unified homepage pool: when no category is requested, include
+            // EVERY recipe-tagged item (phones, gaming, electronics, etc.) so
+            // both web and mobile paginate through the same 294-item pool in
+            // the same order. Category requests still filter strictly.
+            const isUnifiedHomepage = !category;
+            const allItems = isUnifiedHomepage
+              ? rawItems
+              : rawItems.filter((item: Record<string, unknown>) => {
+                  const rk = item._recipeKey as string;
+                  if (!rk) return recipeKeyFilter === "homepage";
+                  return rk === recipeKeyFilter;
+                });
             
             // DIAGNOSTIC: log zero-match so mismatches are visible in logs
             if (allItems.length === 0) {

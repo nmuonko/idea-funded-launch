@@ -440,11 +440,13 @@ function mapHomepagePhoneRows(rows: Array<Record<string, unknown>>): CatalogItem
     // Hard-block any tile whose title smells like an ad/banner row
     if (/\b(shop now|buy now|sponsored|advertisement|promo|deal of the day|limited time|love grown|cereal)\b/i.test(lowerTitle)) continue;
 
-    // Strict: only accept the PRIMARY image after sanitization. No gallery fallback —
-    // gallery fallbacks are how banner thumbnails sneak into product tiles.
     const primary = typeof row.image_url === "string" ? row.image_url : null;
-    const image = sanitizeImageUrl(primary);
+    const image = bestProductImage(primary, row.images) || null;
     if (!image) continue;
+    const gallery = sanitizeGallery([
+      ...(primary ? [primary] : []),
+      ...(Array.isArray(row.images) ? row.images.filter((u): u is string => typeof u === "string") : []),
+    ]);
 
     const provider = String(row.provider || "amazon");
     const providerProductId = String(row.provider_product_id || row.id || "").trim();
@@ -465,9 +467,12 @@ function mapHomepagePhoneRows(rows: Array<Record<string, unknown>>): CatalogItem
       currency: "USD",
       image_url: image,
       imageUrl: image,
+      images: gallery.length > 0 ? gallery : [image],
+      imageUrls: gallery.length > 0 ? gallery : [image],
       product_url: productUrl,
       productUrl: productUrl,
       in_stock: row.in_stock !== false,
+      rating: typeof row.rating === "number" ? row.rating : Number(row.rating || 0) || undefined,
     });
   }
   // Final cheapest-first guarantee at the mapper level (defensive, in case

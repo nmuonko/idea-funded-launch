@@ -617,7 +617,11 @@ function jsonResponse(data: unknown, status = 200, extraHeaders: Record<string, 
     finalHeaders["Pragma"] = "no-cache";
   }
 
-  return new Response(JSON.stringify(data), {
+  // Normalize image URLs to display (thumbnail) size so web + mobile render
+  // identical, web-validated images. Only applied to success payloads.
+  const finalPayload = status >= 400 ? data : normalizeResponseImages(data);
+
+  return new Response(JSON.stringify(finalPayload), {
     status,
     headers: finalHeaders,
   });

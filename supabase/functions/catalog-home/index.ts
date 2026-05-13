@@ -2173,13 +2173,12 @@ serve(async (req: Request): Promise<Response> => {
     const wantsCurated = url.searchParams.get("curated") === "1"
       || url.searchParams.get("curated") === "true";
 
-    // Detect mobile from the request (same logic as the inner handler).
+    // Unified homepage: always flatten to a single "for_you" feed for ALL
+    // clients (web + mobile). No more sectioned homepage.
     const detection = detectClientType(req);
     const isMobile = detection.clientType === "mobile";
     const locale = (url.searchParams.get("locale") || url.searchParams.get("lang") || "fr").toLowerCase();
     const flat = url.searchParams.get("flat") !== "0";
-
-    if (!wantsCurated && !isMobile) return res;
 
     const text = await res.text();
     let body: unknown;
@@ -2187,11 +2186,15 @@ serve(async (req: Request): Promise<Response> => {
 
     let processed: unknown = body;
     if (wantsCurated) processed = applyCuratedHomepageRules(processed);
-    if (isMobile && processed && typeof processed === "object") {
+    if (processed && typeof processed === "object") {
       processed = flattenMobilePayload(processed as Record<string, unknown>, locale, flat);
-      // Mark in meta that this was reshaped for the frozen mobile app
       const p = processed as Record<string, unknown>;
-      p.meta = { ...((p.meta as Record<string, unknown>) || {}), client: "mobile", unifiedSource: "web_cache" };
+      p.meta = {
+        ...((p.meta as Record<string, unknown>) || {}),
+        client: isMobile ? "mobile" : "web",
+        unifiedSource: "web_cache",
+        flattened: true,
+      };
     }
 
     const headers = new Headers(res.headers);

@@ -562,9 +562,13 @@ async function getItemsFromDB(
     query = query.gte("price_usd", VEHICLE_MIN_PRICE_USD);
   }
 
+  const rangeEnd = smartphoneOnly
+    ? offset + Math.max(pageSize * 8, 80) - 1
+    : offset + pageSize - 1;
+
   const { data: rows, count } = await query
     .order("updated_at", { ascending: false })
-    .range(offset, offset + pageSize - 1);
+    .range(offset, rangeEnd);
 
   // Filter blocked titles
   const items: CollectionItem[] = [];
@@ -588,6 +592,7 @@ async function getItemsFromDB(
 
   if (smartphoneOnly) {
     items.sort((a, b) => (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
+    items.splice(pageSize);
   }
 
   return { items, total: smartphoneOnly ? items.length : (count || items.length) };

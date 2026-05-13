@@ -557,7 +557,11 @@ async function buildMobileHomepagePhonesResponse(
     } catch (e) {
       console.error(`[CATALOG_HOME] mobile_phones pricing transform error:`, e);
     }
-    // Re-sort cheapest-first AFTER all-inclusive pricing (markup can shift order).
+    // Web parity: first page shows iPhone → Pixel → Galaxy rows; user-selected
+    // cheapest sort then orders the final visible grid by all-inclusive price.
+    if (zeroBasedPage === 0) {
+      items = prioritizeHomepageSmartphoneRows(items);
+    }
     items.sort((a, b) => (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
     items = items.slice(0, MOBILE_SMARTPHONE_PAGE_SIZE);
 

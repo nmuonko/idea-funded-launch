@@ -1444,7 +1444,25 @@ function curatedAllowItem(it: CuratedItem): boolean {
   return true;
 }
 
+// Accessory keywords — items whose title contains any of these are NEVER
+// classified as a phone, even if the title also mentions iPhone/Galaxy/Pixel.
+const CURATED_ACCESSORY_PATTERNS: RegExp[] = [
+  /\bcase\b/i, /\bcover\b/i, /\bskin\b/i, /\bsleeve\b/i, /\bpouch\b/i,
+  /\bscreen protector\b/i, /\btempered glass\b/i,
+  /\bcharger\b/i, /\bcable\b/i, /\badapter\b/i, /\bdock\b/i, /\bstand\b/i, /\bmount\b/i, /\bholder\b/i,
+  /\bkeyboard\b/i, /\bmouse\b/i, /\bheadphone/i, /\bearbud/i, /\bearphone/i,
+  /\bstylus\b/i, /\blanyard\b/i, /\bstrap\b/i, /\bband\b/i,
+  /\bbattery\b/i, /\bpower bank\b/i, /\bvibration motor\b/i, /\breplacement\b/i,
+  /\bfor\s+(iphone|galaxy|samsung|pixel|magsafe)/i,
+];
+
+function curatedIsAccessory(it: CuratedItem): boolean {
+  const t = curatedGetTitle(it);
+  return CURATED_ACCESSORY_PATTERNS.some(p => p.test(t));
+}
+
 function curatedPhoneBucket(it: CuratedItem): "iphone" | "galaxy" | "pixel" | "other" {
+  if (curatedIsAccessory(it)) return "other";
   const t = curatedGetTitle(it).toLowerCase();
   if (t.includes("iphone")) return "iphone";
   if (t.includes("pixel")) return "pixel";
@@ -1453,21 +1471,24 @@ function curatedPhoneBucket(it: CuratedItem): "iphone" | "galaxy" | "pixel" | "o
 }
 
 function curatedInterleavePhoneBrands(items: CuratedItem[]): CuratedItem[] {
+  // Phones first (round-robin iPhone → Galaxy → Pixel), then everything else
+  // in original (price-asc) order. This guarantees the homepage opens with
+  // smartphones rather than cheap accessories.
   const buckets: Record<"iphone" | "galaxy" | "pixel" | "other", CuratedItem[]> = {
     iphone: [], galaxy: [], pixel: [], other: [],
   };
   for (const it of items) buckets[curatedPhoneBucket(it)].push(it);
-  const order: Array<keyof typeof buckets> = ["iphone", "galaxy", "pixel", "other"];
-  const out: CuratedItem[] = [];
+  const phoneOrder: Array<"iphone" | "galaxy" | "pixel"> = ["iphone", "galaxy", "pixel"];
+  const phones: CuratedItem[] = [];
   let added = true;
   while (added) {
     added = false;
-    for (const k of order) {
+    for (const k of phoneOrder) {
       const next = buckets[k].shift();
-      if (next) { out.push(next); added = true; }
+      if (next) { phones.push(next); added = true; }
     }
   }
-  return out;
+  return [...phones, ...buckets.other];
 }
 
 function applyCuratedHomepageRules(body: unknown): unknown {
@@ -2229,7 +2250,12 @@ serve(async (req: Request): Promise<Response> => {
     if (!ct.includes("application/json")) return res;
 
     const url = new URL(req.url);
-    const wantsCurated = url.searchParams.get("curated") === "1"
+    const hasCategory = !!(url.searchParams.get("category") || url.searchParams.get("category_key"));
+    const isUnifiedHome = !hasCategory;
+    // Force curated rules on the unified homepage for ALL clients so mobile
+    // and web render the same smartphone-first feed. Categories are unaffected.
+    const wantsCurated = isUnifiedHome
+      || url.searchParams.get("curated") === "1"
       || url.searchParams.get("curated") === "true";
 
     // Unified homepage: always flatten to a single "for_you" feed for ALL

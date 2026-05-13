@@ -11,7 +11,14 @@
 
 import { createAdminPostgrestClient } from "../_shared/postgrest.ts";
 import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
-import { sanitizeImageUrl, upgradeToHighRes } from "../_shared/imageValidator.ts";
+import { sanitizeImageUrl, upgradeToHighRes, normalizeResponseImages } from "../_shared/imageValidator.ts";
+
+// Stringify a response payload after rewriting image URLs to display
+// (thumbnail) size — keeps web + mobile rendering pixel-identical without
+// per-client image logic. Used in place of JSON.stringify for HTTP responses.
+function stringifyDisplay(payload: unknown): string {
+  return JSON.stringify(normalizeResponseImages(payload));
+}
 import { isBlockedSearchQuery, getBlockedSearchMessage, filterDisallowedItems } from "../_shared/contentBlocker.ts";
 import { getCatalogSettings, getEffectiveMode } from "../_shared/catalogSettings.ts";
 import {
@@ -317,7 +324,7 @@ Deno.serve(async (req: Request) => {
 
   // Empty query
   if (!qOriginal) {
-    return new Response(JSON.stringify(buildEmptyResponse(qOriginal, envName, searchMeta, startTime)), {
+    return new Response(stringifyDisplay(buildEmptyResponse(qOriginal, envName, searchMeta, startTime)), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -325,7 +332,7 @@ Deno.serve(async (req: Request) => {
   // Blocked content
   if (isBlockedSearchQuery(qOriginal)) {
     console.log(`[CATALOG_SEARCH] requestId=${requestId} BLOCKED query: "${qOriginal}"`);
-    return new Response(JSON.stringify({
+    return new Response(stringifyDisplay({
       ...buildEmptyResponse(qOriginal, envName, searchMeta, startTime),
       warning: { message: getBlockedSearchMessage(lang), code: "BLOCKED_CONTENT" },
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -382,7 +389,7 @@ Deno.serve(async (req: Request) => {
     });
 
     if (!rateLimitError && rateLimitResult && !rateLimitResult.allowed) {
-      return new Response(JSON.stringify({
+      return new Response(stringifyDisplay({
         ...buildEmptyResponse(qOriginal, envName, searchMeta, startTime, { code: "RATE_LIMIT_EXCEEDED", message: "Too many requests." }),
         retry_after: rateLimitResult.reset_at,
       }), {
@@ -801,7 +808,7 @@ Deno.serve(async (req: Request) => {
         // Structured log
         console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "HIT", matchedQuery: null, provider: providerParam || "all", ttlRemaining: cacheTtlRemaining, resultsCount: cachedItems.length, totalMs: Date.now() - startTime, upstreamMs: 0, requestId }));
         const pricedCachedItems = await ensurePricing(cachedItems);
-        return new Response(JSON.stringify({
+        return new Response(stringifyDisplay({
           ...cachedResponse, items: pricedCachedItems, total: pricedCachedItems.length,
           query: qOriginal, env: envName, durationMs: Date.now() - startTime,
           _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
@@ -841,7 +848,7 @@ Deno.serve(async (req: Request) => {
           // Structured log
           console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "NEAR_HIT", matchedQuery: nearMatch.matchedQuery, provider: providerParam || "all", ttlRemaining: nearMatch.ttlRemainingSec, resultsCount: nearItems.length, totalMs: Date.now() - startTime, upstreamMs: 0, similarity: nearMatch.similarity, requestId }));
           const pricedNearItems = await ensurePricing(nearItems);
-          return new Response(JSON.stringify({
+          return new Response(stringifyDisplay({
             ...nearMatch.data, items: pricedNearItems, total: pricedNearItems.length,
             query: qOriginal, env: envName, durationMs: Date.now() - startTime,
             _cacheHit: true, _cacheAgeSec: nearMatch.cacheAgeSec, _nearMatch: true,
@@ -895,7 +902,7 @@ Deno.serve(async (req: Request) => {
       staleHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Cache-TTL-Remaining, X-Results-Count, X-Next-Cursor, X-Cache-Match, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
       console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "STALE", matchedQuery: null, provider: providerParam || "all", ttlRemaining: 0, resultsCount: staleItems.length, totalMs: staleDuration, upstreamMs: 0, requestId }));
       const pricedStaleItems = await ensurePricing(staleItems);
-      return new Response(JSON.stringify({
+      return new Response(stringifyDisplay({
         ...cacheResult.data, items: pricedStaleItems, total: pricedStaleItems.length,
         query: qOriginal, env: envName, durationMs: staleDuration,
         _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
@@ -1146,7 +1153,7 @@ Deno.serve(async (req: Request) => {
         if (translateProvider) dbFpHeaders["X-Translate-Provider"] = translateProvider;
 
         timings.total = Date.now() - startTime;
-        return new Response(JSON.stringify(dbFastResponse), {
+        return new Response(stringifyDisplay(dbFastResponse), {
           status: 200,
           headers: dbFpHeaders,
         });
@@ -2145,7 +2152,7 @@ Deno.serve(async (req: Request) => {
       const fbHeaders = buildResponseHeaders(dbFallbackItems.length, 1800);
       fbHeaders["x-afrishop-search-debug"] = btoa(JSON.stringify(fbDebugObj)).slice(0, 200);
       fbHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug";
-      return new Response(JSON.stringify(dbFallbackResponse), { status: 200, headers: fbHeaders });
+      return new Response(stringifyDisplay(dbFallbackResponse), { status: 200, headers: fbHeaders });
     }
 
     // ─── FINAL RELATED DB FALLBACK — intent-specific only ──────────────────
@@ -2370,7 +2377,7 @@ Deno.serve(async (req: Request) => {
             retryable: true,
             retryAfterMs: 3000,
           };
-          return new Response(JSON.stringify(retryResponse), {
+          return new Response(stringifyDisplay(retryResponse), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store, max-age=0" },
           });
@@ -2394,7 +2401,7 @@ Deno.serve(async (req: Request) => {
         fbHeaders["x-afrishop-search-debug"] = `env=${envUsed};q=${truncate2(qOriginal)};q2=${truncate2(qNorm)};db=0;prov=0;source=${fallbackReason}`;
         fbHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug";
         console.log(`[CATALOG_SEARCH] q="${qOriginal}" q2="${qNorm}" envUsed=${envUsed} db=0 providers=0 cache=miss source=${fallbackReason} correlationId=${requestId}`);
-        return new Response(JSON.stringify(fbResponse), { status: 200, headers: fbHeaders });
+        return new Response(stringifyDisplay(fbResponse), { status: 200, headers: fbHeaders });
       }
     }
 
@@ -2506,7 +2513,7 @@ Deno.serve(async (req: Request) => {
     // Structured cache log
     console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "MISS", matchedQuery: null, provider: providerParam || "all", ttlRemaining: cacheTtlSeconds, resultsCount: finalItems.length, totalMs: timings.total, upstreamMs: timings.providers, requestId }));
 
-    return new Response(JSON.stringify(response), {
+    return new Response(stringifyDisplay(response), {
       status: 200,
       headers: responseHeaders,
     });
@@ -2514,7 +2521,7 @@ Deno.serve(async (req: Request) => {
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     console.error(`[CATALOG_SEARCH] requestId=${requestId} error:`, errorMessage);
-    return new Response(JSON.stringify(buildEmptyResponse(qOriginal, envName, searchMeta, startTime, { code: "INTERNAL_ERROR", message: "Search service error" })), {
+    return new Response(stringifyDisplay(buildEmptyResponse(qOriginal, envName, searchMeta, startTime, { code: "INTERNAL_ERROR", message: "Search service error" })), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store, max-age=0" },
     });
   }

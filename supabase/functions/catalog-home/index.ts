@@ -8,7 +8,7 @@ import {
   nonEmpty
 } from "../_shared/titleNormalizer.ts";
 import { buildStrictMobileSections, type SectionItem } from "../_shared/sectionProfiles.ts";
-import { sanitizeImageUrl, bestProductImage } from "../_shared/imageValidator.ts";
+import { sanitizeImageUrl, bestProductImage, normalizeResponseImages } from "../_shared/imageValidator.ts";
 import { serveMobileSections, emptyMobileSectionsResponse } from "../_shared/mobileSectionsCache.ts";
 import { loadPricingSettings, applyAllInclusivePricingToItems } from "../_shared/allInclusivePricing.ts";
 import {
@@ -617,7 +617,11 @@ function jsonResponse(data: unknown, status = 200, extraHeaders: Record<string, 
     finalHeaders["Pragma"] = "no-cache";
   }
 
-  return new Response(JSON.stringify(data), {
+  // Normalize image URLs to display (thumbnail) size so web + mobile render
+  // identical, web-validated images. Only applied to success payloads.
+  const finalPayload = status >= 400 ? data : normalizeResponseImages(data);
+
+  return new Response(JSON.stringify(finalPayload), {
     status,
     headers: finalHeaders,
   });
@@ -2292,7 +2296,8 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     const headers = new Headers(res.headers);
-    return new Response(JSON.stringify(processed), { status: res.status, headers });
+    const finalProcessed = res.status >= 400 ? processed : normalizeResponseImages(processed);
+    return new Response(JSON.stringify(finalProcessed), { status: res.status, headers });
   } catch (e) {
     console.warn("[CATALOG_HOME] post-process failed, returning raw:", e);
     return res;

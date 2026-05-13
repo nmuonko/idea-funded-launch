@@ -124,6 +124,16 @@ const COLLECTION_QUERIES: Record<string, CollectionConfig> = {
   },
 };
 
+// Frozen/older mobile builds still read these collection keys from
+// mobile-public-config for the home screen. They must now resolve to the same
+// smartphone-first feed as catalog-home, not mixed electronics/accessories.
+const HOMEPAGE_SMARTPHONE_COMPAT_COLLECTIONS = new Set([
+  "electronics_trending",
+  "best_sellers_electronics",
+  "deals_electronics",
+  "web_homepage_mirror",
+]);
+
 // ─── Content Blocking ────────────────────────────────────────────────────────
 
 // Global deny keywords (books, subscriptions, etc.)
@@ -194,6 +204,19 @@ function isValidVehicle(item: any): boolean {
   const isExpensiveEnough = price !== null && price >= VEHICLE_MIN_PRICE_USD;
   
   return hasVehicleType || isExpensiveEnough;
+}
+
+function isHomepagePhoneAccessoryTitle(title: string): boolean {
+  return /\b(case|cover|glass|screen protector|protector|tempered glass|charger|cable|usb-?c|lightning|magsafe|adapter|mount|stand|holder|keyboard|mouse|watch\s*case|watch|band|bands|replacement|repair|parts?|battery|lens|stylus|dock|wallet|for\s+(iphone|samsung|galaxy|pixel)|compatible\s+with\s+(iphone|samsung|galaxy|pixel))\b/i.test(title);
+}
+
+function isHomepageSmartphoneTitle(title: string): boolean {
+  if (isHomepagePhoneAccessoryTitle(title)) return false;
+  const lower = title.toLowerCase();
+  return /\biphone\s?(se|1[1-6]|xr|xs|x)\b/.test(lower)
+    || /\bpixel\s?(6|7|8|9)\b/.test(lower)
+    || /\b(samsung\s+)?galaxy\s+(s\d{1,2}|note\s?\d*|z\s?(fold|flip))\b/.test(lower)
+    || /\boneplus\s+\d+/i.test(lower);
 }
 
 function isAuctionItem(item: any): boolean {
@@ -500,7 +523,8 @@ async function getItemsFromDB(
   categoryKey: string,
   page: number,
   pageSize: number,
-  isVehicle: boolean = false
+  isVehicle: boolean = false,
+  smartphoneOnly: boolean = false
 ): Promise<{ items: CollectionItem[]; total: number }> {
   const offset = (page - 1) * pageSize;
 
@@ -511,12 +535,25 @@ async function getItemsFromDB(
   // Filter out disallowed items
   query = query.or("is_disallowed.is.null,is_disallowed.eq.false");
 
-  if (provider !== "all") {
+  if (provider !== "all" && !smartphoneOnly) {
     query = query.eq("provider", provider);
   }
 
+  if (smartphoneOnly) {
+    query = query
+      .eq("is_active", true)
+      .gte("price_usd", 80)
+      .lte("price_usd", 1800)
+      .in("provider", ["amazon", "rainforest"])
+      .or([
+        "title.ilike.%iphone 11%", "title.ilike.%iphone 12%", "title.ilike.%iphone 13%", "title.ilike.%iphone 14%", "title.ilike.%iphone 15%", "title.ilike.%iphone 16%", "title.ilike.%iphone se%",
+        "title.ilike.%galaxy s21%", "title.ilike.%galaxy s22%", "title.ilike.%galaxy s23%", "title.ilike.%galaxy s24%", "title.ilike.%galaxy s25%", "title.ilike.%galaxy note%", "title.ilike.%galaxy z fold%", "title.ilike.%galaxy z flip%",
+        "title.ilike.%pixel 7%", "title.ilike.%pixel 8%", "title.ilike.%pixel 9%", "title.ilike.%oneplus %",
+      ].join(","));
+  }
+
   // Match category_key
-  if (categoryKey) {
+  if (categoryKey && !smartphoneOnly) {
     query = query.eq("category_key", categoryKey);
   }
 
@@ -525,15 +562,20 @@ async function getItemsFromDB(
     query = query.gte("price_usd", VEHICLE_MIN_PRICE_USD);
   }
 
+  const rangeEnd = smartphoneOnly
+    ? offset + Math.max(pageSize * 8, 80) - 1
+    : offset + pageSize - 1;
+
   const { data: rows, count } = await query
     .order("updated_at", { ascending: false })
-    .range(offset, offset + pageSize - 1);
+    .range(offset, rangeEnd);
 
   // Filter blocked titles
   const items: CollectionItem[] = [];
   for (const row of (rows || [])) {
     const title = row.title || "Unknown";
     if (isBlockedTitle(title, isVehicle)) continue;
+    if (smartphoneOnly && !isHomepageSmartphoneTitle(title)) continue;
 
     items.push({
       id: row.id,
@@ -548,7 +590,12 @@ async function getItemsFromDB(
     });
   }
 
-  return { items, total: count || items.length };
+  if (smartphoneOnly) {
+    items.sort((a, b) => (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
+    items.splice(pageSize);
+  }
+
+  return { items, total: smartphoneOnly ? items.length : (count || items.length) };
 }
 
 async function saveToCache(
@@ -674,21 +721,24 @@ Deno.serve(async (req: Request) => {
     // Get collection config (default to electronics if unknown)
     const collectionConfig = COLLECTION_QUERIES[collectionKey] || COLLECTION_QUERIES["electronics_trending"];
     const isVehicle = collectionConfig.isVehicle === true;
+    const smartphoneCompat = HOMEPAGE_SMARTPHONE_COMPAT_COLLECTIONS.has(collectionKey);
 
     const cacheKey = `${provider}:${collectionKey}:${page}:${pageSize}`;
 
     // Step 1: Try to serve from collection cache
-    const cached = await getCachedCollection(supabase, cacheKey);
-    if (cached.hit && cached.items.length > 0) {
-      return buildResponse("success", cached.items, cached.total, null);
+    if (!smartphoneCompat) {
+      const cached = await getCachedCollection(supabase, cacheKey);
+      if (cached.hit && cached.items.length > 0) {
+        return buildResponse("success", cached.items, cached.total, null);
+      }
     }
 
     // Step 2: If mode=db (production default), try to build from existing DB items
     if (!allowLive) {
-      const dbResult = await getItemsFromDB(supabase, provider, collectionConfig.categoryKey, page, pageSize, isVehicle);
+      const dbResult = await getItemsFromDB(supabase, provider, collectionConfig.categoryKey, page, pageSize, isVehicle, smartphoneCompat);
       
       // Cache the result (shorter TTL if few items)
-      if (dbResult.items.length > 0) {
+      if (dbResult.items.length > 0 && !smartphoneCompat) {
         await saveToCache(supabase, cacheKey, provider, collectionKey, page, pageSize, dbResult.items, dbResult.total, Math.min(collectionConfig.ttlSeconds, 3600));
       }
       

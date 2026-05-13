@@ -342,6 +342,21 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
 };
 
+const UNIFIED_SMARTPHONE_HOME_CONFIG: RuntimeHomeConfig = {
+  sections: [
+    { key: "for_you", label_fr: "Pour vous", label_en: "For You", collectionKey: "web_homepage_mirror", maxItems: 60 },
+  ],
+  collections: {
+    web_homepage_mirror: { queries: ["iphone 13", "google pixel 7", "samsung galaxy s21"], providers: ["rainforest", "amazon"], dbOnly: true },
+    // Legacy keys retained for frozen mobile builds; catalog-collection maps
+    // these to the same smartphone-only feed server-side.
+    electronics_trending: { queries: ["iphone 13", "google pixel 7", "samsung galaxy s21"], providers: ["rainforest", "amazon"], dbOnly: true },
+    best_sellers_electronics: { queries: ["iphone 13", "google pixel 7", "samsung galaxy s21"], providers: ["rainforest", "amazon"], dbOnly: true },
+    deals_electronics: { queries: ["iphone 13", "google pixel 7", "samsung galaxy s21"], providers: ["rainforest", "amazon"], dbOnly: true },
+    phones: { queries: ["iphone", "google pixel", "samsung galaxy"], providers: ["rainforest", "amazon"], dbOnly: true },
+  },
+};
+
 async function fetchConfig(envName: "production" | "staging"): Promise<PublicConfigResponse> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -615,12 +630,13 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       providers: (dbConfig.providers as RuntimeProvider[]) || DEFAULT_RUNTIME_CONFIG.providers,
       ui: (dbConfig.ui as RuntimeUI) || DEFAULT_RUNTIME_CONFIG.ui,
       search: (dbConfig.search as RuntimeSearchConfig) || DEFAULT_RUNTIME_CONFIG.search,
-      home: (dbConfig.home as RuntimeHomeConfig) || DEFAULT_RUNTIME_CONFIG.home,
+      home: UNIFIED_SMARTPHONE_HOME_CONFIG,
       blocks: (dbConfig.blocks as RuntimeBlocksConfig) || DEFAULT_RUNTIME_CONFIG.blocks,
     };
     console.log("[mobile-public-config] Loaded runtime config from DB, version:", runtimeConfig.version);
   } else {
     console.log("[mobile-public-config] Using default runtime config");
+    runtimeConfig = { ...runtimeConfig, home: UNIFIED_SMARTPHONE_HOME_CONFIG };
   }
 
   if (!settings) {

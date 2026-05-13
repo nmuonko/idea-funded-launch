@@ -8,7 +8,7 @@ import {
   nonEmpty
 } from "../_shared/titleNormalizer.ts";
 import { buildStrictMobileSections, type SectionItem } from "../_shared/sectionProfiles.ts";
-import { sanitizeImageUrl, bestProductImage, normalizeResponseImages } from "../_shared/imageValidator.ts";
+import { sanitizeImageUrl, bestProductImage, sanitizeGallery, normalizeResponseImages } from "../_shared/imageValidator.ts";
 import { serveMobileSections, emptyMobileSectionsResponse } from "../_shared/mobileSectionsCache.ts";
 import { loadPricingSettings, applyAllInclusivePricingToItems } from "../_shared/allInclusivePricing.ts";
 import {
@@ -393,16 +393,16 @@ async function fetchHomepagePhoneRows(
   withCount = false,
 ): Promise<{ rows: Array<Record<string, unknown>>; count: number | null }> {
   const params = new URLSearchParams();
-  params.set("select", "id,provider,provider_product_id,title,image_url,images,product_url,price_usd,in_stock");
+  params.set("select", "id,provider,provider_product_id,title,image_url,images,product_url,price_usd,rating,in_stock");
   params.set("is_active", "eq.true");
   params.set("is_disallowed", "eq.false");
-  params.set("needs_price_review", "is.false");
   params.append("price_usd", "gte.80");
   params.append("price_usd", "lte.1800");
   params.set("provider", "in.(amazon,rainforest)");
   params.set("or", `(${orFilter})`);
-  // Cheapest first per page (web parity). Tie-break by recency for stability.
-  params.set("order", "price_usd.asc.nullslast,updated_at.desc.nullslast");
+  // Match the web homepage bulk-phone query exactly: newest catalog rows form
+  // the candidate pool, then final all-inclusive prices sort the visible grid.
+  params.set("order", "updated_at.desc.nullslast");
   params.set("offset", String(offset));
   params.set("limit", String(limit));
 

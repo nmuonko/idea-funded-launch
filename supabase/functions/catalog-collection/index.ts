@@ -124,6 +124,16 @@ const COLLECTION_QUERIES: Record<string, CollectionConfig> = {
   },
 };
 
+// Frozen/older mobile builds still read these collection keys from
+// mobile-public-config for the home screen. They must now resolve to the same
+// smartphone-first feed as catalog-home, not mixed electronics/accessories.
+const HOMEPAGE_SMARTPHONE_COMPAT_COLLECTIONS = new Set([
+  "electronics_trending",
+  "best_sellers_electronics",
+  "deals_electronics",
+  "web_homepage_mirror",
+]);
+
 // ─── Content Blocking ────────────────────────────────────────────────────────
 
 // Global deny keywords (books, subscriptions, etc.)

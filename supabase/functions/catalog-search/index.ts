@@ -31,6 +31,7 @@ import { canonicalizeQuery } from "../_shared/queryCanonicalizer.ts";
 import { enrichItemsWithMediaCounts } from "../_shared/mediaCache.ts";
 import { logMixerRequest, AmazonLiveReason } from "../_shared/amazonLivePolicy.ts";
 import { validateSort, parseFilters, postFilterItems, postSortItems, buildAppliedSortFilter } from "../_shared/sortFilterNormalizer.ts";
+import { applyCategoryPriceCaps } from "../_shared/categoryPriceCaps.ts";
 import { getEnabledProviders, getClientPlatform } from "../_shared/featureFlags.ts";
 import { getClientIp } from "../_shared/rateLimiter.ts";
 import {

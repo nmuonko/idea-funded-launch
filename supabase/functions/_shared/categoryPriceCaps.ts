@@ -39,16 +39,36 @@ function isActualLaptop(title: string, category: string): boolean {
 /**
  * Apply hard category-based price caps to a list of items.
  * Currently: drops actual laptops priced strictly above LAPTOP_PRICE_CAP_USD.
+ *
+ * When `query` indicates the user is searching for a device (e.g. "laptop hp",
+ * "macbook"), accessory listings (keyboards, chargers, cases, screws, screen
+ * protectors, etc.) are also removed so the result set stays on-topic.
  */
-export function applyCategoryPriceCaps<T extends PriceCapItem>(items: T[]): T[] {
+export function applyCategoryPriceCaps<T extends PriceCapItem>(
+  items: T[],
+  query?: string | null,
+): T[] {
   if (!Array.isArray(items) || items.length === 0) return items;
+  const q = (query || "").toLowerCase();
+  const queryWantsLaptop =
+    /\b(laptop|laptops|macbook|mac\s?book|notebook|chromebook|ultrabook)\b/.test(q) &&
+    !LAPTOP_ACCESSORY_REGEX.test(q);
+
   return items.filter((item) => {
     const title = (item.title || "").toLowerCase();
     const category = (item.category || "").toLowerCase();
     const price = Number(item.priceUsd ?? item.price_usd ?? 0) || 0;
+
+    // 1. Hard price cap on actual laptops
     if (isActualLaptop(title, category) && price > LAPTOP_PRICE_CAP_USD) {
       return false;
     }
+
+    // 2. When query is for a laptop device, drop pure accessory listings
+    if (queryWantsLaptop && LAPTOP_ACCESSORY_REGEX.test(title) && !isActualLaptop(title, category)) {
+      return false;
+    }
+
     return true;
   });
 }

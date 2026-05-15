@@ -142,6 +142,16 @@ export default function SearchResults() {
   // Fashion intent has country_priority = ['china','turkey'] only.
   useEffect(() => {
     if (!intent?.is_fashion) return;
+    // Guard: only auto-redirect when the intent category is actually fashion-related.
+    // The intent service occasionally flags electronics queries (e.g. "laptop hp") as
+    // fashion, which wrongly bounced the user to /shop/china. Trust category here.
+    const cat = (intent.category || '').toLowerCase();
+    const FASHION_CATS = ['fashion', 'clothing', 'apparel', 'shoes', 'beauty', 'accessories', 'bags'];
+    if (!FASHION_CATS.some(c => cat.includes(c))) return;
+    // Extra safety: never redirect obvious electronics/vehicle queries.
+    const q = (query || '').toLowerCase();
+    const NON_FASHION_KEYWORDS = /\b(laptop|phone|iphone|samsung|pixel|tv|tablet|ipad|macbook|hp|dell|lenovo|asus|acer|xbox|playstation|ps5|nintendo|camera|gpu|cpu|ssd|monitor|headphone|airpods|charger|cable|car|truck|moto|vehicle|tire|engine)\b/;
+    if (NON_FASHION_KEYWORDS.test(q)) return;
     const target = (intent.country_priority?.[0] || 'china').toLowerCase();
     const route = target === 'turkey' ? '/shop/turkey' : '/shop/china';
     const qs = query ? `?q=${encodeURIComponent(query)}` : '';

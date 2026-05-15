@@ -31,6 +31,7 @@ import { canonicalizeQuery } from "../_shared/queryCanonicalizer.ts";
 import { enrichItemsWithMediaCounts } from "../_shared/mediaCache.ts";
 import { logMixerRequest, AmazonLiveReason } from "../_shared/amazonLivePolicy.ts";
 import { validateSort, parseFilters, postFilterItems, postSortItems, buildAppliedSortFilter } from "../_shared/sortFilterNormalizer.ts";
+import { applyCategoryPriceCaps } from "../_shared/categoryPriceCaps.ts";
 import { getEnabledProviders, getClientPlatform } from "../_shared/featureFlags.ts";
 import { getClientIp } from "../_shared/rateLimiter.ts";
 import {
@@ -1097,7 +1098,8 @@ Deno.serve(async (req: Request) => {
       if (qualitySufficient && scoreResult.items.length >= MIN_TARGET_RESULTS) {
         console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH: ${scoreResult.items.length} items, topScore=${topScore} >= ${DB_QUALITY_MIN_TOP_SCORE} — using fast path`);
 
-        const dbFinalRaw = postSortItems(postFilterItems(scoreResult.items, catalogFilters), sort);
+        const dbCappedItems = applyCategoryPriceCaps(scoreResult.items as any[], qOriginal) as typeof scoreResult.items;
+        const dbFinalRaw = postSortItems(postFilterItems(dbCappedItems, catalogFilters), sort);
         const dbFinal = await ensurePricing(dbFinalRaw);
 
         const dbFastResponse = {
@@ -1690,6 +1692,10 @@ Deno.serve(async (req: Request) => {
         console.log(`[CATALOG_SEARCH] requestId=${requestId} AI_MUST_EXCLUDE: dropped ${excludeDropped} items (keywords: ${aiRewriteMustExclude.join(",")})`);
       }
     }
+
+    // Apply hard category-based price caps (e.g. laptops > $400 are removed)
+    // This runs before sort so the displayed order reflects the capped pool.
+    finalItems = applyCategoryPriceCaps(finalItems as any[], qOriginal) as typeof finalItems;
 
     // Sort: smart and explicit sorts always apply; pure relevance uses scorer order
     if (sort !== "relevance") {

@@ -16,6 +16,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeGallery, sanitizeImageUrl, bestProductImage } from "../_shared/imageValidator.ts";
+import { applyCategoryPriceCaps } from "../_shared/categoryPriceCaps.ts";
 
 // ─── CORS Headers ────────────────────────────────────────────────────────────
 
@@ -688,6 +689,7 @@ Deno.serve(async (req: Request) => {
     total: number,
     error: { message: string; code: string } | null = null
   ): Response => {
+    const cappedItems = applyCategoryPriceCaps(items as any[]) as CollectionItem[];
     const response: CollectionResponse = {
       status,
       env: envHeader,
@@ -695,8 +697,8 @@ Deno.serve(async (req: Request) => {
       collectionKey,
       page,
       pageSize,
-      total,
-      items,
+      total: status === "success" ? cappedItems.length : total,
+      items: cappedItems,
       error,
     };
     

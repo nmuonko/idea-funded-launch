@@ -1098,7 +1098,7 @@ Deno.serve(async (req: Request) => {
       if (qualitySufficient && scoreResult.items.length >= MIN_TARGET_RESULTS) {
         console.log(`[CATALOG_SEARCH] requestId=${requestId} DB_FAST_PATH: ${scoreResult.items.length} items, topScore=${topScore} >= ${DB_QUALITY_MIN_TOP_SCORE} — using fast path`);
 
-        const dbCappedItems = applyCategoryPriceCaps(scoreResult.items as any[]) as typeof scoreResult.items;
+        const dbCappedItems = applyCategoryPriceCaps(scoreResult.items as any[], qOriginal) as typeof scoreResult.items;
         const dbFinalRaw = postSortItems(postFilterItems(dbCappedItems, catalogFilters), sort);
         const dbFinal = await ensurePricing(dbFinalRaw);
 

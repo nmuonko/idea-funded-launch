@@ -1695,7 +1695,7 @@ Deno.serve(async (req: Request) => {
 
     // Apply hard category-based price caps (e.g. laptops > $400 are removed)
     // This runs before sort so the displayed order reflects the capped pool.
-    finalItems = applyCategoryPriceCaps(finalItems as any[]) as typeof finalItems;
+    finalItems = applyCategoryPriceCaps(finalItems as any[], qOriginal) as typeof finalItems;
 
     // Sort: smart and explicit sorts always apply; pure relevance uses scorer order
     if (sort !== "relevance") {

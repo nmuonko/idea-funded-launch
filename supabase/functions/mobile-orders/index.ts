@@ -60,8 +60,25 @@ async function proxyToFunction(functionName: string, req: Request, body: unknown
     });
   }
 
+  if (!resp.ok) {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(text || '{}');
+    } catch {
+      parsed = { message: text || 'Downstream payment request failed' };
+    }
+
+    return jsonResponse({
+      ok: false,
+      success: false,
+      ...parsed,
+      http_status: resp.status,
+      downstream_function: functionName,
+    }, 200);
+  }
+
   return new Response(text, {
-    status: resp.status,
+    status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }

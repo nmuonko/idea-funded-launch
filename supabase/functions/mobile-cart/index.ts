@@ -381,7 +381,17 @@ function formatItem(
   const itemSubtotalUsd = isStoredAllInclusive
     ? (Number(item.total_price_usd || 0) > 0 ? Number(item.total_price_usd) : itemBaseTotalUsd)
     : round2(itemBaseTotalUsd + itemMarginUsd);
-  let itemTotalUsd = round2(itemSubtotalUsd + (isStoredAllInclusive ? 0 : itemShippingUsd));
+  // PARITY FIX: For non-all-inclusive items use Math.ceil(base+markup+shipping)
+  // per unit so cart price matches catalog-home / catalog-product display.
+  let itemTotalUsd: number;
+  if (isStoredAllInclusive) {
+    itemTotalUsd = round2(itemSubtotalUsd);
+  } else {
+    const perUnitMarkup = itemMarginUsd / quantity;
+    const perUnitShipping = itemShippingUsd / quantity;
+    const perUnitInclusive = Math.ceil(basePriceUsd + perUnitMarkup + perUnitShipping);
+    itemTotalUsd = round2(perUnitInclusive * quantity);
+  }
   const itemSubtotalCdf = round2(itemSubtotalUsd * exchangeRate);
 
   // Apply pricing protection for non-all-inclusive items

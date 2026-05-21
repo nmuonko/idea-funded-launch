@@ -23,7 +23,6 @@ import { createClient } from "@supabase/supabase-js";
 import { 
   verifyAndGetUser, 
   handleCors, 
-  errorResponse as sharedErrorResponse, 
   jsonResponse as sharedJsonResponse,
   corsHeaders,
   extractBearerToken,

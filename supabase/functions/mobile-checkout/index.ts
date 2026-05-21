@@ -1759,7 +1759,7 @@ serve(async (req) => {
             code: 'NO_PAYMENT_OPTIONS',
             message: 'No payment methods available for large orders. Please contact support.',
             error: 'Large order payment methods are disabled.',
-          }, 503);
+          }, 200);
         }
         
         // Create checkout_session to lock cart state
@@ -1912,7 +1912,7 @@ serve(async (req) => {
 
       if (largeOrderError) {
         console.error('[mobile-checkout] Error creating large order checkout:', largeOrderError);
-        return jsonResponse({ success: false, error: 'Failed to create order. Please try again.' }, 500);
+        return jsonResponse({ success: false, error: 'Failed to create order. Please try again.' }, 200);
       }
 
       const largeOrderReference = `AFRISHOP-${largeOrderCheckout.id.slice(0, 8)}-${timestamp}`;
@@ -1972,7 +1972,7 @@ serve(async (req) => {
       if (copyItemsError) {
         console.error('[mobile-checkout] Error copying items for large order:', copyItemsError);
         await supabase.from('orders').delete().eq('id', largeOrderCheckout.id);
-        return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
+        return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 200);
       }
 
       // POST-COPY VERIFICATION: Ensure items actually exist on the new order
@@ -1987,7 +1987,7 @@ serve(async (req) => {
           expected_items: copiedItems.length,
         });
         await supabase.from('orders').delete().eq('id', largeOrderCheckout.id);
-        return jsonResponse({ success: false, error: 'Failed to process checkout items. Please try again.' }, 500);
+        return jsonResponse({ success: false, error: 'Failed to process checkout items. Please try again.' }, 200);
       }
 
       // Create checkout session
@@ -2033,7 +2033,7 @@ serve(async (req) => {
             message: 'Card payment is not configured. Please contact support.',
             message_fr: 'Le paiement par carte n\'est pas configuré. Veuillez contacter le support.',
             error: 'STRIPE_SECRET_KEY not configured.',
-          }, 503);
+          }, 200);
         }
         
         const stripeProvider = await getActiveProvider(supabase, isoCode || 'COD', 'CARD');
@@ -2120,7 +2120,7 @@ serve(async (req) => {
                 message_fr: 'Impossible d\'initialiser le paiement par carte. Veuillez réessayer.',
                 error: stripeResult.error || 'Failed to create Stripe payment intent.',
                 order_id: largeOrderCheckout.id,
-              }, 500);
+              }, 200);
             }
           } catch (stripeError: any) {
             console.error('[router] preference=CARD -> STRIPE_EXCEPTION', {
@@ -2134,7 +2134,7 @@ serve(async (req) => {
               message_fr: 'Impossible d\'initialiser le paiement par carte. Veuillez réessayer.',
               error: stripeError.message,
               order_id: largeOrderCheckout.id,
-            }, 500);
+            }, 200);
           }
         }
         
@@ -2146,7 +2146,7 @@ serve(async (req) => {
           message: 'Card payments are not available. Please contact support.',
           message_fr: 'Les paiements par carte ne sont pas disponibles. Veuillez contacter le support.',
           error: 'Card payment provider not configured.',
-        }, 503);
+        }, 200);
       }
       
       // Should never reach here - preference was validated above
@@ -2158,7 +2158,7 @@ serve(async (req) => {
         code: 'UNEXPECTED_STATE',
         message: 'An unexpected error occurred. Please try again.',
         error: 'Invalid state in large order processing.',
-      }, 500);
+      }, 200);
     }
 
     // ============================================
@@ -2173,7 +2173,7 @@ serve(async (req) => {
         code: 'PAYMENT_NOT_AVAILABLE',
         message: 'Mobile money payments are currently unavailable. Please try again later.',
         error: 'pawaPay is disabled.',
-      }, 503);
+      }, 200);
     }
 
     // ============================================
@@ -2298,7 +2298,7 @@ serve(async (req) => {
 
     if (createOrderError) {
       console.error('[mobile-checkout] Error creating checkout order:', createOrderError);
-      return jsonResponse({ success: false, error: 'Failed to create order. Please try again.' }, 500);
+      return jsonResponse({ success: false, error: 'Failed to create order. Please try again.' }, 200);
     }
 
     // Update reference with actual order ID
@@ -2372,7 +2372,7 @@ serve(async (req) => {
     if (copyItemsError || !insertedItems) {
       console.error('[mobile-checkout] Error copying items to checkout order:', copyItemsError);
       await supabase.from('orders').delete().eq('id', checkoutOrder.id);
-      return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
+      return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 200);
     }
 
     // POST-COPY VERIFICATION: Ensure items actually exist on the new order
@@ -2388,7 +2388,7 @@ serve(async (req) => {
         inserted_items_response: insertedItems?.length,
       });
       await supabase.from('orders').delete().eq('id', checkoutOrder.id);
-      return jsonResponse({ success: false, error: 'Failed to process checkout items. Please try again.' }, 500);
+      return jsonResponse({ success: false, error: 'Failed to process checkout items. Please try again.' }, 200);
     }
     
     // Log cart state after checkout (DRAFT cart should be unchanged)

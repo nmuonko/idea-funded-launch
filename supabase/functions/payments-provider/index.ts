@@ -27,8 +27,17 @@ const corsHeaders = {
 };
 
 function jsonRes(data: unknown, status = 200) {
+  const finalStatus = status === 200 ? 200 : 200;
+  const payload = status === 200 || !data || typeof data !== 'object'
+    ? data
+    : { ...(data as Record<string, unknown>), http_status: status };
+
+  if (status !== 200) {
+    console.warn('[payments-provider] NORMALIZED_NON_200_RESPONSE', { original_status: status });
+  }
+
   return new Response(JSON.stringify(data), {
-    status,
+    status: finalStatus,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }
@@ -112,8 +121,9 @@ async function forwardToFunction(functionName: string, req: Request, token: stri
     });
   }
 
+  const normalizedStatus = response.ok ? response.status : 200;
   return new Response(responseBody, {
-    status: response.status,
+    status: normalizedStatus,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }

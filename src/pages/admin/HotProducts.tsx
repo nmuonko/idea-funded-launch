@@ -35,6 +35,29 @@ function inferProductId(url: string): string | null {
   return null;
 }
 
+// Build a canonical source URL on the retailer's site (Amazon, eBay, etc.)
+// so orders preserve the original product link instead of an internal /product/... URL.
+function buildSourceProductUrl(provider: string, providerProductId: string, fallback?: string): string {
+  const prov = (provider || '').toLowerCase();
+  const rawId = (providerProductId || '').trim();
+  if (prov && rawId) {
+    if (prov === 'ebay') {
+      const ebayItemId = rawId.startsWith('v1|') ? rawId.split('|')[1] || rawId : rawId;
+      return `https://www.ebay.com/itm/${ebayItemId}`;
+    }
+    if (prov === 'amazon') {
+      let cleanId = rawId;
+      if (cleanId.toLowerCase().startsWith('amazon_')) cleanId = cleanId.slice(7);
+      if (cleanId.toLowerCase().startsWith('rainforest_')) cleanId = cleanId.slice(11);
+      return `https://www.amazon.com/dp/${cleanId.toUpperCase()}`;
+    }
+    if (prov === 'walmart') return `https://www.walmart.com/ip/${rawId}`;
+    if (prov === 'shein') return `https://www.shein.com/p-${rawId}.html`;
+    if (prov === 'temu') return `https://www.temu.com/${rawId}.html`;
+  }
+  return fallback || '';
+}
+
 interface ShowcaseProduct {
   id: string;
   title: string;
@@ -481,7 +504,7 @@ export default function HotProducts() {
       markup_usd: Math.ceil(markup),
       shipping_usd: Math.ceil(shipping),
       total_price_usd: total,
-      product_url: `https://afrishop-usa.com/product/${item.provider}/${item.provider_product_id}`,
+      product_url: buildSourceProductUrl(item.provider, item.provider_product_id, item.product_url),
       provider: item.provider || '',
       provider_product_id: item.provider_product_id || '',
       sort_order: prev.length,
@@ -513,7 +536,7 @@ export default function HotProducts() {
         markup_usd: Math.ceil(markup),
         shipping_usd: Math.ceil(shipping),
         total_price_usd: total,
-        product_url: (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : `https://afrishop-usa.com/paste-link`,
+        product_url: buildSourceProductUrl(prov, pid, pasteUrl.trim()),
         provider: prov,
         provider_product_id: pid,
         sort_order: prev.length,

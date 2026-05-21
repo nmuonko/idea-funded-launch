@@ -23,8 +23,7 @@ import { createClient } from "@supabase/supabase-js";
 import { 
   verifyAndGetUser, 
   handleCors, 
-  errorResponse, 
-  jsonResponse,
+  jsonResponse as sharedJsonResponse,
   corsHeaders,
   extractBearerToken,
   extractRequestToken,
@@ -79,6 +78,27 @@ import {
   getCachedSettings as cartDbGetSettings,
 } from "../_shared/cart/db.ts";
 import { updateOrderTotals as sharedUpdateOrderTotals } from "../_shared/cartHelpers.ts";
+
+function jsonResponse(data: unknown, status = 200): Response {
+  if (status === 200) return sharedJsonResponse(data, 200);
+
+  const payload = data && typeof data === 'object'
+    ? { ...(data as Record<string, unknown>), http_status: status }
+    : { ok: false, success: false, error: String(data ?? 'Request failed'), http_status: status };
+
+  console.warn('[mobile-cart] NORMALIZED_NON_200_RESPONSE', {
+    original_status: status,
+    code: (payload as Record<string, unknown>).code ?? null,
+    error: (payload as Record<string, unknown>).error ?? null,
+  });
+
+  return sharedJsonResponse(payload, 200);
+}
+
+function errorResponse(message: string, statusOrHeaders: number | Record<string, string> = 500, status = 500): Response {
+  const finalStatus = typeof statusOrHeaders === 'number' ? statusOrHeaders : status;
+  return jsonResponse({ ok: false, success: false, code: finalStatus, message, error: message }, finalStatus);
+}
 
 // ─── Shared Helpers ───────────────────────────────────────
 

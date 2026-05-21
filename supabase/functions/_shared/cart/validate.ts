@@ -18,6 +18,7 @@ export const ALLOWED_DOMAINS = [
   'shein.com', 'www.shein.com', 'us.shein.com', 'm.shein.com',
   'macys.com', 'www.macys.com', 'm.macys.com',
   'mercari.com', 'www.mercari.com',
+  'gazelle.com', 'www.gazelle.com', 'buy.gazelle.com',
   'wayfair.com', 'www.wayfair.com',
   'afrishop-usa.com', 'www.afrishop-usa.com',
 ];

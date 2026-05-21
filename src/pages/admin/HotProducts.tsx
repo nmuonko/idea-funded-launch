@@ -35,6 +35,29 @@ function inferProductId(url: string): string | null {
   return null;
 }
 
+// Build a canonical source URL on the retailer's site (Amazon, eBay, etc.)
+// so orders preserve the original product link instead of an internal /product/... URL.
+function buildSourceProductUrl(provider: string, providerProductId: string, fallback?: string): string {
+  const prov = (provider || '').toLowerCase();
+  const rawId = (providerProductId || '').trim();
+  if (prov && rawId) {
+    if (prov === 'ebay') {
+      const ebayItemId = rawId.startsWith('v1|') ? rawId.split('|')[1] || rawId : rawId;
+      return `https://www.ebay.com/itm/${ebayItemId}`;
+    }
+    if (prov === 'amazon') {
+      let cleanId = rawId;
+      if (cleanId.toLowerCase().startsWith('amazon_')) cleanId = cleanId.slice(7);
+      if (cleanId.toLowerCase().startsWith('rainforest_')) cleanId = cleanId.slice(11);
+      return `https://www.amazon.com/dp/${cleanId.toUpperCase()}`;
+    }
+    if (prov === 'walmart') return `https://www.walmart.com/ip/${rawId}`;
+    if (prov === 'shein') return `https://www.shein.com/p-${rawId}.html`;
+    if (prov === 'temu') return `https://www.temu.com/${rawId}.html`;
+  }
+  return fallback || '';
+}
+
 interface ShowcaseProduct {
   id: string;
   title: string;

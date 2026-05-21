@@ -22,13 +22,29 @@ import {
   verifyAndGetUser, 
   handleCors, 
   errorResponse, 
-  jsonResponse,
+  jsonResponse as sharedJsonResponse,
   corsHeaders,
   buildForwardHeaders,
   extractDownstreamAuthFailure,
   authErrorResponse,
   createAdminClient,
 } from "../_shared/auth.ts";
+
+function jsonResponse(data: unknown, status = 200): Response {
+  if (status === 200) return sharedJsonResponse(data, 200);
+
+  const payload = data && typeof data === 'object'
+    ? { ...(data as Record<string, unknown>), http_status: status }
+    : { ok: false, success: false, error: String(data ?? 'Request failed'), http_status: status };
+
+  console.warn('[mobile-orders] NORMALIZED_NON_200_RESPONSE', {
+    original_status: status,
+    code: (payload as Record<string, unknown>).code ?? null,
+    error: (payload as Record<string, unknown>).error ?? null,
+  });
+
+  return sharedJsonResponse(payload, 200);
+}
 
 // ─── Proxy Helper (for actions not yet inlined) ──────────
 
@@ -60,8 +76,25 @@ async function proxyToFunction(functionName: string, req: Request, body: unknown
     });
   }
 
+  if (!resp.ok) {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(text || '{}');
+    } catch {
+      parsed = { message: text || 'Downstream payment request failed' };
+    }
+
+    return jsonResponse({
+      ok: false,
+      success: false,
+      ...parsed,
+      http_status: resp.status,
+      downstream_function: functionName,
+    }, 200);
+  }
+
   return new Response(text, {
-    status: resp.status,
+    status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }

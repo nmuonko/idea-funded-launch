@@ -504,7 +504,7 @@ export default function HotProducts() {
       markup_usd: Math.ceil(markup),
       shipping_usd: Math.ceil(shipping),
       total_price_usd: total,
-      product_url: `https://afrishop-usa.com/product/${item.provider}/${item.provider_product_id}`,
+      product_url: buildSourceProductUrl(item.provider, item.provider_product_id, item.product_url),
       provider: item.provider || '',
       provider_product_id: item.provider_product_id || '',
       sort_order: prev.length,

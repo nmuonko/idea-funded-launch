@@ -36,7 +36,7 @@ function jsonRes(data: unknown, status = 200) {
     console.warn('[payments-provider] NORMALIZED_NON_200_RESPONSE', { original_status: status });
   }
 
-  return new Response(JSON.stringify(data), {
+  return new Response(JSON.stringify(payload), {
     status: finalStatus,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });

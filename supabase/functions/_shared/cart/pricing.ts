@@ -155,14 +155,24 @@ export function buildItemResponse(
       )
     : null;
 
-  // Use protected price if available, otherwise fall back to raw calculation
+  // Use protected price if available, otherwise compute all-inclusive total
+  // using the SAME formula as applyAllInclusivePricingToItems (catalog-home /
+  // catalog-product): Math.ceil(base + markup + shipping) per unit, so the
+  // price shown on home, product detail and cart all match for the same item.
+  const qty = pricing.quantity || 1;
+  const perUnitBase = pricing.basePriceUsd;
+  const perUnitMarkup = pricing.itemMarginUsd / qty;
+  const perUnitShipping = shippingFeeUsd / qty;
+  const perUnitInclusive = Math.ceil(perUnitBase + perUnitMarkup + perUnitShipping);
   const finalTotalUsd = protection
     ? protection.safeFinalPriceUsd
-    : round2(pricing.itemSubtotalUsd + shippingFeeUsd);
+    : round2(perUnitInclusive * qty);
   const finalTotalCdf = round2(finalTotalUsd * exchangeRate);
 
   // For the frozen app: always show the all-inclusive total as the "base" price
-  const allInclusiveUnitPrice = round2(finalTotalUsd / (pricing.quantity || 1));
+  const allInclusiveUnitPrice = protection
+    ? round2(finalTotalUsd / qty)
+    : perUnitInclusive;
 
   return {
     id: itemId,

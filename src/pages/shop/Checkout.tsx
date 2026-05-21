@@ -42,11 +42,14 @@ interface HotProductCheckoutData {
 }
 
 const buildHotProductSourceUrl = (product: HotProductCheckoutData) => {
-  if (product.product_url) return product.product_url;
+  // Ignore internal synthetic URLs accidentally stored by older admin flows.
+  const stored = product.product_url?.trim();
+  const isSynthetic = !!stored && /afrishop-usa\.com\/(product\/|paste-link|share\/hp\/)/i.test(stored);
+  if (stored && !isSynthetic) return stored;
 
   const provider = (product.provider || '').toLowerCase();
   const rawId = product.provider_product_id?.trim();
-  if (!rawId) return null;
+  if (!rawId) return stored || null;
 
   if (provider === 'ebay') {
     const ebayItemId = rawId.startsWith('v1|') ? rawId.split('|')[1] || rawId : rawId;

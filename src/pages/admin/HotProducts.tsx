@@ -536,7 +536,7 @@ export default function HotProducts() {
         markup_usd: Math.ceil(markup),
         shipping_usd: Math.ceil(shipping),
         total_price_usd: total,
-        product_url: (prov && pid) ? `https://afrishop-usa.com/product/${prov}/${pid}` : `https://afrishop-usa.com/paste-link`,
+        product_url: buildSourceProductUrl(prov, pid, pasteUrl.trim()),
         provider: prov,
         provider_product_id: pid,
         sort_order: prev.length,

@@ -45,7 +45,6 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
   const itemsHTML = items.map(item => {
     const img = item.product_image_url || PLACEHOLDER_IMG;
     const qty = item.quantity || 1;
-    const unit = Number(item.unit_price_usd || (item.total_price_usd / qty) || 0).toFixed(2);
     return `
     <tr>
       <td style="padding: 12px; border-bottom: 1px solid #eee; width: 88px;">
@@ -54,14 +53,11 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
       <td style="padding: 12px; border-bottom: 1px solid #eee;">
         <div style="font-weight: 500; color:#111;">${item.title || 'Produit'}</div>
         <div style="font-size: 12px; color: #666; margin-top:4px;">Quantité : <strong>${qty}</strong></div>
-        <div style="font-size: 12px; color: #666;">Prix unitaire : ${unit} $US</div>
-      </td>
-      <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; white-space:nowrap;">
-        ${formatCurrency(item.total_price_usd, 'USD')}
       </td>
     </tr>
   `;
   }).join('');
+
 
   return `
 <!DOCTYPE html>

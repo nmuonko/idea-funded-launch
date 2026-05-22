@@ -1135,6 +1135,21 @@ async function handleAddItem(req: Request, body: any): Promise<Response> {
     }
   } catch (e) { console.warn(`[CART_ADD] audit log error:`, (e as Error).message); }
 
+  // Fire-and-forget price lock — non-vehicle only, vehicles short-circuit inside lock-cart-price.
+  if (!isVehicleDetected) {
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL');
+      const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+      if (supabaseUrl && serviceKey) {
+        fetch(`${supabaseUrl}/functions/v1/lock-cart-price`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ itemId }),
+        }).catch((e) => console.warn(`[CART_ADD] lock-cart-price fire-and-forget failed: ${(e as Error).message}`));
+      }
+    } catch (e) { console.warn(`[CART_ADD] lock-cart-price dispatch error:`, (e as Error).message); }
+  }
+
   console.log(`[CART_ADD][${correlationId}] user_id=${userId} deviceId=${deviceId ?? "none"} productId=${productUrl} quantity=${quantity} authPresent=true responseStatus=200 orderId=${draft.id} itemId=${itemId} merged=${merged} elapsedMs=${Date.now() - startTime}`);
   return jsonResponse({ success: true, merged, isGuest: false, item: response, orderId: draft.id, isVehicle: isVehicleDetected, requiresQuote: requiresManualQuote });
 }

@@ -26,6 +26,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useCartLockRefresh } from '@/hooks/useCartLockRefresh';
 
 export default function ShopCart() {
   const { 
@@ -35,6 +36,8 @@ export default function ShopCart() {
     selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment,
     feeSettings
   } = useShopCart();
+  const cartOrderId = (items[0] as any)?.orderId ?? null;
+  useCartLockRefresh(cartOrderId);
   const { user, session, isAuthReady } = useAuth();
   const { language } = useLanguage();
   const { toast } = useToast();

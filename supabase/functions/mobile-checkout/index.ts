@@ -23,6 +23,8 @@ import {
   validateProviderSecrets,
 } from "../_shared/paymentProviders.ts";
 import { createDeposit, getPawaPayConfig, ConfigMissingError } from "../_shared/pawapayAdapter.ts";
+import { runCartLockGate } from "../_shared/cartLockGate.ts";
+import { computeLockedPayableUsd } from "../_shared/lockedTotals.ts";
 
 function jsonResponse(data: unknown, status = 200) {
   if (status === 200) {
@@ -741,10 +743,38 @@ serve(async (req) => {
         payment_method_preference: paymentMethodPreference,
       });
       
-      // Use stored totals from the session (NO RECOMPUTATION)
+      // PRICE LOCK GATE: block on expired / OOS / verify-failed; returns HTTP 200 JSON.
+      const lockGate = await runCartLockGate(existingSession.order_id);
+      if (!lockGate.ok) {
+        console.warn('[mobile-checkout] price-lock gate blocked', { orderId: existingSession.order_id, code: lockGate.code });
+        return jsonResponse({
+          ok: false,
+          success: false,
+          code: lockGate.code,
+          message: lockGate.message_en,
+          message_en: lockGate.message_en,
+          message_fr: lockGate.message_fr,
+          changedItems: lockGate.changedItems,
+        }, 200);
+      }
+
+      // Use stored totals from the session, then override USD with locked sum when complete.
       const storedTotals = existingSession.totals_breakdown as TotalsBreakdown;
-      const payable_amount = existingSession.grand_total;
+      let payable_amount = existingSession.grand_total;
       const payable_currency = existingSession.currency;
+      try {
+        const locked = await computeLockedPayableUsd(existingSession.order_id, supabase);
+        if (locked.allLocked && locked.usd && locked.usd > 0) {
+          if ((payable_currency || 'USD').toUpperCase() === 'USD') {
+            payable_amount = locked.usd;
+          }
+          console.log('[mobile-checkout] locked-totals applied', { orderId: existingSession.order_id, lockedUsd: locked.usd, items: locked.itemCount });
+        } else {
+          console.warn('[mobile-checkout] price-lock incomplete, using session total', { orderId: existingSession.order_id, missing: locked.missingLockCount });
+        }
+      } catch (e) {
+        console.warn('[mobile-checkout] locked-totals lookup failed', { error: (e as Error).message });
+      }
       
       // Fetch user profile for phone
       const { data: userProfile } = await supabase

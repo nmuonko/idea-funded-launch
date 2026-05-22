@@ -2226,10 +2226,23 @@ serve(async (req) => {
       currencyReason = isLargeOrder ? 'large_order_requires_usd' : 'card_requires_usd';
     }
     
-    // P0: Compute payable_amount = server grand_total (NO CLIENT AMOUNTS)
-    const payable_amount = payable_currency === 'CDF' 
-      ? round2(totalsBreakdown.cdf_equivalent)
-      : round2(totalsBreakdown.grand_total);
+    // P0: payable_amount MUST come from SUM(locked_total_price_usd) — never from totalsBreakdown.grand_total.
+    const enforcedFresh = await enforceLockedPayableUsd(existingOrder.id, supabase);
+    if (!enforcedFresh.ok || enforcedFresh.usd == null) {
+      console.warn('[mobile-checkout] fresh price-lock-enforcement-failed', {
+        orderId: existingOrder.id, code: enforcedFresh.code,
+        missing: enforcedFresh.missingLockCount, items: enforcedFresh.itemCount,
+      });
+      return jsonResponse({
+        ok: false, success: false, code: enforcedFresh.code,
+        message: enforcedFresh.message_en,
+        message_en: enforcedFresh.message_en, message_fr: enforcedFresh.message_fr,
+      }, 200);
+    }
+    const payable_amount = payable_currency === 'CDF'
+      ? Math.round(enforcedFresh.usd * (Number(existingOrder.exchange_rate_used) || 2500))
+      : round2(enforcedFresh.usd);
+    console.log('[mobile-checkout] fresh locked-payable', { orderId: existingOrder.id, lockedUsd: enforcedFresh.usd, payable_amount, payable_currency });
 
     // Display formatting
     const displayAmount = payable_currency === 'CDF'

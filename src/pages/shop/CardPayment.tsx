@@ -10,6 +10,7 @@ import { ArrowLeft, Loader2, CreditCard, CheckCircle2, XCircle, Lock, RefreshCw 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
  import { useToast } from '@/hooks/use-toast';
+ import { useCartLockRefresh } from '@/hooks/useCartLockRefresh';
  
 // Stripe instance cache with proper retry handling
 let cachedStripeInstance: Stripe | null = null;
@@ -208,11 +209,12 @@ async function getStripePromise(forceReload = false): Promise<Stripe | null> {
    const amount = parseFloat(searchParams.get('amount') || '0');
    const currency = searchParams.get('currency') || 'USD';
    
-   const [loading, setLoading] = useState(true);
-   const [error, setError] = useState<string | null>(null);
-  const [errorDetails, setErrorDetails] = useState<string | null>(null);
-  const [retrying, setRetrying] = useState(false);
-  const [stripe, setStripe] = useState<Stripe | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+   const [errorDetails, setErrorDetails] = useState<string | null>(null);
+   const [retrying, setRetrying] = useState(false);
+   const [stripe, setStripe] = useState<Stripe | null>(null);
+   useCartLockRefresh(orderId);
    
   const initializeStripe = async (forceReload = false) => {
     console.log('[CardPayment] Initializing...', { orderId, hasClientSecret: !!clientSecret, forceReload });

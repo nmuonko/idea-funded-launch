@@ -18,6 +18,7 @@ import {
   normalizeAuthErrorCode,
 } from "../_shared/auth.ts";
 import { runCartLockGate } from "../_shared/cartLockGate.ts";
+import { computeLockedPayableUsd } from "../_shared/lockedTotals.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -173,6 +174,28 @@ serve(async (req: Request): Promise<Response> => {
       grandTotal = order.normalized_amount || order.total_usd;
       currency = order.normalized_currency || 'USD';
       console.log(`[STRIPE_CHECKOUT] Using order totals`, { requestId, grandTotal, currency });
+    }
+
+    // PRICE LOCK: canonical payable = SUM(locked_total_price_usd). Override grandTotal
+    // when every non-vehicle item has an active lock. Warn on mismatch so we can audit.
+    try {
+      const locked = await computeLockedPayableUsd(order_id, supabase);
+      if (locked.allLocked && locked.usd && locked.usd > 0) {
+        const usdGrand = currency.toUpperCase() === 'USD'
+          ? Number(grandTotal)
+          : Number(grandTotal) / (Number(order.exchange_rate_used) || 2500);
+        const deltaPct = usdGrand > 0 ? Math.abs(locked.usd - usdGrand) / usdGrand : 0;
+        console.log(`[STRIPE_CHECKOUT] locked-totals`, { requestId, orderId: order_id, lockedUsd: locked.usd, prevUsd: usdGrand, deltaPct, items: locked.itemCount });
+        if (currency.toUpperCase() === 'USD') {
+          grandTotal = locked.usd;
+        } else if (Number(order.exchange_rate_used) > 0) {
+          grandTotal = Math.round(locked.usd * Number(order.exchange_rate_used));
+        }
+      } else {
+        console.warn(`[STRIPE_CHECKOUT] price-lock incomplete, using legacy total`, { requestId, orderId: order_id, missing: locked.missingLockCount, items: locked.itemCount });
+      }
+    } catch (e) {
+      console.warn(`[STRIPE_CHECKOUT] locked-totals lookup failed`, { requestId, error: (e as Error).message });
     }
 
     if (!grandTotal || grandTotal <= 0) {

@@ -24,7 +24,7 @@ import {
 } from "../_shared/paymentProviders.ts";
 import { createDeposit, getPawaPayConfig, ConfigMissingError } from "../_shared/pawapayAdapter.ts";
 import { runCartLockGate } from "../_shared/cartLockGate.ts";
-import { computeLockedPayableUsd } from "../_shared/lockedTotals.ts";
+import { enforceLockedPayableUsd } from "../_shared/lockedTotals.ts";
 
 function jsonResponse(data: unknown, status = 200) {
   if (status === 200) {
@@ -758,23 +758,31 @@ serve(async (req) => {
         }, 200);
       }
 
-      // Use stored totals from the session, then override USD with locked sum when complete.
+      // PRICE LOCK ENFORCEMENT — never fall back to existingSession.grand_total.
       const storedTotals = existingSession.totals_breakdown as TotalsBreakdown;
-      let payable_amount = existingSession.grand_total;
       const payable_currency = existingSession.currency;
-      try {
-        const locked = await computeLockedPayableUsd(existingSession.order_id, supabase);
-        if (locked.allLocked && locked.usd && locked.usd > 0) {
-          if ((payable_currency || 'USD').toUpperCase() === 'USD') {
-            payable_amount = locked.usd;
-          }
-          console.log('[mobile-checkout] locked-totals applied', { orderId: existingSession.order_id, lockedUsd: locked.usd, items: locked.itemCount });
-        } else {
-          console.warn('[mobile-checkout] price-lock incomplete, using session total', { orderId: existingSession.order_id, missing: locked.missingLockCount });
-        }
-      } catch (e) {
-        console.warn('[mobile-checkout] locked-totals lookup failed', { error: (e as Error).message });
+      const enforcedLock = await enforceLockedPayableUsd(existingSession.order_id, supabase);
+      if (!enforcedLock.ok || enforcedLock.usd == null) {
+        console.warn('[mobile-checkout] price-lock-enforcement-failed', {
+          orderId: existingSession.order_id, code: enforcedLock.code,
+          missing: enforcedLock.missingLockCount, items: enforcedLock.itemCount,
+        });
+        return jsonResponse({
+          ok: false, success: false, code: enforcedLock.code,
+          message: enforcedLock.message_en,
+          message_en: enforcedLock.message_en, message_fr: enforcedLock.message_fr,
+        }, 200);
       }
+      let payable_amount: number = enforcedLock.usd;
+      if ((payable_currency || 'USD').toUpperCase() === 'CDF') {
+        const rate = Number((existingSession as any).exchange_rate_used) || 2500;
+        payable_amount = Math.round(enforcedLock.usd * rate);
+      }
+      console.log('[mobile-checkout] locked-payable applied', {
+        orderId: existingSession.order_id, lockedUsd: enforcedLock.usd,
+        payable_amount, payable_currency, items: enforcedLock.itemCount,
+        refreshed: enforcedLock.refreshAttempted,
+      });
       
       // Fetch user profile for phone
       const { data: userProfile } = await supabase
@@ -2218,10 +2226,23 @@ serve(async (req) => {
       currencyReason = isLargeOrder ? 'large_order_requires_usd' : 'card_requires_usd';
     }
     
-    // P0: Compute payable_amount = server grand_total (NO CLIENT AMOUNTS)
-    const payable_amount = payable_currency === 'CDF' 
-      ? round2(totalsBreakdown.cdf_equivalent)
-      : round2(totalsBreakdown.grand_total);
+    // P0: payable_amount MUST come from SUM(locked_total_price_usd) — never from totalsBreakdown.grand_total.
+    const enforcedFresh = await enforceLockedPayableUsd(existingOrder.id, supabase);
+    if (!enforcedFresh.ok || enforcedFresh.usd == null) {
+      console.warn('[mobile-checkout] fresh price-lock-enforcement-failed', {
+        orderId: existingOrder.id, code: enforcedFresh.code,
+        missing: enforcedFresh.missingLockCount, items: enforcedFresh.itemCount,
+      });
+      return jsonResponse({
+        ok: false, success: false, code: enforcedFresh.code,
+        message: enforcedFresh.message_en,
+        message_en: enforcedFresh.message_en, message_fr: enforcedFresh.message_fr,
+      }, 200);
+    }
+    const payable_amount = payable_currency === 'CDF'
+      ? Math.round(enforcedFresh.usd * (Number(existingOrder.exchange_rate_used) || 2500))
+      : round2(enforcedFresh.usd);
+    console.log('[mobile-checkout] fresh locked-payable', { orderId: existingOrder.id, lockedUsd: enforcedFresh.usd, payable_amount, payable_currency });
 
     // Display formatting
     const displayAmount = payable_currency === 'CDF'

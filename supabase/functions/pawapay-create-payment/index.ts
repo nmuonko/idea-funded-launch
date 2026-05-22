@@ -30,7 +30,7 @@ import {
   formatPhoneE164,
 } from "../_shared/pawapayAdapter.ts";
 import { runCartLockGate } from "../_shared/cartLockGate.ts";
-import { computeLockedPayableUsd } from "../_shared/lockedTotals.ts";
+import { enforceLockedPayableUsd } from "../_shared/lockedTotals.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -116,28 +116,29 @@ serve(async (req) => {
       return jsonResponse({ ok: false, success: false, code: 'ORDER_NOT_PAYABLE', message: 'Order cannot be paid' }, 200);
     }
 
-    // Determine payment amount and currency
+    // Determine payment currency
     let paymentCurrency = currency || forceCurrency || 'USD';
     const exchangeRate = order.exchange_rate_used || 2500;
 
-    // PRICE LOCK: canonical USD payable comes from SUM(locked_total_price_usd)
-    let baseUsd: number = Number(amount || order.total_usd);
-    try {
-      const locked = await computeLockedPayableUsd(orderId, supabase);
-      if (locked.allLocked && locked.usd && locked.usd > 0) {
-        log.log('pawapay locked-totals', { orderId, lockedUsd: locked.usd, prevUsd: baseUsd, items: locked.itemCount });
-        baseUsd = locked.usd;
-      } else {
-        log.log('pawapay price-lock incomplete, using legacy total', { orderId, missing: locked.missingLockCount, items: locked.itemCount });
-      }
-    } catch (e) {
-      log.log('pawapay locked-totals lookup failed', { orderId, error: (e as Error).message });
+    // PRICE LOCK ENFORCEMENT: payable = SUM(locked_total_price_usd).
+    // NEVER fall back to order.total_usd or client `amount`.
+    const enforced = await enforceLockedPayableUsd(orderId, supabase);
+    if (!enforced.ok || enforced.usd == null) {
+      log.log('pawapay price-lock-enforcement-failed', {
+        orderId, code: enforced.code, missing: enforced.missingLockCount, items: enforced.itemCount,
+      });
+      return jsonResponse({
+        ok: false, success: false, code: enforced.code,
+        message: enforced.message_en,
+        message_en: enforced.message_en, message_fr: enforced.message_fr,
+      }, 200);
     }
-
+    const baseUsd: number = enforced.usd;
     let paymentAmount: number = baseUsd;
     if (paymentCurrency === 'CDF') {
       paymentAmount = Math.round(baseUsd * exchangeRate);
     }
+    log.log('pawapay locked-payable', { orderId, lockedUsd: baseUsd, currency: paymentCurrency, paymentAmount, items: enforced.itemCount, refreshed: enforced.refreshAttempted });
 
     log.log('Payment details', {
       orderId,

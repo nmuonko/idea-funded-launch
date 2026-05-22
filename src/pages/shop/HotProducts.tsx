@@ -32,6 +32,11 @@ const buildHotProductUrl = (product: HotProduct) => {
   return `https://www.amazon.com/dp/${cleanId.toUpperCase()}`;
 };
 
+const cleanProductTitle = (title: string): string => {
+  if (!title) return title;
+  return title.replace(/^\s*Amazon\.com\s*:?\s*/i, '').trim();
+};
+
 const REF_STORAGE_KEY = 'afrishop_ref_code';
 const REF_CLICK_SESSION_KEY = 'afrishop_ref_click_sent';
 
@@ -298,7 +303,7 @@ export default function HotProducts() {
                     >
                       <img
                         src={product.image_url}
-                        alt={product.title}
+                        alt={cleanProductTitle(product.title)}
                         className="w-full h-full object-contain p-3 group-hover:scale-105 transition-transform duration-300"
                         loading="lazy"
                       />
@@ -322,7 +327,7 @@ export default function HotProducts() {
                           });
                         }}
                       >
-                        {product.title}
+                        {cleanProductTitle(product.title)}
                       </p>
 
                       <div>

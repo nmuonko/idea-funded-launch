@@ -97,15 +97,24 @@ export default function HotProducts() {
           .from('hot_products_showcase')
           .select('*') as any)
           .eq('is_active', true)
-          .order('sort_order', { ascending: true, nullsFirst: false })
-          .order('created_at', { ascending: false })
-          .limit(100);
+          .limit(200);
 
         if (error) throw error;
         if (data) {
           // Admin-curated showcase: show every active item, no client-side price filter.
           const filtered = (data as any[]).filter((item) => Number(item.total_price_usd || 0) > 0);
-          setProducts(filtered as any);
+
+          // Order matches admin UI: storefront items first (by sort_order asc,
+          // then newest first), then link_generator items in the same fashion.
+          const sortKey = (a: any, b: any) => {
+            const ao = a.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(a.sort_order);
+            const bo = b.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(b.sort_order);
+            if (ao !== bo) return ao - bo;
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          };
+          const storefront = filtered.filter((p) => p.link_source !== 'link_generator').sort(sortKey);
+          const generated = filtered.filter((p) => p.link_source === 'link_generator').sort(sortKey);
+          setProducts([...storefront, ...generated] as any);
         }
       } catch (err: any) {
         console.error('Failed to fetch hot products:', err);

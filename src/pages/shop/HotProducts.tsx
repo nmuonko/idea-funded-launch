@@ -303,7 +303,7 @@ export default function HotProducts() {
                     >
                       <img
                         src={product.image_url}
-                        alt={product.title}
+                        alt={cleanProductTitle(product.title)}
                         className="w-full h-full object-contain p-3 group-hover:scale-105 transition-transform duration-300"
                         loading="lazy"
                       />

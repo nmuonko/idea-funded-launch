@@ -32,6 +32,16 @@ const buildHotProductUrl = (product: HotProduct) => {
   return `https://www.amazon.com/dp/${cleanId.toUpperCase()}`;
 };
 
+const cleanProductTitle = (title: string): string => {
+  if (!title) return title;
+  let t = title.replace(/^\s*Amazon\.com\s*:?\s*/i, '');
+  t = t.replace(/\s*:\s*[^:]+$/i, (match) => {
+    // strip trailing " : Category & subcategory"
+    return '';
+  });
+  return t.trim();
+};
+
 const REF_STORAGE_KEY = 'afrishop_ref_code';
 const REF_CLICK_SESSION_KEY = 'afrishop_ref_click_sent';
 

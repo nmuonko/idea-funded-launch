@@ -1709,6 +1709,20 @@ export default function HotProducts() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => moveLinkGenProduct(link.id, -1)}
+                                  disabled={generatedLinks[0]?.id === link.id}
+                                >
+                                  <ArrowUp className="h-3.5 w-3.5 mr-2" />
+                                  {t('Move up', 'Monter')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => moveLinkGenProduct(link.id, 1)}
+                                  disabled={generatedLinks[generatedLinks.length - 1]?.id === link.id}
+                                >
+                                  <ArrowDown className="h-3.5 w-3.5 mr-2" />
+                                  {t('Move down', 'Descendre')}
+                                </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => startEditLink(link)}>
                                   <Pencil className="h-3.5 w-3.5 mr-2" />
                                   {t('Edit', 'Modifier')}

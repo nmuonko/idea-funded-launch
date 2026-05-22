@@ -18,7 +18,7 @@ import {
   normalizeAuthErrorCode,
 } from "../_shared/auth.ts";
 import { runCartLockGate } from "../_shared/cartLockGate.ts";
-import { computeLockedPayableUsd } from "../_shared/lockedTotals.ts";
+import { enforceLockedPayableUsd } from "../_shared/lockedTotals.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

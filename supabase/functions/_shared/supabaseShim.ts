@@ -238,6 +238,7 @@ function createQueryBuilder(url: string, table: string, cols: string, headers: R
     neq(col: string, val: unknown) { this._filters.push(`${col}=neq.${encodeURIComponent(String(val))}`); return this; },
     in(col: string, vals: unknown[]) { this._filters.push(`${col}=in.(${vals.map(v => encodeURIComponent(String(v))).join(",")})`); return this; },
     is(col: string, val: unknown) { this._filters.push(`${col}=is.${val}`); return this; },
+    not(col: string, op: string, val: unknown) { this._filters.push(`${col}=not.${op}.${val === null ? 'null' : encodeURIComponent(String(val))}`); return this; },
     gte(col: string, val: unknown) { this._filters.push(`${col}=gte.${encodeURIComponent(String(val))}`); return this; },
     lte(col: string, val: unknown) { this._filters.push(`${col}=lte.${encodeURIComponent(String(val))}`); return this; },
     gt(col: string, val: unknown) { this._filters.push(`${col}=gt.${encodeURIComponent(String(val))}`); return this; },
@@ -308,6 +309,28 @@ function createMutationBuilder(url: string, table: string, rows: unknown, header
                   return resolve({ data: null, error: { message: `${res.status}: ${errText.substring(0, 100)}` } });
                 }
                 return resolve({ data: await res.json(), error: null });
+              } catch (e: unknown) {
+                return resolve({ data: null, error: { message: e instanceof Error ? e.message : String(e) } });
+              }
+            }
+          };
+        },
+        maybeSingle() {
+          return {
+            then: async (resolve: (v: unknown) => void) => {
+              try {
+                const selectParam = cols ? `?select=${encodeURIComponent(cols)}` : '';
+                const res = await fetch(`${url}/rest/v1/${table}${selectParam}`, {
+                  method,
+                  headers: { ...headers, Prefer: 'return=representation' },
+                  body: JSON.stringify(rows),
+                });
+                if (!res.ok) {
+                  const errText = await res.text();
+                  return resolve({ data: null, error: { message: `${res.status}: ${errText.substring(0, 100)}` } });
+                }
+                const arr = await res.json();
+                return resolve({ data: Array.isArray(arr) ? (arr[0] ?? null) : arr, error: null });
               } catch (e: unknown) {
                 return resolve({ data: null, error: { message: e instanceof Error ? e.message : String(e) } });
               }

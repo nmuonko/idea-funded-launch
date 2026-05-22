@@ -31,6 +31,9 @@ function authorize(req: Request): boolean {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   if (serviceKey && auth === `Bearer ${serviceKey}`) return true;
 
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
+  if (anonKey && auth === `Bearer ${anonKey}`) return true;
+
   return false;
 }
 

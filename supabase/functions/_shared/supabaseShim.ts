@@ -238,6 +238,7 @@ function createQueryBuilder(url: string, table: string, cols: string, headers: R
     neq(col: string, val: unknown) { this._filters.push(`${col}=neq.${encodeURIComponent(String(val))}`); return this; },
     in(col: string, vals: unknown[]) { this._filters.push(`${col}=in.(${vals.map(v => encodeURIComponent(String(v))).join(",")})`); return this; },
     is(col: string, val: unknown) { this._filters.push(`${col}=is.${val}`); return this; },
+    not(col: string, op: string, val: unknown) { this._filters.push(`${col}=not.${op}.${val === null ? 'null' : encodeURIComponent(String(val))}`); return this; },
     gte(col: string, val: unknown) { this._filters.push(`${col}=gte.${encodeURIComponent(String(val))}`); return this; },
     lte(col: string, val: unknown) { this._filters.push(`${col}=lte.${encodeURIComponent(String(val))}`); return this; },
     gt(col: string, val: unknown) { this._filters.push(`${col}=gt.${encodeURIComponent(String(val))}`); return this; },

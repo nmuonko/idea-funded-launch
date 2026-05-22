@@ -327,7 +327,7 @@ export default function HotProducts() {
                           });
                         }}
                       >
-                        {product.title}
+                        {cleanProductTitle(product.title)}
                       </p>
 
                       <div>

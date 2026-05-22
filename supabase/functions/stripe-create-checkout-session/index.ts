@@ -152,59 +152,45 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // Try to get grand_total from checkout_sessions first (canonical source)
-    let grandTotal: number | null = null;
-    let currency = 'USD';
+    // PRICE LOCK ENFORCEMENT: payable = SUM(locked_total_price_usd).
+    // Never fall back to order.total_usd / checkout_sessions.grand_total.
+    const enforced = await enforceLockedPayableUsd(order_id, supabase);
+    if (!enforced.ok || enforced.usd == null) {
+      console.warn(`[STRIPE_CHECKOUT] price-lock enforcement failed`, {
+        requestId, orderId: order_id, code: enforced.code,
+        missing: enforced.missingLockCount, items: enforced.itemCount,
+      });
+      return new Response(
+        JSON.stringify({
+          ok: false, success: false, order_id,
+          code: enforced.code, error_code: enforced.code,
+          error: enforced.message_en,
+          message_en: enforced.message_en, message_fr: enforced.message_fr,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
+    // Currency: Stripe is USD by default; if order was in CDF, convert from locked USD.
+    let currency = 'USD';
+    let grandTotal: number = enforced.usd;
     const { data: checkoutSession } = await supabase
       .from('checkout_sessions')
-      .select('id, grand_total, currency, totals_breakdown, metadata')
+      .select('id, currency')
       .eq('order_id', order_id)
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
-
-    if (checkoutSession?.grand_total) {
-      grandTotal = checkoutSession.grand_total;
-      currency = checkoutSession.currency || 'USD';
-      console.log(`[STRIPE_CHECKOUT] Using checkout_session grand_total`, { requestId, grandTotal, currency, sessionId: checkoutSession.id });
-    } else {
-      // Fallback to order.total_usd or normalized_amount
-      grandTotal = order.normalized_amount || order.total_usd;
-      currency = order.normalized_currency || 'USD';
-      console.log(`[STRIPE_CHECKOUT] Using order totals`, { requestId, grandTotal, currency });
+      .maybeSingle();
+    if (checkoutSession?.currency) currency = checkoutSession.currency;
+    else if (order.normalized_currency) currency = order.normalized_currency;
+    if (currency.toUpperCase() === 'CDF' && Number(order.exchange_rate_used) > 0) {
+      grandTotal = Math.round(enforced.usd * Number(order.exchange_rate_used));
     }
-
-    // PRICE LOCK: canonical payable = SUM(locked_total_price_usd). Override grandTotal
-    // when every non-vehicle item has an active lock. Warn on mismatch so we can audit.
-    try {
-      const locked = await computeLockedPayableUsd(order_id, supabase);
-      if (locked.allLocked && locked.usd && locked.usd > 0) {
-        const usdGrand = currency.toUpperCase() === 'USD'
-          ? Number(grandTotal)
-          : Number(grandTotal) / (Number(order.exchange_rate_used) || 2500);
-        const deltaPct = usdGrand > 0 ? Math.abs(locked.usd - usdGrand) / usdGrand : 0;
-        console.log(`[STRIPE_CHECKOUT] locked-totals`, { requestId, orderId: order_id, lockedUsd: locked.usd, prevUsd: usdGrand, deltaPct, items: locked.itemCount });
-        if (currency.toUpperCase() === 'USD') {
-          grandTotal = locked.usd;
-        } else if (Number(order.exchange_rate_used) > 0) {
-          grandTotal = Math.round(locked.usd * Number(order.exchange_rate_used));
-        }
-      } else {
-        console.warn(`[STRIPE_CHECKOUT] price-lock incomplete, using legacy total`, { requestId, orderId: order_id, missing: locked.missingLockCount, items: locked.itemCount });
-      }
-    } catch (e) {
-      console.warn(`[STRIPE_CHECKOUT] locked-totals lookup failed`, { requestId, error: (e as Error).message });
-    }
-
-    if (!grandTotal || grandTotal <= 0) {
-      console.error(`[STRIPE_CHECKOUT] Invalid total`, { requestId, orderId: order_id, grandTotal });
-      return new Response(
-        JSON.stringify({ success: false, order_id, error: 'Order has no valid total', error_code: 'INVALID_TOTAL' }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    console.log(`[STRIPE_CHECKOUT] locked-payable`, {
+      requestId, orderId: order_id, lockedUsd: enforced.usd, currency, grandTotal,
+      items: enforced.itemCount, refreshed: enforced.refreshAttempted,
+    });
 
     // Convert to cents
     const amountCents = Math.round(grandTotal * 100);

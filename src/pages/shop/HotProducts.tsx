@@ -34,12 +34,7 @@ const buildHotProductUrl = (product: HotProduct) => {
 
 const cleanProductTitle = (title: string): string => {
   if (!title) return title;
-  let t = title.replace(/^\s*Amazon\.com\s*:?\s*/i, '');
-  t = t.replace(/\s*:\s*[^:]+$/i, (match) => {
-    // strip trailing " : Category & subcategory"
-    return '';
-  });
-  return t.trim();
+  return title.replace(/^\s*Amazon\.com\s*:?\s*/i, '').trim();
 };
 
 const REF_STORAGE_KEY = 'afrishop_ref_code';

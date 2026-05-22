@@ -18,18 +18,22 @@ async function isAdmin(supabase: any, userId: string): Promise<boolean> {
   return !!data;
 }
 
-// Generate receipt HTML
+const LOGO_URL = "https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo.png";
+const PLACEHOLDER_IMG = "https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo.png";
+
+// Generate receipt HTML (French)
 function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: string): string {
   const formatCurrency = (amount: number, currency: string) => {
     if (currency === 'CDF') {
       return `${amount?.toLocaleString('fr-CD') || 0} CDF`;
     }
-    return `$${amount?.toFixed(2) || '0.00'}`;
+    const v = Number(amount || 0).toFixed(2);
+    return `${v} $US`;
   };
 
   const formatDate = (dateStr: string) => {
-    if (!dateStr) return 'N/A';
-    return new Date(dateStr).toLocaleDateString('en-US', {
+    if (!dateStr) return 'N/D';
+    return new Date(dateStr).toLocaleDateString('fr-FR', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
@@ -38,27 +42,36 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
     });
   };
 
-  const itemsHTML = items.map(item => `
+  const itemsHTML = items.map(item => {
+    const img = item.product_image_url || PLACEHOLDER_IMG;
+    const qty = item.quantity || 1;
+    const unit = Number(item.unit_price_usd || (item.total_price_usd / qty) || 0).toFixed(2);
+    return `
     <tr>
-      <td style="padding: 12px; border-bottom: 1px solid #eee;">
-        <div style="font-weight: 500;">${item.title || 'Product'}</div>
-        <div style="font-size: 12px; color: #666;">Qty: ${item.quantity}</div>
+      <td style="padding: 12px; border-bottom: 1px solid #eee; width: 88px;">
+        <img src="${img}" alt="${(item.title || 'Produit').replace(/"/g,'&quot;')}" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid #eee;" onerror="this.src='${PLACEHOLDER_IMG}'"/>
       </td>
-      <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">
+      <td style="padding: 12px; border-bottom: 1px solid #eee;">
+        <div style="font-weight: 500; color:#111;">${item.title || 'Produit'}</div>
+        <div style="font-size: 12px; color: #666; margin-top:4px;">Quantité : <strong>${qty}</strong></div>
+        <div style="font-size: 12px; color: #666;">Prix unitaire : ${unit} $US</div>
+      </td>
+      <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; white-space:nowrap;">
         ${formatCurrency(item.total_price_usd, 'USD')}
       </td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 
   return `
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Payment Receipt - AfriShop</title>
+  <title>Reçu de paiement - AfriShop</title>
   <style>
     @media print {
-      body { margin: 0; padding: 20px; }
+      body { margin: 0; padding: 20px; background:#fff !important; }
       .no-print { display: none; }
     }
     body {
@@ -70,159 +83,59 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
       padding: 40px 20px;
       background: #f5f5f5;
     }
-    .receipt {
-      background: white;
-      padding: 40px;
-      border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    .header {
-      text-align: center;
-      border-bottom: 2px solid #2563eb;
-      padding-bottom: 20px;
-      margin-bottom: 30px;
-    }
-    .logo {
-      font-size: 28px;
-      font-weight: bold;
-      color: #2563eb;
-      margin-bottom: 10px;
-    }
-    .receipt-title {
-      font-size: 14px;
-      color: #666;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-    }
-    .status-badge {
-      display: inline-block;
-      padding: 6px 16px;
-      background: #22c55e;
-      color: white;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 600;
-      margin-top: 10px;
-    }
-    .info-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 30px;
-      margin-bottom: 30px;
-    }
-    .info-section h3 {
-      font-size: 12px;
-      color: #666;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: 8px;
-    }
-    .info-section p {
-      margin: 4px 0;
-      font-size: 14px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 20px 0;
-    }
-    th {
-      text-align: left;
-      padding: 12px;
-      background: #f8f9fa;
-      font-size: 12px;
-      text-transform: uppercase;
-      color: #666;
-      letter-spacing: 1px;
-    }
-    th:last-child {
-      text-align: right;
-    }
-    .totals {
-      margin-top: 20px;
-      padding-top: 20px;
-      border-top: 2px solid #eee;
-    }
-    .total-row {
-      display: flex;
-      justify-content: space-between;
-      padding: 8px 0;
-      font-size: 14px;
-    }
-    .total-row.grand {
-      font-size: 18px;
-      font-weight: bold;
-      color: #2563eb;
-      border-top: 2px solid #2563eb;
-      margin-top: 10px;
-      padding-top: 15px;
-    }
-    .footer {
-      text-align: center;
-      margin-top: 40px;
-      padding-top: 20px;
-      border-top: 1px solid #eee;
-      color: #666;
-      font-size: 12px;
-    }
-    .transaction-id {
-      font-family: monospace;
-      background: #f0f0f0;
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 13px;
-      word-break: break-all;
-    }
-    .print-btn {
-      display: block;
-      width: 200px;
-      margin: 20px auto;
-      padding: 12px 24px;
-      background: #2563eb;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      font-size: 14px;
-      cursor: pointer;
-    }
-    .print-btn:hover {
-      background: #1d4ed8;
-    }
+    .receipt { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    .header { text-align: center; border-bottom: 2px solid #2563eb; padding-bottom: 20px; margin-bottom: 30px; }
+    .logo-img { height: 56px; width: auto; margin-bottom: 12px; }
+    .receipt-title { font-size: 14px; color: #666; text-transform: uppercase; letter-spacing: 2px; }
+    .status-badge { display: inline-block; padding: 6px 16px; background: #22c55e; color: white; border-radius: 20px; font-size: 12px; font-weight: 600; margin-top: 10px; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px; }
+    .info-section h3 { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .info-section p { margin: 4px 0; font-size: 14px; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th { text-align: left; padding: 12px; background: #f8f9fa; font-size: 12px; text-transform: uppercase; color: #666; letter-spacing: 1px; }
+    th:last-child { text-align: right; }
+    .totals { margin-top: 20px; padding-top: 20px; border-top: 2px solid #eee; }
+    .total-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; }
+    .total-row.grand { font-size: 18px; font-weight: bold; color: #2563eb; border-top: 2px solid #2563eb; margin-top: 10px; padding-top: 15px; }
+    .footer { text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; color: #666; font-size: 12px; }
+    .transaction-id { font-family: monospace; background: #f0f0f0; padding: 8px 12px; border-radius: 4px; font-size: 13px; word-break: break-all; }
+    .print-btn { display: block; width: 220px; margin: 20px auto; padding: 12px 24px; background: #2563eb; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; }
+    .print-btn:hover { background: #1d4ed8; }
   </style>
 </head>
 <body>
   <div class="receipt">
     <div class="header">
-      <div class="logo">🛍️ AfriShop</div>
-      <div class="receipt-title">Payment Receipt</div>
-      <div class="status-badge">✓ PAID</div>
+      <img src="${LOGO_URL}" alt="AfriShop" class="logo-img" />
+      <div class="receipt-title">Reçu de paiement</div>
+      <div class="status-badge">✓ PAYÉ</div>
     </div>
 
     <div class="info-grid">
       <div class="info-section">
-        <h3>Order Details</h3>
-        <p><strong>Order ID:</strong> #${order.id.slice(0, 8).toUpperCase()}</p>
-        <p><strong>Date:</strong> ${formatDate(order.payment_verified_at || order.updated_at)}</p>
-        <p><strong>Status:</strong> ${order.status}</p>
+        <h3>Détails de la commande</h3>
+        <p><strong>N° de commande :</strong> #${order.id.slice(0, 8).toUpperCase()}</p>
+        <p><strong>Date :</strong> ${formatDate(order.payment_verified_at || order.updated_at)}</p>
+        <p><strong>Statut :</strong> ${order.status}</p>
       </div>
       <div class="info-section">
-        <h3>Customer</h3>
-        <p><strong>Name:</strong> ${profile?.full_name || profile?.name || 'Customer'}</p>
-        <p><strong>Email:</strong> ${userEmail}</p>
-        ${profile?.phone ? `<p><strong>Phone:</strong> ${profile.phone}</p>` : ''}
+        <h3>Client</h3>
+        <p><strong>Nom :</strong> ${profile?.full_name || profile?.name || 'Client'}</p>
+        <p><strong>Email :</strong> ${userEmail}</p>
+        ${profile?.phone ? `<p><strong>Téléphone :</strong> ${profile.phone}</p>` : ''}
       </div>
     </div>
 
-    <div class="info-section">
-      <h3>Payment Reference</h3>
-      <div class="transaction-id">${order.operator_ref_id || 'N/A'}</div>
+    <div class="info-section" style="margin-bottom:20px;">
+      <h3>Référence de paiement</h3>
+      <div class="transaction-id">${order.operator_ref_id || 'N/D'}</div>
     </div>
 
     <table>
       <thead>
         <tr>
-          <th>Item</th>
-          <th>Amount</th>
+          <th colspan="2">Article</th>
+          <th style="text-align:right;">Montant</th>
         </tr>
       </thead>
       <tbody>
@@ -232,19 +145,19 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
 
     <div class="totals">
       <div class="total-row">
-        <span>Subtotal</span>
+        <span>Sous-total</span>
         <span>${formatCurrency(order.item_total_usd, 'USD')}</span>
       </div>
       <div class="total-row">
-        <span>Service Fee</span>
+        <span>Frais de service</span>
         <span>${formatCurrency(order.service_fee_usd, 'USD')}</span>
       </div>
       <div class="total-row">
-        <span>Shipping</span>
+        <span>Livraison</span>
         <span>${formatCurrency(order.shipping_fee_usd, 'USD')}</span>
       </div>
       <div class="total-row grand">
-        <span>Total (USD)</span>
+        <span>Total ($US)</span>
         <span>${formatCurrency(order.total_usd, 'USD')}</span>
       </div>
       <div class="total-row">
@@ -252,22 +165,22 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
         <span>${formatCurrency(order.total_cdf, 'CDF')}</span>
       </div>
       <div class="total-row" style="font-size: 12px; color: #666;">
-        <span>Exchange Rate</span>
-        <span>1 USD = ${order.exchange_rate_used?.toLocaleString() || '2,800'} CDF</span>
+        <span>Taux de change</span>
+        <span>1 $US = ${order.exchange_rate_used?.toLocaleString('fr-FR') || '2 800'} CDF</span>
       </div>
     </div>
 
     <div class="footer">
-      <p>Thank you for shopping with AfriShop!</p>
-      <p>For support, contact us at nkadimisha@afrishop-usa.com</p>
+      <p>Merci d'avoir commandé sur AfriShop !</p>
+      <p>Pour toute assistance, contactez-nous à nkadimisha@afrishop-usa.com</p>
       <p style="margin-top: 10px; font-size: 10px;">
-        This receipt was generated on ${formatDate(new Date().toISOString())}
+        Reçu généré le ${formatDate(new Date().toISOString())}
       </p>
     </div>
   </div>
 
   <button class="print-btn no-print" onclick="window.print()">
-    🖨️ Print Receipt
+    🖨️ Imprimer le reçu
   </button>
 </body>
 </html>

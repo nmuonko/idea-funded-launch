@@ -17,6 +17,7 @@ import {
   getRequestAuthDiagnostics,
   normalizeAuthErrorCode,
 } from "../_shared/auth.ts";
+import { runCartLockGate } from "../_shared/cartLockGate.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -131,6 +132,21 @@ serve(async (req: Request): Promise<Response> => {
       console.warn(`[STRIPE_CHECKOUT] Order not payable`, { requestId, orderId: order_id, status: order.status });
       return new Response(
         JSON.stringify({ success: false, order_id, error: `Order status ${order.status} is not payable`, error_code: 'NOT_PAYABLE' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Price-lock gate: blocks if any item is OOS or needs price refresh
+    const gate = await runCartLockGate(order_id);
+    if (!gate.ok) {
+      console.log(`[STRIPE_CHECKOUT] price-lock gate`, { requestId, orderId: order_id, code: gate.code });
+      return new Response(
+        JSON.stringify({
+          success: false, order_id,
+          error: gate.message_en, error_code: gate.code,
+          message_en: gate.message_en, message_fr: gate.message_fr,
+          changedItems: gate.changedItems,
+        }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

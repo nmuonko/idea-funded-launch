@@ -29,6 +29,7 @@ import {
   createDeposit,
   formatPhoneE164,
 } from "../_shared/pawapayAdapter.ts";
+import { runCartLockGate } from "../_shared/cartLockGate.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -75,6 +76,17 @@ serve(async (req) => {
 
     if (!phone) {
       return jsonResponse({ ok: false, success: false, code: 'PHONE_REQUIRED', message: 'phone is required for pawaPay payments' }, 200);
+    }
+
+    // Price-lock gate
+    const gate = await runCartLockGate(orderId);
+    if (!gate.ok) {
+      log.log('pawapay-create-payment price-lock-gate', { orderId, code: gate.code });
+      return jsonResponse({
+        ok: false, success: false, code: gate.code,
+        message: gate.message_en, message_en: gate.message_en, message_fr: gate.message_fr,
+        changedItems: gate.changedItems,
+      }, 200);
     }
 
     // Get pawaPay provider config

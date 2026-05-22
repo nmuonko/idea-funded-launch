@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon, Pencil, MessageCircle, ImagePlus, X, Upload, MoreHorizontal, Download, ClipboardCopy, Image as ImageIcon } from 'lucide-react';
+import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon, Pencil, MessageCircle, ImagePlus, X, Upload, MoreHorizontal, Download, ClipboardCopy, ArrowUp, ArrowDown, Image as ImageIcon } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { allInclusivePrice, type FeeConfig } from '@/lib/allInclusivePrice';
@@ -607,6 +607,7 @@ export default function HotProducts() {
       .from('hot_products_showcase')
       .select('*') as any)
       .eq('link_source', 'link_generator')
+      .order('sort_order', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false });
     if (data) {
       setGeneratedLinks((data as any[]).map(d => ({
@@ -772,6 +773,26 @@ export default function HotProducts() {
     await supabase.from('hot_products_showcase').delete().eq('id', id);
     setGeneratedLinks(prev => prev.filter(l => l.id !== id));
     toast.success(t('Deleted', 'Supprimé'));
+  }
+
+  async function moveLinkGenProduct(id: string, direction: -1 | 1) {
+    const idx = generatedLinks.findIndex(l => l.id === id);
+    if (idx < 0) return;
+    const targetIdx = idx + direction;
+    if (targetIdx < 0 || targetIdx >= generatedLinks.length) return;
+    const reordered = [...generatedLinks];
+    [reordered[idx], reordered[targetIdx]] = [reordered[targetIdx], reordered[idx]];
+    setGeneratedLinks(reordered);
+    // Persist sort_order for the two swapped rows (and normalize all if needed)
+    const updates = reordered.map((l, i) =>
+      (supabase.from('hot_products_showcase') as any).update({ sort_order: i }).eq('id', l.id)
+    );
+    const results = await Promise.all(updates);
+    const firstError = results.find((r: any) => r?.error)?.error;
+    if (firstError) {
+      toast.error(t('Reorder failed', 'Échec du réordonnancement'));
+      loadGeneratedLinks();
+    }
   }
 
   function startEditLink(link: GeneratedLink) {
@@ -1688,6 +1709,20 @@ export default function HotProducts() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => moveLinkGenProduct(link.id, -1)}
+                                  disabled={generatedLinks[0]?.id === link.id}
+                                >
+                                  <ArrowUp className="h-3.5 w-3.5 mr-2" />
+                                  {t('Move up', 'Monter')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => moveLinkGenProduct(link.id, 1)}
+                                  disabled={generatedLinks[generatedLinks.length - 1]?.id === link.id}
+                                >
+                                  <ArrowDown className="h-3.5 w-3.5 mr-2" />
+                                  {t('Move down', 'Descendre')}
+                                </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => startEditLink(link)}>
                                   <Pencil className="h-3.5 w-3.5 mr-2" />
                                   {t('Edit', 'Modifier')}

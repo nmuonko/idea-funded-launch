@@ -607,6 +607,7 @@ export default function HotProducts() {
       .from('hot_products_showcase')
       .select('*') as any)
       .eq('link_source', 'link_generator')
+      .order('sort_order', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false });
     if (data) {
       setGeneratedLinks((data as any[]).map(d => ({

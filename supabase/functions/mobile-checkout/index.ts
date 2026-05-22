@@ -24,7 +24,7 @@ import {
 } from "../_shared/paymentProviders.ts";
 import { createDeposit, getPawaPayConfig, ConfigMissingError } from "../_shared/pawapayAdapter.ts";
 import { runCartLockGate } from "../_shared/cartLockGate.ts";
-import { computeLockedPayableUsd } from "../_shared/lockedTotals.ts";
+import { enforceLockedPayableUsd } from "../_shared/lockedTotals.ts";
 
 function jsonResponse(data: unknown, status = 200) {
   if (status === 200) {

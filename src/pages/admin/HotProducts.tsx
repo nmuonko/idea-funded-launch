@@ -775,6 +775,26 @@ export default function HotProducts() {
     toast.success(t('Deleted', 'Supprimé'));
   }
 
+  async function moveLinkGenProduct(id: string, direction: -1 | 1) {
+    const idx = generatedLinks.findIndex(l => l.id === id);
+    if (idx < 0) return;
+    const targetIdx = idx + direction;
+    if (targetIdx < 0 || targetIdx >= generatedLinks.length) return;
+    const reordered = [...generatedLinks];
+    [reordered[idx], reordered[targetIdx]] = [reordered[targetIdx], reordered[idx]];
+    setGeneratedLinks(reordered);
+    // Persist sort_order for the two swapped rows (and normalize all if needed)
+    const updates = reordered.map((l, i) =>
+      (supabase.from('hot_products_showcase') as any).update({ sort_order: i }).eq('id', l.id)
+    );
+    const results = await Promise.all(updates);
+    const firstError = results.find((r: any) => r?.error)?.error;
+    if (firstError) {
+      toast.error(t('Reorder failed', 'Échec du réordonnancement'));
+      loadGeneratedLinks();
+    }
+  }
+
   function startEditLink(link: GeneratedLink) {
     setEditingLinkId(link.id);
     setEditLinkTitle(link.title);

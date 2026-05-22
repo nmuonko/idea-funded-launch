@@ -398,6 +398,38 @@ export default function AdminOrders() {
     });
   };
 
+  const openReceiptWindow = async (orderId: string, autoPrint: boolean) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Not authenticated');
+
+      // Open window synchronously to avoid popup blockers
+      const win = window.open('', '_blank');
+      if (!win) {
+        toast({ title: 'Popup blocked', description: 'Please allow popups for this site.', variant: 'destructive' });
+        return;
+      }
+      win.document.write('<p style="font-family:sans-serif;padding:20px;">Loading receipt…</p>');
+
+      const url = `${SUPABASE_URL}/functions/v1/generate-payment-receipt?order_id=${orderId}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      if (!res.ok) throw new Error(`Failed to load receipt (${res.status})`);
+      const html = await res.text();
+
+      win.document.open();
+      win.document.write(html);
+      if (autoPrint) {
+        win.document.write(`<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),400));<\/script>`);
+      }
+      win.document.close();
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message || 'Failed to open receipt', variant: 'destructive' });
+    }
+  };
+
+  const handlePreviewReceipt = (order: any) => openReceiptWindow(order.id, false);
+  const handlePrintReceipt = (order: any) => openReceiptWindow(order.id, true);
+
   const handleBulkDownloadReceipts = async () => {
     if (selectedOrders.size === 0) return;
 

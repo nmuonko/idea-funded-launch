@@ -1732,7 +1732,9 @@ export type Database = {
       catalog_products: {
         Row: {
           brand: string | null
+          cart_count_24h: number | null
           category_path: string[] | null
+          click_count_24h: number | null
           created_at: string | null
           currency: string | null
           description: string | null
@@ -1740,19 +1742,24 @@ export type Database = {
           id: string
           image_url: string | null
           in_stock: boolean | null
+          last_refresh_at: string | null
+          next_refresh_due_at: string | null
           price_usd: number | null
           product_url: string | null
           provider_id: string | null
           provider_product_id: string
           rating: number | null
           raw: Json | null
+          refresh_priority_tier: string | null
           review_count: number | null
           title: string | null
           updated_at: string | null
         }
         Insert: {
           brand?: string | null
+          cart_count_24h?: number | null
           category_path?: string[] | null
+          click_count_24h?: number | null
           created_at?: string | null
           currency?: string | null
           description?: string | null
@@ -1760,19 +1767,24 @@ export type Database = {
           id?: string
           image_url?: string | null
           in_stock?: boolean | null
+          last_refresh_at?: string | null
+          next_refresh_due_at?: string | null
           price_usd?: number | null
           product_url?: string | null
           provider_id?: string | null
           provider_product_id: string
           rating?: number | null
           raw?: Json | null
+          refresh_priority_tier?: string | null
           review_count?: number | null
           title?: string | null
           updated_at?: string | null
         }
         Update: {
           brand?: string | null
+          cart_count_24h?: number | null
           category_path?: string[] | null
+          click_count_24h?: number | null
           created_at?: string | null
           currency?: string | null
           description?: string | null
@@ -1780,12 +1792,15 @@ export type Database = {
           id?: string
           image_url?: string | null
           in_stock?: boolean | null
+          last_refresh_at?: string | null
+          next_refresh_due_at?: string | null
           price_usd?: number | null
           product_url?: string | null
           provider_id?: string | null
           provider_product_id?: string
           rating?: number | null
           raw?: Json | null
+          refresh_priority_tier?: string | null
           review_count?: number | null
           title?: string | null
           updated_at?: string | null
@@ -3622,11 +3637,18 @@ export type Database = {
           is_saved_for_later: boolean
           is_vehicle: boolean | null
           last_reminder_at: string | null
+          locked_source_price_checked_at: string | null
+          locked_source_price_usd: number | null
+          locked_total_price_usd: number | null
+          locked_unit_price_usd: number | null
           markup_fee_usd: number | null
           notes: string | null
           order_id: string
           price_confirmation_id: string | null
           price_confirmation_status: string | null
+          price_lock_expires_at: string | null
+          price_lock_status: string | null
+          price_locked_at: string | null
           price_source: string | null
           product_image_url: string | null
           product_url: string
@@ -3638,6 +3660,8 @@ export type Database = {
           shipping_fee_usd: number | null
           shipping_item_type_id: string | null
           shipping_status: string | null
+          source_availability: string | null
+          source_marketplace: string | null
           store: Database["public"]["Enums"]["store_type"]
           subtotal_usd: number | null
           title: string | null
@@ -3659,11 +3683,18 @@ export type Database = {
           is_saved_for_later?: boolean
           is_vehicle?: boolean | null
           last_reminder_at?: string | null
+          locked_source_price_checked_at?: string | null
+          locked_source_price_usd?: number | null
+          locked_total_price_usd?: number | null
+          locked_unit_price_usd?: number | null
           markup_fee_usd?: number | null
           notes?: string | null
           order_id: string
           price_confirmation_id?: string | null
           price_confirmation_status?: string | null
+          price_lock_expires_at?: string | null
+          price_lock_status?: string | null
+          price_locked_at?: string | null
           price_source?: string | null
           product_image_url?: string | null
           product_url: string
@@ -3675,6 +3706,8 @@ export type Database = {
           shipping_fee_usd?: number | null
           shipping_item_type_id?: string | null
           shipping_status?: string | null
+          source_availability?: string | null
+          source_marketplace?: string | null
           store: Database["public"]["Enums"]["store_type"]
           subtotal_usd?: number | null
           title?: string | null
@@ -3696,11 +3729,18 @@ export type Database = {
           is_saved_for_later?: boolean
           is_vehicle?: boolean | null
           last_reminder_at?: string | null
+          locked_source_price_checked_at?: string | null
+          locked_source_price_usd?: number | null
+          locked_total_price_usd?: number | null
+          locked_unit_price_usd?: number | null
           markup_fee_usd?: number | null
           notes?: string | null
           order_id?: string
           price_confirmation_id?: string | null
           price_confirmation_status?: string | null
+          price_lock_expires_at?: string | null
+          price_lock_status?: string | null
+          price_locked_at?: string | null
           price_source?: string | null
           product_image_url?: string | null
           product_url?: string
@@ -3712,6 +3752,8 @@ export type Database = {
           shipping_fee_usd?: number | null
           shipping_item_type_id?: string | null
           shipping_status?: string | null
+          source_availability?: string | null
+          source_marketplace?: string | null
           store?: Database["public"]["Enums"]["store_type"]
           subtotal_usd?: number | null
           title?: string | null
@@ -4291,6 +4333,42 @@ export type Database = {
         }
         Relationships: []
       }
+      price_anomalies: {
+        Row: {
+          action_taken: string | null
+          delta_pct: number | null
+          detected_at: string
+          id: string
+          marketplace: string | null
+          new_source_price_usd: number | null
+          previous_source_price_usd: number | null
+          product_key: string | null
+          source_url: string | null
+        }
+        Insert: {
+          action_taken?: string | null
+          delta_pct?: number | null
+          detected_at?: string
+          id?: string
+          marketplace?: string | null
+          new_source_price_usd?: number | null
+          previous_source_price_usd?: number | null
+          product_key?: string | null
+          source_url?: string | null
+        }
+        Update: {
+          action_taken?: string | null
+          delta_pct?: number | null
+          detected_at?: string
+          id?: string
+          marketplace?: string | null
+          new_source_price_usd?: number | null
+          previous_source_price_usd?: number | null
+          product_key?: string | null
+          source_url?: string | null
+        }
+        Relationships: []
+      }
       price_cache: {
         Row: {
           base_price: number
@@ -4540,6 +4618,51 @@ export type Database = {
           source?: string
           store?: string
           title?: string | null
+        }
+        Relationships: []
+      }
+      price_validation_settings: {
+        Row: {
+          allow_checkout_on_verify_fail: boolean
+          cart_item_refresh_minutes: number
+          cold_refresh_minutes: number
+          electronics_refresh_minutes: number
+          hot_item_refresh_minutes: number
+          id: string
+          lock_minutes_electronics: number
+          lock_minutes_normal: number
+          max_supplier_delta_pct: number
+          normal_refresh_minutes: number
+          singleton: boolean
+          updated_at: string
+        }
+        Insert: {
+          allow_checkout_on_verify_fail?: boolean
+          cart_item_refresh_minutes?: number
+          cold_refresh_minutes?: number
+          electronics_refresh_minutes?: number
+          hot_item_refresh_minutes?: number
+          id?: string
+          lock_minutes_electronics?: number
+          lock_minutes_normal?: number
+          max_supplier_delta_pct?: number
+          normal_refresh_minutes?: number
+          singleton?: boolean
+          updated_at?: string
+        }
+        Update: {
+          allow_checkout_on_verify_fail?: boolean
+          cart_item_refresh_minutes?: number
+          cold_refresh_minutes?: number
+          electronics_refresh_minutes?: number
+          hot_item_refresh_minutes?: number
+          id?: string
+          lock_minutes_electronics?: number
+          lock_minutes_normal?: number
+          max_supplier_delta_pct?: number
+          normal_refresh_minutes?: number
+          singleton?: boolean
+          updated_at?: string
         }
         Relationships: []
       }

@@ -97,9 +97,9 @@ export default function HotProducts() {
           .from('hot_products_showcase')
           .select('*') as any)
           .eq('is_active', true)
-          .or('link_source.eq.storefront,link_source.is.null')
-          .order('sort_order', { ascending: true })
-          .limit(10);
+          .order('sort_order', { ascending: true, nullsFirst: false })
+          .order('created_at', { ascending: false })
+          .limit(100);
 
         if (error) throw error;
         if (data) {

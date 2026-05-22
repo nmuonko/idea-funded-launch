@@ -159,7 +159,14 @@ export default function AdminOrders() {
       COMPLETED: 'default',
       CANCELLED: 'destructive',
     };
-    return <Badge variant={colors[status] as any}>{getStatusTranslation(status, language)}</Badge>;
+    const classNames: Record<string, string> = {
+      PAID: 'bg-green-600 hover:bg-green-700 text-white border-transparent',
+    };
+    return (
+      <Badge variant={colors[status] as any} className={classNames[status]}>
+        {getStatusTranslation(status, language)}
+      </Badge>
+    );
   };
 
   const getPaymentBadge = (order: any) => {

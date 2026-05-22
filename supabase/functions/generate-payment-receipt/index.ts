@@ -131,7 +131,6 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
       <thead>
         <tr>
           <th colspan="2">Article</th>
-          <th style="text-align:right;">Montant</th>
         </tr>
       </thead>
       <tbody>
@@ -140,17 +139,9 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
     </table>
 
     <div class="totals">
-      <div class="total-row">
-        <span>Sous-total</span>
-        <span>${formatCurrency(order.item_total_usd, 'USD')}</span>
-      </div>
-      <div class="total-row">
-        <span>Frais de service</span>
-        <span>${formatCurrency(order.service_fee_usd, 'USD')}</span>
-      </div>
-      <div class="total-row">
-        <span>Livraison</span>
-        <span>${formatCurrency(order.shipping_fee_usd, 'USD')}</span>
+      <div class="total-row" style="font-size: 12px; color: #666;">
+        <span>Livraison et frais de service</span>
+        <span><em>inclus</em></span>
       </div>
       <div class="total-row grand">
         <span>Total ($US)</span>
@@ -165,6 +156,7 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
         <span>1 $US = ${order.exchange_rate_used?.toLocaleString('fr-FR') || '2 800'} CDF</span>
       </div>
     </div>
+
 
     <div class="footer">
       <p>Merci d'avoir commandé sur AfriShop !</p>

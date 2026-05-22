@@ -1458,7 +1458,9 @@ export type Database = {
         Row: {
           brand: string | null
           buying_options: string[] | null
+          cart_count_24h: number | null
           category_key: string | null
+          click_count_24h: number | null
           condition: string | null
           currency: string | null
           data_hash: string | null
@@ -1479,6 +1481,7 @@ export type Database = {
           listing_type: string | null
           metadata: Json | null
           needs_price_review: boolean
+          next_refresh_due_at: string | null
           parts_subkey: string | null
           popularity_score: number | null
           price_check_error: string | null
@@ -1490,6 +1493,7 @@ export type Database = {
           provider: string | null
           provider_product_id: string | null
           rating: number | null
+          refresh_priority_tier: string | null
           search_text: string | null
           status_reason: string | null
           tags: string[] | null
@@ -1502,7 +1506,9 @@ export type Database = {
         Insert: {
           brand?: string | null
           buying_options?: string[] | null
+          cart_count_24h?: number | null
           category_key?: string | null
+          click_count_24h?: number | null
           condition?: string | null
           currency?: string | null
           data_hash?: string | null
@@ -1523,6 +1529,7 @@ export type Database = {
           listing_type?: string | null
           metadata?: Json | null
           needs_price_review?: boolean
+          next_refresh_due_at?: string | null
           parts_subkey?: string | null
           popularity_score?: number | null
           price_check_error?: string | null
@@ -1534,6 +1541,7 @@ export type Database = {
           provider?: string | null
           provider_product_id?: string | null
           rating?: number | null
+          refresh_priority_tier?: string | null
           search_text?: string | null
           status_reason?: string | null
           tags?: string[] | null
@@ -1546,7 +1554,9 @@ export type Database = {
         Update: {
           brand?: string | null
           buying_options?: string[] | null
+          cart_count_24h?: number | null
           category_key?: string | null
+          click_count_24h?: number | null
           condition?: string | null
           currency?: string | null
           data_hash?: string | null
@@ -1567,6 +1577,7 @@ export type Database = {
           listing_type?: string | null
           metadata?: Json | null
           needs_price_review?: boolean
+          next_refresh_due_at?: string | null
           parts_subkey?: string | null
           popularity_score?: number | null
           price_check_error?: string | null
@@ -1578,6 +1589,7 @@ export type Database = {
           provider?: string | null
           provider_product_id?: string | null
           rating?: number | null
+          refresh_priority_tier?: string | null
           search_text?: string | null
           status_reason?: string | null
           tags?: string[] | null

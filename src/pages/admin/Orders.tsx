@@ -1088,6 +1088,14 @@ export default function AdminOrders() {
                             <Eye className="h-4 w-4 mr-2" />
                             View Details
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handlePreviewReceipt(order)}>
+                            <FileText className="h-4 w-4 mr-2" />
+                            Preview Receipt
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handlePrintReceipt(order)}>
+                            <Printer className="h-4 w-4 mr-2" />
+                            Print / Save as PDF
+                          </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem 
                             onClick={() => setDeleteOrderId(order.id)}

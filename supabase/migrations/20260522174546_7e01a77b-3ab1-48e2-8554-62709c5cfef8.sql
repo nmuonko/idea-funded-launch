@@ -1,0 +1,1 @@
+UPDATE public.hot_products_showcase SET image_url = NULL WHERE id = '3f2b0fdd-9a12-4cb9-9e3b-ca5354a72206';

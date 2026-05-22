@@ -315,6 +315,28 @@ function createMutationBuilder(url: string, table: string, rows: unknown, header
             }
           };
         },
+        maybeSingle() {
+          return {
+            then: async (resolve: (v: unknown) => void) => {
+              try {
+                const selectParam = cols ? `?select=${encodeURIComponent(cols)}` : '';
+                const res = await fetch(`${url}/rest/v1/${table}${selectParam}`, {
+                  method,
+                  headers: { ...headers, Prefer: 'return=representation' },
+                  body: JSON.stringify(rows),
+                });
+                if (!res.ok) {
+                  const errText = await res.text();
+                  return resolve({ data: null, error: { message: `${res.status}: ${errText.substring(0, 100)}` } });
+                }
+                const arr = await res.json();
+                return resolve({ data: Array.isArray(arr) ? (arr[0] ?? null) : arr, error: null });
+              } catch (e: unknown) {
+                return resolve({ data: null, error: { message: e instanceof Error ? e.message : String(e) } });
+              }
+            }
+          };
+        },
         then: async (resolve: (v: unknown) => void) => {
           try {
             const selectParam = cols ? `?select=${encodeURIComponent(cols)}` : '';

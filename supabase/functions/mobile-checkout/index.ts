@@ -758,23 +758,31 @@ serve(async (req) => {
         }, 200);
       }
 
-      // Use stored totals from the session, then override USD with locked sum when complete.
+      // PRICE LOCK ENFORCEMENT — never fall back to existingSession.grand_total.
       const storedTotals = existingSession.totals_breakdown as TotalsBreakdown;
-      let payable_amount = existingSession.grand_total;
       const payable_currency = existingSession.currency;
-      try {
-        const locked = await computeLockedPayableUsd(existingSession.order_id, supabase);
-        if (locked.allLocked && locked.usd && locked.usd > 0) {
-          if ((payable_currency || 'USD').toUpperCase() === 'USD') {
-            payable_amount = locked.usd;
-          }
-          console.log('[mobile-checkout] locked-totals applied', { orderId: existingSession.order_id, lockedUsd: locked.usd, items: locked.itemCount });
-        } else {
-          console.warn('[mobile-checkout] price-lock incomplete, using session total', { orderId: existingSession.order_id, missing: locked.missingLockCount });
-        }
-      } catch (e) {
-        console.warn('[mobile-checkout] locked-totals lookup failed', { error: (e as Error).message });
+      const enforcedLock = await enforceLockedPayableUsd(existingSession.order_id, supabase);
+      if (!enforcedLock.ok || enforcedLock.usd == null) {
+        console.warn('[mobile-checkout] price-lock-enforcement-failed', {
+          orderId: existingSession.order_id, code: enforcedLock.code,
+          missing: enforcedLock.missingLockCount, items: enforcedLock.itemCount,
+        });
+        return jsonResponse({
+          ok: false, success: false, code: enforcedLock.code,
+          message: enforcedLock.message_en,
+          message_en: enforcedLock.message_en, message_fr: enforcedLock.message_fr,
+        }, 200);
       }
+      let payable_amount: number = enforcedLock.usd;
+      if ((payable_currency || 'USD').toUpperCase() === 'CDF') {
+        const rate = Number((existingSession as any).exchange_rate_used) || 2500;
+        payable_amount = Math.round(enforcedLock.usd * rate);
+      }
+      console.log('[mobile-checkout] locked-payable applied', {
+        orderId: existingSession.order_id, lockedUsd: enforcedLock.usd,
+        payable_amount, payable_currency, items: enforcedLock.itemCount,
+        refreshed: enforcedLock.refreshAttempted,
+      });
       
       // Fetch user profile for phone
       const { data: userProfile } = await supabase

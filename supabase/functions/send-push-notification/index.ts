@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
+import { requireAdminOrCron, guardErrorResponse } from "../_shared/securityGuards.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -17,6 +18,7 @@ serve(async (req) => {
   }
 
   try {
+    try { await requireAdminOrCron(req); } catch (e) { return guardErrorResponse(e, corsHeaders); }
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''

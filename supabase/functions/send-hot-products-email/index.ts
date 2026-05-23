@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "../_shared/email.ts";
+import { requireAdminOrCron, guardErrorResponse } from "../_shared/securityGuards.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,6 +70,7 @@ Deno.serve(async (req) => {
   let campaignId: string | undefined;
 
   try {
+    try { await requireAdminOrCron(req); } catch (e) { return guardErrorResponse(e, corsHeaders); }
     const body = await req.json();
     campaignId = body.campaignId;
 

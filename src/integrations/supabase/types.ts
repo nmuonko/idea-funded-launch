@@ -7504,6 +7504,10 @@ export type Database = {
           view_count: number
         }[]
       }
+      get_referrer_ref_code_by_email: {
+        Args: { p_email: string }
+        Returns: string
+      }
       get_session_progress: {
         Args: { session_uuid: string }
         Returns: {

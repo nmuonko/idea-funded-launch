@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { requireAuthenticatedUser, guardErrorResponse } from "../_shared/securityGuards.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,6 +10,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    try { await requireAuthenticatedUser(req); } catch (e) { return guardErrorResponse(e, corsHeaders); }
     const { title, price } = await req.json();
     if (!title) {
       return new Response(JSON.stringify({ error: "title is required" }), {

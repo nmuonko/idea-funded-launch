@@ -153,13 +153,6 @@ export default function HotProducts() {
     const key = `${product.provider}-${product.provider_product_id}`;
     if (processingIds.has(key)) return;
 
-    // If not logged in, redirect to auth with the product-specific checkout route
-    if (!session) {
-      const returnUrl = encodeURIComponent(`/hot-products/${product.id}`);
-      navigate(`/shop-auth?redirect=${returnUrl}`);
-      return;
-    }
-
     setProcessingIds(prev => new Set(prev).add(key));
     try {
       const addedFlag = `${HP_ADDED_KEY}${product.id}`;
@@ -177,8 +170,8 @@ export default function HotProducts() {
         });
       }
 
-      // Navigate directly to checkout
-      navigate('/checkout');
+      // Guest checkout supported — mirror share/hp flow with ?hp={id}
+      navigate(`/checkout?hp=${encodeURIComponent(product.id)}`);
     } catch {
       toast.error(locale === 'fr' ? 'Erreur, réessayez' : 'Error, please retry');
     } finally {

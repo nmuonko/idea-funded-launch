@@ -70,6 +70,7 @@ Deno.serve(async (req) => {
   let campaignId: string | undefined;
 
   try {
+    try { await requireAdminOrCron(req); } catch (e) { return guardErrorResponse(e, corsHeaders); }
     const body = await req.json();
     campaignId = body.campaignId;
 

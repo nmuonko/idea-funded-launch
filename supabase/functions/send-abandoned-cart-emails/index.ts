@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "https://esm.sh/resend@4.0.0";
+import { requireAdminOrCron, guardErrorResponse } from "../_shared/securityGuards.ts";
 
 const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
 const fromEmail = Deno.env.get('EMAIL_FROM_ADDRESS') || 'AfriShop <onboarding@resend.dev>';
@@ -16,6 +17,7 @@ serve(async (req) => {
   }
 
   try {
+    try { await requireAdminOrCron(req); } catch (e) { return guardErrorResponse(e, corsHeaders); }
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''

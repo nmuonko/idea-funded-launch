@@ -5,6 +5,13 @@
  * Others: Firecrawl primary.
  */
 
+import {
+  requireAuthenticatedUser,
+  isServiceRoleRequest,
+  userIsAdmin,
+  guardErrorResponse,
+} from "../_shared/securityGuards.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -17,13 +24,29 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Require authentication. Internal callers may use the service role bearer.
+    let callerIsAdmin = false;
+    if (isServiceRoleRequest(req)) {
+      callerIsAdmin = true;
+    } else {
+      let user;
+      try {
+        user = await requireAuthenticatedUser(req);
+      } catch (e) {
+        return guardErrorResponse(e, corsHeaders);
+      }
+      callerIsAdmin = await userIsAdmin(user.id);
+    }
+
     const body = await req.json();
     const url: string | undefined = body?.url;
-    const cacheToCatalog: boolean = body?.cacheToCatalog === true;
+    const cacheToCatalogRequested: boolean = body?.cacheToCatalog === true;
     const categoryKey: string | null = body?.categoryKey || null;
-    // Admin can override title/price when auto-extraction fails
-    const manualTitle: string | null = body?.manualTitle || null;
-    const manualPrice: number | null = body?.manualPrice ? parseFloat(body.manualPrice) : null;
+    // Admin-only overrides: silently ignored for non-admin callers
+    const manualTitle: string | null = callerIsAdmin ? (body?.manualTitle || null) : null;
+    const manualPrice: number | null = callerIsAdmin && body?.manualPrice ? parseFloat(body.manualPrice) : null;
+    // Only admins (or service role) may persist scraped data into the public catalog
+    const cacheToCatalog: boolean = cacheToCatalogRequested && callerIsAdmin;
     if (!url || typeof url !== "string") {
       return new Response(JSON.stringify({ error: "url is required" }), {
         status: 400,

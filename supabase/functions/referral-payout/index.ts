@@ -11,6 +11,7 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createAdminClient } from "../_shared/auth.ts";
+import { requireAdminOrCron, guardErrorResponse } from "../_shared/securityGuards.ts";
 import { getPawaPayConfig, detectCorrespondent, formatPhoneE164 } from "../_shared/pawapayAdapter.ts";
 import { generateDepositId } from "../_shared/paymentProviders.ts";
 
@@ -194,6 +195,7 @@ serve(async (req) => {
   }
 
   try {
+    try { await requireAdminOrCron(req); } catch (e) { return guardErrorResponse(e, corsHeaders); }
     const supabase = createAdminClient();
     const body = await req.json();
     const action = body.action || 'process';

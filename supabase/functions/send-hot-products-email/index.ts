@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "../_shared/email.ts";
+import { requireAdminOrCron, guardErrorResponse } from "../_shared/securityGuards.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

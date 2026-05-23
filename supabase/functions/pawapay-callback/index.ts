@@ -583,7 +583,7 @@ async function notifyAdminsPaymentEvent(
     if (!RESEND_API_KEY) return;
 
     // Get order + customer info
-    const { data: order } = await supabase.from('orders').select('user_id, total_usd, currency').eq('id', orderId).maybeSingle();
+    const { data: order } = await supabase.from('orders').select('user_id, total_usd, total_cdf, normalized_amount, normalized_currency').eq('id', orderId).maybeSingle();
     let customerName = 'Unknown', customerEmail = 'N/A';
     if (order?.user_id) {
       const { data: profile } = await supabase.from('profiles').select('full_name, email').eq('user_id', order.user_id).maybeSingle();

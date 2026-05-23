@@ -116,25 +116,38 @@ async function notifyAllAdminsPaymentEvent(
  * Fetch order + customer details for admin notification
  */
 async function getOrderDetailsForNotification(supabase: any, orderId: string) {
-  const { data: order } = await supabase
+  const { data: order, error: orderErr } = await supabase
     .from('orders')
-    .select('user_id, total_usd, total_cdf, currency')
+    .select('user_id, total_usd, total_cdf, normalized_amount, normalized_currency')
     .eq('id', orderId)
     .maybeSingle();
 
+  if (orderErr) {
+    console.error('[payments-webhook] getOrderDetailsForNotification order query error:', orderErr);
+  }
   if (!order) return {};
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('full_name, email')
-    .eq('user_id', order.user_id)
-    .maybeSingle();
+  let profile: any = null;
+  if (order.user_id) {
+    const { data: p, error: profErr } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('user_id', order.user_id)
+      .maybeSingle();
+    if (profErr) {
+      console.error('[payments-webhook] profile query error:', profErr);
+    }
+    profile = p;
+  }
+
+  const amount = Number(order.total_usd ?? order.normalized_amount ?? order.total_cdf ?? 0);
+  const currency = order.normalized_currency || (order.total_usd ? 'USD' : (order.total_cdf ? 'CDF' : 'USD'));
 
   return {
     customerName: profile?.full_name || profile?.email || 'Unknown',
     customerEmail: profile?.email || 'N/A',
-    amount: order.total_usd || order.total_cdf || 0,
-    currency: order.currency || 'USD',
+    amount: isFinite(amount) ? amount : 0,
+    currency,
   };
 }
 

@@ -181,7 +181,7 @@ const handler = async (req: Request): Promise<Response> => {
     const now = new Date();
     const twoHoursAgo = new Date(now.getTime() - 2 * 3600_000).toISOString();
     const fourteenHoursAgo = new Date(now.getTime() - 14 * 3600_000).toISOString();
-    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 3600_000).toISOString();
+    const seventyTwoHoursAgo = new Date(now.getTime() - 72 * 3600_000).toISOString();
 
     const stats = { reminder1_sent: 0, reminder2_sent: 0, cancelled: 0, errors: [] as string[] };
     let emailsSent = 0;
@@ -272,12 +272,12 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
 
-    // ── ACTION C: Auto-cancel (24+ hours, no paid attempts) ──
+    // ── ACTION C: Auto-cancel (72+ hours, no paid attempts) ──
     const { data: staleOrders } = await supabase
       .from("orders")
       .select("id")
       .in("status", ["PENDING_PAYMENT", "DRAFT"])
-      .lt("created_at", twentyFourHoursAgo)
+      .lt("created_at", seventyTwoHoursAgo)
       .limit(100);
 
     const staleEligible = await filterNoPaidAttempts(staleOrders || []);
@@ -285,7 +285,7 @@ const handler = async (req: Request): Promise<Response> => {
       await supabase.from("orders").update({
         status: "CANCELLED",
         cancel_reason: "auto_expired",
-        admin_notes: `Auto-cancelled: no payment after 24h (${now.toISOString()})`,
+        admin_notes: `Auto-cancelled: no payment after 72h (${now.toISOString()})`,
       }).eq("id", order.id);
       stats.cancelled++;
     }

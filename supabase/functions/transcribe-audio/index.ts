@@ -1,5 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts"
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { requireAuthenticatedUser, guardErrorResponse } from "../_shared/securityGuards.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -42,10 +43,24 @@ serve(async (req) => {
   }
 
   try {
+    try {
+      await requireAuthenticatedUser(req);
+    } catch (e) {
+      return guardErrorResponse(e, corsHeaders);
+    }
+
     const { audio, language, mimeType } = await req.json()
-    
+
     if (!audio) {
       throw new Error('No audio data provided')
+    }
+
+    // Reject audio larger than ~25MB (OpenAI Whisper hard limit) — base64 inflates ~33%.
+    if (typeof audio === 'string' && audio.length > 35_000_000) {
+      return new Response(JSON.stringify({ error: 'Audio file too large (max 25MB)' }), {
+        status: 413,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     console.log('Transcribing audio with language:', language || 'auto-detect', 'mimeType:', mimeType)

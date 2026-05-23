@@ -181,7 +181,7 @@ const handler = async (req: Request): Promise<Response> => {
     const now = new Date();
     const twoHoursAgo = new Date(now.getTime() - 2 * 3600_000).toISOString();
     const fourteenHoursAgo = new Date(now.getTime() - 14 * 3600_000).toISOString();
-    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 3600_000).toISOString();
+    const seventyTwoHoursAgo = new Date(now.getTime() - 72 * 3600_000).toISOString();
 
     const stats = { reminder1_sent: 0, reminder2_sent: 0, cancelled: 0, errors: [] as string[] };
     let emailsSent = 0;

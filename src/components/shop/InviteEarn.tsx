@@ -244,18 +244,15 @@ export function InviteEarn({ language }: InviteEarnProps) {
     setLoading(true);
     try {
       const { data, error } = await supabase
-        .from('referrers')
-        .select('ref_code')
-        .eq('email', retrieveEmail.trim().toLowerCase())
-        .eq('status', 'active')
-        .maybeSingle();
+        .rpc('get_referrer_ref_code_by_email', { p_email: retrieveEmail.trim().toLowerCase() });
       if (error) throw error;
-      if (!data) {
+      const refCode = (data as string | null) ?? null;
+      if (!refCode) {
         toast({ title: lang.noLinkFound, variant: 'destructive' });
         return;
       }
-      setRefCode(data.ref_code);
-      localStorage.setItem(REF_CODE_KEY, data.ref_code);
+      setRefCode(refCode);
+      localStorage.setItem(REF_CODE_KEY, refCode);
       toast({ title: '✓' });
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });

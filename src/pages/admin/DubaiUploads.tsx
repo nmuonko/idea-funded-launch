@@ -69,9 +69,10 @@ export default function AdminDubaiUploads() {
 
   const approve = async (row: Row, patch: Partial<Row>) => {
     setBusy(true);
-    const { data, error } = await supabase.functions.invoke('dubai-upload-admin?action=approve', {
-      body: { id: row.id, patch },
+    const { data, error } = await supabase.functions.invoke('dubai-upload-admin', {
+      body: { action: 'approve', id: row.id, patch },
     });
+
     setBusy(false);
     if (error || !(data as any)?.ok) { toast.error((data as any)?.error || 'Échec'); return; }
     toast.success('Produit publié sur /hot-products');

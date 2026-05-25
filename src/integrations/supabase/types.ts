@@ -457,6 +457,24 @@ export type Database = {
         }
         Relationships: []
       }
+      app_secrets: {
+        Row: {
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       auto_seed_promotions: {
         Row: {
           admin_notes: string | null
@@ -2452,6 +2470,104 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      dubai_uploads: {
+        Row: {
+          admin_notes: string | null
+          battery_health: number | null
+          category: string
+          color: string | null
+          condition: string | null
+          created_at: string
+          dubai_price_aed: number | null
+          dubai_price_usd: number | null
+          face_id: string | null
+          final_price_usd: number | null
+          id: string
+          images: string[]
+          model: string | null
+          model_other_text: string | null
+          network_status: string | null
+          public_description: string | null
+          published_showcase_id: string | null
+          raw_images: string[]
+          refined_title: string | null
+          sim_type: string | null
+          source: string
+          status: string
+          storage: string | null
+          submitted_by_token_hash: string | null
+          supplier_notes: string | null
+          updated_at: string
+          video_url: string | null
+        }
+        Insert: {
+          admin_notes?: string | null
+          battery_health?: number | null
+          category: string
+          color?: string | null
+          condition?: string | null
+          created_at?: string
+          dubai_price_aed?: number | null
+          dubai_price_usd?: number | null
+          face_id?: string | null
+          final_price_usd?: number | null
+          id?: string
+          images?: string[]
+          model?: string | null
+          model_other_text?: string | null
+          network_status?: string | null
+          public_description?: string | null
+          published_showcase_id?: string | null
+          raw_images?: string[]
+          refined_title?: string | null
+          sim_type?: string | null
+          source?: string
+          status?: string
+          storage?: string | null
+          submitted_by_token_hash?: string | null
+          supplier_notes?: string | null
+          updated_at?: string
+          video_url?: string | null
+        }
+        Update: {
+          admin_notes?: string | null
+          battery_health?: number | null
+          category?: string
+          color?: string | null
+          condition?: string | null
+          created_at?: string
+          dubai_price_aed?: number | null
+          dubai_price_usd?: number | null
+          face_id?: string | null
+          final_price_usd?: number | null
+          id?: string
+          images?: string[]
+          model?: string | null
+          model_other_text?: string | null
+          network_status?: string | null
+          public_description?: string | null
+          published_showcase_id?: string | null
+          raw_images?: string[]
+          refined_title?: string | null
+          sim_type?: string | null
+          source?: string
+          status?: string
+          storage?: string | null
+          submitted_by_token_hash?: string | null
+          supplier_notes?: string | null
+          updated_at?: string
+          video_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dubai_uploads_published_showcase_id_fkey"
+            columns: ["published_showcase_id"]
+            isOneToOne: false
+            referencedRelation: "hot_products_showcase"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ebay_category_cache: {
         Row: {

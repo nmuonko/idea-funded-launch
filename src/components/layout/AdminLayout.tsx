@@ -80,6 +80,7 @@ export function AdminLayout() {
         { to: '/admin/international-products', icon: Globe, label: language === 'fr' ? 'Produits Internationaux' : 'International Products', permission: 'can_view_marketing' as const },
         { to: '/admin/telegram-import', icon: Send, label: language === 'fr' ? 'Import Telegram' : 'Telegram Import', permission: 'can_view_marketing' as const },
         { to: '/admin/bundle-links', icon: Package, label: language === 'fr' ? 'Packs Produits' : 'Bundle Links', permission: 'can_view_marketing' as const },
+        { to: '/admin/dubai-uploads', icon: Flame, label: language === 'fr' ? 'Uploads Dubai' : 'Dubai Uploads', permission: 'can_view_marketing' as const },
         { to: '/admin/referrals', icon: Gift, label: language === 'fr' ? 'Parrainages' : 'Referrals', permission: 'can_view_marketing' as const },
       ]
     },

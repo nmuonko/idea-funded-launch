@@ -218,7 +218,7 @@ export default function HotProducts() {
             className="text-white/70 hover:text-white mb-4"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
-            {locale === 'fr' ? 'Retour' : 'Back'}
+            {locale === 'fr' ? "Retour à l'accueil" : 'Back to home'}
           </Button>
 
           {/* Hero Banner */}

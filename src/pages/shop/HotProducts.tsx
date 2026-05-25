@@ -44,6 +44,7 @@ interface HotProduct {
   id: string;
   title: string;
   image_url: string;
+  gallery_images?: string[] | null;
   total_price_usd: number;
   provider: string;
   provider_product_id: string;
@@ -52,6 +53,14 @@ interface HotProduct {
   shipping_usd?: number;
   product_url?: string;
 }
+
+// Resolve the best available image: image_url, then first gallery image, then placeholder
+const resolveProductImage = (product: HotProduct): string => {
+  if (product.image_url) return product.image_url;
+  const gallery = product.gallery_images;
+  if (Array.isArray(gallery) && gallery.length > 0 && gallery[0]) return gallery[0];
+  return '/placeholder.svg';
+};
 
 export default function HotProducts() {
   const navigate = useNavigate();
@@ -280,25 +289,20 @@ export default function HotProducts() {
                       className="aspect-square bg-white overflow-hidden cursor-pointer"
                       onClick={() => {
                         trackClick(product, 'click');
-                        if (!product.provider_product_id) {
-                          // No valid product ID — go to buy directly
-                          handleBuyNow(product);
-                          return;
-                        }
-                        navigate(`/product/${product.provider}/${product.provider_product_id}`, {
-                          state: {
-                            isFixedPrice: true,
-                            hotProductPrice: product.total_price_usd,
-                            hotProductId: product.id,
-                          },
-                        });
+                        navigate(`/share/hp/${product.id}`);
                       }}
                     >
                       <img
-                        src={product.image_url}
+                        src={resolveProductImage(product)}
                         alt={cleanProductTitle(product.title)}
                         className="w-full h-full object-contain p-3 group-hover:scale-105 transition-transform duration-300"
                         loading="lazy"
+                        onError={(e) => {
+                          const img = e.currentTarget;
+                          if (img.src !== window.location.origin + '/placeholder.svg') {
+                            img.src = '/placeholder.svg';
+                          }
+                        }}
                       />
                     </div>
 
@@ -307,17 +311,7 @@ export default function HotProducts() {
                         className="text-white text-xs sm:text-sm font-medium line-clamp-2 min-h-[2.5rem] cursor-pointer hover:text-orange-300 transition-colors"
                         onClick={() => {
                           trackClick(product, 'click');
-                          if (!product.provider_product_id) {
-                            handleBuyNow(product);
-                            return;
-                          }
-                          navigate(`/product/${product.provider}/${product.provider_product_id}`, {
-                            state: {
-                              isFixedPrice: true,
-                              hotProductPrice: product.total_price_usd,
-                              hotProductId: product.id,
-                            },
-                          });
+                          navigate(`/share/hp/${product.id}`);
                         }}
                       >
                         {cleanProductTitle(product.title)}

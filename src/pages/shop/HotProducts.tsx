@@ -44,6 +44,7 @@ interface HotProduct {
   id: string;
   title: string;
   image_url: string;
+  gallery_images?: string[] | null;
   total_price_usd: number;
   provider: string;
   provider_product_id: string;
@@ -52,6 +53,14 @@ interface HotProduct {
   shipping_usd?: number;
   product_url?: string;
 }
+
+// Resolve the best available image: image_url, then first gallery image, then placeholder
+const resolveProductImage = (product: HotProduct): string => {
+  if (product.image_url) return product.image_url;
+  const gallery = product.gallery_images;
+  if (Array.isArray(gallery) && gallery.length > 0 && gallery[0]) return gallery[0];
+  return '/placeholder.svg';
+};
 
 export default function HotProducts() {
   const navigate = useNavigate();

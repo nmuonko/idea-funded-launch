@@ -289,100 +289,158 @@ export default function HotProducts() {
             </div>
           )}
 
-          {!loading && products.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-              {products.map((product, index) => {
-                const key = `${product.provider}-${product.provider_product_id}`;
-                const isProcessing = processingIds.has(key);
+          {!loading && (() => {
+            const dubaiProducts = products.filter(p => p.link_source === 'dubai');
+            const regularProducts = products.filter(p => p.link_source !== 'dubai');
 
-                return (
-                  <motion.div
-                    key={product.id}
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: index * 0.04 }}
-                    className="relative bg-[#1a1d23] border border-white/[0.08] rounded-xl overflow-hidden group hover:border-orange-500/40 transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.15)]"
+            const renderCard = (product: HotProduct, index: number, isDubai: boolean) => {
+              const key = `${product.provider}-${product.provider_product_id}`;
+              const isProcessing = processingIds.has(key);
+              const waMsg = encodeURIComponent(
+                `Bonjour AfriShop, j'ai besoin d'aide concernant ce produit: ${product.title}. Lien: ${window.location.origin}/share/hp/${product.id}`
+              );
+              const waHref = `https://wa.me/243973141627?text=${waMsg}`;
+              return (
+                <motion.div
+                  key={product.id}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: Math.min(index * 0.03, 0.3) }}
+                  className="relative bg-[#1a1d23] border border-white/[0.08] rounded-xl overflow-hidden group hover:border-orange-500/40 transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.15)]"
+                >
+                  <div className="absolute top-2 left-2 z-10">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wide shadow-lg">
+                      <Flame className="w-3 h-3" /> {isDubai ? 'Dubai' : 'Deal'}
+                    </span>
+                  </div>
+
+                  <div
+                    className="aspect-square bg-white overflow-hidden cursor-pointer"
+                    onClick={() => {
+                      trackClick(product, 'click');
+                      navigate(`/share/hp/${product.id}`);
+                    }}
                   >
-                    <div className="absolute top-2 left-2 z-10">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wide shadow-lg">
-                        <Flame className="w-3 h-3" /> Deal
-                      </span>
-                    </div>
+                    <img
+                      src={resolveProductImage(product)}
+                      alt={cleanProductTitle(product.title)}
+                      className="w-full h-full object-contain p-3 group-hover:scale-105 transition-transform duration-300"
+                      loading="lazy"
+                      onError={(e) => {
+                        const img = e.currentTarget;
+                        if (img.src !== window.location.origin + '/placeholder.svg') {
+                          img.src = '/placeholder.svg';
+                        }
+                      }}
+                    />
+                  </div>
 
-                    <div
-                      className="aspect-square bg-white overflow-hidden cursor-pointer"
+                  <div className="p-3 space-y-2">
+                    <p
+                      className="text-white text-xs sm:text-sm font-medium line-clamp-2 min-h-[2.5rem] cursor-pointer hover:text-orange-300 transition-colors"
                       onClick={() => {
                         trackClick(product, 'click');
                         navigate(`/share/hp/${product.id}`);
                       }}
                     >
-                      <img
-                        src={resolveProductImage(product)}
-                        alt={cleanProductTitle(product.title)}
-                        className="w-full h-full object-contain p-3 group-hover:scale-105 transition-transform duration-300"
-                        loading="lazy"
-                        onError={(e) => {
-                          const img = e.currentTarget;
-                          if (img.src !== window.location.origin + '/placeholder.svg') {
-                            img.src = '/placeholder.svg';
-                          }
-                        }}
-                      />
-                    </div>
+                      {cleanProductTitle(product.title)}
+                    </p>
 
-                    <div className="p-3 space-y-2">
-                      <p
-                        className="text-white text-xs sm:text-sm font-medium line-clamp-2 min-h-[2.5rem] cursor-pointer hover:text-orange-300 transition-colors"
-                        onClick={() => {
-                          trackClick(product, 'click');
-                          navigate(`/share/hp/${product.id}`);
-                        }}
-                      >
-                        {cleanProductTitle(product.title)}
+                    <div>
+                      <p className="text-orange-400 font-extrabold text-lg sm:text-xl leading-tight">
+                        {formatCurrency(product.total_price_usd, { locale: locale as any })}
                       </p>
-
-                      <div>
-                        <p className="text-orange-400 font-extrabold text-lg sm:text-xl leading-tight">
-                          {formatCurrency(product.total_price_usd, { locale: locale as any })}
+                      <p className="text-emerald-400/80 text-[10px] font-medium mt-0.5">
+                        ✓ {locale === 'fr' ? 'Livraison RDC incluse' : 'Shipping to DRC included'}
+                      </p>
+                      {isDubai && (
+                        <p className="text-white/50 text-[10px] mt-0.5">
+                          {locale === 'fr' ? 'Livraison estimée 2–4 semaines' : 'Est. delivery 2–4 weeks'}
                         </p>
-                        <p className="text-emerald-400/80 text-[10px] font-medium mt-0.5">
-                          ✓ {locale === 'fr' ? 'Livraison incluse' : 'Shipping included'}
-                        </p>
-                      </div>
-
-                      <Button
-                        size="sm"
-                        className="w-full text-xs h-9 font-bold transition-all bg-emerald-600 hover:bg-emerald-700 text-white"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          trackClick(product, 'buy_now');
-                          handleBuyNow(product);
-                        }}
-                        disabled={isProcessing}
-                      >
-                        {isProcessing ? (
-                          <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> {locale === 'fr' ? 'Chargement...' : 'Loading...'}</>
-                        ) : (
-                          <><Zap className="w-4 h-4 mr-1" /> {locale === 'fr' ? 'Payer maintenant' : 'Pay Now'}</>
-                        )}
-                      </Button>
+                      )}
                     </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-          )}
 
-          {!loading && products.length === 0 && (
-            <div className="text-center py-20">
-              <Flame className="w-12 h-12 text-white/20 mx-auto mb-4" />
-              <p className="text-white/50">
-                {locale === 'fr'
-                  ? 'Aucun produit populaire pour le moment.'
-                  : 'No hot products available right now.'}
-              </p>
-            </div>
-          )}
+                    <Button
+                      size="sm"
+                      className="w-full text-xs h-10 font-bold transition-all bg-emerald-600 hover:bg-emerald-700 text-white"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        trackClick(product, 'buy_now');
+                        handleBuyNow(product);
+                      }}
+                      disabled={isProcessing}
+                    >
+                      {isProcessing ? (
+                        <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> {locale === 'fr' ? 'Chargement...' : 'Loading...'}</>
+                      ) : isDubai ? (
+                        <><Zap className="w-4 h-4 mr-1" /> {locale === 'fr' ? 'Commander / Payer' : 'Order / Pay'}</>
+                      ) : (
+                        <><Zap className="w-4 h-4 mr-1" /> {locale === 'fr' ? 'Payer maintenant' : 'Pay Now'}</>
+                      )}
+                    </Button>
+
+                    {isDubai && (
+                      <a
+                        href={waHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="block"
+                      >
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full text-[11px] h-9 font-semibold bg-green-600/10 hover:bg-green-600/20 text-green-300 border-green-500/40"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 mr-1" />
+                          {locale === 'fr' ? 'Problème ? WhatsApp' : 'Need help? WhatsApp'}
+                        </Button>
+                      </a>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            };
+
+            return (
+              <>
+                {regularProducts.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
+                    {regularProducts.map((p, i) => renderCard(p, i, false))}
+                  </div>
+                )}
+
+                {dubaiProducts.length > 0 && (
+                  <section className="mt-12">
+                    <div className="mb-5 border-t border-white/10 pt-8">
+                      <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
+                        🔥 {locale === 'fr' ? 'Articles de Dubai' : 'Items from Dubai'}
+                      </h2>
+                      <p className="text-white/70 text-sm sm:text-base mt-1">
+                        {locale === 'fr'
+                          ? 'Livraison RDC incluse · Livraison estimée 2–4 semaines · Vérifié avant expédition'
+                          : 'Shipping to DRC included · Est. delivery 2–4 weeks · Verified before shipping'}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
+                      {dubaiProducts.map((p, i) => renderCard(p, i, true))}
+                    </div>
+                  </section>
+                )}
+
+                {products.length === 0 && (
+                  <div className="text-center py-20">
+                    <Flame className="w-12 h-12 text-white/20 mx-auto mb-4" />
+                    <p className="text-white/50">
+                      {locale === 'fr'
+                        ? 'Aucun produit populaire pour le moment.'
+                        : 'No hot products available right now.'}
+                    </p>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       </main>
 

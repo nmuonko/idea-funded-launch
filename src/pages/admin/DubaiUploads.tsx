@@ -83,7 +83,7 @@ export default function AdminDubaiUploads() {
   const reject = async (id: string) => {
     if (!confirm('Rejeter cette soumission ?')) return;
     setBusy(true);
-    await supabase.functions.invoke('dubai-upload-admin?action=reject', { body: { id } });
+    await supabase.functions.invoke('dubai-upload-admin', { body: { action: 'reject', id } });
     setBusy(false);
     load();
   };

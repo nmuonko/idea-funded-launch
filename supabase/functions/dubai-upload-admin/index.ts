@@ -43,8 +43,9 @@ Deno.serve(async (req) => {
     if (!isAdmin) return ok({ ok: false, error: "forbidden" });
 
     const url = new URL(req.url);
-    const action = url.searchParams.get("action");
     const body = await req.json().catch(() => ({})) as any;
+    const action = url.searchParams.get("action") || body.action;
+
 
     if (action === "set-token") {
       const token = String(body.token || "");

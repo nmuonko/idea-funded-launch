@@ -1,6 +1,10 @@
 project_id = "ecqpqtirhpumfgbdtvhh"
 
 [functions]
+  [functions.dubai-upload-submit]
+    verify_jwt = false
+  [functions.dubai-refine-title]
+    verify_jwt = false
   [functions.search-intent]
     verify_jwt = false
   [functions.shopify-products]

@@ -244,13 +244,33 @@ export default function HotProducts() {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <a href={whatsappUrl(session?.user?.email)} target="_blank" rel="noopener noreferrer">
-                  <Button size="icon" className="h-11 w-11 rounded-full bg-green-500 hover:bg-green-400 text-white shadow-lg border-2 border-white/30">
-                    <MessageCircle className="h-5 w-5" />
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <a
+                  href={whatsappUrl(session?.user?.email)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="relative group"
+                  aria-label={locale === 'fr' ? 'Contactez-nous sur WhatsApp' : 'Contact us on WhatsApp'}
+                >
+                  <span className="absolute inset-0 rounded-full bg-green-400 opacity-60 animate-ping" aria-hidden="true" />
+                  <Button
+                    size="lg"
+                    className="relative h-12 sm:h-14 px-4 sm:px-6 rounded-full bg-green-500 hover:bg-green-400 text-white font-bold shadow-2xl border-2 border-white gap-2 transition-transform group-hover:scale-105"
+                  >
+                    <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6 fill-white" />
+                    <span className="hidden sm:inline text-sm">
+                      {locale === 'fr' ? 'Problème ? WhatsApp' : 'Need help? WhatsApp'}
+                    </span>
+                    <span className="sm:hidden text-sm">WhatsApp</span>
                   </Button>
                 </a>
-                <a href={emailUrl(session?.user?.email)} target="_blank" rel="noopener noreferrer">
+                <a
+                  href={emailUrl(session?.user?.email)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={locale === 'fr' ? 'Contactez-nous par email' : 'Contact us by email'}
+                  className="hidden sm:block"
+                >
                   <Button size="icon" className="h-11 w-11 rounded-full bg-white/20 hover:bg-white/30 text-white shadow-lg border-2 border-white/30 backdrop-blur-sm">
                     <Mail className="h-5 w-5" />
                   </Button>

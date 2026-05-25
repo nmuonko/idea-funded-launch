@@ -52,6 +52,8 @@ interface HotProduct {
   markup_usd?: number;
   shipping_usd?: number;
   product_url?: string;
+  link_source?: string;
+  description_fr?: string | null;
 }
 
 // Resolve the best available image: image_url, then first gallery image, then placeholder
@@ -126,9 +128,11 @@ export default function HotProducts() {
             if (ao !== bo) return ao - bo;
             return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
           };
-          const storefront = filtered.filter((p) => p.link_source !== 'link_generator').sort(sortKey);
+          const dubai = filtered.filter((p) => p.link_source === 'dubai').sort(sortKey);
+          const storefront = filtered.filter((p) => p.link_source !== 'link_generator' && p.link_source !== 'dubai').sort(sortKey);
           const generated = filtered.filter((p) => p.link_source === 'link_generator').sort(sortKey);
-          setProducts([...storefront, ...generated] as any);
+          // Order: existing storefront + generator first, then Dubai section (rendered separately).
+          setProducts([...storefront, ...generated, ...dubai] as any);
         }
       } catch (err: any) {
         console.error('Failed to fetch hot products:', err);

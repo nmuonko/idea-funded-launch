@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency } from '@/lib/formatCurrency';
-import { Loader2, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Loader2, ShoppingCart, ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ProductImageViewer } from '@/components/shop/ProductImageViewer';
 

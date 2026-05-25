@@ -1,62 +1,82 @@
-# Option B — Unify mobile + web homepage feed
+# Dubai Product Upload System
 
-Make the frozen mobile app render the **exact same products in the exact same order** as the web app, sourced from a single cache. Removes the divergent code paths that cause banner placeholders and different product sets on mobile.
+A private, mobile-first upload flow for the Dubai onsite buyer plus an admin review queue and a separated "Articles de Dubai" section on `/hot-products`. Reuses the existing guest checkout path (no payment changes).
 
-## Root cause
+## 1. Database
 
-The mobile homepage currently has **three competing sources**:
-1. `mobile-public-config.home.sections` → frozen app reads independent collections (`electronics_trending`, `best_sellers_electronics`, `deals_electronics`).
-2. `catalog-home` strict_sections cache (`n_mobile_sections_cache`) — separately curated.
-3. `catalog-home` web recipe cache — what the web actually shows.
+New table `dubai_uploads` (separate from `hot_products_showcase` to avoid polluting the curated catalog while pending):
 
-Web app uses #3 with the homepage image policy + 725-ID Amazon banner blocklist. Mobile usually hits #1/#2, which lack those filters → banner placeholders + different ordering.
+- `id`, `created_at`, `updated_at`
+- `source` (default `dubai`), `category` (iphone/samsung/pixel/other_phone/laptop/accessories/other)
+- `model`, `model_other_text`, `refined_title`
+- `storage`, `color`, `condition`, `battery_health`, `sim_type`, `network_status`, `face_id`
+- `dubai_price_aed`, `dubai_price_usd`, `final_price_usd` (nullable)
+- `images text[]`, `raw_images text[]`, `video_url`
+- `supplier_notes` (internal), `public_description`, `admin_notes`
+- `status` (`pending_review` | `approved` | `rejected`)
+- `published_showcase_id` (FK to `hot_products_showcase.id`, set when approved)
+- `submitted_by_token_hash` (audit trail)
 
-## Changes
+Storage bucket `dubai-uploads` (public read for approved images; private folder convention `pending/...` vs `approved/...`).
 
-### 1. `supabase/functions/catalog-home/index.ts`
-- Capture `originalClientType` before forcing `clientType = "web"` for mobile homepage requests.
-- **Delete the entire `if (clientType === "mobile")` block** (~lines 1602-1723) covering: strict_sections call, recipe-cache primary read, recipe-cache stale fallback. All three are gone.
-- Keep the `else { /* WEB recipe cache */ }` branch but remove the `else` wrapper so it runs unconditionally.
-- After the response is built (in the `serve()` wrapper at the bottom), if `originalClientType === "mobile"`, run the body through `flattenMobilePayload(body, locale, true)` to:
-  - Strip `banners`, `promos`, `ads`, `hero`, `promotions`
-  - Drop imageless items via `hasValidImage()`
-  - Merge sections into a single `for_you` section preserving order
-  - Set `meta.client = "mobile"`, `meta.flattened = true`
-- Remove now-unused imports/helpers (`serveMobileSections`, `readMobileCache` if unused elsewhere — keep if referenced by Tier 3 bootstrap).
+Settings: add `dubai_upload_token` and `dubai_pricing_rules` rows to `app_settings` (or equivalent existing settings table) — token stored hashed.
 
-### 2. `supabase/functions/_shared/mobileSectionsCache.ts`
-- Bump `MOBILE_SECTIONS_SCHEMA_VERSION` (currently 27 → 28) so any old cached payloads are invalidated and ignored on read.
+RLS:
+- INSERT via an edge function only (no anon client insert).
+- SELECT/UPDATE/DELETE limited to admins.
+- Storage bucket: insert via signed edge function; read-only public for approved paths.
 
-### 3. `supabase/functions/mobile-public-config/index.ts`
-- Replace `home.sections` (3 sections: trending/best/deals) with **one** section:
-  ```ts
-  { key: "for_you", label_fr: "Pour vous", label_en: "For you",
-    collectionKey: "web_homepage_mirror", maxItems: 60 }
-  ```
-- The frozen app already renders sections from this config; one section = continuous grid.
-- Leave `collections` map intact for backward compatibility but the frozen app will now mostly call `catalog-home` directly via the bootstrap config.
+Add `link_source = 'dubai'` convention on the published `hot_products_showcase` rows so the frontend can split them out.
 
-### 4. Cache invalidation
-After deploy, trigger `catalog-prewarm-home` once to repopulate the web cache so mobile immediately gets fresh items.
+## 2. Edge functions
 
-## Validation
+- `dubai-upload-submit` — validates token (compares hash), validates body (zod), uploads images to Storage, inserts `dubai_uploads` row with `status = pending_review`. Returns 200 + JSON only (mobile-safe).
+- `dubai-refine-title` — calls Lovable AI Gateway (`google/gemini-3-flash-preview`) to clean a typed phone name into a professional title. Token-gated.
+- `dubai-upload-approve` — admin-only (verify_jwt + `is_admin` check). Creates a `hot_products_showcase` row with `link_source='dubai'`, copies title/price/images, marks dubai_upload as `approved`, stores `published_showcase_id`.
+- `dubai-upload-reject` — admin-only, marks rejected (and optionally deletes images).
 
-Two parallel curls must return the same item IDs in the same order (page 1):
-```
-curl ".../catalog-home?client=web&page=1"          → sections[0].items[*].id
-curl ".../catalog-home?client=mobile&flat=1&page=1" → sections[0].items[*].id
-```
-IDs and order must match. Mobile response also has `meta.client="mobile"`, `meta.flattened=true`, and zero entries in `banners/promos/ads`.
+## 3. Frontend pages
 
-## Non-regression guarantees
+### `/dubai-upload` (route guarded by `?token=`)
+- Mobile-first form with progressive disclosure (category → model → details → photos → price → notes → submit).
+- Image picker uses `<input type="file" accept="image/*" capture="environment" multiple>` so phones open the camera.
+- Client-side compress/resize before upload (canvas → JPEG ~1600px max edge ~80% quality); keep originals as `raw_images` (uploaded separately, untouched).
+- "Refine title" button calls `dubai-refine-title`.
+- Final-price suggestion: client calls a helper that applies pricing rules (display only).
+- Token read from URL, sent in `x-dubai-token` header to all edge functions. If missing/invalid → friendly "Access denied" screen.
 
-- Frozen-app contract preserved: HTTP 200 + JSON shape (`{ok, sections, meta}`) unchanged.
-- Categories (`?category=phones` etc.) still hit the per-recipe web cache — unaffected.
-- Section browse (`?section=...`) still delegates to `catalog-category` — unaffected.
-- Tier 3 DB bootstrap still runs if cache is empty (prevents "Catalogue Indisponible").
-- Web app unchanged — same code path, same response.
+### `/admin/dubai-uploads`
+- Pending queue with thumbnails. Edit dialog: title, final price, public description, condition, battery health, stock status, image reorder/remove.
+- Buttons: Approve (publishes), Reject (deletes).
+- Wire into existing AdminLayout sidebar under Catalog with admin permission check.
 
-## Files touched
-- `supabase/functions/catalog-home/index.ts`
-- `supabase/functions/_shared/mobileSectionsCache.ts`
-- `supabase/functions/mobile-public-config/index.ts`
+### `/hot-products`
+- Fetch `hot_products_showcase` as today, then split:
+  - Existing products (current logic, unchanged ordering)
+  - Dubai products: `link_source = 'dubai'`, rendered in a separate grid under a big heading "🔥 Articles de Dubai" with a short tagline ("Livraison RDC incluse · Livraison estimée 2–4 semaines · Vérifié avant expédition").
+- Dubai cards reuse the same `<Button>` calling the existing `handleBuyNow` flow (adds item + navigates to `/checkout?hp={id}`). No new checkout, no cart-required step, guest-checkout already supported by that route.
+- Dubai card extras: condition badge, battery health line, "Commander / Payer sur le site" label on the main button, plus a green "Problème ? Contactez-nous sur WhatsApp" button below with prefilled product-aware message.
+
+## 4. Reuse, NOT replace
+
+- Checkout / Stripe / pawaPay / mobile money / totals: **untouched**.
+- The Dubai card's main button uses the same `addItem` → `/checkout?hp=...` flow already used by other hot products and the link generator.
+- WhatsApp is only support/contact — never an order channel.
+
+## 5. Security
+
+- Token compared via `crypto.subtle.digest` (SHA-256) against the hashed value in settings; constant-time compare.
+- Edge functions return HTTP 200 with JSON `{ ok:false, error:'...' }` on failure (per project mobile contract).
+- File type/size validation server-side: images ≤ 10 MB each, max 8; video optional ≤ 50 MB.
+- Server-side title sanitization to prevent injection in product titles.
+
+## 6. Out of scope (intentionally)
+
+- No public navigation entry for `/dubai-upload`.
+- No "Voir tous les produits" link.
+- No category filter chips on `/hot-products`.
+- No changes to existing hot-products data or ordering.
+
+## Open question
+
+I'll generate one shared static token stored hashed in app settings and ask you to set its plaintext value via the Admin → Dubai Uploads page after approval. Acceptable?

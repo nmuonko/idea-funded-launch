@@ -57,9 +57,10 @@ export default function AdminDubaiUploads() {
   const setToken = async () => {
     if (tokenInput.length < 12) { toast.error('Token trop court (≥ 12 caractères)'); return; }
     setBusy(true);
-    const { data, error } = await supabase.functions.invoke('dubai-upload-admin?action=set-token', {
-      body: { token: tokenInput },
+    const { data, error } = await supabase.functions.invoke('dubai-upload-admin', {
+      body: { action: 'set-token', token: tokenInput },
     });
+
     setBusy(false);
     if (error || !(data as any)?.ok) { toast.error('Échec'); return; }
     toast.success('Token mis à jour');
@@ -68,9 +69,10 @@ export default function AdminDubaiUploads() {
 
   const approve = async (row: Row, patch: Partial<Row>) => {
     setBusy(true);
-    const { data, error } = await supabase.functions.invoke('dubai-upload-admin?action=approve', {
-      body: { id: row.id, patch },
+    const { data, error } = await supabase.functions.invoke('dubai-upload-admin', {
+      body: { action: 'approve', id: row.id, patch },
     });
+
     setBusy(false);
     if (error || !(data as any)?.ok) { toast.error((data as any)?.error || 'Échec'); return; }
     toast.success('Produit publié sur /hot-products');
@@ -81,7 +83,7 @@ export default function AdminDubaiUploads() {
   const reject = async (id: string) => {
     if (!confirm('Rejeter cette soumission ?')) return;
     setBusy(true);
-    await supabase.functions.invoke('dubai-upload-admin?action=reject', { body: { id } });
+    await supabase.functions.invoke('dubai-upload-admin', { body: { action: 'reject', id } });
     setBusy(false);
     load();
   };

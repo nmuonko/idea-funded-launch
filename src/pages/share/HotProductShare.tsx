@@ -82,7 +82,18 @@ export default function HotProductShare() {
       </Helmet>
 
       <div className="min-h-screen bg-black text-white">
-        <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
+        <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
+          {/* Back to Hot Products */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate('/hot-products')}
+            className="text-white/70 hover:text-white -ml-2"
+          >
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Retour aux produits populaires
+          </Button>
+
           {/* Main Image with navigation */}
           {uniqueImages.length > 0 && (
             <div className="space-y-3">

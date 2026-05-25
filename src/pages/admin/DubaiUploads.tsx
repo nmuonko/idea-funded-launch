@@ -57,9 +57,10 @@ export default function AdminDubaiUploads() {
   const setToken = async () => {
     if (tokenInput.length < 12) { toast.error('Token trop court (≥ 12 caractères)'); return; }
     setBusy(true);
-    const { data, error } = await supabase.functions.invoke('dubai-upload-admin?action=set-token', {
-      body: { token: tokenInput },
+    const { data, error } = await supabase.functions.invoke('dubai-upload-admin', {
+      body: { action: 'set-token', token: tokenInput },
     });
+
     setBusy(false);
     if (error || !(data as any)?.ok) { toast.error('Échec'); return; }
     toast.success('Token mis à jour');

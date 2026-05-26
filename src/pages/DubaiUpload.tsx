@@ -80,9 +80,13 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+// Shared fallback token — embedded so the /dubai link always works for the on-site buyer.
+// Server still validates against this value OR the admin-configured token.
+const SHARED_DUBAI_TOKEN = 'DUBAI-AFRISHOP-2026';
+
 export default function DubaiUpload() {
   const [params] = useSearchParams();
-  const token = params.get('token') || '';
+  const token = params.get('token') || SHARED_DUBAI_TOKEN;
   const [tokenChecked, setTokenChecked] = useState(false);
   const [tokenValid, setTokenValid] = useState(false);
 

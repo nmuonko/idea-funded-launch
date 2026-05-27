@@ -239,7 +239,7 @@ export default function HotProducts() {
                 </div>
                 <div>
                   <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
-                    {locale === 'fr' ? '🔥 Produits Populaires' : '🔥 Hot Products'}
+                    {locale === 'fr' ? 'Produits Populaires' : 'Hot Products'}
                   </h1>
                   <p className="text-white/80 text-sm sm:text-base mt-1">
                     {locale === 'fr'

@@ -1,5 +1,5 @@
 // /dubai-upload — private, token-gated, mobile-first product upload page.
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Loader2, Camera, Sparkles, Upload, ShieldCheck, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,16 +9,88 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import logo from '@/assets/afrishop-logo.png';
 
-const CATEGORIES = [
-  { v: 'iphone', l: 'iPhone' },
-  { v: 'samsung', l: 'Samsung' },
-  { v: 'pixel', l: 'Google Pixel' },
-  { v: 'other_phone', l: 'Other Phone' },
-  { v: 'laptop', l: 'Laptop' },
-  { v: 'accessories', l: 'Accessories' },
-  { v: 'other', l: 'Other' },
-];
+type Lang = 'en' | 'fr';
+
+const T = {
+  en: {
+    title: 'Dubai — New Product',
+    subtitle: 'Private · Dubai supplier only',
+    photos: 'Photos',
+    addPhotos: 'Add photos',
+    main: 'Main',
+    category: 'Category',
+    model: 'Model',
+    chooseModel: 'Choose model',
+    phoneName: 'Phone name',
+    phonePlaceholder: 'e.g. iphone14promax 256 blue',
+    improveTitle: 'Improve title (AI)',
+    storage: 'Storage',
+    color: 'Color',
+    condition: 'Condition',
+    battery: 'Battery (%)',
+    sim: 'SIM',
+    network: 'Network',
+    faceId: 'Face ID',
+    pricesHint: 'Prices (internal except final customer price)',
+    aed: 'Dubai purchase (AED)',
+    usd: 'Purchase (USD)',
+    finalUsd: 'Final customer price (USD)',
+    finalUsdPh: 'Leave empty for admin suggestion',
+    notes: 'Supplier notes (internal)',
+    publicDesc: 'Public description (optional)',
+    submit: 'Submit',
+    submitting: 'Submitting...',
+    sent: 'Sent ✅',
+    sentDesc: 'Product pending review by AfriShop admin.',
+    sendAnother: 'Submit another product',
+    addOnePhoto: 'Add at least one photo',
+    sendError: 'Submission error',
+    titleImproved: 'Title improved',
+    aiError: 'AI error, try again',
+    categories: { iphone: 'iPhone', samsung: 'Samsung', pixel: 'Google Pixel', other_phone: 'Other Phone', laptop: 'Laptop', accessories: 'Accessories', other: 'Other' },
+  },
+  fr: {
+    title: 'Dubai — Nouveau produit',
+    subtitle: 'Privé · Dubai supplier only',
+    photos: 'Photos',
+    addPhotos: 'Ajouter des photos',
+    main: 'Principale',
+    category: 'Catégorie',
+    model: 'Modèle',
+    chooseModel: 'Choisir le modèle',
+    phoneName: 'Nom du téléphone',
+    phonePlaceholder: 'ex: iphone14promax 256 blue',
+    improveTitle: 'Améliorer le titre (IA)',
+    storage: 'Stockage',
+    color: 'Couleur',
+    condition: 'État',
+    battery: 'Batterie (%)',
+    sim: 'SIM',
+    network: 'Réseau',
+    faceId: 'Face ID',
+    pricesHint: 'Prix (interne sauf prix client final)',
+    aed: 'Achat Dubai (AED)',
+    usd: 'Achat (USD)',
+    finalUsd: 'Prix final client (USD)',
+    finalUsdPh: 'Laisser vide pour suggestion admin',
+    notes: 'Notes fournisseur (interne)',
+    publicDesc: 'Description publique (optionnel)',
+    submit: 'Envoyer',
+    submitting: 'Envoi...',
+    sent: 'Envoyé ✅',
+    sentDesc: 'Produit en attente de révision par l’admin AfriShop.',
+    sendAnother: 'Envoyer un autre produit',
+    addOnePhoto: 'Ajoutez au moins une photo',
+    sendError: 'Erreur lors de l\'envoi',
+    titleImproved: 'Titre amélioré',
+    aiError: 'Erreur IA, réessayez',
+    categories: { iphone: 'iPhone', samsung: 'Samsung', pixel: 'Google Pixel', other_phone: 'Autre téléphone', laptop: 'Ordinateur portable', accessories: 'Accessoires', other: 'Autre' },
+  },
+};
+
+const CATEGORY_KEYS = ['iphone','samsung','pixel','other_phone','laptop','accessories','other'] as const;
 
 const IPHONE_MODELS = [
   'iPhone XR','iPhone 11','iPhone 11 Pro','iPhone 11 Pro Max',
@@ -81,14 +153,14 @@ function fileToDataUrl(file: File): Promise<string> {
 }
 
 // Shared fallback token — embedded so the /dubai link always works for the on-site buyer.
-// Server still validates against this value OR the admin-configured token.
 const SHARED_DUBAI_TOKEN = 'DUBAI-AFRISHOP-2026';
 
 export default function DubaiUpload() {
   const [params] = useSearchParams();
   const token = params.get('token') || SHARED_DUBAI_TOKEN;
-  const [tokenChecked, setTokenChecked] = useState(false);
-  const [tokenValid, setTokenValid] = useState(false);
+
+  const [lang, setLang] = useState<Lang>('en');
+  const t = T[lang];
 
   // form
   const [category, setCategory] = useState('iphone');
@@ -117,22 +189,6 @@ export default function DubaiUpload() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
-
-  // Verify token by a probe: call refine with empty payload — invalid_token vs text_required tells us.
-  useEffect(() => {
-    if (!token) { setTokenChecked(true); setTokenValid(false); return; }
-    (async () => {
-      try {
-        const { data, error } = await supabase.functions.invoke('dubai-refine-title', {
-          body: { text: '' },
-          headers: { 'x-dubai-token': token },
-        });
-        if (error) { setTokenValid(false); }
-        else setTokenValid((data as any)?.error !== 'invalid_token');
-      } catch { setTokenValid(false); }
-      finally { setTokenChecked(true); }
-    })();
-  }, [token]);
 
   const models = useMemo(() => {
     if (category === 'iphone') return IPHONE_MODELS;
@@ -176,14 +232,14 @@ export default function DubaiUpload() {
       });
       if (error || !(data as any)?.ok) throw new Error('refine_failed');
       setRefinedTitle((data as any).title);
-      toast.success('Titre amélioré');
+      toast.success(t.titleImproved);
     } catch {
-      toast.error('Erreur IA, réessayez');
+      toast.error(t.aiError);
     } finally { setRefining(false); }
   };
 
   const submit = async () => {
-    if (images.length === 0) { toast.error('Ajoutez au moins une photo'); return; }
+    if (images.length === 0) { toast.error(t.addOnePhoto); return; }
     if (!category) return;
     setSubmitting(true);
     try {
@@ -205,34 +261,12 @@ export default function DubaiUpload() {
       if (error) throw error;
       if (!(data as any)?.ok) throw new Error((data as any)?.error || 'failed');
       setDone(true);
-      toast.success('Produit envoyé pour révision');
+      toast.success(t.sent);
     } catch (e: any) {
       console.error(e);
-      toast.error(e?.message || 'Erreur lors de l\'envoi');
+      toast.error(e?.message || t.sendError);
     } finally { setSubmitting(false); }
   };
-
-  if (!tokenChecked) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (!tokenValid) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-6">
-        <div className="max-w-sm text-center space-y-3">
-          <ShieldCheck className="h-12 w-12 mx-auto text-destructive" />
-          <h1 className="text-xl font-semibold">Accès refusé</h1>
-          <p className="text-sm text-muted-foreground">
-            Cette page est privée. Token manquant ou invalide.
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   if (done) {
     return (
@@ -241,12 +275,10 @@ export default function DubaiUpload() {
           <div className="h-16 w-16 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center mx-auto">
             <ShieldCheck className="h-8 w-8" />
           </div>
-          <h1 className="text-xl font-semibold">Envoyé ✅</h1>
-          <p className="text-sm text-muted-foreground">
-            Produit en attente de révision par l’admin AfriShop.
-          </p>
+          <h1 className="text-xl font-semibold">{t.sent}</h1>
+          <p className="text-sm text-muted-foreground">{t.sentDesc}</p>
           <Button onClick={() => { setDone(false); setImages([]); setRawImages([]); setRefinedTitle(''); setModel(''); setModelOther(''); }}>
-            Envoyer un autre produit
+            {t.sendAnother}
           </Button>
         </div>
       </div>
@@ -256,11 +288,23 @@ export default function DubaiUpload() {
   return (
     <div className="min-h-screen bg-background pb-32">
       <div className="sticky top-0 z-10 bg-background border-b">
-        <div className="px-4 py-3 flex items-center gap-2">
-          <Camera className="h-5 w-5 text-primary" />
-          <div>
-            <h1 className="text-base font-semibold">Dubai — Nouveau produit</h1>
-            <p className="text-[11px] text-muted-foreground">Privé · Dubai supplier only</p>
+        <div className="px-4 py-3 flex items-center gap-3">
+          <img src={logo} alt="AfriShop" className="h-9 w-auto" />
+          <div className="flex-1 min-w-0">
+            <h1 className="text-base font-semibold truncate">{t.title}</h1>
+            <p className="text-[11px] text-muted-foreground">{t.subtitle}</p>
+          </div>
+          <div className="flex items-center rounded-md border overflow-hidden text-xs">
+            <button
+              type="button"
+              onClick={() => setLang('en')}
+              className={`px-2.5 py-1.5 ${lang === 'en' ? 'bg-primary text-primary-foreground' : 'bg-background'}`}
+            >EN</button>
+            <button
+              type="button"
+              onClick={() => setLang('fr')}
+              className={`px-2.5 py-1.5 ${lang === 'fr' ? 'bg-primary text-primary-foreground' : 'bg-background'}`}
+            >FR</button>
           </div>
         </div>
       </div>
@@ -268,14 +312,14 @@ export default function DubaiUpload() {
       <div className="max-w-md mx-auto px-4 py-4 space-y-5">
         {/* Photos */}
         <section className="space-y-2">
-          <Label>Photos ({images.length}/8)</Label>
+          <Label>{t.photos} ({images.length}/8)</Label>
           <input
             ref={fileRef} type="file" accept="image/*" multiple capture="environment"
             className="hidden"
             onChange={(e) => handleFiles(e.target.files)}
           />
           <Button type="button" onClick={() => fileRef.current?.click()} className="w-full h-14" disabled={images.length >= 8}>
-            <Upload className="h-5 w-5 mr-2" /> Ajouter des photos
+            <Upload className="h-5 w-5 mr-2" /> {t.addPhotos}
           </Button>
           {images.length > 0 && (
             <div className="grid grid-cols-3 gap-2">
@@ -287,7 +331,7 @@ export default function DubaiUpload() {
                     <X className="h-3.5 w-3.5" />
                   </button>
                   {i === 0 && (
-                    <span className="absolute bottom-1 left-1 text-[10px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded">Principale</span>
+                    <span className="absolute bottom-1 left-1 text-[10px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded">{t.main}</span>
                   )}
                 </div>
               ))}
@@ -297,11 +341,11 @@ export default function DubaiUpload() {
 
         {/* Category */}
         <section className="space-y-2">
-          <Label>Catégorie</Label>
+          <Label>{t.category}</Label>
           <Select value={category} onValueChange={(v) => { setCategory(v); setModel(''); setModelOther(''); }}>
             <SelectTrigger className="h-12"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {CATEGORIES.map(c => <SelectItem key={c.v} value={c.v}>{c.l}</SelectItem>)}
+              {CATEGORY_KEYS.map(c => <SelectItem key={c} value={c}>{t.categories[c]}</SelectItem>)}
             </SelectContent>
           </Select>
         </section>
@@ -309,9 +353,9 @@ export default function DubaiUpload() {
         {/* Model dropdown */}
         {models && (
           <section className="space-y-2">
-            <Label>Modèle</Label>
+            <Label>{t.model}</Label>
             <Select value={model} onValueChange={setModel}>
-              <SelectTrigger className="h-12"><SelectValue placeholder="Choisir le modèle" /></SelectTrigger>
+              <SelectTrigger className="h-12"><SelectValue placeholder={t.chooseModel} /></SelectTrigger>
               <SelectContent>
                 {models.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
               </SelectContent>
@@ -322,16 +366,16 @@ export default function DubaiUpload() {
         {/* Free text + AI refine */}
         {showFreeText && (
           <section className="space-y-2">
-            <Label>Nom du téléphone</Label>
+            <Label>{t.phoneName}</Label>
             <Input
-              placeholder="ex: iphone14promax 256 blue"
+              placeholder={t.phonePlaceholder}
               value={modelOther}
               onChange={(e) => setModelOther(e.target.value)}
               className="h-12"
             />
             <Button type="button" variant="secondary" onClick={refineTitle} disabled={refining || !modelOther.trim()} className="w-full h-11">
               {refining ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
-              Améliorer le titre (IA)
+              {t.improveTitle}
             </Button>
             {refinedTitle && (
               <p className="text-xs text-emerald-600 break-words">→ {refinedTitle}</p>
@@ -342,43 +386,43 @@ export default function DubaiUpload() {
         {/* Details */}
         <section className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <Label>Stockage</Label>
+            <Label>{t.storage}</Label>
             <Select value={storage} onValueChange={setStorage}>
               <SelectTrigger className="h-11"><SelectValue placeholder="—" /></SelectTrigger>
               <SelectContent>{STORAGE_OPTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div className="space-y-1">
-            <Label>Couleur</Label>
+            <Label>{t.color}</Label>
             <Input value={color} onChange={e => setColor(e.target.value)} className="h-11" />
           </div>
           <div className="space-y-1">
-            <Label>État</Label>
+            <Label>{t.condition}</Label>
             <Select value={condition} onValueChange={setCondition}>
               <SelectTrigger className="h-11"><SelectValue placeholder="—" /></SelectTrigger>
               <SelectContent>{CONDITION_OPTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div className="space-y-1">
-            <Label>Batterie (%)</Label>
+            <Label>{t.battery}</Label>
             <Input type="number" min={0} max={100} value={battery} onChange={e => setBattery(e.target.value)} className="h-11" />
           </div>
           <div className="space-y-1 col-span-2">
-            <Label>SIM</Label>
+            <Label>{t.sim}</Label>
             <Select value={sim} onValueChange={setSim}>
               <SelectTrigger className="h-11"><SelectValue placeholder="—" /></SelectTrigger>
               <SelectContent>{SIM_OPTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div className="space-y-1">
-            <Label>Réseau</Label>
+            <Label>{t.network}</Label>
             <Select value={network} onValueChange={setNetwork}>
               <SelectTrigger className="h-11"><SelectValue placeholder="—" /></SelectTrigger>
               <SelectContent>{NETWORK_OPTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div className="space-y-1">
-            <Label>Face ID</Label>
+            <Label>{t.faceId}</Label>
             <Select value={faceId} onValueChange={setFaceId}>
               <SelectTrigger className="h-11"><SelectValue placeholder="—" /></SelectTrigger>
               <SelectContent>{FACEID_OPTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
@@ -388,33 +432,33 @@ export default function DubaiUpload() {
 
         {/* Prices */}
         <section className="space-y-2 rounded-lg border p-3 bg-muted/30">
-          <p className="text-xs font-medium text-muted-foreground">Prix (interne sauf prix client final)</p>
+          <p className="text-xs font-medium text-muted-foreground">{t.pricesHint}</p>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>Achat Dubai (AED)</Label>
+              <Label>{t.aed}</Label>
               <Input type="number" value={aed} onChange={e => setAed(e.target.value)} className="h-11" />
             </div>
             <div className="space-y-1">
-              <Label>Achat (USD)</Label>
+              <Label>{t.usd}</Label>
               <Input type="number" value={usd} onChange={e => setUsd(e.target.value)} className="h-11" />
             </div>
             <div className="space-y-1 col-span-2">
-              <Label>Prix final client (USD)</Label>
-              <Input type="number" value={finalUsd} onChange={e => setFinalUsd(e.target.value)} className="h-11" placeholder="Laisser vide pour suggestion admin" />
+              <Label>{t.finalUsd}</Label>
+              <Input type="number" value={finalUsd} onChange={e => setFinalUsd(e.target.value)} className="h-11" placeholder={t.finalUsdPh} />
             </div>
           </div>
         </section>
 
         {/* Notes */}
         <section className="space-y-2">
-          <Label>Notes fournisseur (interne)</Label>
+          <Label>{t.notes}</Label>
           <Textarea value={supplierNotes} onChange={e => setSupplierNotes(e.target.value)} rows={2} />
-          <Label>Description publique (optionnel)</Label>
+          <Label>{t.publicDesc}</Label>
           <Textarea value={publicDesc} onChange={e => setPublicDesc(e.target.value)} rows={3} />
         </section>
 
         <Button onClick={submit} disabled={submitting || images.length === 0} className="w-full h-14 text-base font-semibold">
-          {submitting ? <><Loader2 className="h-5 w-5 animate-spin mr-2" /> Envoi...</> : 'Envoyer pour révision'}
+          {submitting ? <><Loader2 className="h-5 w-5 animate-spin mr-2" /> {t.submitting}</> : t.submit}
         </Button>
       </div>
     </div>

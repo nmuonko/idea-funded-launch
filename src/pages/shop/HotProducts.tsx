@@ -259,7 +259,7 @@ export default function HotProducts() {
                   <span className="absolute inset-0 rounded-full bg-green-400 opacity-60 animate-ping" aria-hidden="true" />
                   <Button
                     size="lg"
-                    className="relative h-12 sm:h-14 px-4 sm:px-6 rounded-full bg-green-500 hover:bg-green-400 text-white font-bold shadow-2xl border-2 border-white gap-2 transition-transform group-hover:scale-105"
+                    className="relative h-12 sm:h-14 px-4 sm:px-6 rounded-full bg-green-500 hover:bg-green-400 text-white font-bold shadow-2xl border-2 border-white gap-2 animate-heartbeat group-hover:[animation-play-state:paused] group-hover:scale-105 transition-transform"
                   >
                     <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6 fill-white" />
                     <span className="hidden sm:inline text-sm">

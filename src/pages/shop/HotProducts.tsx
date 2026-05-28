@@ -305,16 +305,16 @@ export default function HotProducts() {
             className="relative overflow-hidden rounded-2xl mb-8 bg-gradient-to-br from-orange-600 via-red-600 to-pink-600 p-6 sm:p-8"
           >
             <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjA4KSIvPjwvc3ZnPg==')] opacity-50" />
-            <div className="relative z-10 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="flex-shrink-0 w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                  <Flame className="w-8 h-8 sm:w-9 sm:h-9 text-yellow-300" />
+            <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 sm:gap-4">
+              <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
+                <div className="flex-shrink-0 w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                  <Flame className="w-6 h-6 sm:w-9 sm:h-9 text-yellow-300" />
                 </div>
-                <div>
-                  <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
+                <div className="min-w-0">
+                  <h1 className="text-xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight truncate">
                     {locale === 'fr' ? 'Produits Populaires' : 'Hot Products'}
                   </h1>
-                  <p className="text-white/80 text-sm sm:text-base mt-1">
+                  <p className="text-white/80 text-xs sm:text-base mt-1">
                     {locale === 'fr'
                       ? 'Prix tout inclus · Livraison en RDC incluse'
                       : 'All-inclusive pricing · Shipping to DRC included'}
@@ -326,13 +326,15 @@ export default function HotProducts() {
                   href={whatsappUrl(session?.user?.email)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="relative group"
+                  className="relative group inline-block"
                   aria-label={locale === 'fr' ? 'Contactez-nous sur WhatsApp' : 'Contact us on WhatsApp'}
                 >
-                  <span className="absolute inset-0 rounded-full bg-green-400 opacity-60 animate-ping" aria-hidden="true" />
+                  {!prefersReducedMotion && (
+                    <span className="absolute inset-0 rounded-full bg-green-400 opacity-60 animate-ping pointer-events-none" aria-hidden="true" />
+                  )}
                   <Button
                     size="lg"
-                    className="relative h-12 sm:h-14 px-4 sm:px-6 rounded-full bg-green-500 hover:bg-green-400 text-white font-bold shadow-2xl border-2 border-white gap-2 animate-heartbeat group-hover:[animation-play-state:paused] group-hover:scale-105 transition-transform"
+                    className={`relative h-11 sm:h-14 px-3 sm:px-6 rounded-full bg-green-500 hover:bg-green-400 text-white font-bold shadow-2xl border-2 border-white gap-2 ${prefersReducedMotion ? '' : 'animate-heartbeat'} group-hover:[animation-play-state:paused] transform-gpu will-change-transform`}
                   >
                     <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6 fill-white" />
                     <span className="hidden sm:inline text-sm">
@@ -354,6 +356,7 @@ export default function HotProducts() {
                 </a>
               </div>
             </div>
+
           </motion.div>
 
           {/* Search bar */}

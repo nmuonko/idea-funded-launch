@@ -132,8 +132,8 @@ export default function HotProducts() {
           const dubai = filtered.filter((p) => p.link_source === 'dubai').sort(sortKey);
           const storefront = filtered.filter((p) => p.link_source !== 'link_generator' && p.link_source !== 'dubai').sort(sortKey);
           const generated = filtered.filter((p) => p.link_source === 'link_generator').sort(sortKey);
-          // Order: existing storefront + generator first, then Dubai section (rendered separately).
-          setProducts([...storefront, ...generated, ...dubai] as any);
+          // Order: link-generator (admin-curated featured) first, then storefront, then Dubai (rendered separately).
+          setProducts([...generated, ...storefront, ...dubai] as any);
         }
       } catch (err: any) {
         console.error('Failed to fetch hot products:', err);

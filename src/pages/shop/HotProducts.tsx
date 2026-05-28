@@ -1,7 +1,7 @@
-import { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Loader2, Flame, Zap, Check, MessageCircle, Mail, Home, Search, X } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { ShopFooter } from '@/components/shop/ShopFooter';
@@ -15,6 +15,27 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSupportContact } from '@/hooks/useSupportContact';
 import { toast } from 'sonner';
 import { SEOHead } from '@/components/SEOHead';
+
+// Escape regex specials for safe highlight matching
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Highlight occurrences of `q` inside `text` (case-insensitive)
+const renderHighlighted = (text: string, q: string) => {
+  if (!q) return text;
+  try {
+    const parts = text.split(new RegExp(`(${escapeRegExp(q)})`, 'ig'));
+    const lower = q.toLowerCase();
+    return parts.map((part, i) =>
+      part.toLowerCase() === lower ? (
+        <mark key={i} className="bg-orange-400/30 text-orange-200 rounded px-0.5">{part}</mark>
+      ) : (
+        <span key={i}>{part}</span>
+      )
+    );
+  } catch {
+    return text;
+  }
+};
 
 const HP_ADDED_KEY = 'hp_added_';
 

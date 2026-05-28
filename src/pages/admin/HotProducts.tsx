@@ -1280,18 +1280,45 @@ export default function HotProducts() {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Step 1: URL input */}
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Input
                   placeholder="https://www.amazon.com/dp/B0..."
                   value={linkGenUrl}
                   onChange={e => setLinkGenUrl(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && extractLinkGenProduct()}
+                  className="flex-1 min-w-[200px]"
                 />
                 <Button onClick={extractLinkGenProduct} disabled={linkGenExtracting || !linkGenUrl.trim()}>
                   {linkGenExtracting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Search className="h-4 w-4 mr-2" />}
                   {t('Extract', 'Extraire')}
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setLinkGenExtracted({
+                      title: '',
+                      image_url: '',
+                      price: 0,
+                      provider: 'manual',
+                      pid: `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                      url: '',
+                      gallery_images: [],
+                    });
+                    setLinkGenManualTitle('');
+                    setLinkGenManualPrice('');
+                    setLinkGenPriceEditable(true);
+                  }}
+                  disabled={linkGenExtracting}
+                >
+                  <ImagePlus className="h-4 w-4 mr-2" />
+                  {t('Add manually', 'Ajouter manuellement')}
+                </Button>
               </div>
+              <p className="text-xs text-muted-foreground -mt-2">
+                {t('No link? Click "Add manually" to paste images and enter a title and price yourself.', 'Pas de lien ? Cliquez sur « Ajouter manuellement » pour coller des images et saisir un titre et un prix.')}
+              </p>
+
 
               {/* Step 2: Extracted product preview with editable fields */}
               {linkGenExtracted && (

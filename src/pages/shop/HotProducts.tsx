@@ -307,29 +307,6 @@ export default function HotProducts() {
 
           </motion.div>
 
-          {/* Search bar */}
-          <div className="relative mb-6 max-w-xl">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
-            <Input
-              type="search"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder={locale === 'fr' ? 'Rechercher un produit...' : 'Search a product...'}
-              className="pl-9 pr-9 h-11 bg-white/[0.04] border-white/10 text-white placeholder:text-white/40 focus-visible:ring-orange-500/50"
-              aria-label={locale === 'fr' ? 'Rechercher' : 'Search'}
-            />
-            {searchInput && (
-              <button
-                type="button"
-                onClick={() => { setSearchInput(''); setSearchQuery(''); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full text-white/50 hover:text-white hover:bg-white/10"
-                aria-label="Clear search"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-
           {loading && (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="w-8 h-8 text-white/50 animate-spin" />
@@ -337,10 +314,8 @@ export default function HotProducts() {
           )}
 
           {!loading && (() => {
-            const q = searchQuery.trim().toLowerCase();
-            const matches = (p: HotProduct) => !q || (p.title || '').toLowerCase().includes(q);
-            const dubaiProducts = products.filter(p => p.link_source === 'dubai' && matches(p));
-            const regularProducts = products.filter(p => p.link_source !== 'dubai' && matches(p));
+            const dubaiProducts = products.filter(p => p.link_source === 'dubai');
+            const regularProducts = products.filter(p => p.link_source !== 'dubai');
 
             const renderCard = (product: HotProduct, index: number, isDubai: boolean) => {
               const key = `${product.provider}-${product.provider_product_id}`;
@@ -352,28 +327,32 @@ export default function HotProducts() {
               return (
                 <motion.div
                   key={product.id}
-                  initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.97 }}
-                  animate={{ opacity: 1, scale: 1 }}
+                  initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay: prefersReducedMotion ? 0 : Math.min(index * 0.015, 0.18) }}
-                  className="relative bg-[#1a1d23] border border-white/[0.08] rounded-xl overflow-hidden group hover:border-orange-500/40 transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.15)] transform-gpu"
+                  className="relative flex flex-col bg-[#15181d] border border-white/[0.08] rounded-2xl overflow-hidden group hover:border-orange-500/40 transition-colors hover:shadow-[0_0_24px_rgba(249,115,22,0.15)] transform-gpu"
                 >
-                  <div className="absolute top-2 left-2 z-10">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wide shadow-lg">
+                  {/* Badge */}
+                  <div className="absolute top-2.5 left-2.5 z-10">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-md">
                       <Flame className="w-3 h-3" /> {isDubai ? 'Dubai' : 'Deal'}
                     </span>
                   </div>
 
-                  <div
-                    className="aspect-square bg-white overflow-hidden cursor-pointer"
+                  {/* Image */}
+                  <button
+                    type="button"
+                    className="aspect-square bg-white overflow-hidden text-left"
                     onClick={() => {
                       trackClick(product, 'click');
                       navigate(`/share/hp/${product.id}`);
                     }}
+                    aria-label={cleanProductTitle(product.title)}
                   >
                     <img
                       src={resolveProductImage(product)}
                       alt={cleanProductTitle(product.title)}
-                      className="w-full h-full object-contain p-3 group-hover:scale-105 transition-transform duration-300"
+                      className="w-full h-full object-contain p-3 group-hover:scale-[1.03] transition-transform duration-300"
                       loading="lazy"
                       onError={(e) => {
                         const img = e.currentTarget;
@@ -382,70 +361,75 @@ export default function HotProducts() {
                         }
                       }}
                     />
-                  </div>
+                  </button>
 
-                  <div className="p-3 space-y-2">
-                    <p
-                      className="text-white text-xs sm:text-sm font-medium line-clamp-2 min-h-[2.5rem] cursor-pointer hover:text-orange-300 transition-colors"
+                  {/* Body */}
+                  <div className="flex flex-col flex-1 p-3 sm:p-4 gap-3">
+                    {/* Title */}
+                    <button
+                      type="button"
+                      className="text-left text-white text-[13px] sm:text-sm font-medium leading-snug line-clamp-2 min-h-[2.5rem] hover:text-orange-300 transition-colors"
                       onClick={() => {
                         trackClick(product, 'click');
                         navigate(`/share/hp/${product.id}`);
                       }}
                     >
-                      {renderHighlighted(cleanProductTitle(product.title), searchQuery.trim())}
-                    </p>
+                      {cleanProductTitle(product.title)}
+                    </button>
 
-                    <div>
-                      <p className="text-orange-400 font-extrabold text-lg sm:text-xl leading-tight">
+                    {/* Price block */}
+                    <div className="space-y-0.5">
+                      <p className="text-orange-400 font-extrabold text-xl sm:text-2xl leading-none tracking-tight">
                         {formatCurrency(product.total_price_usd, { locale: locale as any })}
                       </p>
-                      <p className="text-emerald-400/80 text-[10px] font-medium mt-0.5">
+                      <p className="text-emerald-400/90 text-[11px] font-medium">
                         ✓ {locale === 'fr' ? 'Livraison RDC incluse' : 'Shipping to DRC included'}
                       </p>
                       {isDubai && (
-                        <p className="text-white/50 text-[10px] mt-0.5">
+                        <p className="text-white/50 text-[11px]">
                           {locale === 'fr' ? 'Livraison estimée 2–4 semaines' : 'Est. delivery 2–4 weeks'}
                         </p>
                       )}
                     </div>
 
-                    <Button
-                      size="sm"
-                      className="w-full text-xs h-10 font-bold transition-all bg-emerald-600 hover:bg-emerald-700 text-white"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        trackClick(product, 'buy_now');
-                        handleBuyNow(product);
-                      }}
-                      disabled={isProcessing}
-                    >
-                      {isProcessing ? (
-                        <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> {locale === 'fr' ? 'Chargement...' : 'Loading...'}</>
-                      ) : isDubai ? (
-                        <><Zap className="w-4 h-4 mr-1" /> {locale === 'fr' ? 'Commander / Payer' : 'Order / Pay'}</>
-                      ) : (
-                        <><Zap className="w-4 h-4 mr-1" /> {locale === 'fr' ? 'Payer maintenant' : 'Pay Now'}</>
-                      )}
-                    </Button>
-
-                    {isDubai && (
-                      <a
-                        href={waHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="block"
+                    {/* CTAs pinned to bottom */}
+                    <div className="mt-auto flex flex-col gap-2 pt-1">
+                      <Button
+                        size="sm"
+                        className="w-full h-11 text-sm font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          trackClick(product, 'buy_now');
+                          handleBuyNow(product);
+                        }}
+                        disabled={isProcessing}
                       >
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="w-full text-[11px] h-9 font-semibold bg-green-600/10 hover:bg-green-600/20 text-green-300 border-green-500/40"
+                        {isProcessing ? (
+                          <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> {locale === 'fr' ? 'Chargement...' : 'Loading...'}</>
+                        ) : (
+                          <><Zap className="w-4 h-4 mr-1.5" /> {isDubai ? (locale === 'fr' ? 'Commander' : 'Order Now') : (locale === 'fr' ? 'Payer maintenant' : 'Pay Now')}</>
+                        )}
+                      </Button>
+
+                      {isDubai && (
+                        <a
+                          href={waHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="block"
                         >
-                          <MessageCircle className="w-3.5 h-3.5 mr-1" />
-                          {locale === 'fr' ? 'Problème ? WhatsApp' : 'Need help? WhatsApp'}
-                        </Button>
-                      </a>
-                    )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full h-10 text-xs font-semibold rounded-xl bg-green-600/10 hover:bg-green-600/20 text-green-300 border-green-500/40"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5 mr-1.5" />
+                            {locale === 'fr' ? 'WhatsApp' : 'WhatsApp'}
+                          </Button>
+                        </a>
+                      )}
+                    </div>
                   </div>
                 </motion.div>
               );
@@ -481,15 +465,8 @@ export default function HotProducts() {
                   <div className="text-center py-20">
                     <Flame className="w-12 h-12 text-white/20 mx-auto mb-4" />
                     <p className="text-white/50">
-                      {q
-                        ? (locale === 'fr' ? `Aucun produit ne correspond à « ${searchQuery} ».` : `No products match "${searchQuery}".`)
-                        : (locale === 'fr' ? 'Aucun produit populaire pour le moment.' : 'No hot products available right now.')}
+                      {locale === 'fr' ? 'Aucun produit populaire pour le moment.' : 'No hot products available right now.'}
                     </p>
-                    {q && (
-                      <Button variant="outline" size="sm" onClick={() => setSearchQuery('')} className="mt-4 bg-white/5 border-white/15 text-white hover:bg-white/10">
-                        {locale === 'fr' ? 'Effacer la recherche' : 'Clear search'}
-                      </Button>
-                    )}
                   </div>
                 )}
               </>

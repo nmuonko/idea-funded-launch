@@ -61,6 +61,33 @@ function buildSourceProductUrl(provider: string, providerProductId: string, fall
   return fallback || '';
 }
 
+// Drag-and-drop wrapper for each generated link row
+function SortableLinkRow({ id, children }: { id: string; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 50 : undefined,
+    position: 'relative',
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        aria-label="Drag to reorder"
+        className="absolute left-1 top-1/2 -translate-y-1/2 z-10 cursor-grab active:cursor-grabbing rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground touch-none"
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+      <div className="pl-7">{children}</div>
+    </div>
+  );
+}
+
+
 interface ShowcaseProduct {
   id: string;
   title: string;

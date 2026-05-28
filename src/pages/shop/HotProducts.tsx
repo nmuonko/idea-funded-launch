@@ -1,11 +1,12 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, Flame, Zap, Check, MessageCircle, Mail } from 'lucide-react';
+import { ArrowLeft, Loader2, Flame, Zap, Check, MessageCircle, Mail, Home, Search, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency } from '@/lib/formatCurrency';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -73,6 +74,7 @@ export default function HotProducts() {
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Handle referral code from URL
   const refCode = useMemo(() => {
@@ -131,8 +133,8 @@ export default function HotProducts() {
           const dubai = filtered.filter((p) => p.link_source === 'dubai').sort(sortKey);
           const storefront = filtered.filter((p) => p.link_source !== 'link_generator' && p.link_source !== 'dubai').sort(sortKey);
           const generated = filtered.filter((p) => p.link_source === 'link_generator').sort(sortKey);
-          // Order: existing storefront + generator first, then Dubai section (rendered separately).
-          setProducts([...storefront, ...generated, ...dubai] as any);
+          // Order: link-generator (admin-curated featured) first, then storefront, then Dubai (rendered separately).
+          setProducts([...generated, ...storefront, ...dubai] as any);
         }
       } catch (err: any) {
         console.error('Failed to fetch hot products:', err);
@@ -215,15 +217,26 @@ export default function HotProducts() {
 
       <main className="pt-20 px-3 sm:px-4 pb-24">
         <div className="mx-auto max-w-6xl">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/')}
-            className="text-white/70 hover:text-white mb-4"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            {locale === 'fr' ? "Retour à l'accueil" : 'Back to home'}
-          </Button>
+          <div className="flex items-center gap-2 mb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate('/')}
+              className="bg-white/5 border-white/15 text-white hover:bg-white/10 hover:text-white"
+            >
+              <Home className="w-4 h-4 mr-2" />
+              {locale === 'fr' ? "Accueil" : 'Home'}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate(-1)}
+              className="text-white/60 hover:text-white"
+            >
+              <ArrowLeft className="w-4 h-4 mr-1" />
+              {locale === 'fr' ? 'Retour' : 'Back'}
+            </Button>
+          </div>
 
           {/* Hero Banner */}
           <motion.div
@@ -283,6 +296,28 @@ export default function HotProducts() {
             </div>
           </motion.div>
 
+          {/* Search bar */}
+          <div className="relative mb-6 max-w-xl">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
+            <Input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={locale === 'fr' ? 'Rechercher un produit...' : 'Search a product...'}
+              className="pl-9 pr-9 h-11 bg-white/[0.04] border-white/10 text-white placeholder:text-white/40 focus-visible:ring-orange-500/50"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full text-white/50 hover:text-white hover:bg-white/10"
+                aria-label="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
           {loading && (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="w-8 h-8 text-white/50 animate-spin" />
@@ -290,8 +325,10 @@ export default function HotProducts() {
           )}
 
           {!loading && (() => {
-            const dubaiProducts = products.filter(p => p.link_source === 'dubai');
-            const regularProducts = products.filter(p => p.link_source !== 'dubai');
+            const q = searchQuery.trim().toLowerCase();
+            const matches = (p: HotProduct) => !q || (p.title || '').toLowerCase().includes(q);
+            const dubaiProducts = products.filter(p => p.link_source === 'dubai' && matches(p));
+            const regularProducts = products.filter(p => p.link_source !== 'dubai' && matches(p));
 
             const renderCard = (product: HotProduct, index: number, isDubai: boolean) => {
               const key = `${product.provider}-${product.provider_product_id}`;
@@ -428,14 +465,19 @@ export default function HotProducts() {
                   </section>
                 )}
 
-                {products.length === 0 && (
+                {regularProducts.length === 0 && dubaiProducts.length === 0 && (
                   <div className="text-center py-20">
                     <Flame className="w-12 h-12 text-white/20 mx-auto mb-4" />
                     <p className="text-white/50">
-                      {locale === 'fr'
-                        ? 'Aucun produit populaire pour le moment.'
-                        : 'No hot products available right now.'}
+                      {q
+                        ? (locale === 'fr' ? `Aucun produit ne correspond à « ${searchQuery} ».` : `No products match "${searchQuery}".`)
+                        : (locale === 'fr' ? 'Aucun produit populaire pour le moment.' : 'No hot products available right now.')}
                     </p>
+                    {q && (
+                      <Button variant="outline" size="sm" onClick={() => setSearchQuery('')} className="mt-4 bg-white/5 border-white/15 text-white hover:bg-white/10">
+                        {locale === 'fr' ? 'Effacer la recherche' : 'Clear search'}
+                      </Button>
+                    )}
                   </div>
                 )}
               </>

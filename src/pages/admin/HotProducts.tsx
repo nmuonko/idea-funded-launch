@@ -7,7 +7,10 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon, Pencil, MessageCircle, ImagePlus, X, Upload, MoreHorizontal, Download, ClipboardCopy, ArrowUp, ArrowDown, Image as ImageIcon } from 'lucide-react';
+import { Search, Plus, Trash2, Send, Save, Eye, Loader2, Mail, Link2, ShoppingBag, Flame, ArrowRight, CheckSquare, RefreshCw, AlertCircle, FileText, BarChart3, PackagePlus, Check, ExternalLink, Copy, LinkIcon, Pencil, MessageCircle, ImagePlus, X, Upload, MoreHorizontal, Download, ClipboardCopy, ArrowUp, ArrowDown, Image as ImageIcon, GripVertical } from 'lucide-react';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { allInclusivePrice, type FeeConfig } from '@/lib/allInclusivePrice';
@@ -57,6 +60,33 @@ function buildSourceProductUrl(provider: string, providerProductId: string, fall
   }
   return fallback || '';
 }
+
+// Drag-and-drop wrapper for each generated link row
+function SortableLinkRow({ id, children }: { id: string; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 50 : undefined,
+    position: 'relative',
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        aria-label="Drag to reorder"
+        className="absolute left-1 top-1/2 -translate-y-1/2 z-10 cursor-grab active:cursor-grabbing rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground touch-none"
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+      <div className="pl-7">{children}</div>
+    </div>
+  );
+}
+
 
 interface ShowcaseProduct {
   id: string;
@@ -795,6 +825,33 @@ export default function HotProducts() {
     }
   }
 
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  async function handleLinksDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = generatedLinks.findIndex(l => l.id === active.id);
+    const newIndex = generatedLinks.findIndex(l => l.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const reordered = arrayMove(generatedLinks, oldIndex, newIndex);
+    setGeneratedLinks(reordered);
+    const updates = reordered.map((l, i) =>
+      (supabase.from('hot_products_showcase') as any).update({ sort_order: i }).eq('id', l.id)
+    );
+    const results = await Promise.all(updates);
+    const firstError = (results as any[]).find((r: any) => r?.error)?.error;
+    if (firstError) {
+      toast.error(t('Reorder failed', 'Échec du réordonnancement'));
+      loadGeneratedLinks();
+    } else {
+      toast.success(t('Order saved', 'Ordre enregistré'));
+    }
+  }
+
+
   function startEditLink(link: GeneratedLink) {
     setEditingLinkId(link.id);
     setEditLinkTitle(link.title);
@@ -1439,9 +1496,15 @@ export default function HotProducts() {
               {/* Step 3: Persisted generated links */}
               {generatedLinks.length > 0 && (
                 <div className="space-y-3">
-                  <h4 className="text-sm font-semibold text-muted-foreground">{t('Generated Links', 'Liens générés')} ({generatedLinks.length})</h4>
-                  {generatedLinks.map(link => (
-                    <div key={link.id} className="p-3 border rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-muted-foreground">{t('Generated Links', 'Liens générés')} ({generatedLinks.length})</h4>
+                    <span className="text-[11px] text-muted-foreground flex items-center gap-1"><GripVertical className="h-3 w-3" /> {t('Drag to reorder', 'Glisser pour réorganiser')}</span>
+                  </div>
+                  <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleLinksDragEnd}>
+                    <SortableContext items={generatedLinks.map(l => l.id)} strategy={verticalListSortingStrategy}>
+                      {generatedLinks.map(link => (
+                        <SortableLinkRow key={link.id} id={link.id}>
+                          <div className="p-3 border rounded-lg space-y-2 bg-card">
                       {editingLinkId === link.id ? (
                         <div className="space-y-3">
                           <div className="flex items-start gap-3">
@@ -1737,8 +1800,11 @@ export default function HotProducts() {
                           </div>
                         </div>
                       )}
-                    </div>
-                  ))}
+                          </div>
+                        </SortableLinkRow>
+                      ))}
+                    </SortableContext>
+                  </DndContext>
                 </div>
               )}
             </CardContent>

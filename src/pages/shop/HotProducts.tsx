@@ -127,7 +127,6 @@ export default function HotProducts() {
   const { addItem } = useShopCart();
   const { session } = useAuth();
   const { whatsapp, whatsappUrl, emailUrl } = useSupportContact();
-  const heroWhatsappUrl = `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(t.waHeroMessage)}`;
   const prefersReducedMotion = useReducedMotion();
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,6 +134,7 @@ export default function HotProducts() {
 
   const locale: HPLocale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
   const t = HP_STRINGS[locale];
+  const heroWhatsappUrl = `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(t.waHeroMessage)}`;
 
   // Handle referral code from URL
   const refCode = useMemo(() => {

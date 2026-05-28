@@ -69,11 +69,25 @@ export default function AdminPayments() {
   const loadPayments = async () => {
     try {
       setLoading(true);
-      
+
+      // Read from the canonical `payments` table (settled transactions).
+      // Explicit columns are required because column-level SELECT on
+      // client_secret/raw_request/raw_events is revoked from authenticated.
       let query = supabase
-        .from('payment_attempts')
+        .from('payments')
         .select(`
-          *,
+          id,
+          order_id,
+          provider_key,
+          amount,
+          currency,
+          status,
+          reference,
+          provider_deposit_id,
+          provider_transaction_id,
+          paid_at,
+          created_at,
+          updated_at,
           orders(
             id,
             total_usd,
@@ -86,7 +100,7 @@ export default function AdminPayments() {
         .order('created_at', { ascending: false });
 
       if (activeTab === 'paid') {
-        query = query.eq('status', 'paid');
+        query = query.in('status', ['succeeded', 'paid']);
       } else if (activeTab === 'pending') {
         query = query.eq('status', 'pending');
       } else if (activeTab === 'failed') {
@@ -95,31 +109,48 @@ export default function AdminPayments() {
 
       const { data, error } = await query;
       if (error) throw error;
-      
+
+      // Normalize each row to the Payment shape used by the rest of the page.
+      const normalized = (data || []).map((row: any) => ({
+        id: row.id,
+        order_id: row.order_id,
+        provider: row.provider_key,
+        amount: row.amount,
+        currency: row.currency,
+        // Treat Stripe's "succeeded" as "paid" for UI consistency.
+        status: row.status === 'succeeded' ? 'paid' : row.status,
+        provider_ref: row.reference || row.provider_transaction_id || row.provider_deposit_id || null,
+        last_error: null,
+        expires_at: null,
+        created_at: row.created_at,
+        updated_at: row.updated_at || row.paid_at || row.created_at,
+        orders: row.orders || null,
+      }));
+
       // Fetch user profiles separately
-      const userIds = [...new Set(data?.map(p => p.orders?.user_id).filter(Boolean) || [])];
+      const userIds = [...new Set(normalized.map(p => p.orders?.user_id).filter(Boolean) || [])];
       let profilesMap: Record<string, any> = {};
-      
+
       if (userIds.length > 0) {
         const { data: profiles } = await supabase
           .from('profiles')
           .select('user_id, name, full_name, email, phone')
           .in('user_id', userIds);
-        
+
         profilesMap = (profiles || []).reduce((acc, p) => {
           acc[p.user_id] = p;
           return acc;
         }, {} as Record<string, any>);
       }
-      
-      const paymentsWithProfiles = (data || []).map(payment => ({
+
+      const paymentsWithProfiles = normalized.map(payment => ({
         ...payment,
         orders: payment.orders ? {
           ...payment.orders,
           profiles: profilesMap[payment.orders.user_id] || null
         } : null
       }));
-      
+
       setPayments(paymentsWithProfiles);
     } catch (error) {
       console.error('Error loading payments:', error);

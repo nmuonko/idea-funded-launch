@@ -93,6 +93,7 @@ const cleanProductTitle = (title: string): string => {
 
 const REF_STORAGE_KEY = 'afrishop_ref_code';
 const REF_CLICK_SESSION_KEY = 'afrishop_ref_click_sent';
+const SHARE_PREVIEW_BASE_URL = `${import.meta.env.VITE_SUPABASE_URL || 'https://igmkhxffnyzoogcqvdab.supabase.co'}/functions/v1/share-og`;
 
 interface HotProduct {
   id: string;
@@ -356,10 +357,9 @@ export default function HotProducts() {
             const renderCard = (product: HotProduct, index: number, isDubai: boolean) => {
               const key = `${product.provider}-${product.provider_product_id}`;
               const isProcessing = processingIds.has(key);
-              // Always use the canonical production URL so WhatsApp's preview crawler
-              // hits the share-og edge function (via /share/hp/:id rewrite) and gets
-              // the product image as og:image instead of the generic site preview.
-              const shareLink = `https://afrishop-usa.com/share/hp/${product.id}`;
+              // WhatsApp does not execute the React route, so send it directly to the
+              // server-rendered preview endpoint that returns product-specific OG tags.
+              const shareLink = `${SHARE_PREVIEW_BASE_URL}?id=${encodeURIComponent(product.id)}`;
               const waMsg = encodeURIComponent(t.waMessage(product.title, shareLink));
               const waHref = `https://wa.me/243973141627?text=${waMsg}`;
               const cleanTitle = cleanProductTitle(product.title);

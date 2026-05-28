@@ -444,7 +444,7 @@ export default function HotProducts() {
                         navigate(`/share/hp/${product.id}`);
                       }}
                     >
-                      {cleanProductTitle(product.title)}
+                      {renderHighlighted(cleanProductTitle(product.title), searchQuery.trim())}
                     </p>
 
                     <div>

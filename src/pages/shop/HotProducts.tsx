@@ -465,14 +465,19 @@ export default function HotProducts() {
                   </section>
                 )}
 
-                {products.length === 0 && (
+                {regularProducts.length === 0 && dubaiProducts.length === 0 && (
                   <div className="text-center py-20">
                     <Flame className="w-12 h-12 text-white/20 mx-auto mb-4" />
                     <p className="text-white/50">
-                      {locale === 'fr'
-                        ? 'Aucun produit populaire pour le moment.'
-                        : 'No hot products available right now.'}
+                      {q
+                        ? (locale === 'fr' ? `Aucun produit ne correspond à « ${searchQuery} ».` : `No products match "${searchQuery}".`)
+                        : (locale === 'fr' ? 'Aucun produit populaire pour le moment.' : 'No hot products available right now.')}
                     </p>
+                    {q && (
+                      <Button variant="outline" size="sm" onClick={() => setSearchQuery('')} className="mt-4 bg-white/5 border-white/15 text-white hover:bg-white/10">
+                        {locale === 'fr' ? 'Effacer la recherche' : 'Clear search'}
+                      </Button>
+                    )}
                   </div>
                 )}
               </>

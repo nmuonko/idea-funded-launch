@@ -1496,9 +1496,15 @@ export default function HotProducts() {
               {/* Step 3: Persisted generated links */}
               {generatedLinks.length > 0 && (
                 <div className="space-y-3">
-                  <h4 className="text-sm font-semibold text-muted-foreground">{t('Generated Links', 'Liens générés')} ({generatedLinks.length})</h4>
-                  {generatedLinks.map(link => (
-                    <div key={link.id} className="p-3 border rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-muted-foreground">{t('Generated Links', 'Liens générés')} ({generatedLinks.length})</h4>
+                    <span className="text-[11px] text-muted-foreground flex items-center gap-1"><GripVertical className="h-3 w-3" /> {t('Drag to reorder', 'Glisser pour réorganiser')}</span>
+                  </div>
+                  <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleLinksDragEnd}>
+                    <SortableContext items={generatedLinks.map(l => l.id)} strategy={verticalListSortingStrategy}>
+                      {generatedLinks.map(link => (
+                        <SortableLinkRow key={link.id} id={link.id}>
+                          <div className="p-3 border rounded-lg space-y-2 bg-card">
                       {editingLinkId === link.id ? (
                         <div className="space-y-3">
                           <div className="flex items-start gap-3">

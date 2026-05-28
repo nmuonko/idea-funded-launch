@@ -88,14 +88,38 @@ const resolveProductImage = (product: HotProduct): string => {
 
 export default function HotProducts() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { language } = useLanguage();
   const { addItem } = useShopCart();
   const { session } = useAuth();
   const { whatsappUrl, emailUrl } = useSupportContact();
+  const prefersReducedMotion = useReducedMotion();
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = useState('');
+
+  // Search: input value (controlled) + debounced value (used for filtering & URL sync)
+  const initialQ = searchParams.get('q') || '';
+  const [searchInput, setSearchInput] = useState(initialQ);
+  const [searchQuery, setSearchQuery] = useState(initialQ);
+
+  // Debounce input -> searchQuery (250ms)
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(searchInput), 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Sync debounced query to URL (?q=) so it can be shared / restored
+  useEffect(() => {
+    const current = searchParams.get('q') || '';
+    if (current === searchQuery) return;
+    const next = new URLSearchParams(searchParams);
+    if (searchQuery) next.set('q', searchQuery);
+    else next.delete('q');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
+
 
   // Handle referral code from URL
   const refCode = useMemo(() => {

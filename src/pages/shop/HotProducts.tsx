@@ -217,15 +217,26 @@ export default function HotProducts() {
 
       <main className="pt-20 px-3 sm:px-4 pb-24">
         <div className="mx-auto max-w-6xl">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/')}
-            className="text-white/70 hover:text-white mb-4"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            {locale === 'fr' ? "Retour à l'accueil" : 'Back to home'}
-          </Button>
+          <div className="flex items-center gap-2 mb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate('/')}
+              className="bg-white/5 border-white/15 text-white hover:bg-white/10 hover:text-white"
+            >
+              <Home className="w-4 h-4 mr-2" />
+              {locale === 'fr' ? "Accueil" : 'Home'}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate(-1)}
+              className="text-white/60 hover:text-white"
+            >
+              <ArrowLeft className="w-4 h-4 mr-1" />
+              {locale === 'fr' ? 'Retour' : 'Back'}
+            </Button>
+          </div>
 
           {/* Hero Banner */}
           <motion.div

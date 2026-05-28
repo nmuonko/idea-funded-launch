@@ -444,26 +444,24 @@ export default function HotProducts() {
                         )}
                       </Button>
 
-                      {isDubai && (
-                        <a
-                          href={waHref}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className={`block rounded-xl ${FOCUS_RING}`}
-                          aria-label={`${t.whatsapp} — ${cleanTitle}`}
+                      <a
+                        href={waHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className={`block rounded-xl ${FOCUS_RING}`}
+                        aria-label={`${t.whatsapp} — ${cleanTitle}`}
+                      >
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full h-10 text-xs font-semibold rounded-xl bg-green-600/10 hover:bg-green-600/20 text-green-300 border-green-500/40"
+                          tabIndex={-1}
                         >
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full h-10 text-xs font-semibold rounded-xl bg-green-600/10 hover:bg-green-600/20 text-green-300 border-green-500/40"
-                            tabIndex={-1}
-                          >
-                            <MessageCircle className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
-                            {t.whatsapp}
-                          </Button>
-                        </a>
-                      )}
+                          <MessageCircle className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
+                          {t.whatsapp}
+                        </Button>
+                      </a>
                     </div>
                   </div>
                 </motion.div>

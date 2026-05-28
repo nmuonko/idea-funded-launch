@@ -67,6 +67,7 @@ const HP_STRINGS = {
     dubaiSectionSubtitle: 'Livraison RDC incluse · Livraison estimée 2–4 semaines · Vérifié avant expédition',
     empty: 'Aucun produit populaire pour le moment.',
     waMessage: (title: string, link: string) => `Bonjour AfriShop, j'ai besoin d'aide concernant ce produit: ${title}. Lien: ${link}`,
+    waHeroMessage: 'Bonjour AfriShop, j\'ai une question sur vos produits populaires. Pouvez-vous m\'aider ?',
   },
 } as const;
 

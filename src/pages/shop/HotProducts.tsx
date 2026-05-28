@@ -364,15 +364,16 @@ export default function HotProducts() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
             <Input
               type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               placeholder={locale === 'fr' ? 'Rechercher un produit...' : 'Search a product...'}
               className="pl-9 pr-9 h-11 bg-white/[0.04] border-white/10 text-white placeholder:text-white/40 focus-visible:ring-orange-500/50"
+              aria-label={locale === 'fr' ? 'Rechercher' : 'Search'}
             />
-            {searchQuery && (
+            {searchInput && (
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
+                onClick={() => { setSearchInput(''); setSearchQuery(''); }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full text-white/50 hover:text-white hover:bg-white/10"
                 aria-label="Clear search"
               >

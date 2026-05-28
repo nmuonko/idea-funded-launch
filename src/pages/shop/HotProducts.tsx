@@ -74,6 +74,7 @@ export default function HotProducts() {
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Handle referral code from URL
   const refCode = useMemo(() => {

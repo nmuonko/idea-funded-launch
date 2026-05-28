@@ -243,16 +243,8 @@ export default function HotProducts() {
               <Home className="w-4 h-4 mr-2" />
               {locale === 'fr' ? "Accueil" : 'Home'}
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate(-1)}
-              className="text-white/60 hover:text-white"
-            >
-              <ArrowLeft className="w-4 h-4 mr-1" />
-              {locale === 'fr' ? 'Retour' : 'Back'}
-            </Button>
           </div>
+
 
           {/* Hero Banner */}
           <motion.div

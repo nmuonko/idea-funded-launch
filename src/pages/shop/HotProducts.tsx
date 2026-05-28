@@ -203,11 +203,26 @@ export default function HotProducts() {
     }).then(() => {});
   };
 
-  // Track page views for all products once loaded
+  // Track page views once per session — batched & idle to avoid jank on mobile.
+  // The previous implementation fired one network insert per product on mount
+  // which caused long tasks and visible UI stutter / freezing on mid-range phones.
   useEffect(() => {
     if (products.length === 0) return;
-    products.forEach(p => trackClick(p, 'view'));
+    const viewedFlag = 'hp_views_logged';
+    if (sessionStorage.getItem(viewedFlag)) return;
+    sessionStorage.setItem(viewedFlag, '1');
+
+    const run = () => {
+      // Fire sequentially with small delays so the main thread stays responsive.
+      products.slice(0, 60).forEach((p, i) => {
+        setTimeout(() => trackClick(p, 'view'), i * 40);
+      });
+    };
+    const idle = (window as any).requestIdleCallback as undefined | ((cb: () => void) => number);
+    if (idle) idle(run);
+    else setTimeout(run, 300);
   }, [products.length]);
+
 
   const handleBuyNow = async (product: HotProduct) => {
     const key = `${product.provider}-${product.provider_product_id}`;

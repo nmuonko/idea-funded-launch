@@ -404,10 +404,10 @@ export default function HotProducts() {
               return (
                 <motion.div
                   key={product.id}
-                  initial={{ opacity: 0, scale: 0.95 }}
+                  initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.97 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: Math.min(index * 0.03, 0.3) }}
-                  className="relative bg-[#1a1d23] border border-white/[0.08] rounded-xl overflow-hidden group hover:border-orange-500/40 transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.15)]"
+                  transition={{ duration: 0.2, delay: prefersReducedMotion ? 0 : Math.min(index * 0.015, 0.18) }}
+                  className="relative bg-[#1a1d23] border border-white/[0.08] rounded-xl overflow-hidden group hover:border-orange-500/40 transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.15)] transform-gpu"
                 >
                   <div className="absolute top-2 left-2 z-10">
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wide shadow-lg">

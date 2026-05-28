@@ -6,6 +6,7 @@ import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { Button } from '@/components/ui/button';
+import { ProductCardSkeleton } from '@/components/shop/ProductCardSkeleton';
 import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency } from '@/lib/formatCurrency';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -16,6 +17,57 @@ import { toast } from 'sonner';
 import { SEOHead } from '@/components/SEOHead';
 
 const HP_ADDED_KEY = 'hp_added_';
+
+// ---------------- i18n ----------------
+type HPLocale = 'en' | 'fr';
+const HP_STRINGS = {
+  en: {
+    pageTitle: 'Hot Products',
+    pageDescription: 'Trending and discounted products handpicked by AfriShop, ready to ship from the USA to DR Congo.',
+    home: 'Home',
+    heroTitle: 'Hot Products',
+    heroSubtitle: 'All-inclusive pricing · Shipping to DRC included',
+    whatsappLong: 'Need help? WhatsApp',
+    whatsapp: 'WhatsApp',
+    whatsappAria: 'Contact us on WhatsApp',
+    emailAria: 'Contact us by email',
+    deal: 'Deal',
+    dubai: 'Dubai',
+    shippingIncluded: 'Shipping to DRC included',
+    estDelivery: 'Est. delivery 2–4 weeks',
+    loading: 'Loading...',
+    payNow: 'Pay Now',
+    orderNow: 'Order Now',
+    error: 'Error, please retry',
+    dubaiSectionTitle: 'Items from Dubai',
+    dubaiSectionSubtitle: 'Shipping to DRC included · Est. delivery 2–4 weeks · Verified before shipping',
+    empty: 'No hot products available right now.',
+    waMessage: (title: string, link: string) => `Hello AfriShop, I need help with this product: ${title}. Link: ${link}`,
+  },
+  fr: {
+    pageTitle: 'Produits Populaires',
+    pageDescription: "Produits tendance et en promotion sélectionnés par AfriShop, prêts à expédier des USA vers la RDC.",
+    home: 'Accueil',
+    heroTitle: 'Produits Populaires',
+    heroSubtitle: 'Prix tout inclus · Livraison en RDC incluse',
+    whatsappLong: 'Problème ? WhatsApp',
+    whatsapp: 'WhatsApp',
+    whatsappAria: 'Contactez-nous sur WhatsApp',
+    emailAria: 'Contactez-nous par email',
+    deal: 'Promo',
+    dubai: 'Dubai',
+    shippingIncluded: 'Livraison RDC incluse',
+    estDelivery: 'Livraison estimée 2–4 semaines',
+    loading: 'Chargement...',
+    payNow: 'Payer maintenant',
+    orderNow: 'Commander',
+    error: 'Erreur, réessayez',
+    dubaiSectionTitle: 'Articles de Dubai',
+    dubaiSectionSubtitle: 'Livraison RDC incluse · Livraison estimée 2–4 semaines · Vérifié avant expédition',
+    empty: 'Aucun produit populaire pour le moment.',
+    waMessage: (title: string, link: string) => `Bonjour AfriShop, j'ai besoin d'aide concernant ce produit: ${title}. Lien: ${link}`,
+  },
+} as const;
 
 const buildHotProductUrl = (product: HotProduct) => {
   if (product.product_url) return product.product_url;
@@ -56,13 +108,16 @@ interface HotProduct {
   description_fr?: string | null;
 }
 
-// Resolve the best available image: image_url, then first gallery image, then placeholder
 const resolveProductImage = (product: HotProduct): string => {
   if (product.image_url) return product.image_url;
   const gallery = product.gallery_images;
   if (Array.isArray(gallery) && gallery.length > 0 && gallery[0]) return gallery[0];
   return '/placeholder.svg';
 };
+
+// Shared focus ring class for keyboard a11y on dark backgrounds
+const FOCUS_RING =
+  'focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#15181d]';
 
 export default function HotProducts() {
   const navigate = useNavigate();
@@ -75,7 +130,8 @@ export default function HotProducts() {
   const [loading, setLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
 
-
+  const locale: HPLocale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
+  const t = HP_STRINGS[locale];
 
   // Handle referral code from URL
   const refCode = useMemo(() => {
@@ -85,7 +141,6 @@ export default function HotProducts() {
 
   useEffect(() => {
     if (!refCode) return;
-    // Store ref code for 30 days
     const data = { code: refCode, expires: Date.now() + 30 * 24 * 60 * 60 * 1000 };
     localStorage.setItem(REF_STORAGE_KEY, JSON.stringify(data));
   }, [refCode]);
@@ -120,11 +175,7 @@ export default function HotProducts() {
 
         if (error) throw error;
         if (data) {
-          // Admin-curated showcase: show every active item, no client-side price filter.
           const filtered = (data as any[]).filter((item) => Number(item.total_price_usd || 0) > 0);
-
-          // Order matches admin UI: storefront items first (by sort_order asc,
-          // then newest first), then link_generator items in the same fashion.
           const sortKey = (a: any, b: any) => {
             const ao = a.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(a.sort_order);
             const bo = b.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(b.sort_order);
@@ -134,7 +185,6 @@ export default function HotProducts() {
           const dubai = filtered.filter((p) => p.link_source === 'dubai').sort(sortKey);
           const storefront = filtered.filter((p) => p.link_source !== 'link_generator' && p.link_source !== 'dubai').sort(sortKey);
           const generated = filtered.filter((p) => p.link_source === 'link_generator').sort(sortKey);
-          // Order: link-generator (admin-curated featured) first, then storefront, then Dubai (rendered separately).
           setProducts([...generated, ...storefront, ...dubai] as any);
         }
       } catch (err: any) {
@@ -146,7 +196,6 @@ export default function HotProducts() {
     fetchProducts();
   }, []);
 
-  // Track hot product interactions (fire-and-forget)
   const trackClick = (product: HotProduct, eventType: 'view' | 'click' | 'buy_now') => {
     supabase.from('hot_product_clicks' as any).insert({
       provider_product_id: product.provider_product_id,
@@ -159,9 +208,6 @@ export default function HotProducts() {
     }).then(() => {});
   };
 
-  // Track page views once per session — batched & idle to avoid jank on mobile.
-  // The previous implementation fired one network insert per product on mount
-  // which caused long tasks and visible UI stutter / freezing on mid-range phones.
   useEffect(() => {
     if (products.length === 0) return;
     const viewedFlag = 'hp_views_logged';
@@ -169,7 +215,6 @@ export default function HotProducts() {
     sessionStorage.setItem(viewedFlag, '1');
 
     const run = () => {
-      // Fire sequentially with small delays so the main thread stays responsive.
       products.slice(0, 60).forEach((p, i) => {
         setTimeout(() => trackClick(p, 'view'), i * 40);
       });
@@ -178,7 +223,6 @@ export default function HotProducts() {
     if (idle) idle(run);
     else setTimeout(run, 300);
   }, [products.length]);
-
 
   const handleBuyNow = async (product: HotProduct) => {
     const key = `${product.provider}-${product.provider_product_id}`;
@@ -201,10 +245,9 @@ export default function HotProducts() {
         });
       }
 
-      // Guest checkout supported — mirror share/hp flow with ?hp={id}
       navigate(`/checkout?hp=${encodeURIComponent(product.id)}`);
     } catch {
-      toast.error(locale === 'fr' ? 'Erreur, réessayez' : 'Error, please retry');
+      toast.error(t.error);
     } finally {
       setProcessingIds(prev => {
         const next = new Set(prev);
@@ -214,20 +257,16 @@ export default function HotProducts() {
     }
   };
 
-  // Support legacy ?buy= links by forwarding to the single-product checkout route
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const buyId = params.get('buy');
     if (!buyId) return;
-
     navigate(`/hot-products/${buyId}`, { replace: true });
   }, [navigate]);
 
-  const locale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
-
   return (
     <>
-      <SEOHead title="Hot Products" description="Trending and discounted products handpicked by AfriShop, ready to ship from the USA to DR Congo." />
+      <SEOHead title={t.pageTitle} description={t.pageDescription} />
     <div className="min-h-screen bg-black pb-safe-nav">
       <ShopHeader />
 
@@ -238,13 +277,12 @@ export default function HotProducts() {
               variant="outline"
               size="sm"
               onClick={() => navigate('/')}
-              className="bg-white/5 border-white/15 text-white hover:bg-white/10 hover:text-white"
+              className={`bg-white/5 border-white/15 text-white hover:bg-white/10 hover:text-white ${FOCUS_RING}`}
             >
-              <Home className="w-4 h-4 mr-2" />
-              {locale === 'fr' ? "Accueil" : 'Home'}
+              <Home className="w-4 h-4 mr-2" aria-hidden="true" />
+              {t.home}
             </Button>
           </div>
-
 
           {/* Hero Banner */}
           <motion.div
@@ -252,21 +290,17 @@ export default function HotProducts() {
             animate={{ opacity: 1, y: 0 }}
             className="relative overflow-hidden rounded-2xl mb-8 bg-gradient-to-br from-orange-600 via-red-600 to-pink-600 p-6 sm:p-8"
           >
-            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjA4KSIvPjwvc3ZnPg==')] opacity-50" />
+            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjA4KSIvPjwvc3ZnPg==')] opacity-50" aria-hidden="true" />
             <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 sm:gap-4">
               <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
                 <div className="flex-shrink-0 w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                  <Flame className="w-6 h-6 sm:w-9 sm:h-9 text-yellow-300" />
+                  <Flame className="w-6 h-6 sm:w-9 sm:h-9 text-yellow-300" aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
                   <h1 className="text-xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight truncate">
-                    {locale === 'fr' ? 'Produits Populaires' : 'Hot Products'}
+                    {t.heroTitle}
                   </h1>
-                  <p className="text-white/80 text-xs sm:text-base mt-1">
-                    {locale === 'fr'
-                      ? 'Prix tout inclus · Livraison en RDC incluse'
-                      : 'All-inclusive pricing · Shipping to DRC included'}
-                  </p>
+                  <p className="text-white/80 text-xs sm:text-base mt-1">{t.heroSubtitle}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
@@ -274,8 +308,8 @@ export default function HotProducts() {
                   href={whatsappUrl(session?.user?.email)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="relative group inline-block"
-                  aria-label={locale === 'fr' ? 'Contactez-nous sur WhatsApp' : 'Contact us on WhatsApp'}
+                  className={`relative group inline-block rounded-full ${FOCUS_RING}`}
+                  aria-label={t.whatsappAria}
                 >
                   {!prefersReducedMotion && (
                     <span className="absolute inset-0 rounded-full bg-green-400 opacity-60 animate-ping pointer-events-none" aria-hidden="true" />
@@ -283,33 +317,33 @@ export default function HotProducts() {
                   <Button
                     size="lg"
                     className={`relative h-11 sm:h-14 px-3 sm:px-6 rounded-full bg-green-500 hover:bg-green-400 text-white font-bold shadow-2xl border-2 border-white gap-2 ${prefersReducedMotion ? '' : 'animate-heartbeat'} group-hover:[animation-play-state:paused] transform-gpu will-change-transform`}
+                    tabIndex={-1}
                   >
-                    <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6 fill-white" />
-                    <span className="hidden sm:inline text-sm">
-                      {locale === 'fr' ? 'Problème ? WhatsApp' : 'Need help? WhatsApp'}
-                    </span>
-                    <span className="sm:hidden text-sm">WhatsApp</span>
+                    <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6 fill-white" aria-hidden="true" />
+                    <span className="hidden sm:inline text-sm">{t.whatsappLong}</span>
+                    <span className="sm:hidden text-sm">{t.whatsapp}</span>
                   </Button>
                 </a>
                 <a
                   href={emailUrl(session?.user?.email)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label={locale === 'fr' ? 'Contactez-nous par email' : 'Contact us by email'}
-                  className="hidden sm:block"
+                  aria-label={t.emailAria}
+                  className={`hidden sm:block rounded-full ${FOCUS_RING}`}
                 >
-                  <Button size="icon" className="h-11 w-11 rounded-full bg-white/20 hover:bg-white/30 text-white shadow-lg border-2 border-white/30 backdrop-blur-sm">
-                    <Mail className="h-5 w-5" />
+                  <Button size="icon" className="h-11 w-11 rounded-full bg-white/20 hover:bg-white/30 text-white shadow-lg border-2 border-white/30 backdrop-blur-sm" tabIndex={-1}>
+                    <Mail className="h-5 w-5" aria-hidden="true" />
                   </Button>
                 </a>
               </div>
             </div>
-
           </motion.div>
 
           {loading && (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="w-8 h-8 text-white/50 animate-spin" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4" aria-busy="true" aria-live="polite">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <ProductCardSkeleton key={i} />
+              ))}
             </div>
           )}
 
@@ -320,10 +354,10 @@ export default function HotProducts() {
             const renderCard = (product: HotProduct, index: number, isDubai: boolean) => {
               const key = `${product.provider}-${product.provider_product_id}`;
               const isProcessing = processingIds.has(key);
-              const waMsg = encodeURIComponent(
-                `Bonjour AfriShop, j'ai besoin d'aide concernant ce produit: ${product.title}. Lien: ${window.location.origin}/share/hp/${product.id}`
-              );
+              const shareLink = `${window.location.origin}/share/hp/${product.id}`;
+              const waMsg = encodeURIComponent(t.waMessage(product.title, shareLink));
               const waHref = `https://wa.me/243973141627?text=${waMsg}`;
+              const cleanTitle = cleanProductTitle(product.title);
               return (
                 <motion.div
                   key={product.id}
@@ -335,23 +369,23 @@ export default function HotProducts() {
                   {/* Badge */}
                   <div className="absolute top-2.5 left-2.5 z-10">
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-md">
-                      <Flame className="w-3 h-3" /> {isDubai ? 'Dubai' : 'Deal'}
+                      <Flame className="w-3 h-3" aria-hidden="true" /> {isDubai ? t.dubai : t.deal}
                     </span>
                   </div>
 
                   {/* Image */}
                   <button
                     type="button"
-                    className="aspect-square bg-white overflow-hidden text-left"
+                    className={`aspect-square bg-white overflow-hidden text-left ${FOCUS_RING}`}
                     onClick={() => {
                       trackClick(product, 'click');
                       navigate(`/share/hp/${product.id}`);
                     }}
-                    aria-label={cleanProductTitle(product.title)}
+                    aria-label={cleanTitle}
                   >
                     <img
                       src={resolveProductImage(product)}
-                      alt={cleanProductTitle(product.title)}
+                      alt={cleanTitle}
                       className="w-full h-full object-contain p-3 group-hover:scale-[1.03] transition-transform duration-300"
                       loading="lazy"
                       onError={(e) => {
@@ -368,13 +402,13 @@ export default function HotProducts() {
                     {/* Title */}
                     <button
                       type="button"
-                      className="text-left text-white text-[13px] sm:text-sm font-medium leading-snug line-clamp-2 min-h-[2.5rem] hover:text-orange-300 transition-colors"
+                      className={`text-left text-white text-[13px] sm:text-sm font-medium leading-snug line-clamp-2 min-h-[2.5rem] hover:text-orange-300 transition-colors rounded ${FOCUS_RING}`}
                       onClick={() => {
                         trackClick(product, 'click');
                         navigate(`/share/hp/${product.id}`);
                       }}
                     >
-                      {cleanProductTitle(product.title)}
+                      {cleanTitle}
                     </button>
 
                     {/* Price block */}
@@ -383,12 +417,10 @@ export default function HotProducts() {
                         {formatCurrency(product.total_price_usd, { locale: locale as any })}
                       </p>
                       <p className="text-emerald-400/90 text-[11px] font-medium">
-                        ✓ {locale === 'fr' ? 'Livraison RDC incluse' : 'Shipping to DRC included'}
+                        ✓ {t.shippingIncluded}
                       </p>
                       {isDubai && (
-                        <p className="text-white/50 text-[11px]">
-                          {locale === 'fr' ? 'Livraison estimée 2–4 semaines' : 'Est. delivery 2–4 weeks'}
-                        </p>
+                        <p className="text-white/50 text-[11px]">{t.estDelivery}</p>
                       )}
                     </div>
 
@@ -396,18 +428,19 @@ export default function HotProducts() {
                     <div className="mt-auto flex flex-col gap-2 pt-1">
                       <Button
                         size="sm"
-                        className="w-full h-11 text-sm font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                        className={`w-full h-11 text-sm font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm ${FOCUS_RING}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           trackClick(product, 'buy_now');
                           handleBuyNow(product);
                         }}
                         disabled={isProcessing}
+                        aria-label={`${isDubai ? t.orderNow : t.payNow} — ${cleanTitle}`}
                       >
                         {isProcessing ? (
-                          <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> {locale === 'fr' ? 'Chargement...' : 'Loading...'}</>
+                          <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" aria-hidden="true" /> {t.loading}</>
                         ) : (
-                          <><Zap className="w-4 h-4 mr-1.5" /> {isDubai ? (locale === 'fr' ? 'Commander' : 'Order Now') : (locale === 'fr' ? 'Payer maintenant' : 'Pay Now')}</>
+                          <><Zap className="w-4 h-4 mr-1.5" aria-hidden="true" /> {isDubai ? t.orderNow : t.payNow}</>
                         )}
                       </Button>
 
@@ -417,15 +450,17 @@ export default function HotProducts() {
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="block"
+                          className={`block rounded-xl ${FOCUS_RING}`}
+                          aria-label={`${t.whatsapp} — ${cleanTitle}`}
                         >
                           <Button
                             size="sm"
                             variant="outline"
                             className="w-full h-10 text-xs font-semibold rounded-xl bg-green-600/10 hover:bg-green-600/20 text-green-300 border-green-500/40"
+                            tabIndex={-1}
                           >
-                            <MessageCircle className="w-3.5 h-3.5 mr-1.5" />
-                            {locale === 'fr' ? 'WhatsApp' : 'WhatsApp'}
+                            <MessageCircle className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
+                            {t.whatsapp}
                           </Button>
                         </a>
                       )}
@@ -447,13 +482,9 @@ export default function HotProducts() {
                   <section className="mt-12">
                     <div className="mb-5 border-t border-white/10 pt-8">
                       <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
-                        🔥 {locale === 'fr' ? 'Articles de Dubai' : 'Items from Dubai'}
+                        🔥 {t.dubaiSectionTitle}
                       </h2>
-                      <p className="text-white/70 text-sm sm:text-base mt-1">
-                        {locale === 'fr'
-                          ? 'Livraison RDC incluse · Livraison estimée 2–4 semaines · Vérifié avant expédition'
-                          : 'Shipping to DRC included · Est. delivery 2–4 weeks · Verified before shipping'}
-                      </p>
+                      <p className="text-white/70 text-sm sm:text-base mt-1">{t.dubaiSectionSubtitle}</p>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
                       {dubaiProducts.map((p, i) => renderCard(p, i, true))}
@@ -463,10 +494,8 @@ export default function HotProducts() {
 
                 {regularProducts.length === 0 && dubaiProducts.length === 0 && (
                   <div className="text-center py-20">
-                    <Flame className="w-12 h-12 text-white/20 mx-auto mb-4" />
-                    <p className="text-white/50">
-                      {locale === 'fr' ? 'Aucun produit populaire pour le moment.' : 'No hot products available right now.'}
-                    </p>
+                    <Flame className="w-12 h-12 text-white/20 mx-auto mb-4" aria-hidden="true" />
+                    <p className="text-white/50">{t.empty}</p>
                   </div>
                 )}
               </>
@@ -474,7 +503,6 @@ export default function HotProducts() {
           })()}
         </div>
       </main>
-
 
       <ShopFooter />
       <BottomNavigation />

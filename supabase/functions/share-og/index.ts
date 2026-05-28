@@ -32,6 +32,11 @@ function trunc(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 1).trimEnd() + "…";
 }
 
+function normalizePreviewImage(src: string): string {
+  if (!src) return "";
+  return src.startsWith("http://") ? `https://${src.slice(7)}` : src;
+}
+
 /** Detect social media / link preview crawlers */
 function isBot(ua: string): boolean {
   return /whatsapp|facebookexternalhit|facebot|twitterbot|telegrambot|linkedinbot|slackbot|discordbot|googlebot|bingbot|bot|crawl|spider|preview/i.test(ua);
@@ -92,7 +97,7 @@ serve(async (req) => {
     : `Prix: $${price} · Livraison en RDC incluse`;
 
   const galleryImages: string[] = product.gallery_images || [];
-  const ogImage = galleryImages[0] || product.image_url || "";
+  const ogImage = normalizePreviewImage(galleryImages[0] || product.image_url || "");
   const sharePageUrl = `${frontendUrl}/share/hp/${product.id}`;
 
   const userAgent = req.headers.get("user-agent") || "";
@@ -115,7 +120,8 @@ serve(async (req) => {
 <meta property="og:title" content="${esc(ogTitle)}"/>
 <meta property="og:description" content="${esc(ogDesc)}"/>
 <meta property="og:image" content="${esc(ogImage)}"/>
-<meta property="og:url" content="${esc(url.href)}"/>
+<meta property="og:image:secure_url" content="${esc(ogImage)}"/>
+<meta property="og:url" content="${esc(sharePageUrl)}"/>
 <meta property="og:site_name" content="AfriShop"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="${esc(ogTitle)}"/>

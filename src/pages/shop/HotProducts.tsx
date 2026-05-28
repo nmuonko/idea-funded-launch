@@ -179,16 +179,15 @@ export default function HotProducts() {
         if (error) throw error;
         if (data) {
           const filtered = (data as any[]).filter((item) => Number(item.total_price_usd || 0) > 0);
-          const sortKey = (a: any, b: any) => {
+          // Strict admin order: sort_order ASC, then most-recent first as tiebreaker.
+          // No source-bucketing — the order shown in the admin portal is the order shown here.
+          filtered.sort((a, b) => {
             const ao = a.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(a.sort_order);
             const bo = b.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(b.sort_order);
             if (ao !== bo) return ao - bo;
             return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-          };
-          const dubai = filtered.filter((p) => p.link_source === 'dubai').sort(sortKey);
-          const storefront = filtered.filter((p) => p.link_source !== 'link_generator' && p.link_source !== 'dubai').sort(sortKey);
-          const generated = filtered.filter((p) => p.link_source === 'link_generator').sort(sortKey);
-          setProducts([...generated, ...storefront, ...dubai] as any);
+          });
+          setProducts(filtered as any);
         }
       } catch (err: any) {
         console.error('Failed to fetch hot products:', err);

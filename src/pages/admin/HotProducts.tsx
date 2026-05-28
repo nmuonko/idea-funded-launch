@@ -825,6 +825,33 @@ export default function HotProducts() {
     }
   }
 
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  async function handleLinksDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = generatedLinks.findIndex(l => l.id === active.id);
+    const newIndex = generatedLinks.findIndex(l => l.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const reordered = arrayMove(generatedLinks, oldIndex, newIndex);
+    setGeneratedLinks(reordered);
+    const updates = reordered.map((l, i) =>
+      (supabase.from('hot_products_showcase') as any).update({ sort_order: i }).eq('id', l.id)
+    );
+    const results = await Promise.all(updates);
+    const firstError = (results as any[]).find((r: any) => r?.error)?.error;
+    if (firstError) {
+      toast.error(t('Reorder failed', 'Échec du réordonnancement'));
+      loadGeneratedLinks();
+    } else {
+      toast.success(t('Order saved', 'Ordre enregistré'));
+    }
+  }
+
+
   function startEditLink(link: GeneratedLink) {
     setEditingLinkId(link.id);
     setEditLinkTitle(link.title);

@@ -356,7 +356,10 @@ export default function HotProducts() {
             const renderCard = (product: HotProduct, index: number, isDubai: boolean) => {
               const key = `${product.provider}-${product.provider_product_id}`;
               const isProcessing = processingIds.has(key);
-              const shareLink = `${window.location.origin}/share/hp/${product.id}`;
+              // Always use the canonical production URL so WhatsApp's preview crawler
+              // hits the share-og edge function (via /share/hp/:id rewrite) and gets
+              // the product image as og:image instead of the generic site preview.
+              const shareLink = `https://afrishop-usa.com/share/hp/${product.id}`;
               const waMsg = encodeURIComponent(t.waMessage(product.title, shareLink));
               const waHref = `https://wa.me/243973141627?text=${waMsg}`;
               const cleanTitle = cleanProductTitle(product.title);

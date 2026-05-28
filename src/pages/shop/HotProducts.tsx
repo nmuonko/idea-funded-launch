@@ -308,7 +308,7 @@ export default function HotProducts() {
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <a
-                  href={whatsappUrl(session?.user?.email)}
+                  href={heroWhatsappUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`relative group inline-block rounded-full ${FOCUS_RING}`}

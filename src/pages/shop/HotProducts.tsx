@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Loader2, Flame, Zap, Check, MessageCircle, Mail, Home, Search, X } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { ShopFooter } from '@/components/shop/ShopFooter';
@@ -15,6 +15,27 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSupportContact } from '@/hooks/useSupportContact';
 import { toast } from 'sonner';
 import { SEOHead } from '@/components/SEOHead';
+
+// Escape regex specials for safe highlight matching
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Highlight occurrences of `q` inside `text` (case-insensitive)
+const renderHighlighted = (text: string, q: string) => {
+  if (!q) return text;
+  try {
+    const parts = text.split(new RegExp(`(${escapeRegExp(q)})`, 'ig'));
+    const lower = q.toLowerCase();
+    return parts.map((part, i) =>
+      part.toLowerCase() === lower ? (
+        <mark key={i} className="bg-orange-400/30 text-orange-200 rounded px-0.5">{part}</mark>
+      ) : (
+        <span key={i}>{part}</span>
+      )
+    );
+  } catch {
+    return text;
+  }
+};
 
 const HP_ADDED_KEY = 'hp_added_';
 
@@ -67,14 +88,38 @@ const resolveProductImage = (product: HotProduct): string => {
 
 export default function HotProducts() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { language } = useLanguage();
   const { addItem } = useShopCart();
   const { session } = useAuth();
   const { whatsappUrl, emailUrl } = useSupportContact();
+  const prefersReducedMotion = useReducedMotion();
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = useState('');
+
+  // Search: input value (controlled) + debounced value (used for filtering & URL sync)
+  const initialQ = searchParams.get('q') || '';
+  const [searchInput, setSearchInput] = useState(initialQ);
+  const [searchQuery, setSearchQuery] = useState(initialQ);
+
+  // Debounce input -> searchQuery (250ms)
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(searchInput), 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Sync debounced query to URL (?q=) so it can be shared / restored
+  useEffect(() => {
+    const current = searchParams.get('q') || '';
+    if (current === searchQuery) return;
+    const next = new URLSearchParams(searchParams);
+    if (searchQuery) next.set('q', searchQuery);
+    else next.delete('q');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
+
 
   // Handle referral code from URL
   const refCode = useMemo(() => {
@@ -158,11 +203,26 @@ export default function HotProducts() {
     }).then(() => {});
   };
 
-  // Track page views for all products once loaded
+  // Track page views once per session — batched & idle to avoid jank on mobile.
+  // The previous implementation fired one network insert per product on mount
+  // which caused long tasks and visible UI stutter / freezing on mid-range phones.
   useEffect(() => {
     if (products.length === 0) return;
-    products.forEach(p => trackClick(p, 'view'));
+    const viewedFlag = 'hp_views_logged';
+    if (sessionStorage.getItem(viewedFlag)) return;
+    sessionStorage.setItem(viewedFlag, '1');
+
+    const run = () => {
+      // Fire sequentially with small delays so the main thread stays responsive.
+      products.slice(0, 60).forEach((p, i) => {
+        setTimeout(() => trackClick(p, 'view'), i * 40);
+      });
+    };
+    const idle = (window as any).requestIdleCallback as undefined | ((cb: () => void) => number);
+    if (idle) idle(run);
+    else setTimeout(run, 300);
   }, [products.length]);
+
 
   const handleBuyNow = async (product: HotProduct) => {
     const key = `${product.provider}-${product.provider_product_id}`;
@@ -245,16 +305,16 @@ export default function HotProducts() {
             className="relative overflow-hidden rounded-2xl mb-8 bg-gradient-to-br from-orange-600 via-red-600 to-pink-600 p-6 sm:p-8"
           >
             <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjA4KSIvPjwvc3ZnPg==')] opacity-50" />
-            <div className="relative z-10 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="flex-shrink-0 w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                  <Flame className="w-8 h-8 sm:w-9 sm:h-9 text-yellow-300" />
+            <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 sm:gap-4">
+              <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
+                <div className="flex-shrink-0 w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                  <Flame className="w-6 h-6 sm:w-9 sm:h-9 text-yellow-300" />
                 </div>
-                <div>
-                  <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
+                <div className="min-w-0">
+                  <h1 className="text-xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight truncate">
                     {locale === 'fr' ? 'Produits Populaires' : 'Hot Products'}
                   </h1>
-                  <p className="text-white/80 text-sm sm:text-base mt-1">
+                  <p className="text-white/80 text-xs sm:text-base mt-1">
                     {locale === 'fr'
                       ? 'Prix tout inclus · Livraison en RDC incluse'
                       : 'All-inclusive pricing · Shipping to DRC included'}
@@ -266,13 +326,15 @@ export default function HotProducts() {
                   href={whatsappUrl(session?.user?.email)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="relative group"
+                  className="relative group inline-block"
                   aria-label={locale === 'fr' ? 'Contactez-nous sur WhatsApp' : 'Contact us on WhatsApp'}
                 >
-                  <span className="absolute inset-0 rounded-full bg-green-400 opacity-60 animate-ping" aria-hidden="true" />
+                  {!prefersReducedMotion && (
+                    <span className="absolute inset-0 rounded-full bg-green-400 opacity-60 animate-ping pointer-events-none" aria-hidden="true" />
+                  )}
                   <Button
                     size="lg"
-                    className="relative h-12 sm:h-14 px-4 sm:px-6 rounded-full bg-green-500 hover:bg-green-400 text-white font-bold shadow-2xl border-2 border-white gap-2 animate-heartbeat group-hover:[animation-play-state:paused] group-hover:scale-105 transition-transform"
+                    className={`relative h-11 sm:h-14 px-3 sm:px-6 rounded-full bg-green-500 hover:bg-green-400 text-white font-bold shadow-2xl border-2 border-white gap-2 ${prefersReducedMotion ? '' : 'animate-heartbeat'} group-hover:[animation-play-state:paused] transform-gpu will-change-transform`}
                   >
                     <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6 fill-white" />
                     <span className="hidden sm:inline text-sm">
@@ -294,6 +356,7 @@ export default function HotProducts() {
                 </a>
               </div>
             </div>
+
           </motion.div>
 
           {/* Search bar */}
@@ -301,15 +364,16 @@ export default function HotProducts() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
             <Input
               type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               placeholder={locale === 'fr' ? 'Rechercher un produit...' : 'Search a product...'}
               className="pl-9 pr-9 h-11 bg-white/[0.04] border-white/10 text-white placeholder:text-white/40 focus-visible:ring-orange-500/50"
+              aria-label={locale === 'fr' ? 'Rechercher' : 'Search'}
             />
-            {searchQuery && (
+            {searchInput && (
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
+                onClick={() => { setSearchInput(''); setSearchQuery(''); }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full text-white/50 hover:text-white hover:bg-white/10"
                 aria-label="Clear search"
               >
@@ -340,10 +404,10 @@ export default function HotProducts() {
               return (
                 <motion.div
                   key={product.id}
-                  initial={{ opacity: 0, scale: 0.95 }}
+                  initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.97 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: Math.min(index * 0.03, 0.3) }}
-                  className="relative bg-[#1a1d23] border border-white/[0.08] rounded-xl overflow-hidden group hover:border-orange-500/40 transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.15)]"
+                  transition={{ duration: 0.2, delay: prefersReducedMotion ? 0 : Math.min(index * 0.015, 0.18) }}
+                  className="relative bg-[#1a1d23] border border-white/[0.08] rounded-xl overflow-hidden group hover:border-orange-500/40 transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.15)] transform-gpu"
                 >
                   <div className="absolute top-2 left-2 z-10">
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wide shadow-lg">
@@ -380,7 +444,7 @@ export default function HotProducts() {
                         navigate(`/share/hp/${product.id}`);
                       }}
                     >
-                      {cleanProductTitle(product.title)}
+                      {renderHighlighted(cleanProductTitle(product.title), searchQuery.trim())}
                     </p>
 
                     <div>

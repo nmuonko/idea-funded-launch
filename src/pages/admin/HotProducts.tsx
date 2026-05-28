@@ -1800,8 +1800,11 @@ export default function HotProducts() {
                           </div>
                         </div>
                       )}
-                    </div>
-                  ))}
+                          </div>
+                        </SortableLinkRow>
+                      ))}
+                    </SortableContext>
+                  </DndContext>
                 </div>
               )}
             </CardContent>

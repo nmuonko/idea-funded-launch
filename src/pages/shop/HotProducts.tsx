@@ -43,6 +43,7 @@ const HP_STRINGS = {
     dubaiSectionSubtitle: 'Shipping to DRC included · Est. delivery 2–4 weeks · Verified before shipping',
     empty: 'No hot products available right now.',
     waMessage: (title: string, link: string) => `Hello AfriShop, I need help with this product: ${title}. Link: ${link}`,
+    waHeroMessage: 'Hello AfriShop, I have a question about your hot products. Could you help me?',
   },
   fr: {
     pageTitle: 'Produits Populaires',
@@ -66,6 +67,7 @@ const HP_STRINGS = {
     dubaiSectionSubtitle: 'Livraison RDC incluse · Livraison estimée 2–4 semaines · Vérifié avant expédition',
     empty: 'Aucun produit populaire pour le moment.',
     waMessage: (title: string, link: string) => `Bonjour AfriShop, j'ai besoin d'aide concernant ce produit: ${title}. Lien: ${link}`,
+    waHeroMessage: 'Bonjour AfriShop, j\'ai une question sur vos produits populaires. Pouvez-vous m\'aider ?',
   },
 } as const;
 
@@ -124,7 +126,7 @@ export default function HotProducts() {
   const { language } = useLanguage();
   const { addItem } = useShopCart();
   const { session } = useAuth();
-  const { whatsappUrl, emailUrl } = useSupportContact();
+  const { whatsapp, whatsappUrl, emailUrl } = useSupportContact();
   const prefersReducedMotion = useReducedMotion();
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -132,6 +134,7 @@ export default function HotProducts() {
 
   const locale: HPLocale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
   const t = HP_STRINGS[locale];
+  const heroWhatsappUrl = `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(t.waHeroMessage)}`;
 
   // Handle referral code from URL
   const refCode = useMemo(() => {
@@ -305,7 +308,7 @@ export default function HotProducts() {
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <a
-                  href={whatsappUrl(session?.user?.email)}
+                  href={heroWhatsappUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`relative group inline-block rounded-full ${FOCUS_RING}`}

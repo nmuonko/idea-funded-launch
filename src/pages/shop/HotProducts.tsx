@@ -8,6 +8,7 @@ import { ShopFooter } from '@/components/shop/ShopFooter';
 import { Button } from '@/components/ui/button';
 import { ProductCardSkeleton } from '@/components/shop/ProductCardSkeleton';
 import { supabase } from '@/integrations/supabase/client';
+import { recoverFromStaleBundle } from '@/lib/cacheBust';
 import { formatCurrency } from '@/lib/formatCurrency';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/hooks/useShopCart';
@@ -192,6 +193,14 @@ export default function HotProducts() {
         }
       } catch (err: any) {
         console.error('Failed to fetch hot products:', err);
+        // Permission errors on removed columns mean the user is running a stale JS bundle
+        // (post-migration the cost columns were revoked). Force a cache-bust reload.
+        const code = err?.code || '';
+        const msg = String(err?.message || '');
+        if (code === '42501' || /permission denied|column .* does not exist/i.test(msg)) {
+          recoverFromStaleBundle();
+          return;
+        }
       } finally {
         setLoading(false);
       }

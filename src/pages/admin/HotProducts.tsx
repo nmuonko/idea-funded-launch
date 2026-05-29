@@ -460,12 +460,13 @@ export default function HotProducts() {
 
   async function loadShowcase() {
     setLoadingShowcase(true);
-    const { data } = await (supabase
-      .from('hot_products_showcase')
-      .select('*') as any)
-      .or('link_source.eq.storefront,link_source.is.null')
-      .order('sort_order', { ascending: true });
-    if (data) setShowcaseProducts(data as any);
+    const { data } = await (supabase.rpc('admin_list_hot_products' as any) as any);
+    if (data) {
+      const filtered = (data as any[])
+        .filter((d) => d.link_source === 'storefront' || d.link_source == null)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      setShowcaseProducts(filtered as any);
+    }
     setLoadingShowcase(false);
   }
 
@@ -633,14 +634,17 @@ export default function HotProducts() {
   }
 
   async function loadGeneratedLinks() {
-    const { data } = await (supabase
-      .from('hot_products_showcase')
-      .select('*') as any)
-      .eq('link_source', 'link_generator')
-      .order('sort_order', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: false });
+    const { data } = await (supabase.rpc('admin_list_hot_products' as any) as any);
     if (data) {
-      setGeneratedLinks((data as any[]).map(d => ({
+      const filtered = (data as any[])
+        .filter((d) => d.link_source === 'link_generator')
+        .sort((a, b) => {
+          const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+          const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+          if (ao !== bo) return ao - bo;
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        });
+      setGeneratedLinks(filtered.map((d: any) => ({
         id: d.id,
         title: d.title,
         image_url: d.image_url || '',

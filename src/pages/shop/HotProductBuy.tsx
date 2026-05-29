@@ -60,7 +60,7 @@ export default function HotProductBuy() {
       try {
         const { data, error } = await supabase
           .from('hot_products_showcase')
-          .select('*')
+          .select('id, title, image_url, total_price_usd, product_url, provider, provider_product_id, sort_order, is_active, created_at, updated_at, link_source, description_fr, gallery_images')
           .eq('id', id)
           .eq('is_active', true)
           .single();

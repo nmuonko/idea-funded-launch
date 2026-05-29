@@ -173,7 +173,7 @@ export default function HotProducts() {
       try {
         const { data, error } = await (supabase
           .from('hot_products_showcase')
-          .select('*') as any)
+          .select('id, title, image_url, total_price_usd, product_url, provider, provider_product_id, sort_order, is_active, created_at, updated_at, link_source, description_fr, gallery_images') as any)
           .eq('is_active', true)
           .limit(200);
 

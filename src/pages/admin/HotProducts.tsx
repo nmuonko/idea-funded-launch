@@ -460,12 +460,13 @@ export default function HotProducts() {
 
   async function loadShowcase() {
     setLoadingShowcase(true);
-    const { data } = await (supabase
-      .from('hot_products_showcase')
-      .select('*') as any)
-      .or('link_source.eq.storefront,link_source.is.null')
-      .order('sort_order', { ascending: true });
-    if (data) setShowcaseProducts(data as any);
+    const { data } = await (supabase.rpc('admin_list_hot_products' as any) as any);
+    if (data) {
+      const filtered = (data as any[])
+        .filter((d) => d.link_source === 'storefront' || d.link_source == null)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      setShowcaseProducts(filtered as any);
+    }
     setLoadingShowcase(false);
   }
 

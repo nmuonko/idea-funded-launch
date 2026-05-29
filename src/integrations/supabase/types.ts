@@ -7323,6 +7323,35 @@ export type Database = {
         Args: { check_user_id: string; permission_name: string }
         Returns: boolean
       }
+      admin_list_hot_products: {
+        Args: never
+        Returns: {
+          created_at: string | null
+          created_by: string | null
+          description_fr: string | null
+          gallery_images: string[] | null
+          id: string
+          image_url: string | null
+          is_active: boolean | null
+          link_source: string
+          markup_usd: number | null
+          price_usd: number | null
+          product_url: string | null
+          provider: string | null
+          provider_product_id: string | null
+          shipping_usd: number | null
+          sort_order: number | null
+          title: string | null
+          total_price_usd: number | null
+          updated_at: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "hot_products_showcase"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       aggregate_popularity_scores: { Args: never; Returns: Json }
       autoprewarm_dump_now: { Args: never; Returns: number }
       autoprewarm_start_worker: { Args: never; Returns: undefined }

@@ -634,14 +634,17 @@ export default function HotProducts() {
   }
 
   async function loadGeneratedLinks() {
-    const { data } = await (supabase
-      .from('hot_products_showcase')
-      .select('*') as any)
-      .eq('link_source', 'link_generator')
-      .order('sort_order', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: false });
+    const { data } = await (supabase.rpc('admin_list_hot_products' as any) as any);
     if (data) {
-      setGeneratedLinks((data as any[]).map(d => ({
+      const filtered = (data as any[])
+        .filter((d) => d.link_source === 'link_generator')
+        .sort((a, b) => {
+          const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+          const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+          if (ao !== bo) return ao - bo;
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        });
+      setGeneratedLinks(filtered.map((d: any) => ({
         id: d.id,
         title: d.title,
         image_url: d.image_url || '',

@@ -8,6 +8,7 @@ import { ShopFooter } from '@/components/shop/ShopFooter';
 import { Button } from '@/components/ui/button';
 import { ProductCardSkeleton } from '@/components/shop/ProductCardSkeleton';
 import { supabase } from '@/integrations/supabase/client';
+import { recoverFromStaleBundle } from '@/lib/cacheBust';
 import { formatCurrency } from '@/lib/formatCurrency';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/hooks/useShopCart';

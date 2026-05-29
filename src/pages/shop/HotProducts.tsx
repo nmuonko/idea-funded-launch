@@ -204,6 +204,7 @@ export default function HotProducts() {
       } finally {
         setLoading(false);
       }
+    }
     fetchProducts();
   }, []);
 

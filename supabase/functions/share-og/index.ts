@@ -100,12 +100,12 @@ serve(async (req) => {
   const ogImage = normalizePreviewImage(galleryImages[0] || product.image_url || "");
   const sharePageUrl = `${frontendUrl}/share/hp/${product.id}`;
 
-  const userAgent = req.headers.get("user-agent") || "";
-  const isCrawler = isBot(userAgent);
-
-  // For bots: pure OG tags, NO redirect, NO JavaScript
-  // For browsers: OG tags + redirect to the interactive page
-  const redirectTags = isCrawler ? "" : `
+  // Always include redirect: crawlers read OG meta from the static HTML and
+  // ignore <meta refresh> / JS, while real browsers follow it to the app.
+  // Previously we varied by User-Agent, but the public Cloudflare cache
+  // served whichever version it saw first to everyone — breaking clicks.
+  void isBot;
+  const redirectTags = `
 <meta http-equiv="refresh" content="0;url=${esc(sharePageUrl)}"/>
 <script>window.location.replace(${JSON.stringify(sharePageUrl)});</script>`;
 

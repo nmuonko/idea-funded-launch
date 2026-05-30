@@ -28,8 +28,8 @@ export function useSupportContact() {
   return {
     whatsapp,
     email,
-    whatsappUrl: (userEmail?: string | null) => {
-      const message = `Hi AfriShop Support, I need help with my order. My email is ${userEmail || 'guest'}.`;
+    whatsappUrl: (_userEmail?: string | null) => {
+      const message = `Bonjour L'Equipe AfriShop,\n\nJe suis prêt à commander. Si j'ai un souci avant le paiement, j'aurai besoin de votre aide.`;
       return `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
     },
     emailUrl: (userEmail?: string | null) => {

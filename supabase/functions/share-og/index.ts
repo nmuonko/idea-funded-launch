@@ -4,11 +4,8 @@
  *
  * GET /share-og?id=<hot_product_id>
  *
- * For bot crawlers (WhatsApp, Facebook, Twitter, etc.): returns a minimal
- * HTML page with OG tags only — no redirect, no JavaScript.
- *
- * For real browsers: returns HTML with OG tags + JS redirect to the
- * interactive share page.
+ * Link preview crawlers receive OG tags; real browser clicks receive an
+ * immediate redirect to the interactive product page.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -40,6 +37,20 @@ function normalizePreviewImage(src: string): string {
 /** Detect social media / link preview crawlers */
 function isBot(ua: string): boolean {
   return /whatsapp|facebookexternalhit|facebot|twitterbot|telegrambot|linkedinbot|slackbot|discordbot|googlebot|bingbot|bot|crawl|spider|preview/i.test(ua);
+}
+
+function isBrowserNavigation(req: Request): boolean {
+  const secFetchMode = req.headers.get("sec-fetch-mode") || "";
+  const secFetchDest = req.headers.get("sec-fetch-dest") || "";
+  const secFetchUser = req.headers.get("sec-fetch-user") || "";
+  const ua = req.headers.get("user-agent") || "";
+
+  return (
+    secFetchMode === "navigate" ||
+    secFetchDest === "document" ||
+    secFetchUser === "?1" ||
+    /mozilla|chrome|safari|firefox|edg|opr|crios|fxios/i.test(ua)
+  );
 }
 
 serve(async (req) => {
@@ -99,15 +110,20 @@ serve(async (req) => {
   const galleryImages: string[] = product.gallery_images || [];
   const ogImage = normalizePreviewImage(galleryImages[0] || product.image_url || "");
   const sharePageUrl = `${frontendUrl}/share/hp/${product.id}`;
+  const ua = req.headers.get("user-agent") || "";
+  const shouldServePreviewHtml = isBot(ua) && !isBrowserNavigation(req);
 
-  // Always include redirect: crawlers read OG meta from the static HTML and
-  // ignore <meta refresh> / JS, while real browsers follow it to the app.
-  // Previously we varied by User-Agent, but the public Cloudflare cache
-  // served whichever version it saw first to everyone — breaking clicks.
-  void isBot;
-  const redirectTags = `
-<meta http-equiv="refresh" content="0;url=${esc(sharePageUrl)}"/>
-<script>window.location.replace(${JSON.stringify(sharePageUrl)});</script>`;
+  if (!shouldServePreviewHtml) {
+    return new Response(null, {
+      status: 302,
+      headers: {
+        ...corsHeaders,
+        Location: sharePageUrl,
+        "Cache-Control": "no-store, max-age=0",
+        Vary: "User-Agent, Sec-Fetch-Mode, Sec-Fetch-Dest, Sec-Fetch-User",
+      },
+    });
+  }
 
   const html = `<!DOCTYPE html>
 <html lang="fr" prefix="og: https://ogp.me/ns#">
@@ -126,7 +142,7 @@ serve(async (req) => {
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="${esc(ogTitle)}"/>
 <meta name="twitter:description" content="${esc(ogDesc)}"/>
-<meta name="twitter:image" content="${esc(ogImage)}"/>${redirectTags}
+<meta name="twitter:image" content="${esc(ogImage)}"/>
 </head>
 <body>
 <h1>${esc(ogTitle)}</h1>
@@ -141,7 +157,8 @@ serve(async (req) => {
     headers: {
       ...corsHeaders,
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "public, max-age=3600, s-maxage=3600",
+      "Cache-Control": "no-store, max-age=0",
+      Vary: "User-Agent, Sec-Fetch-Mode, Sec-Fetch-Dest, Sec-Fetch-User",
     },
   });
 });

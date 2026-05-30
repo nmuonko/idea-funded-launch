@@ -45,7 +45,7 @@ const HP_STRINGS = {
     empty: 'No hot products available right now.',
     waMessage: (details: { title: string; summary: string; price: string; ref: string; image: string; link: string }) =>
       `Hello AfriShop, I need help with this product:\n\n${details.title}\n${details.summary ? `${details.summary}\n` : ''}Price: ${details.price}\nReference: ${details.ref}\nPhoto: ${details.image}\nProduct page: ${details.link}`,
-    waHeroMessage: 'Hello AfriShop, I have a question about your hot products. Could you help me?',
+    waHeroMessage: `Bonjour L'Equipe AfriShop,\n\nJe suis prêt à commander. Si j'ai un souci avant le paiement, j'aurai besoin de votre aide.`,
   },
   fr: {
     pageTitle: 'Produits Populaires',
@@ -70,7 +70,7 @@ const HP_STRINGS = {
     empty: 'Aucun produit populaire pour le moment.',
     waMessage: (details: { title: string; summary: string; price: string; ref: string; image: string; link: string }) =>
       `Bonjour AfriShop, j'ai besoin d'aide concernant ce produit :\n\n${details.title}\n${details.summary ? `${details.summary}\n` : ''}Prix : ${details.price}\nRéférence : ${details.ref}\nPhoto : ${details.image}\nPage produit : ${details.link}`,
-    waHeroMessage: 'Bonjour AfriShop, j\'ai une question sur vos produits populaires. Pouvez-vous m\'aider ?',
+    waHeroMessage: `Bonjour L'Equipe AfriShop,\n\nJe suis prêt à commander. Si j'ai un souci avant le paiement, j'aurai besoin de votre aide.`,
   },
 } as const;
 

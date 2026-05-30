@@ -29,7 +29,7 @@ export function useSupportContact() {
     whatsapp,
     email,
     whatsappUrl: (_userEmail?: string | null) => {
-      const message = `Bonjour L'Equipe AfriShop,\n\nJe suis prêt à commander. Si j'ai un souci avant le paiement, j'aurai besoin de votre aide.`;
+      const message = `Bonjour L'Équipe AfriShop,\nJe suis prêt à commander. Si j'ai un souci avant le paiement, j'aurai besoin de votre aide.`;
       return `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
     },
     emailUrl: (userEmail?: string | null) => {

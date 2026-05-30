@@ -16,7 +16,7 @@
   * Generate WhatsApp URL with pre-filled message
   */
 export function getWhatsAppUrl(_userEmail?: string | null): string {
-   const message = `Bonjour L'Equipe AfriShop,\n\nJe suis prêt à commander. Si j'ai un souci avant le paiement, j'aurai besoin de votre aide.`;
+   const message = `Bonjour L'Équipe AfriShop,\nJe suis prêt à commander. Si j'ai un souci avant le paiement, j'aurai besoin de votre aide.`;
    return `https://wa.me/${SUPPORT_WHATSAPP_E164}?text=${encodeURIComponent(message)}`;
  }
  

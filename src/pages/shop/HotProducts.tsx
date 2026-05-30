@@ -44,7 +44,7 @@ const HP_STRINGS = {
     dubaiSectionSubtitle: 'Shipping to DRC included · Est. delivery 2–4 weeks · Verified before shipping',
     empty: 'No hot products available right now.',
     waMessage: (details: { title: string; summary: string; price: string; ref: string; image: string; link: string }) =>
-      `Hello AfriShop, I need help with this product:\n\n${details.title}\n${details.summary ? `${details.summary}\n` : ''}Price: ${details.price}\nReference: ${details.ref}\nPhoto: ${details.image}\nProduct page: ${details.link}`,
+      `Bonjour L'Équipe AfriShop\nJe suis prêt à acheter ce produit : ${details.title} - ${details.link}. Pouvez-vous confirmer sa disponibilité avant le paiement ?`,
     waHeroMessage: `Bonjour L'Équipe AfriShop,\nJe suis prêt à commander. Si j'ai un souci avant le paiement, j'aurai besoin de votre aide.`,
   },
   fr: {

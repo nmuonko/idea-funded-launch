@@ -45,7 +45,7 @@ const HP_STRINGS = {
     empty: 'No hot products available right now.',
     waMessage: (details: { title: string; summary: string; price: string; ref: string; image: string; link: string }) =>
       `Hello AfriShop, I need help with this product:\n\n${details.title}\n${details.summary ? `${details.summary}\n` : ''}Price: ${details.price}\nReference: ${details.ref}\nPhoto: ${details.image}\nProduct page: ${details.link}`,
-    waHeroMessage: 'Hello AfriShop, I have a question about your hot products. Could you help me?',
+    waHeroMessage: `Bonjour L'Equipe AfriShop,\n\nJe suis prêt à commander. Si j'ai un souci avant le paiement, j'aurai besoin de votre aide.`,
   },
   fr: {
     pageTitle: 'Produits Populaires',

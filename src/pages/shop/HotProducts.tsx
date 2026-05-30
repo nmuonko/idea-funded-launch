@@ -43,7 +43,8 @@ const HP_STRINGS = {
     dubaiSectionTitle: 'Items from Dubai',
     dubaiSectionSubtitle: 'Shipping to DRC included · Est. delivery 2–4 weeks · Verified before shipping',
     empty: 'No hot products available right now.',
-    waMessage: (title: string, link: string) => `Hello AfriShop, I need help with this product: ${title}. Link: ${link}`,
+    waMessage: (details: { title: string; summary: string; price: string; ref: string; image: string; link: string }) =>
+      `Hello AfriShop, I need help with this product:\n\n${details.title}\n${details.summary ? `${details.summary}\n` : ''}Price: ${details.price}\nReference: ${details.ref}\nPhoto: ${details.image}\nProduct page: ${details.link}`,
     waHeroMessage: 'Hello AfriShop, I have a question about your hot products. Could you help me?',
   },
   fr: {
@@ -67,7 +68,8 @@ const HP_STRINGS = {
     dubaiSectionTitle: 'Articles de Dubai',
     dubaiSectionSubtitle: 'Livraison RDC incluse · Livraison estimée 2–4 semaines · Vérifié avant expédition',
     empty: 'Aucun produit populaire pour le moment.',
-    waMessage: (title: string, link: string) => `Bonjour AfriShop, j'ai besoin d'aide concernant ce produit: ${title}. Lien: ${link}`,
+    waMessage: (details: { title: string; summary: string; price: string; ref: string; image: string; link: string }) =>
+      `Bonjour AfriShop, j'ai besoin d'aide concernant ce produit :\n\n${details.title}\n${details.summary ? `${details.summary}\n` : ''}Prix : ${details.price}\nRéférence : ${details.ref}\nPhoto : ${details.image}\nPage produit : ${details.link}`,
     waHeroMessage: 'Bonjour AfriShop, j\'ai une question sur vos produits populaires. Pouvez-vous m\'aider ?',
   },
 } as const;
@@ -368,10 +370,21 @@ export default function HotProducts() {
               const isProcessing = processingIds.has(key);
               // WhatsApp does not execute the React route, so send it directly to the
               // server-rendered preview endpoint that returns product-specific OG tags.
-              const shareLink = `${SHARE_PREVIEW_BASE_URL}?id=${encodeURIComponent(product.id)}`;
-              const waMsg = encodeURIComponent(t.waMessage(product.title, shareLink));
-              const waHref = `https://wa.me/243973141627?text=${waMsg}`;
               const cleanTitle = cleanProductTitle(product.title);
+              const shareLink = `${SHARE_PREVIEW_BASE_URL}?id=${encodeURIComponent(product.id)}`;
+              const productImage = resolveProductImage(product);
+              const productSummary = (product.description_fr || '').replace(/\s+/g, ' ').trim();
+              const shortSummary = productSummary.length > 160 ? `${productSummary.slice(0, 157).trimEnd()}…` : productSummary;
+              const productRef = `HP-${product.id.slice(0, 8).toUpperCase()}`;
+              const waMsg = encodeURIComponent(t.waMessage({
+                title: cleanTitle,
+                summary: shortSummary,
+                price: formatCurrency(product.total_price_usd, { locale: locale as any }),
+                ref: productRef,
+                image: productImage,
+                link: shareLink,
+              }));
+              const waHref = `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}?text=${waMsg}`;
               return (
                 <motion.div
                   key={product.id}

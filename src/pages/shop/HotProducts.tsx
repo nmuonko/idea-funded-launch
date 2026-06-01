@@ -166,6 +166,7 @@ export default function HotProducts() {
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'featured' | 'price_asc' | 'price_desc'>('featured');
+  const [viewCounts, setViewCounts] = useState<Record<string, number>>({});
 
 
   const locale: HPLocale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';

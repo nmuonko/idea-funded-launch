@@ -396,6 +396,34 @@ export default function HotProducts() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [whatsappPreviewLink, setWhatsappPreviewLink] = useState<string | null>(null);
   const [imageFallbackModal, setImageFallbackModal] = useState<{ imageUrl: string; caption: string; title: string } | null>(null);
+  const [selectedLinkIds, setSelectedLinkIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  function toggleLinkSelection(id: string) {
+    setSelectedLinkIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAllLinks() {
+    setSelectedLinkIds(prev =>
+      prev.size === generatedLinks.length ? new Set() : new Set(generatedLinks.map(l => l.id))
+    );
+  }
+  async function bulkDeleteSelectedLinks() {
+    if (selectedLinkIds.size === 0) return;
+    const count = selectedLinkIds.size;
+    if (!confirm(t(`Delete ${count} selected product(s)?`, `Supprimer ${count} produit(s) sélectionné(s) ?`))) return;
+    setBulkDeleting(true);
+    const ids = Array.from(selectedLinkIds);
+    const { error } = await supabase.from('hot_products_showcase').delete().in('id', ids);
+    setBulkDeleting(false);
+    if (error) { toast.error(t('Bulk delete failed', 'Échec de la suppression')); return; }
+    setGeneratedLinks(prev => prev.filter(l => !selectedLinkIds.has(l.id)));
+    setSelectedLinkIds(new Set());
+    toast.success(t(`${count} deleted`, `${count} supprimé(s)`));
+  }
 
   async function uploadProductImage(file: File, target: 'extract' | 'edit') {
     setUploadingImage(true);

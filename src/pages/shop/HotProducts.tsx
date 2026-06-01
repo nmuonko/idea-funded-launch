@@ -57,7 +57,6 @@ const HP_STRINGS = {
 
     waMessage: (details: { title: string; summary: string; price: string; ref: string; image: string; link: string }) =>
       `Bonjour L'Équipe AfriShop\nJe suis prêt à acheter ce produit : ${details.title} - ${details.link}.\n\nPouvez-vous confirmer sa disponibilité avant le paiement ?`,
-    waHeroMessage: `Bonjour L'Équipe AfriShop,\nJe suis prêt à commander. Si j'ai un souci avant le paiement, j'aurai besoin de votre aide.`,
   },
   fr: {
     pageTitle: 'Produits Populaires',
@@ -93,7 +92,6 @@ const HP_STRINGS = {
 
     waMessage: (details: { title: string; summary: string; price: string; ref: string; image: string; link: string }) =>
       `Bonjour L'Équipe AfriShop\nJe suis prêt à acheter ce produit : ${details.title} - ${details.link}.\n\nPouvez-vous confirmer sa disponibilité avant le paiement ?`,
-    waHeroMessage: `Bonjour L'Équipe AfriShop,\nJe suis prêt à commander. Si j'ai un souci avant le paiement, j'aurai besoin de votre aide.`,
   },
 } as const;
 
@@ -165,7 +163,7 @@ export default function HotProducts() {
 
   const locale: HPLocale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
   const t = HP_STRINGS[locale];
-  const heroWhatsappUrl = `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(t.waHeroMessage)}`;
+  const heroWhatsappUrl = `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}`;
 
   // Handle referral code from URL
   const refCode = useMemo(() => {

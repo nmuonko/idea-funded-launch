@@ -365,7 +365,7 @@ export default function HotProducts() {
 
           {/* Sticky Filter / Sort Bar */}
           {!loading && products.length > 0 && (
-            <div className="sticky top-16 z-30 -mx-3 sm:-mx-4 px-3 sm:px-4 py-3 mb-4 bg-black/85 backdrop-blur-md border-b border-white/10">
+            <div className="sticky top-16 z-30 -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 mb-3 bg-black/85 backdrop-blur-md border-b border-white/10">
               <div className="flex items-center gap-2">
                 <div className="relative flex-1 max-w-md">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" aria-hidden="true" />

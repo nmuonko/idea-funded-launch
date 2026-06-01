@@ -318,7 +318,7 @@ export default function HotProducts() {
 
       <main className="pt-20 px-3 sm:px-4 pb-24">
         <div className="mx-auto max-w-6xl">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-3">
             <Button
               variant="outline"
               size="sm"
@@ -334,7 +334,7 @@ export default function HotProducts() {
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="relative overflow-hidden rounded-2xl mb-5 bg-gradient-to-br from-orange-600 via-red-600 to-pink-600 p-4 sm:p-6"
+            className="relative overflow-hidden rounded-2xl mb-3 bg-gradient-to-br from-orange-600 via-red-600 to-pink-600 px-4 py-3 sm:px-6 sm:py-4"
           >
             <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjA4KSIvPjwvc3ZnPg==')] opacity-50" aria-hidden="true" />
             <div className="relative z-10 flex flex-wrap items-center justify-between gap-3">
@@ -365,7 +365,7 @@ export default function HotProducts() {
 
           {/* Sticky Filter / Sort Bar */}
           {!loading && products.length > 0 && (
-            <div className="sticky top-16 z-30 -mx-3 sm:-mx-4 px-3 sm:px-4 py-3 mb-4 bg-black/85 backdrop-blur-md border-b border-white/10">
+            <div className="sticky top-16 z-30 -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 mb-3 bg-black/85 backdrop-blur-md border-b border-white/10">
               <div className="flex items-center gap-2">
                 <div className="relative flex-1 max-w-md">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" aria-hidden="true" />
@@ -552,11 +552,11 @@ export default function HotProducts() {
               if (sortBy === 'price_asc') sorted.sort((a, b) => a.total_price_usd - b.total_price_usd);
               else if (sortBy === 'price_desc') sorted.sort((a, b) => b.total_price_usd - a.total_price_usd);
               return (
-                <section className={opts?.topBorder ? 'mt-10 pt-8 border-t border-white/10' : 'mt-8 first:mt-0'}>
-                  <div className="mb-4 flex items-baseline justify-between gap-3">
+                <section className={opts?.topBorder ? 'mt-6 pt-5 border-t border-white/10' : 'mt-5 first:mt-0'}>
+                  <div className="mb-3 flex items-baseline justify-between gap-3">
                     <div>
-                      <h2 className="text-lg sm:text-2xl font-extrabold text-white tracking-tight">{title}</h2>
-                      {opts?.subtitle && <p className="text-white/60 text-xs sm:text-sm mt-0.5">{opts.subtitle}</p>}
+                      <h2 className="text-base sm:text-xl font-extrabold text-white tracking-tight">{title}</h2>
+                      {opts?.subtitle && <p className="text-white/60 text-xs mt-0.5">{opts.subtitle}</p>}
                     </div>
                     <span className="text-white/40 text-xs whitespace-nowrap">{t.countItems(items.length)}</span>
                   </div>

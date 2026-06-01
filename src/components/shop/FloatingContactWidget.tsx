@@ -75,10 +75,11 @@
 
    const t = translations[language as keyof typeof translations] || translations.en;
 
-   const isAdminRoute = location.pathname.startsWith('/admin');
-   const isPaymentSuccessRoute =
-     location.pathname === '/payment/success' ||
-     location.pathname === '/payment-success';
+    const isAdminRoute = location.pathname.startsWith('/admin');
+    const isPaymentSuccessRoute =
+      location.pathname === '/payment/success' ||
+      location.pathname === '/payment-success';
+    const isHotProductsRoute = location.pathname.startsWith('/hot-products');
 
    const scrollToBottom = () => {
      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -228,7 +229,7 @@
      }
    };
  
-   if (isAdminRoute || isPaymentSuccessRoute) return null;
+   if (isAdminRoute || isPaymentSuccessRoute || isHotProductsRoute) return null;
 
    return (
      <div className="fixed bottom-28 right-4 z-40 md:bottom-6 md:right-6">

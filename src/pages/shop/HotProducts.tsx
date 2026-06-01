@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Flame, Zap, MessageCircle, Mail, Home, Search, TrendingUp, Sparkles, X } from 'lucide-react';
+import { Loader2, Flame, Zap, MessageCircle, Mail, Home, Search, TrendingUp, Sparkles, X, Eye } from 'lucide-react';
 
 import { motion, useReducedMotion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -166,6 +166,7 @@ export default function HotProducts() {
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'featured' | 'price_asc' | 'price_desc'>('featured');
+  const [viewCounts, setViewCounts] = useState<Record<string, number>>({});
 
 
   const locale: HPLocale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
@@ -240,6 +241,26 @@ export default function HotProducts() {
       }
     }
     fetchProducts();
+  }, []);
+
+  // Fetch aggregated view counts per hot product
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await (supabase as any).rpc('get_hot_product_view_counts');
+        if (error || !data || cancelled) return;
+        const map: Record<string, number> = {};
+        for (const row of data as Array<{ provider: string; provider_product_id: string; views: number }>) {
+          if (!row.provider_product_id) continue;
+          map[`${row.provider}:${row.provider_product_id}`] = Number(row.views) || 0;
+        }
+        setViewCounts(map);
+      } catch {
+        // non-critical
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   const trackClick = (product: HotProduct, eventType: 'view' | 'click' | 'buy_now') => {
@@ -501,6 +522,17 @@ export default function HotProducts() {
                       {isDubai && (
                         <p className="text-white/50 text-[10px]">{t.estDelivery}</p>
                       )}
+                      {(() => {
+                        const v = viewCounts[`${product.provider}:${product.provider_product_id}`] || 0;
+                        if (v < 10) return null;
+                        const display = v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${v}`;
+                        return (
+                          <p className="inline-flex items-center gap-1 text-white/60 text-[10px] font-medium pt-0.5">
+                            <Eye className="w-3 h-3" aria-hidden="true" />
+                            {locale === 'fr' ? `${display} vues` : `${display} views`}
+                          </p>
+                        );
+                      })()}
                     </div>
 
                     <div className="mt-auto flex flex-col gap-1.5 pt-1">

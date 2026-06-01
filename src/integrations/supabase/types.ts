@@ -7591,6 +7591,14 @@ export type Database = {
           total_value: number
         }[]
       }
+      get_hot_product_view_counts: {
+        Args: never
+        Returns: {
+          provider: string
+          provider_product_id: string
+          views: number
+        }[]
+      }
       get_language_for_country: { Args: { p_country: string }; Returns: string }
       get_popular_queries: {
         Args: { p_limit?: number; p_window_hours?: number }

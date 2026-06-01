@@ -243,6 +243,26 @@ export default function HotProducts() {
     fetchProducts();
   }, []);
 
+  // Fetch aggregated view counts per hot product
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await (supabase as any).rpc('get_hot_product_view_counts');
+        if (error || !data || cancelled) return;
+        const map: Record<string, number> = {};
+        for (const row of data as Array<{ provider: string; provider_product_id: string; views: number }>) {
+          if (!row.provider_product_id) continue;
+          map[`${row.provider}:${row.provider_product_id}`] = Number(row.views) || 0;
+        }
+        setViewCounts(map);
+      } catch {
+        // non-critical
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const trackClick = (product: HotProduct, eventType: 'view' | 'click' | 'buy_now') => {
     supabase.from('hot_product_clicks' as any).insert({
       provider_product_id: product.provider_product_id,

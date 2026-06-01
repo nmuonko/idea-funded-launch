@@ -1555,9 +1555,23 @@ export default function HotProducts() {
               {/* Step 3: Persisted generated links */}
               {generatedLinks.length > 0 && (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
                     <h4 className="text-sm font-semibold text-muted-foreground">{t('Generated Links', 'Liens générés')} ({generatedLinks.length})</h4>
-                    <span className="text-[11px] text-muted-foreground flex items-center gap-1"><GripVertical className="h-3 w-3" /> {t('Drag to reorder', 'Glisser pour réorganiser')}</span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button variant="ghost" size="sm" className="text-xs h-7" onClick={toggleSelectAllLinks}>
+                        <CheckSquare className="h-3.5 w-3.5 mr-1" />
+                        {selectedLinkIds.size === generatedLinks.length && generatedLinks.length > 0
+                          ? t('Deselect All', 'Tout décocher')
+                          : t('Select All', 'Tout cocher')}
+                      </Button>
+                      {selectedLinkIds.size > 0 && (
+                        <Button variant="destructive" size="sm" className="h-7 text-xs" disabled={bulkDeleting} onClick={bulkDeleteSelectedLinks}>
+                          {bulkDeleting ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Trash2 className="h-3.5 w-3.5 mr-1" />}
+                          {t(`Delete (${selectedLinkIds.size})`, `Supprimer (${selectedLinkIds.size})`)}
+                        </Button>
+                      )}
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1"><GripVertical className="h-3 w-3" /> {t('Drag to reorder', 'Glisser pour réorganiser')}</span>
+                    </div>
                   </div>
                   <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleLinksDragEnd}>
                     <SortableContext items={generatedLinks.map(l => l.id)} strategy={verticalListSortingStrategy}>

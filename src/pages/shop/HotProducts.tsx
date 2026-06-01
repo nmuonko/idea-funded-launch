@@ -52,9 +52,6 @@ const HP_STRINGS = {
     sortPriceAsc: 'Price: low to high',
     sortPriceDesc: 'Price: high to low',
     sectionTrending: '🔥 Trending now',
-    sectionUnder20: 'Under $20',
-    section20to50: '$20 – $50',
-    section50plus: '$50 and up',
     countItems: (n: number) => `${n} item${n === 1 ? '' : 's'}`,
     floatingHelp: 'Need help?',
 
@@ -91,9 +88,6 @@ const HP_STRINGS = {
     sortPriceAsc: 'Prix : croissant',
     sortPriceDesc: 'Prix : décroissant',
     sectionTrending: '🔥 Tendances',
-    sectionUnder20: 'Moins de 20 $',
-    section20to50: '20 $ – 50 $',
-    section50plus: '50 $ et plus',
     countItems: (n: number) => `${n} article${n === 1 ? '' : 's'}`,
     floatingHelp: 'Besoin d\'aide ?',
 
@@ -634,17 +628,12 @@ export default function HotProducts() {
             const dubaiItems = filtered.filter(p => p.link_source === 'dubai');
             const regular = filtered.filter(p => p.link_source !== 'dubai');
             const trending = regular.filter(p => trendingIds.has(p.id));
-            const nonTrending = regular.filter(p => !trendingIds.has(p.id));
-            const under20 = nonTrending.filter(p => p.total_price_usd < 20);
-            const mid = nonTrending.filter(p => p.total_price_usd >= 20 && p.total_price_usd < 50);
-            const premium = nonTrending.filter(p => p.total_price_usd >= 50);
+            const allOthers = regular.filter(p => !trendingIds.has(p.id));
 
             return (
               <>
                 {renderSection(t.sectionTrending, trending)}
-                {renderSection(t.sectionUnder20, under20, { topBorder: trending.length > 0 })}
-                {renderSection(t.section20to50, mid, { topBorder: trending.length > 0 || under20.length > 0 })}
-                {renderSection(t.section50plus, premium, { topBorder: trending.length > 0 || under20.length > 0 || mid.length > 0 })}
+                {renderSection('All Products', allOthers, { topBorder: trending.length > 0 })}
                 {renderSection(t.dubaiSectionTitle, dubaiItems, { subtitle: t.dubaiSectionSubtitle, topBorder: regular.length > 0 })}
               </>
             );

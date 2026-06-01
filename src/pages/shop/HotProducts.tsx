@@ -319,26 +319,6 @@ export default function HotProducts() {
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <a
-                  href={heroWhatsappUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`relative group inline-block rounded-full ${FOCUS_RING}`}
-                  aria-label={t.whatsappAria}
-                >
-                  {!prefersReducedMotion && (
-                    <span className="absolute inset-0 rounded-full bg-green-400 opacity-60 animate-ping pointer-events-none" aria-hidden="true" />
-                  )}
-                  <Button
-                    size="lg"
-                    className={`relative h-11 sm:h-14 px-3 sm:px-6 rounded-full bg-green-500 hover:bg-green-400 text-white font-bold shadow-2xl border-2 border-white gap-2 ${prefersReducedMotion ? '' : 'animate-heartbeat'} group-hover:[animation-play-state:paused] transform-gpu will-change-transform`}
-                    tabIndex={-1}
-                  >
-                    <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6 fill-white" aria-hidden="true" />
-                    <span className="hidden sm:inline text-sm">{t.whatsappLong}</span>
-                    <span className="sm:hidden text-sm">{t.whatsapp}</span>
-                  </Button>
-                </a>
-                <a
                   href={emailUrl(session?.user?.email)}
                   target="_blank"
                   rel="noopener noreferrer"

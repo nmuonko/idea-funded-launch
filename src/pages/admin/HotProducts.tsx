@@ -1713,6 +1713,11 @@ export default function HotProducts() {
                       ) : (
                         <div className="space-y-2">
                           <div className="flex items-center gap-3">
+                            <Checkbox
+                              checked={selectedLinkIds.has(link.id)}
+                              onCheckedChange={() => toggleLinkSelection(link.id)}
+                              aria-label={t('Select product', 'Sélectionner le produit')}
+                            />
                             {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">{link.title}</p>

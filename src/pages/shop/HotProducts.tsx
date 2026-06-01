@@ -318,7 +318,7 @@ export default function HotProducts() {
 
       <main className="pt-20 px-3 sm:px-4 pb-24">
         <div className="mx-auto max-w-6xl">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-3">
             <Button
               variant="outline"
               size="sm"

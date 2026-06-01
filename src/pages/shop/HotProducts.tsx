@@ -52,9 +52,6 @@ const HP_STRINGS = {
     sortPriceAsc: 'Price: low to high',
     sortPriceDesc: 'Price: high to low',
     sectionTrending: '🔥 Trending now',
-    sectionUnder20: 'Under $20',
-    section20to50: '$20 – $50',
-    section50plus: '$50 and up',
     countItems: (n: number) => `${n} item${n === 1 ? '' : 's'}`,
     floatingHelp: 'Need help?',
 
@@ -91,9 +88,6 @@ const HP_STRINGS = {
     sortPriceAsc: 'Prix : croissant',
     sortPriceDesc: 'Prix : décroissant',
     sectionTrending: '🔥 Tendances',
-    sectionUnder20: 'Moins de 20 $',
-    section20to50: '20 $ – 50 $',
-    section50plus: '50 $ et plus',
     countItems: (n: number) => `${n} article${n === 1 ? '' : 's'}`,
     floatingHelp: 'Besoin d\'aide ?',
 

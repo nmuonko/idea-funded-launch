@@ -334,7 +334,7 @@ export default function HotProducts() {
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="relative overflow-hidden rounded-2xl mb-5 bg-gradient-to-br from-orange-600 via-red-600 to-pink-600 p-4 sm:p-6"
+            className="relative overflow-hidden rounded-2xl mb-3 bg-gradient-to-br from-orange-600 via-red-600 to-pink-600 px-4 py-3 sm:px-6 sm:py-4"
           >
             <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjA4KSIvPjwvc3ZnPg==')] opacity-50" aria-hidden="true" />
             <div className="relative z-10 flex flex-wrap items-center justify-between gap-3">

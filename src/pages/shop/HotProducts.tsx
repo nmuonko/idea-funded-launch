@@ -522,6 +522,17 @@ export default function HotProducts() {
                       {isDubai && (
                         <p className="text-white/50 text-[10px]">{t.estDelivery}</p>
                       )}
+                      {(() => {
+                        const v = viewCounts[`${product.provider}:${product.provider_product_id}`] || 0;
+                        if (v < 10) return null;
+                        const display = v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${v}`;
+                        return (
+                          <p className="inline-flex items-center gap-1 text-white/60 text-[10px] font-medium pt-0.5">
+                            <Eye className="w-3 h-3" aria-hidden="true" />
+                            {locale === 'fr' ? `${display} vues` : `${display} views`}
+                          </p>
+                        );
+                      })()}
                     </div>
 
                     <div className="mt-auto flex flex-col gap-1.5 pt-1">

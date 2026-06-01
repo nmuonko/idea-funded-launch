@@ -552,11 +552,11 @@ export default function HotProducts() {
               if (sortBy === 'price_asc') sorted.sort((a, b) => a.total_price_usd - b.total_price_usd);
               else if (sortBy === 'price_desc') sorted.sort((a, b) => b.total_price_usd - a.total_price_usd);
               return (
-                <section className={opts?.topBorder ? 'mt-10 pt-8 border-t border-white/10' : 'mt-8 first:mt-0'}>
-                  <div className="mb-4 flex items-baseline justify-between gap-3">
+                <section className={opts?.topBorder ? 'mt-6 pt-5 border-t border-white/10' : 'mt-5 first:mt-0'}>
+                  <div className="mb-3 flex items-baseline justify-between gap-3">
                     <div>
-                      <h2 className="text-lg sm:text-2xl font-extrabold text-white tracking-tight">{title}</h2>
-                      {opts?.subtitle && <p className="text-white/60 text-xs sm:text-sm mt-0.5">{opts.subtitle}</p>}
+                      <h2 className="text-base sm:text-xl font-extrabold text-white tracking-tight">{title}</h2>
+                      {opts?.subtitle && <p className="text-white/60 text-xs mt-0.5">{opts.subtitle}</p>}
                     </div>
                     <span className="text-white/40 text-xs whitespace-nowrap">{t.countItems(items.length)}</span>
                   </div>

@@ -628,17 +628,12 @@ export default function HotProducts() {
             const dubaiItems = filtered.filter(p => p.link_source === 'dubai');
             const regular = filtered.filter(p => p.link_source !== 'dubai');
             const trending = regular.filter(p => trendingIds.has(p.id));
-            const nonTrending = regular.filter(p => !trendingIds.has(p.id));
-            const under20 = nonTrending.filter(p => p.total_price_usd < 20);
-            const mid = nonTrending.filter(p => p.total_price_usd >= 20 && p.total_price_usd < 50);
-            const premium = nonTrending.filter(p => p.total_price_usd >= 50);
+            const allOthers = regular.filter(p => !trendingIds.has(p.id));
 
             return (
               <>
                 {renderSection(t.sectionTrending, trending)}
-                {renderSection(t.sectionUnder20, under20, { topBorder: trending.length > 0 })}
-                {renderSection(t.section20to50, mid, { topBorder: trending.length > 0 || under20.length > 0 })}
-                {renderSection(t.section50plus, premium, { topBorder: trending.length > 0 || under20.length > 0 || mid.length > 0 })}
+                {renderSection('All Products', allOthers, { topBorder: trending.length > 0 })}
                 {renderSection(t.dubaiSectionTitle, dubaiItems, { subtitle: t.dubaiSectionSubtitle, topBorder: regular.length > 0 })}
               </>
             );

@@ -396,6 +396,34 @@ export default function HotProducts() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [whatsappPreviewLink, setWhatsappPreviewLink] = useState<string | null>(null);
   const [imageFallbackModal, setImageFallbackModal] = useState<{ imageUrl: string; caption: string; title: string } | null>(null);
+  const [selectedLinkIds, setSelectedLinkIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  function toggleLinkSelection(id: string) {
+    setSelectedLinkIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAllLinks() {
+    setSelectedLinkIds(prev =>
+      prev.size === generatedLinks.length ? new Set() : new Set(generatedLinks.map(l => l.id))
+    );
+  }
+  async function bulkDeleteSelectedLinks() {
+    if (selectedLinkIds.size === 0) return;
+    const count = selectedLinkIds.size;
+    if (!confirm(t(`Delete ${count} selected product(s)?`, `Supprimer ${count} produit(s) sélectionné(s) ?`))) return;
+    setBulkDeleting(true);
+    const ids = Array.from(selectedLinkIds);
+    const { error } = await supabase.from('hot_products_showcase').delete().in('id', ids);
+    setBulkDeleting(false);
+    if (error) { toast.error(t('Bulk delete failed', 'Échec de la suppression')); return; }
+    setGeneratedLinks(prev => prev.filter(l => !selectedLinkIds.has(l.id)));
+    setSelectedLinkIds(new Set());
+    toast.success(t(`${count} deleted`, `${count} supprimé(s)`));
+  }
 
   async function uploadProductImage(file: File, target: 'extract' | 'edit') {
     setUploadingImage(true);
@@ -1527,9 +1555,23 @@ export default function HotProducts() {
               {/* Step 3: Persisted generated links */}
               {generatedLinks.length > 0 && (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
                     <h4 className="text-sm font-semibold text-muted-foreground">{t('Generated Links', 'Liens générés')} ({generatedLinks.length})</h4>
-                    <span className="text-[11px] text-muted-foreground flex items-center gap-1"><GripVertical className="h-3 w-3" /> {t('Drag to reorder', 'Glisser pour réorganiser')}</span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button variant="ghost" size="sm" className="text-xs h-7" onClick={toggleSelectAllLinks}>
+                        <CheckSquare className="h-3.5 w-3.5 mr-1" />
+                        {selectedLinkIds.size === generatedLinks.length && generatedLinks.length > 0
+                          ? t('Deselect All', 'Tout décocher')
+                          : t('Select All', 'Tout cocher')}
+                      </Button>
+                      {selectedLinkIds.size > 0 && (
+                        <Button variant="destructive" size="sm" className="h-7 text-xs" disabled={bulkDeleting} onClick={bulkDeleteSelectedLinks}>
+                          {bulkDeleting ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Trash2 className="h-3.5 w-3.5 mr-1" />}
+                          {t(`Delete (${selectedLinkIds.size})`, `Supprimer (${selectedLinkIds.size})`)}
+                        </Button>
+                      )}
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1"><GripVertical className="h-3 w-3" /> {t('Drag to reorder', 'Glisser pour réorganiser')}</span>
+                    </div>
                   </div>
                   <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleLinksDragEnd}>
                     <SortableContext items={generatedLinks.map(l => l.id)} strategy={verticalListSortingStrategy}>
@@ -1671,6 +1713,11 @@ export default function HotProducts() {
                       ) : (
                         <div className="space-y-2">
                           <div className="flex items-center gap-3">
+                            <Checkbox
+                              checked={selectedLinkIds.has(link.id)}
+                              onCheckedChange={() => toggleLinkSelection(link.id)}
+                              aria-label={t('Select product', 'Sélectionner le produit')}
+                            />
                             {link.image_url && <img src={link.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />}
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">{link.title}</p>

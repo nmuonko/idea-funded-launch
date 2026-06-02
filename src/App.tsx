@@ -40,6 +40,7 @@ const AdminShippingTypes = lazy(() => import("./pages/admin/ShippingTypes"));
 const AdminAnalytics = lazy(() => import("./pages/admin/Analytics"));
 const DemandInsights = lazy(() => import("./pages/admin/DemandInsights"));
 const AdminPayments = lazy(() => import("./pages/admin/Payments"));
+const AdminAbandonedCheckouts = lazy(() => import("./pages/admin/AbandonedCheckouts"));
 const AdminSupportInbox = lazy(() => import("./pages/admin/SupportInbox"));
 const SupportContactSettings = lazy(() => import("./pages/admin/SupportContactSettings"));
 const ChatRouting = lazy(() => import("./pages/admin/ChatRouting"));
@@ -304,6 +305,11 @@ const App = () => {
               <Route path="payments" element={
                 <AdminRouteGuard requiredPermission="can_view_payments">
                   <AdminPayments />
+                </AdminRouteGuard>
+              } />
+              <Route path="abandoned-checkouts" element={
+                <AdminRouteGuard requiredPermission="can_view_payments">
+                  <AdminAbandonedCheckouts />
                 </AdminRouteGuard>
               } />
               <Route path="support-inbox" element={

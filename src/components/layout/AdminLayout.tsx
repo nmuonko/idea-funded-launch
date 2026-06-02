@@ -61,6 +61,7 @@ export function AdminLayout() {
       title: language === 'fr' ? 'Finance' : 'Finance',
       items: [
         { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'can_view_payments' as const },
+        { to: '/admin/abandoned-checkouts', icon: AlertTriangle, label: language === 'fr' ? 'Paniers abandonnés' : 'Abandoned Checkouts', permission: 'can_view_payments' as const },
         { to: '/admin/payments-settings', icon: DollarSign, label: language === 'fr' ? 'Fournisseurs' : 'Providers', permission: 'can_view_payments' as const },
       ]
     },

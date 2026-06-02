@@ -12,7 +12,7 @@ import {
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, Home,
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
   Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe,
-  ChevronDown, Database, Store, Gift, Archive, Brain, MapPin, Flame, TrendingUp, Package, Send, Film
+  ChevronDown, Database, Store, Gift, Archive, Brain, MapPin, Flame, TrendingUp, Package, Send, Film, AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AdminNotificationsBell } from '@/components/admin/AdminNotificationsBell';
@@ -61,6 +61,7 @@ export function AdminLayout() {
       title: language === 'fr' ? 'Finance' : 'Finance',
       items: [
         { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'can_view_payments' as const },
+        { to: '/admin/abandoned-checkouts', icon: AlertTriangle, label: language === 'fr' ? 'Paniers abandonnés' : 'Abandoned Checkouts', permission: 'can_view_payments' as const },
         { to: '/admin/payments-settings', icon: DollarSign, label: language === 'fr' ? 'Fournisseurs' : 'Providers', permission: 'can_view_payments' as const },
       ]
     },

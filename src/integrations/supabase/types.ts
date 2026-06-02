@@ -7498,6 +7498,7 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
+      expire_stale_pending_orders: { Args: never; Returns: number }
       finalize_paid_order: {
         Args: {
           p_operator_ref?: string

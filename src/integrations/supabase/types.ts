@@ -3943,6 +3943,7 @@ export type Database = {
           operator_ref_id: string | null
           payment_confirmation_email_sent_at: string | null
           payment_notes: string | null
+          payment_retry_email_sent_at: string | null
           payment_verification_method: string | null
           payment_verified_at: string | null
           payment_verified_by: string | null
@@ -3992,6 +3993,7 @@ export type Database = {
           operator_ref_id?: string | null
           payment_confirmation_email_sent_at?: string | null
           payment_notes?: string | null
+          payment_retry_email_sent_at?: string | null
           payment_verification_method?: string | null
           payment_verified_at?: string | null
           payment_verified_by?: string | null
@@ -4041,6 +4043,7 @@ export type Database = {
           operator_ref_id?: string | null
           payment_confirmation_email_sent_at?: string | null
           payment_notes?: string | null
+          payment_retry_email_sent_at?: string | null
           payment_verification_method?: string | null
           payment_verified_at?: string | null
           payment_verified_by?: string | null

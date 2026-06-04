@@ -463,7 +463,7 @@ export default function AdminOrderDetail() {
                   <SelectItem value="SHIPPED">Shipped</SelectItem>
                   <SelectItem value="READY_FOR_PICKUP">Ready for Pickup</SelectItem>
                   <SelectItem value="COMPLETED">Completed</SelectItem>
-                  <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                  
                 </SelectContent>
               </Select>
             </div>

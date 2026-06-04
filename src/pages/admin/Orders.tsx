@@ -913,7 +913,7 @@ export default function AdminOrders() {
                     <SelectItem value="PROCESSING">Processing</SelectItem>
                     <SelectItem value="SHIPPED">Shipped</SelectItem>
                     <SelectItem value="COMPLETED">Completed</SelectItem>
-                    <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                    
                   </SelectContent>
                 </Select>
                 

@@ -272,23 +272,10 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
 
-    // ── ACTION C: Auto-cancel (72+ hours, no paid attempts) ──
-    const { data: staleOrders } = await supabase
-      .from("orders")
-      .select("id")
-      .in("status", ["PENDING_PAYMENT", "DRAFT"])
-      .lt("created_at", seventyTwoHoursAgo)
-      .limit(100);
-
-    const staleEligible = await filterNoPaidAttempts(staleOrders || []);
-    for (const order of staleEligible) {
-      await supabase.from("orders").update({
-        status: "CANCELLED",
-        cancel_reason: "auto_expired",
-        admin_notes: `Auto-cancelled: no payment after 72h (${now.toISOString()})`,
-      }).eq("id", order.id);
-      stats.cancelled++;
-    }
+    // ── ACTION C: Auto-cancel DISABLED (2026-06-06) ──
+    // Do NOT auto-cancel PENDING_PAYMENT orders. Paid/verified orders were being
+    // incorrectly cancelled due to race conditions. Admins cancel manually.
+    void seventyTwoHoursAgo;
 
     console.log(`[order-recovery] R1:${stats.reminder1_sent} R2:${stats.reminder2_sent} Cancelled:${stats.cancelled} Errors:${stats.errors.length}`);
 

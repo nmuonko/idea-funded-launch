@@ -564,31 +564,46 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
 
     // Update order status on success (with idempotency guard)
     if (internalStatus === 'succeeded' && payment.order_id) {
-      // Check current order status before updating
-      const { data: currentOrder } = await supabase
-        .from('orders')
-        .select('status')
-        .eq('id', payment.order_id)
-        .single();
+      const paymentKind = (payment as any).kind || 'full';
+      const nowIso = new Date().toISOString();
 
-      const terminalStatuses = ['PAID', 'COMPLETED', 'SHIPPED'];
-      if (currentOrder && terminalStatuses.includes(currentOrder.status)) {
-        console.log('[payments-webhook/stripe] Order already in terminal state, idempotent skip:', payment.order_id, currentOrder.status);
+      if (paymentKind === 'balance') {
+        // Balance for a deposit-plan order — only flip balance_status.
+        await supabase.from('orders').update({
+          balance_status: 'paid',
+          balance_paid_at: nowIso,
+          balance_payment_provider: 'stripe',
+          balance_payment_reference: (payment as any).reference || null,
+          updated_at: nowIso,
+        }).eq('id', payment.order_id);
+        console.log('[payments-webhook/stripe] Balance payment recorded:', payment.order_id);
       } else {
-        const { error: orderError } = await supabase
+        const { data: currentOrder } = await supabase
           .from('orders')
-          .update({ 
-            status: 'PAID',
-            payment_verified_at: new Date().toISOString(),
-          })
-          .eq('id', payment.order_id);
+          .select('status')
+          .eq('id', payment.order_id)
+          .single();
 
-        if (orderError) {
-          console.error('[payments-webhook/stripe] Failed to update order:', orderError);
+        const terminalStatuses = ['PAID', 'COMPLETED', 'SHIPPED'];
+        if (currentOrder && terminalStatuses.includes(currentOrder.status)) {
+          console.log('[payments-webhook/stripe] Order already in terminal state, idempotent skip:', payment.order_id, currentOrder.status);
         } else {
-          console.log('[payments-webhook/stripe] Order marked as PAID:', payment.order_id);
+          const { error: orderError } = await supabase
+            .from('orders')
+            .update({
+              status: 'PAID',
+              payment_verified_at: nowIso,
+            })
+            .eq('id', payment.order_id);
+
+          if (orderError) {
+            console.error('[payments-webhook/stripe] Failed to update order:', orderError);
+          } else {
+            console.log('[payments-webhook/stripe] Order marked as PAID:', payment.order_id);
+          }
         }
       }
+
       
       // Clear original cart items
       const { data: checkoutSession } = await supabase

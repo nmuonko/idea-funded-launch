@@ -152,7 +152,9 @@ export default function Checkout() {
   const [loading, setLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState('mobile_money');
+  const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>('full');
   const [termsAccepted, setTermsAccepted] = useState(false);
+
   const [showTermsDialog, setShowTermsDialog] = useState(false);
   const [editingAddress, setEditingAddress] = useState(false);
   const [orderServerTotal, setOrderServerTotal] = useState<number | null>(null);

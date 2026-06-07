@@ -12,8 +12,10 @@ import { useShopCart } from '@/contexts/ShopCartContext';
 
 export default function OrderDetail() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const navigate = useNavigate();
+
   const { language } = useLanguage();
   const t = getTranslation(language);
   const { addItem } = useShopCart();

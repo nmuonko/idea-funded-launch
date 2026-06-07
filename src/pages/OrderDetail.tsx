@@ -99,6 +99,35 @@ export default function OrderDetail() {
     }
   };
 
+  const payBalance = async () => {
+    if (!order) return;
+    try {
+      setPayingBalance(true);
+      const { data, error } = await supabase.functions.invoke('create-partial-payment', {
+        body: { order_id: order.id, kind: 'balance' },
+      });
+      if (error || !data?.success) {
+        const msg = data?.error || error?.message || (language === 'fr' ? 'Échec du paiement du solde' : 'Failed to start balance payment');
+        toast({ title: t.common.error, description: msg, variant: 'destructive' });
+        return;
+      }
+      const amount = Number(data.amount || 0);
+      if (data.provider === 'stripe' && data.clientSecret) {
+        navigate(`/card-payment?order_id=${order.id}&client_secret=${encodeURIComponent(data.clientSecret)}&amount=${amount}&currency=USD&plan=balance`);
+        return;
+      }
+      if (data.provider === 'pawapay') {
+        navigate(`/payment-pending?order_id=${order.id}&provider=pawapay&total_usd=${amount}&plan=balance`);
+        return;
+      }
+    } catch (e: any) {
+      toast({ title: t.common.error, description: e?.message || 'Failed', variant: 'destructive' });
+    } finally {
+      setPayingBalance(false);
+    }
+  };
+
+
   const handleBuyAgain = async () => {
     if (!order?.order_items?.length) return;
     

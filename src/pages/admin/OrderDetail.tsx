@@ -99,6 +99,19 @@ export default function AdminOrderDetail() {
 
       if (error) throw error;
 
+      // If shipping a deposit-plan order with a pending balance, also fire the reminder email.
+      if (newStatus === 'SHIPPED' && order?.payment_plan === 'deposit' && order?.balance_status === 'pending') {
+        try {
+          const { error: remErr } = await supabase.functions.invoke('send-balance-reminder', {
+            body: { order_id: id },
+          });
+          if (remErr) console.warn('[admin/OrderDetail] balance reminder failed:', remErr.message);
+        } catch (e) {
+          console.warn('[admin/OrderDetail] balance reminder threw:', e);
+        }
+      }
+
+
       // Send email notification based on status
       if (sendEmail && order?.profiles?.email) {
         const emailPayload = {

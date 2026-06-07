@@ -2248,20 +2248,41 @@ export default function HotProducts() {
   );
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function safeHttpUrl(value: unknown): string {
+  const s = String(value ?? '').trim();
+  if (!/^https?:\/\//i.test(s)) return '#';
+  return escapeHtml(s);
+}
+
 function buildPreviewHtml(products: ShowcaseProduct[]): string {
-  const productCells = products.map(p => `
+  const productCells = products.map(p => {
+    const safeTitle = escapeHtml(p.title.length > 45 ? p.title.slice(0, 45) + '…' : p.title);
+    const safeImg = safeHttpUrl(p.image_url);
+    const safeProductUrl = safeHttpUrl(p.product_url);
+    const sep = String(p.product_url || '').includes('?') ? '&amp;' : '?';
+    return `
     <td style="text-align:center;vertical-align:top;padding:8px;width:${Math.floor(100/Math.min(products.length, 3))}%;">
       <div style="border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#ffffff;">
-        ${p.image_url ? `<img src="${p.image_url}" alt="${p.title}" style="width:100%;height:180px;object-fit:cover;display:block;" />` : ''}
+        ${p.image_url && safeImg !== '#' ? `<img src="${safeImg}" alt="${safeTitle}" style="width:100%;height:180px;object-fit:cover;display:block;" />` : ''}
         <div style="padding:10px;">
-          <p style="font-weight:600;font-size:12px;margin:0 0 2px;color:#1a1a1a;line-height:1.3;">${p.title.length > 45 ? p.title.slice(0, 45) + '…' : p.title}</p>
-          <p style="font-size:20px;font-weight:800;color:#e63946;margin:4px 0 2px;">$${p.total_price_usd.toFixed(0)}</p>
+          <p style="font-weight:600;font-size:12px;margin:0 0 2px;color:#1a1a1a;line-height:1.3;">${safeTitle}</p>
+          <p style="font-size:20px;font-weight:800;color:#e63946;margin:4px 0 2px;">$${Number(p.total_price_usd || 0).toFixed(0)}</p>
           <p style="font-size:9px;color:#666;margin:0 0 8px;">Tout inclus · All-inclusive</p>
-          <a href="${p.product_url}${p.product_url.includes('?') ? '&' : '?'}hot=1" style="display:inline-block;background:#e63946;color:#fff;padding:8px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;">Commander</a>
+          <a href="${safeProductUrl}${sep}hot=1" style="display:inline-block;background:#e63946;color:#fff;padding:8px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;">Commander</a>
         </div>
       </div>
     </td>
-  `).join('');
+  `;
+  }).join('');
 
   return `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;">

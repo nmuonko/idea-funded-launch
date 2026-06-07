@@ -2,7 +2,7 @@ import { sendEmail } from "../_shared/email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-deploy-token, x-cron-secret",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
 };
 
 function delay(ms: number) {
@@ -75,13 +75,11 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Security: require CRON_SECRET or deploy token
+  // Security: require CRON_SECRET only. Admin-triggered runs should be proxied
+  // through an authenticated edge function that injects this header.
   const cronSecret = Deno.env.get("CRON_SECRET");
   const providedHeader = req.headers.get("x-cron-secret");
-  const deployToken = req.headers.get("x-deploy-token");
-  const authorized = 
-    (cronSecret && providedHeader === cronSecret) || 
-    deployToken === "send-now-2026";
+  const authorized = !!cronSecret && providedHeader === cronSecret;
   if (!authorized) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,

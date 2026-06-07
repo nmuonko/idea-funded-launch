@@ -29,18 +29,16 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-    const SHARED_TOKEN = "DUBAI-AFRISHOP-2026";
     const token = req.headers.get("x-dubai-token") || "";
-    let valid = token === SHARED_TOKEN;
-    if (!valid) {
-      const { data: settingRow } = await supa
-        .from("app_secrets")
-        .select("value")
-        .eq("key", "dubai_upload_token")
-        .maybeSingle();
-      const storedHash = (settingRow?.value as any)?.hash as string | undefined;
-      valid = !!storedHash && (await sha256(token)) === storedHash;
-    }
+    if (!token || token.length < 6) return ok({ ok: false, error: "invalid_token" });
+
+    const { data: settingRow } = await supa
+      .from("app_secrets")
+      .select("value")
+      .eq("key", "dubai_upload_token")
+      .maybeSingle();
+    const storedHash = (settingRow?.value as any)?.hash as string | undefined;
+    const valid = !!storedHash && (await sha256(token)) === storedHash;
     if (!valid) return ok({ ok: false, error: "invalid_token" });
 
     const { text } = (await req.json().catch(() => ({}))) as { text?: string };

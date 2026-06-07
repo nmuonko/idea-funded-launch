@@ -90,6 +90,34 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Allow-list of supported event names to prevent analytics pollution.
+    const ALLOWED_EVENTS = new Set([
+      'ViewContent', 'AddToCart', 'InitiateCheckout', 'Purchase',
+      'CompletePayment', 'Search', 'AddToWishlist', 'Registration', 'Login',
+    ]);
+    if (!ALLOWED_EVENTS.has(event)) {
+      return new Response(JSON.stringify({ error: 'unsupported_event' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    if (typeof event_id !== 'string' || event_id.length > 128) {
+      return new Response(JSON.stringify({ error: 'invalid_event_id' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Clamp numeric value to a reasonable range.
+    if (properties && typeof properties.value !== 'undefined') {
+      const v = Number(properties.value);
+      if (!Number.isFinite(v) || v < 0 || v > 1_000_000) {
+        delete properties.value;
+      } else {
+        properties.value = v;
+      }
+    }
+
     // Build user object with hashed PII
     const userObj: TikTokEventPayload['user'] = {
       ip: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||

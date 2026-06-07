@@ -21,6 +21,21 @@ async function isAdmin(supabase: any, userId: string): Promise<boolean> {
 const LOGO_URL = "https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo.png";
 const PLACEHOLDER_IMG = "https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo.png";
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function safeImageUrl(value: unknown): string {
+  const s = String(value ?? '').trim();
+  if (!/^https?:\/\//i.test(s)) return PLACEHOLDER_IMG;
+  return escapeHtml(s);
+}
+
 // Generate receipt HTML (French)
 function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: string): string {
   const formatCurrency = (amount: number, currency: string) => {
@@ -43,15 +58,16 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
   };
 
   const itemsHTML = items.map(item => {
-    const img = item.product_image_url || PLACEHOLDER_IMG;
-    const qty = item.quantity || 1;
+    const img = safeImageUrl(item.product_image_url);
+    const qty = Number(item.quantity || 1);
+    const safeTitle = escapeHtml(item.title || 'Produit');
     return `
     <tr>
       <td style="padding: 12px; border-bottom: 1px solid #eee; width: 88px;">
-        <img src="${img}" alt="${(item.title || 'Produit').replace(/"/g,'&quot;')}" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid #eee;" onerror="this.src='${PLACEHOLDER_IMG}'"/>
+        <img src="${img}" alt="${safeTitle}" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid #eee;"/>
       </td>
       <td style="padding: 12px; border-bottom: 1px solid #eee;">
-        <div style="font-weight: 500; color:#111;">${item.title || 'Produit'}</div>
+        <div style="font-weight: 500; color:#111;">${safeTitle}</div>
         <div style="font-size: 12px; color: #666; margin-top:4px;">Quantité : <strong>${qty}</strong></div>
       </td>
     </tr>
@@ -110,21 +126,21 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
     <div class="info-grid">
       <div class="info-section">
         <h3>Détails de la commande</h3>
-        <p><strong>N° de commande :</strong> #${order.id.slice(0, 8).toUpperCase()}</p>
-        <p><strong>Date :</strong> ${formatDate(order.payment_verified_at || order.updated_at)}</p>
-        <p><strong>Statut :</strong> ${order.status}</p>
+        <p><strong>N° de commande :</strong> #${escapeHtml(String(order.id).slice(0, 8).toUpperCase())}</p>
+        <p><strong>Date :</strong> ${escapeHtml(formatDate(order.payment_verified_at || order.updated_at))}</p>
+        <p><strong>Statut :</strong> ${escapeHtml(order.status)}</p>
       </div>
       <div class="info-section">
         <h3>Client</h3>
-        <p><strong>Nom :</strong> ${profile?.full_name || profile?.name || 'Client'}</p>
-        <p><strong>Email :</strong> ${userEmail}</p>
-        ${profile?.phone ? `<p><strong>Téléphone :</strong> ${profile.phone}</p>` : ''}
+        <p><strong>Nom :</strong> ${escapeHtml(profile?.full_name || profile?.name || 'Client')}</p>
+        <p><strong>Email :</strong> ${escapeHtml(userEmail)}</p>
+        ${profile?.phone ? `<p><strong>Téléphone :</strong> ${escapeHtml(profile.phone)}</p>` : ''}
       </div>
     </div>
 
     <div class="info-section" style="margin-bottom:20px;">
       <h3>Référence de paiement</h3>
-      <div class="transaction-id">${order.operator_ref_id || 'N/D'}</div>
+      <div class="transaction-id">${escapeHtml(order.operator_ref_id || 'N/D')}</div>
     </div>
 
     <table>

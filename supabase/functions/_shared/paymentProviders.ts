@@ -353,6 +353,7 @@ export async function createPaymentRecord(
     client_secret?: string;
     raw_request?: any;
     status?: string;
+    kind?: 'full' | 'deposit' | 'balance';
   }
 ): Promise<{ id: string } | null> {
   const { data, error } = await supabase
@@ -369,6 +370,7 @@ export async function createPaymentRecord(
       client_secret: params.client_secret || null,
       raw_request: params.raw_request || null,
       status: params.status || 'pending',
+      kind: params.kind || 'full',
     })
     .select('id')
     .single();
@@ -380,6 +382,7 @@ export async function createPaymentRecord(
 
   return data;
 }
+
 
 /**
  * Update payment status

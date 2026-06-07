@@ -32,6 +32,19 @@ export default function OrderDetail() {
     }
   }, [id]);
 
+  // Auto-open balance payment when arriving from the reminder email link (?pay_balance=1)
+  const autoBalanceTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (autoBalanceTriggeredRef.current) return;
+    if (!order) return;
+    if (searchParams.get('pay_balance') !== '1') return;
+    if (order.payment_plan !== 'deposit' || order.balance_status !== 'pending') return;
+    autoBalanceTriggeredRef.current = true;
+    void payBalance();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order, searchParams]);
+
+
   const loadOrder = async () => {
     try {
       setLoading(true);

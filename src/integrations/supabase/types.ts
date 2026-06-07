@@ -4351,6 +4351,7 @@ export type Database = {
           currency: string
           customer_phone: string | null
           id: string
+          kind: string
           order_id: string
           paid_at: string | null
           provider_deposit_id: string | null
@@ -4370,6 +4371,7 @@ export type Database = {
           currency: string
           customer_phone?: string | null
           id?: string
+          kind?: string
           order_id: string
           paid_at?: string | null
           provider_deposit_id?: string | null
@@ -4389,6 +4391,7 @@ export type Database = {
           currency?: string
           customer_phone?: string | null
           id?: string
+          kind?: string
           order_id?: string
           paid_at?: string | null
           provider_deposit_id?: string | null

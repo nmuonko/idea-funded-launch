@@ -388,24 +388,40 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
 
     // Update order status on success
     if (newStatus === 'succeeded' && payment.order_id) {
-      // Idempotent order update - only if not already PAID
-      const { data: currentOrder } = await supabase
-        .from('orders')
-        .select('status')
-        .eq('id', payment.order_id)
-        .single();
+      const paymentKind = (payment as any).kind || 'full';
+      const nowIso = new Date().toISOString();
 
-      if (currentOrder && currentOrder.status !== 'PAID') {
-        await supabase
+      if (paymentKind === 'balance') {
+        // Balance for a deposit-plan order — order is already PAID; flip balance_status.
+        await supabase.from('orders').update({
+          balance_status: 'paid',
+          balance_paid_at: nowIso,
+          balance_payment_provider: 'stripe',
+          balance_payment_reference: (payment as any).reference || null,
+          updated_at: nowIso,
+        }).eq('id', payment.order_id);
+        console.log('[payments-webhook/stripe] Balance payment recorded, order:', payment.order_id);
+      } else {
+        // Idempotent order update - only if not already PAID
+        const { data: currentOrder } = await supabase
           .from('orders')
-          .update({ 
-            status: 'PAID',
-            payment_verified_at: new Date().toISOString(),
-          })
-          .eq('id', payment.order_id);
+          .select('status')
+          .eq('id', payment.order_id)
+          .single();
 
-        console.log('[payments-webhook/stripe] Order marked as PAID via checkout webhook:', payment.order_id);
+        if (currentOrder && currentOrder.status !== 'PAID') {
+          await supabase
+            .from('orders')
+            .update({
+              status: 'PAID',
+              payment_verified_at: nowIso,
+            })
+            .eq('id', payment.order_id);
+
+          console.log('[payments-webhook/stripe] Order marked as PAID via checkout webhook:', payment.order_id);
+        }
       }
+
       
       // Clear original cart items
       const { data: checkoutSession } = await supabase

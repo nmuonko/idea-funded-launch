@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { CheckoutInlineLogin } from '@/components/shop/CheckoutInlineLogin';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
+import { PaymentPlanSelector, type PaymentPlan } from '@/components/shop/PaymentPlanSelector';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,6 +20,7 @@ import { translations } from '@/lib/i18n/translations';
 import { trackInitiateCheckout } from '@/lib/tiktokPixel';
 import { trackMetaInitiateCheckout } from '@/lib/metaPixel';
 import { sanitizeCartImage } from '@/lib/imageValidation';
+
 
 interface ShippingAddress {
   fullName: string;

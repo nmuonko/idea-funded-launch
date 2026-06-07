@@ -440,6 +440,60 @@ export default function Checkout() {
       console.log('[WEB_CHECKOUT] Order created:', orderId, 'items:', orderItemIds.length, 'serverTotal:', srvTotal);
       await logFunnel('order_created', 'ok', undefined, { orderId, itemCount: orderItemIds.length });
 
+      // ============================================
+      // DEPOSIT BRANCH: Pay 30% now, 70% on arrival.
+      // Skip mobile-orders 'checkout' (which would charge the full amount via Stripe/pawaPay)
+      // and call create-partial-payment with kind='deposit' instead.
+      // The default 'full' path below remains untouched.
+      // ============================================
+      if (paymentPlan === 'deposit' && depositEligible) {
+        const providerForDeposit = paymentMethod === 'card' ? 'stripe' : 'pawapay';
+        const partialPayload: Record<string, any> = {
+          order_id: orderId,
+          kind: 'deposit',
+          provider: providerForDeposit,
+        };
+        if (providerForDeposit === 'pawapay' && address.phone) {
+          partialPayload.phone = address.phone;
+        }
+
+        await logFunnel('checkout_started', 'ok', undefined, { provider: providerForDeposit, orderId, plan: 'deposit' });
+
+        const { data: partial, error: partialErr } = await supabase.functions.invoke('create-partial-payment', {
+          body: partialPayload,
+        });
+
+        if (partialErr || !partial?.success) {
+          const msg = partial?.error || partialErr?.message || (isFr ? 'Échec du paiement d\'acompte' : 'Deposit payment failed');
+          await logFunnel('checkout_failed', 'error', msg, { plan: 'deposit' });
+          setCheckoutError(msg);
+          setLoading(false);
+          return;
+        }
+
+        const depositAmount = Number(partial.amount || 0);
+
+        if (partial.provider === 'stripe' && partial.clientSecret) {
+          await logFunnel('payment_initiated', 'ok', undefined, { provider: 'stripe', orderId, plan: 'deposit' });
+          savePendingCheckout({ orderId, paymentMethod: 'card', totalUsd: depositAmount });
+          navigate(`/card-payment?order_id=${orderId}&client_secret=${encodeURIComponent(partial.clientSecret)}&amount=${depositAmount}&currency=USD&plan=deposit`);
+          return;
+        }
+
+        if (partial.provider === 'pawapay') {
+          await logFunnel('payment_initiated', 'ok', undefined, { provider: 'pawapay', orderId, plan: 'deposit' });
+          savePendingCheckout({ orderId, paymentMethod: 'mobile_money', totalUsd: depositAmount });
+          navigate(`/payment-pending?order_id=${orderId}&provider=pawapay&total_usd=${depositAmount}&plan=deposit`);
+          return;
+        }
+
+        setCheckoutError(isFr ? 'Réponse inattendue du fournisseur d\'acompte' : 'Unexpected deposit provider response');
+        setLoading(false);
+        return;
+      }
+
+
+
       // Step 2: Checkout WITH inline provider selection (merged steps 2+3)
       // Determine provider and phone/operator to pass inline
       const providerMap: Record<string, string> = {

@@ -201,6 +201,24 @@ export default function Checkout() {
     ? sharedHotProduct.total_price_usd
     : (checkoutItems.length > 0 ? checkoutTotal : (sharedHotProduct?.total_price_usd ?? 0));
 
+  // Deposit plan eligibility: total >= $100 AND no vehicle items.
+  // Hot products are never vehicles. Cart vehicle check uses ShopCartContext flag.
+  const isFr = language === 'fr';
+  const hasVehicleInCheckout = hotProductId ? false : (selectedHasVehicleItems || false);
+  const depositEligible = effectiveCheckoutTotal >= 100 && !hasVehicleInCheckout;
+  const depositIneligibleReason = !depositEligible
+    ? hasVehicleInCheckout
+      ? (isFr ? 'Indisponible pour les véhicules.' : 'Not available for vehicle purchases.')
+      : (isFr ? 'Disponible à partir de 100$.' : 'Available on orders of $100 or more.')
+    : undefined;
+
+  // If user had picked deposit but cart changed and it's no longer eligible, snap back to full.
+  useEffect(() => {
+    if (!depositEligible && paymentPlan === 'deposit') setPaymentPlan('full');
+  }, [depositEligible, paymentPlan]);
+
+
+
   // Restore cart from pending checkout only if cart is genuinely empty AFTER initialization + loading, attempt once
   const didAttemptRestoreRef = useRef(false);
   useEffect(() => {

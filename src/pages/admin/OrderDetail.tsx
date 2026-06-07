@@ -37,6 +37,28 @@ export default function AdminOrderDetail() {
   const [updatingItems, setUpdatingItems] = useState(false);
   const [sendingStatusEmail, setSendingStatusEmail] = useState<string | null>(null);
   const [sendingAssistanceEmail, setSendingAssistanceEmail] = useState(false);
+  const [sendingBalanceReminder, setSendingBalanceReminder] = useState(false);
+
+  const handleSendBalanceReminder = async () => {
+    if (!id) return;
+    try {
+      setSendingBalanceReminder(true);
+      const { data, error } = await supabase.functions.invoke('send-balance-reminder', {
+        body: { order_id: id },
+      });
+      if (error || !data?.success) {
+        toast({ title: 'Error', description: data?.error || error?.message || 'Failed to send reminder', variant: 'destructive' });
+        return;
+      }
+      toast({ title: 'Reminder sent', description: 'Customer was emailed the balance payment link.' });
+      loadOrder();
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message || 'Failed', variant: 'destructive' });
+    } finally {
+      setSendingBalanceReminder(false);
+    }
+  };
+
 
   useEffect(() => {
     if (id) loadOrder();

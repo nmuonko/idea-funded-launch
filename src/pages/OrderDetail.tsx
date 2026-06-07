@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useState, useRef } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -12,8 +12,10 @@ import { useShopCart } from '@/contexts/ShopCartContext';
 
 export default function OrderDetail() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const navigate = useNavigate();
+
   const { language } = useLanguage();
   const t = getTranslation(language);
   const { addItem } = useShopCart();
@@ -21,12 +23,27 @@ export default function OrderDetail() {
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
   const [buyingAgain, setBuyingAgain] = useState(false);
+  const [payingBalance, setPayingBalance] = useState(false);
+
 
   useEffect(() => {
     if (id) {
       loadOrder();
     }
   }, [id]);
+
+  // Auto-open balance payment when arriving from the reminder email link (?pay_balance=1)
+  const autoBalanceTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (autoBalanceTriggeredRef.current) return;
+    if (!order) return;
+    if (searchParams.get('pay_balance') !== '1') return;
+    if (order.payment_plan !== 'deposit' || order.balance_status !== 'pending') return;
+    autoBalanceTriggeredRef.current = true;
+    void payBalance();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order, searchParams]);
+
 
   const loadOrder = async () => {
     try {
@@ -96,6 +113,35 @@ export default function OrderDetail() {
       setRetrying(false);
     }
   };
+
+  const payBalance = async () => {
+    if (!order) return;
+    try {
+      setPayingBalance(true);
+      const { data, error } = await supabase.functions.invoke('create-partial-payment', {
+        body: { order_id: order.id, kind: 'balance' },
+      });
+      if (error || !data?.success) {
+        const msg = data?.error || error?.message || (language === 'fr' ? 'Échec du paiement du solde' : 'Failed to start balance payment');
+        toast({ title: t.common.error, description: msg, variant: 'destructive' });
+        return;
+      }
+      const amount = Number(data.amount || 0);
+      if (data.provider === 'stripe' && data.clientSecret) {
+        navigate(`/card-payment?order_id=${order.id}&client_secret=${encodeURIComponent(data.clientSecret)}&amount=${amount}&currency=USD&plan=balance`);
+        return;
+      }
+      if (data.provider === 'pawapay') {
+        navigate(`/payment-pending?order_id=${order.id}&provider=pawapay&total_usd=${amount}&plan=balance`);
+        return;
+      }
+    } catch (e: any) {
+      toast({ title: t.common.error, description: e?.message || 'Failed', variant: 'destructive' });
+    } finally {
+      setPayingBalance(false);
+    }
+  };
+
 
   const handleBuyAgain = async () => {
     if (!order?.order_items?.length) return;
@@ -355,6 +401,57 @@ export default function OrderDetail() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Deposit / balance card */}
+        {order.payment_plan === 'deposit' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">
+                {language === 'fr' ? 'Plan d\'acompte 30% / 70%' : '30% / 70% Deposit Plan'}
+              </CardTitle>
+              <CardDescription>
+                {order.balance_status === 'paid'
+                  ? (language === 'fr' ? 'Solde réglé.' : 'Balance fully paid.')
+                  : (language === 'fr' ? 'Votre acompte est payé. Le solde est dû à l\'arrivée.' : 'Your deposit is paid. The balance is due on arrival.')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{language === 'fr' ? 'Acompte payé (30%)' : 'Deposit paid (30%)'}</span>
+                  <span className="font-medium text-green-600">${Number(order.deposit_amount_usd || 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{language === 'fr' ? 'Solde (70%)' : 'Balance (70%)'}</span>
+                  <span className="font-medium">${Number(order.balance_amount_usd || 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t">
+                  <span>{language === 'fr' ? 'Statut du solde' : 'Balance status'}</span>
+                  <Badge className={order.balance_status === 'paid' ? 'bg-green-500' : 'bg-amber-500'}>
+                    {order.balance_status === 'paid'
+                      ? (language === 'fr' ? 'Payé' : 'Paid')
+                      : (language === 'fr' ? 'En attente' : 'Pending')}
+                  </Badge>
+                </div>
+                {order.balance_status === 'pending' && (
+                  <Button
+                    onClick={payBalance}
+                    disabled={payingBalance}
+                    className="w-full mt-4 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600"
+                  >
+                    {payingBalance ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{language === 'fr' ? 'Préparation…' : 'Preparing…'}</>
+                    ) : (
+                      <>{language === 'fr' ? `Payer le solde ($${Number(order.balance_amount_usd || 0).toFixed(2)})` : `Pay balance ($${Number(order.balance_amount_usd || 0).toFixed(2)})`}</>
+                    )}
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+
 
         {/* Actions */}
         <div className="flex flex-wrap gap-3">

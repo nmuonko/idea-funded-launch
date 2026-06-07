@@ -971,28 +971,41 @@ serve(async (req) => {
 
     // Update order status
     if (normalizedStatus === 'succeeded') {
-      console.log(`[${traceId}] [PAYMENT_VERIFY] Payment SUCCESS - updating order to PAID`);
+      const paymentKind = (payment as any).kind || 'full';
 
-      // Use atomic RPC if available
-      const { data: rpcResult, error: rpcError } = await supabase.rpc('finalize_paid_order', {
-        p_order_id: payment.order_id,
-        p_payment_ref: depositId,
-        p_operator_ref: correspondentIds?.operatorId || null,
-        p_trace_id: traceId,
-      });
-
-      if (rpcError) {
-        console.error(`[${traceId}] finalize_paid_order RPC error:`, rpcError);
-        // Fallback to direct update
+      if (paymentKind === 'balance') {
+        // BALANCE payment: order is already PAID — only flip balance_status and record the link.
+        console.log(`[${traceId}] [PAYMENT_VERIFY] BALANCE payment SUCCESS - marking balance paid`);
         await supabase.from('orders').update({
-          status: 'PAID',
-          operator_ref_id: correspondentIds?.operatorId || null,
-          payment_verified_at: now,
+          balance_status: 'paid',
+          balance_paid_at: now,
+          balance_payment_provider: 'pawapay',
+          balance_payment_reference: payment.reference,
           updated_at: now,
         }).eq('id', payment.order_id);
       } else {
-        console.log(`[${traceId}] Order finalized:`, rpcResult);
+        // FULL or DEPOSIT payment: existing flow — order becomes PAID and downstream emails/shipping fire.
+        console.log(`[${traceId}] [PAYMENT_VERIFY] Payment SUCCESS (kind=${paymentKind}) - updating order to PAID`);
+        const { data: rpcResult, error: rpcError } = await supabase.rpc('finalize_paid_order', {
+          p_order_id: payment.order_id,
+          p_payment_ref: depositId,
+          p_operator_ref: correspondentIds?.operatorId || null,
+          p_trace_id: traceId,
+        });
+
+        if (rpcError) {
+          console.error(`[${traceId}] finalize_paid_order RPC error:`, rpcError);
+          await supabase.from('orders').update({
+            status: 'PAID',
+            operator_ref_id: correspondentIds?.operatorId || null,
+            payment_verified_at: now,
+            updated_at: now,
+          }).eq('id', payment.order_id);
+        } else {
+          console.log(`[${traceId}] Order finalized:`, rpcResult);
+        }
       }
+
 
       // Send confirmation email (idempotent)
       await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, traceId);

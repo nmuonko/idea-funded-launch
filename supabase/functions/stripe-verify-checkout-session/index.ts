@@ -264,8 +264,30 @@ serve(async (req: Request): Promise<Response> => {
         console.warn(`[STRIPE_VERIFY] Failed to update payment record`, { requestId, error: paymentUpdateError });
       }
 
-      // Update order status to PAID - CANONICAL: status = 'PAID', payment_verified_at = now
-      if (order.status !== 'PAID') {
+      // Detect payment kind (full | deposit | balance) so a balance payment doesn't overwrite order status.
+      const { data: paidPayment } = await supabase
+        .from('payments')
+        .select('kind, reference')
+        .eq('order_id', order_id)
+        .eq('provider_deposit_id', session_id)
+        .maybeSingle();
+      const paymentKind = (paidPayment?.kind as 'full' | 'deposit' | 'balance' | undefined) || 'full';
+
+      if (paymentKind === 'balance') {
+        // Order is already PAID; only flip balance_status.
+        const { error: balErr } = await supabase
+          .from('orders')
+          .update({
+            balance_status: 'paid',
+            balance_paid_at: now,
+            balance_payment_provider: 'stripe',
+            balance_payment_reference: paidPayment?.reference || session_id,
+            updated_at: now,
+          })
+          .eq('id', order_id);
+        if (balErr) console.error(`[STRIPE_VERIFY] Failed to update balance_status`, { requestId, error: balErr });
+      } else if (order.status !== 'PAID') {
+        // Full or deposit payment: standard PAID transition.
         const { error: orderUpdateError } = await supabase
           .from('orders')
           .update({
@@ -275,11 +297,11 @@ serve(async (req: Request): Promise<Response> => {
             updated_at: now,
           })
           .eq('id', order_id);
-
         if (orderUpdateError) {
           console.error(`[STRIPE_VERIFY] Failed to update order status`, { requestId, error: orderUpdateError });
         }
       }
+
 
       // Update checkout_sessions if present
       const { error: sessionUpdateError } = await supabase

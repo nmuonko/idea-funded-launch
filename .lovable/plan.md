@@ -1,82 +1,61 @@
-# Dubai Product Upload System
+# 30% Deposit / 70% on Arrival — Payment Plan
 
-A private, mobile-first upload flow for the Dubai onsite buyer plus an admin review queue and a separated "Articles de Dubai" section on `/hot-products`. Reuses the existing guest checkout path (no payment changes).
+A new opt-in payment plan on checkout. Default stays full payment, so nothing breaks for existing flows.
 
-## 1. Database
+## Eligibility rules (enforced server-side)
+- **Allowed**: any cart/hot product whose total is **≥ $100 USD** and contains **no vehicle** items.
+- **Blocked**: cars (uses existing `contains_vehicle` flag + vehicle detection), and orders under $100.
+- The UI only shows the deposit toggle when eligible. The intent-creation endpoint re-validates eligibility before accepting `plan = 'deposit'` so the client can't bypass.
 
-New table `dubai_uploads` (separate from `hot_products_showcase` to avoid polluting the curated catalog while pending):
+## Customer experience
+1. On the cart checkout page (`Checkout.tsx`) and the hot product buy page (`HotProductBuy.tsx`), when eligible, show a radio toggle:
+   - ⚪ Pay full now — `$X`
+   - ⚪ Pay 30% deposit now (`$0.3X`), 70% on arrival (`$0.7X`)
+2. Selection is saved with the order. If "deposit" is chosen, the payment provider charges only the deposit amount using the **same provider** as before (Stripe / pawaPay / MaishaPay).
+3. After the deposit succeeds, the order becomes `PAID_DEPOSIT` (new sub-status) and shows a clear "Deposit paid · Balance due on arrival" badge in the customer's order history.
+4. When admin marks the order **SHIPPED**, an automatic email reminder is sent to the customer with a link to pay the 70% balance via the same provider used for the deposit.
+5. Customer pays the balance through that link → order becomes fully `PAID` and proceeds normally.
 
-- `id`, `created_at`, `updated_at`
-- `source` (default `dubai`), `category` (iphone/samsung/pixel/other_phone/laptop/accessories/other)
-- `model`, `model_other_text`, `refined_title`
-- `storage`, `color`, `condition`, `battery_health`, `sim_type`, `network_status`, `face_id`
-- `dubai_price_aed`, `dubai_price_usd`, `final_price_usd` (nullable)
-- `images text[]`, `raw_images text[]`, `video_url`
-- `supplier_notes` (internal), `public_description`, `admin_notes`
-- `status` (`pending_review` | `approved` | `rejected`)
-- `published_showcase_id` (FK to `hot_products_showcase.id`, set when approved)
-- `submitted_by_token_hash` (audit trail)
+## Admin experience
+- Order list & detail show a "Deposit · $X paid / $Y due" badge and the balance status (Pending / Paid).
+- Order detail gets a **"Send balance reminder"** button (manual resend) and shows the generated balance link.
+- Receipts already exist; balance payments add a second receipt entry once collected.
 
-Storage bucket `dubai-uploads` (public read for approved images; private folder convention `pending/...` vs `approved/...`).
+## Database (one migration, additive only)
+New nullable columns on `orders` — existing orders are unaffected:
+- `payment_plan` text default `'full'` — values: `'full' | 'deposit'`
+- `deposit_amount_usd` numeric
+- `balance_amount_usd` numeric
+- `balance_status` text — `'not_applicable' | 'pending' | 'paid'` (default `'not_applicable'`)
+- `balance_paid_at` timestamptz
+- `balance_payment_id` uuid (FK to `payments.id`)
+- `balance_reminder_sent_at` timestamptz
+- `balance_payment_reference` text (the provider session/deposit id for the balance charge)
 
-Settings: add `dubai_upload_token` and `dubai_pricing_rules` rows to `app_settings` (or equivalent existing settings table) — token stored hashed.
+New order status value: `'PAID_DEPOSIT'` added to the `order_status` enum (between `PAID` and `PROCESSING` semantically). All existing status checks that look for `PAID` are widened where appropriate (admin can still ship a deposit-paid order; full-paid filters stay unchanged).
 
-RLS:
-- INSERT via an edge function only (no anon client insert).
-- SELECT/UPDATE/DELETE limited to admins.
-- Storage bucket: insert via signed edge function; read-only public for approved paths.
+## Backend changes
+- **`payments-create-intent`** (and the two provider-specific creators: `stripe-create-checkout-session`, `pawapay-create-payment`): accept optional `plan: 'full' | 'deposit'`. When `deposit`, re-validate eligibility against the order, compute `deposit = round_up(total * 0.30)`, `balance = total - deposit`, charge the deposit, and persist plan + amounts on the order.
+- **Webhooks** (`payments-webhook`, `pawapay-callback`, `stripe-verify-checkout-session`, `maisha-callback`): when a successful payment maps to an order with `payment_plan='deposit'` and the reference is the **deposit** reference, set status `PAID_DEPOSIT`, `balance_status='pending'`. When it's the **balance** reference, set `balance_status='paid'`, `balance_paid_at`, and promote status to `PAID` (then existing auto-progression to PROCESSING runs as today).
+- **New edge function `create-balance-payment`**: generates a fresh provider checkout session for the 70% balance using the same provider as the deposit; idempotent per order.
+- **New edge function `send-balance-reminder`** (uses existing email infra): sends "Your order has arrived — pay the balance" email containing the balance link. Triggered automatically when an admin transitions an order with `balance_status='pending'` to `SHIPPED`, and manually from the admin button.
 
-Add `link_source = 'dubai'` convention on the published `hot_products_showcase` rows so the frontend can split them out.
+## Frontend changes (presentation only)
+- `Checkout.tsx`: add `PaymentPlanSelector` component shown when eligible; pass `plan` to intent creation.
+- `HotProductBuy.tsx`: same selector when hot product price ≥ $100.
+- `MyOrders.tsx` / customer order detail: show deposit badge + "Pay balance now" button when `balance_status='pending'` and a balance link exists.
+- Admin `OrderDetail.tsx`: deposit/balance card + "Send balance reminder" action.
+- New tiny `PaymentPlanBadge` component reused in customer and admin views.
 
-## 2. Edge functions
+## No-regression guardrails
+- All new columns are nullable with safe defaults; existing orders read `payment_plan='full'` implicitly.
+- The deposit path is fully opt-in client-side AND re-validated server-side; the default code path for full payment is untouched.
+- Webhook handlers branch on `payment_plan` and the reference shape (`AFRISHOP-{orderId}-DEPOSIT-…` vs `AFRISHOP-{orderId}-BALANCE-…`) so existing single-payment orders go through the same branch as today.
+- Cars (`contains_vehicle = true` or vehicle detection on items) are hard-blocked at both UI and API levels.
+- Auto-cancellation of pending orders remains disabled (per prior fix) — deposit-paid orders are explicitly excluded anyway.
 
-- `dubai-upload-submit` — validates token (compares hash), validates body (zod), uploads images to Storage, inserts `dubai_uploads` row with `status = pending_review`. Returns 200 + JSON only (mobile-safe).
-- `dubai-refine-title` — calls Lovable AI Gateway (`google/gemini-3-flash-preview`) to clean a typed phone name into a professional title. Token-gated.
-- `dubai-upload-approve` — admin-only (verify_jwt + `is_admin` check). Creates a `hot_products_showcase` row with `link_source='dubai'`, copies title/price/images, marks dubai_upload as `approved`, stores `published_showcase_id`.
-- `dubai-upload-reject` — admin-only, marks rejected (and optionally deletes images).
+## Out of scope
+- No change to refund logic for deposit orders in this pass (refunds remain admin-manual, same flow). Will revisit if you ask.
+- No partial-refund of just the deposit; if needed later we can add it.
 
-## 3. Frontend pages
-
-### `/dubai-upload` (route guarded by `?token=`)
-- Mobile-first form with progressive disclosure (category → model → details → photos → price → notes → submit).
-- Image picker uses `<input type="file" accept="image/*" capture="environment" multiple>` so phones open the camera.
-- Client-side compress/resize before upload (canvas → JPEG ~1600px max edge ~80% quality); keep originals as `raw_images` (uploaded separately, untouched).
-- "Refine title" button calls `dubai-refine-title`.
-- Final-price suggestion: client calls a helper that applies pricing rules (display only).
-- Token read from URL, sent in `x-dubai-token` header to all edge functions. If missing/invalid → friendly "Access denied" screen.
-
-### `/admin/dubai-uploads`
-- Pending queue with thumbnails. Edit dialog: title, final price, public description, condition, battery health, stock status, image reorder/remove.
-- Buttons: Approve (publishes), Reject (deletes).
-- Wire into existing AdminLayout sidebar under Catalog with admin permission check.
-
-### `/hot-products`
-- Fetch `hot_products_showcase` as today, then split:
-  - Existing products (current logic, unchanged ordering)
-  - Dubai products: `link_source = 'dubai'`, rendered in a separate grid under a big heading "🔥 Articles de Dubai" with a short tagline ("Livraison RDC incluse · Livraison estimée 2–4 semaines · Vérifié avant expédition").
-- Dubai cards reuse the same `<Button>` calling the existing `handleBuyNow` flow (adds item + navigates to `/checkout?hp={id}`). No new checkout, no cart-required step, guest-checkout already supported by that route.
-- Dubai card extras: condition badge, battery health line, "Commander / Payer sur le site" label on the main button, plus a green "Problème ? Contactez-nous sur WhatsApp" button below with prefilled product-aware message.
-
-## 4. Reuse, NOT replace
-
-- Checkout / Stripe / pawaPay / mobile money / totals: **untouched**.
-- The Dubai card's main button uses the same `addItem` → `/checkout?hp=...` flow already used by other hot products and the link generator.
-- WhatsApp is only support/contact — never an order channel.
-
-## 5. Security
-
-- Token compared via `crypto.subtle.digest` (SHA-256) against the hashed value in settings; constant-time compare.
-- Edge functions return HTTP 200 with JSON `{ ok:false, error:'...' }` on failure (per project mobile contract).
-- File type/size validation server-side: images ≤ 10 MB each, max 8; video optional ≤ 50 MB.
-- Server-side title sanitization to prevent injection in product titles.
-
-## 6. Out of scope (intentionally)
-
-- No public navigation entry for `/dubai-upload`.
-- No "Voir tous les produits" link.
-- No category filter chips on `/hot-products`.
-- No changes to existing hot-products data or ordering.
-
-## Open question
-
-I'll generate one shared static token stored hashed in app settings and ask you to set its plaintext value via the Admin → Dubai Uploads page after approval. Acceptable?
+Shall I proceed with implementation?

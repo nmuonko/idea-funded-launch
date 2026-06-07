@@ -37,6 +37,28 @@ export default function AdminOrderDetail() {
   const [updatingItems, setUpdatingItems] = useState(false);
   const [sendingStatusEmail, setSendingStatusEmail] = useState<string | null>(null);
   const [sendingAssistanceEmail, setSendingAssistanceEmail] = useState(false);
+  const [sendingBalanceReminder, setSendingBalanceReminder] = useState(false);
+
+  const handleSendBalanceReminder = async () => {
+    if (!id) return;
+    try {
+      setSendingBalanceReminder(true);
+      const { data, error } = await supabase.functions.invoke('send-balance-reminder', {
+        body: { order_id: id },
+      });
+      if (error || !data?.success) {
+        toast({ title: 'Error', description: data?.error || error?.message || 'Failed to send reminder', variant: 'destructive' });
+        return;
+      }
+      toast({ title: 'Reminder sent', description: 'Customer was emailed the balance payment link.' });
+      loadOrder();
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message || 'Failed', variant: 'destructive' });
+    } finally {
+      setSendingBalanceReminder(false);
+    }
+  };
+
 
   useEffect(() => {
     if (id) loadOrder();
@@ -98,6 +120,19 @@ export default function AdminOrderDetail() {
         .eq('id', id);
 
       if (error) throw error;
+
+      // If shipping a deposit-plan order with a pending balance, also fire the reminder email.
+      if (newStatus === 'SHIPPED' && order?.payment_plan === 'deposit' && order?.balance_status === 'pending') {
+        try {
+          const { error: remErr } = await supabase.functions.invoke('send-balance-reminder', {
+            body: { order_id: id },
+          });
+          if (remErr) console.warn('[admin/OrderDetail] balance reminder failed:', remErr.message);
+        } catch (e) {
+          console.warn('[admin/OrderDetail] balance reminder threw:', e);
+        }
+      }
+
 
       // Send email notification based on status
       if (sendEmail && order?.profiles?.email) {
@@ -642,8 +677,69 @@ export default function AdminOrderDetail() {
         </Card>
       </div>
 
+      {/* Deposit / 70% Balance card */}
+      {order.payment_plan === 'deposit' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Deposit Plan (30% / 70%)</CardTitle>
+            <CardDescription>
+              Customer chose to pay a 30% deposit upfront and the 70% balance on arrival.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid sm:grid-cols-3 gap-4 text-sm">
+              <div>
+                <div className="text-muted-foreground">Order total</div>
+                <div className="font-semibold">${Number(order.total_usd || 0).toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Deposit paid (30%)</div>
+                <div className="font-semibold text-green-600">${Number(order.deposit_amount_usd || 0).toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Balance due (70%)</div>
+                <div className="font-semibold">${Number(order.balance_amount_usd || 0).toFixed(2)}</div>
+              </div>
+            </div>
+            <div className="mt-4 flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">Balance status:</span>
+              <Badge className={order.balance_status === 'paid' ? 'bg-green-600' : 'bg-amber-600'}>
+                {order.balance_status === 'paid' ? 'Paid' : 'Pending'}
+              </Badge>
+              {order.balance_reminder_sent_at && (
+                <span className="text-xs text-muted-foreground">
+                  Reminder sent {new Date(order.balance_reminder_sent_at).toLocaleString()}
+                </span>
+              )}
+            </div>
+            {order.balance_status === 'pending' && order.profiles?.email && (
+              <div className="mt-4">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSendBalanceReminder}
+                  disabled={sendingBalanceReminder}
+                >
+                  {sendingBalanceReminder ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Mail className="h-4 w-4 mr-2" />
+                  )}
+                  {order.balance_reminder_sent_at ? 'Resend balance reminder' : 'Send balance reminder'}
+                </Button>
+                <p className="text-xs text-muted-foreground mt-2">
+                  A reminder is sent automatically when you mark this order as Shipped.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+
       <Card>
         <CardHeader>
+
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Order Items</CardTitle>

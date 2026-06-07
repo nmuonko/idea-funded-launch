@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { CheckoutInlineLogin } from '@/components/shop/CheckoutInlineLogin';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
+import { PaymentPlanSelector, type PaymentPlan } from '@/components/shop/PaymentPlanSelector';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,6 +20,7 @@ import { translations } from '@/lib/i18n/translations';
 import { trackInitiateCheckout } from '@/lib/tiktokPixel';
 import { trackMetaInitiateCheckout } from '@/lib/metaPixel';
 import { sanitizeCartImage } from '@/lib/imageValidation';
+
 
 interface ShippingAddress {
   fullName: string;
@@ -150,7 +152,9 @@ export default function Checkout() {
   const [loading, setLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState('mobile_money');
+  const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>('full');
   const [termsAccepted, setTermsAccepted] = useState(false);
+
   const [showTermsDialog, setShowTermsDialog] = useState(false);
   const [editingAddress, setEditingAddress] = useState(false);
   const [orderServerTotal, setOrderServerTotal] = useState<number | null>(null);
@@ -196,6 +200,24 @@ export default function Checkout() {
   const effectiveCheckoutTotal = hotProductId && sharedHotProduct
     ? sharedHotProduct.total_price_usd
     : (checkoutItems.length > 0 ? checkoutTotal : (sharedHotProduct?.total_price_usd ?? 0));
+
+  // Deposit plan eligibility: total >= $100 AND no vehicle items.
+  // Hot products are never vehicles. Cart vehicle check uses ShopCartContext flag.
+  const isFr = language === 'fr';
+  const hasVehicleInCheckout = hotProductId ? false : (selectedHasVehicleItems || false);
+  const depositEligible = effectiveCheckoutTotal >= 100 && !hasVehicleInCheckout;
+  const depositIneligibleReason = !depositEligible
+    ? hasVehicleInCheckout
+      ? (isFr ? 'Indisponible pour les véhicules.' : 'Not available for vehicle purchases.')
+      : (isFr ? 'Disponible à partir de 100$.' : 'Available on orders of $100 or more.')
+    : undefined;
+
+  // If user had picked deposit but cart changed and it's no longer eligible, snap back to full.
+  useEffect(() => {
+    if (!depositEligible && paymentPlan === 'deposit') setPaymentPlan('full');
+  }, [depositEligible, paymentPlan]);
+
+
 
   // Restore cart from pending checkout only if cart is genuinely empty AFTER initialization + loading, attempt once
   const didAttemptRestoreRef = useRef(false);
@@ -418,6 +440,60 @@ export default function Checkout() {
       console.log('[WEB_CHECKOUT] Order created:', orderId, 'items:', orderItemIds.length, 'serverTotal:', srvTotal);
       await logFunnel('order_created', 'ok', undefined, { orderId, itemCount: orderItemIds.length });
 
+      // ============================================
+      // DEPOSIT BRANCH: Pay 30% now, 70% on arrival.
+      // Skip mobile-orders 'checkout' (which would charge the full amount via Stripe/pawaPay)
+      // and call create-partial-payment with kind='deposit' instead.
+      // The default 'full' path below remains untouched.
+      // ============================================
+      if (paymentPlan === 'deposit' && depositEligible) {
+        const providerForDeposit = paymentMethod === 'card' ? 'stripe' : 'pawapay';
+        const partialPayload: Record<string, any> = {
+          order_id: orderId,
+          kind: 'deposit',
+          provider: providerForDeposit,
+        };
+        if (providerForDeposit === 'pawapay' && address.phone) {
+          partialPayload.phone = address.phone;
+        }
+
+        await logFunnel('checkout_started', 'ok', undefined, { provider: providerForDeposit, orderId, plan: 'deposit' });
+
+        const { data: partial, error: partialErr } = await supabase.functions.invoke('create-partial-payment', {
+          body: partialPayload,
+        });
+
+        if (partialErr || !partial?.success) {
+          const msg = partial?.error || partialErr?.message || (isFr ? 'Échec du paiement d\'acompte' : 'Deposit payment failed');
+          await logFunnel('checkout_failed', 'error', msg, { plan: 'deposit' });
+          setCheckoutError(msg);
+          setLoading(false);
+          return;
+        }
+
+        const depositAmount = Number(partial.amount || 0);
+
+        if (partial.provider === 'stripe' && partial.clientSecret) {
+          await logFunnel('payment_initiated', 'ok', undefined, { provider: 'stripe', orderId, plan: 'deposit' });
+          savePendingCheckout({ orderId, paymentMethod: 'card', totalUsd: depositAmount });
+          navigate(`/card-payment?order_id=${orderId}&client_secret=${encodeURIComponent(partial.clientSecret)}&amount=${depositAmount}&currency=USD&plan=deposit`);
+          return;
+        }
+
+        if (partial.provider === 'pawapay') {
+          await logFunnel('payment_initiated', 'ok', undefined, { provider: 'pawapay', orderId, plan: 'deposit' });
+          savePendingCheckout({ orderId, paymentMethod: 'mobile_money', totalUsd: depositAmount });
+          navigate(`/payment-pending?order_id=${orderId}&provider=pawapay&total_usd=${depositAmount}&plan=deposit`);
+          return;
+        }
+
+        setCheckoutError(isFr ? 'Réponse inattendue du fournisseur d\'acompte' : 'Unexpected deposit provider response');
+        setLoading(false);
+        return;
+      }
+
+
+
       // Step 2: Checkout WITH inline provider selection (merged steps 2+3)
       // Determine provider and phone/operator to pass inline
       const providerMap: Record<string, string> = {
@@ -608,7 +684,7 @@ export default function Checkout() {
     } finally {
       setLoading(false);
     }
-  }, [effectiveCheckoutItems, effectiveCheckoutTotal, paymentMethod, address, sessionUser, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal, language]);
+  }, [effectiveCheckoutItems, effectiveCheckoutTotal, paymentMethod, paymentPlan, depositEligible, isFr, address, sessionUser, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal, language]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -908,7 +984,24 @@ export default function Checkout() {
                   </RadioGroup>
                 </motion.div>
 
+                {/* Payment Plan (30% deposit / pay in full) */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.15 }}
+                >
+                  <PaymentPlanSelector
+                    value={paymentPlan}
+                    onChange={setPaymentPlan}
+                    totalUsd={effectiveCheckoutTotal}
+                    language={language}
+                    eligible={depositEligible}
+                    ineligibleReason={depositIneligibleReason}
+                  />
+                </motion.div>
+
               </div>
+
 
               {/* Right Column - Order Summary */}
               <div className="lg:col-span-1">

@@ -684,7 +684,7 @@ export default function Checkout() {
     } finally {
       setLoading(false);
     }
-  }, [effectiveCheckoutItems, effectiveCheckoutTotal, paymentMethod, address, sessionUser, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal, language]);
+  }, [effectiveCheckoutItems, effectiveCheckoutTotal, paymentMethod, paymentPlan, depositEligible, isFr, address, sessionUser, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal, language]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

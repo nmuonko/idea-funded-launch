@@ -712,24 +712,66 @@ export default function AdminOrderDetail() {
                 </span>
               )}
             </div>
-            {order.balance_status === 'pending' && order.profiles?.email && (
-              <div className="mt-4">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleSendBalanceReminder}
-                  disabled={sendingBalanceReminder}
-                >
-                  {sendingBalanceReminder ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Mail className="h-4 w-4 mr-2" />
-                  )}
-                  {order.balance_reminder_sent_at ? 'Resend balance reminder' : 'Send balance reminder'}
-                </Button>
-                <p className="text-xs text-muted-foreground mt-2">
-                  A reminder is sent automatically when you mark this order as Shipped.
-                </p>
+            {order.balance_status === 'pending' && (
+              <div className="mt-4 space-y-3">
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground mb-1">
+                    Balance payment link (share with customer / pickup office)
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      readOnly
+                      value={`${window.location.origin}/orders/${order.id}?pay_balance=1`}
+                      onFocus={(e) => e.currentTarget.select()}
+                      className="font-mono text-xs"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const link = `${window.location.origin}/orders/${order.id}?pay_balance=1`;
+                        navigator.clipboard.writeText(link);
+                        toast({ title: 'Copied', description: 'Balance payment link copied to clipboard.' });
+                      }}
+                    >
+                      Copy
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" asChild>
+                      <a
+                        href={`${window.location.origin}/orders/${order.id}?pay_balance=1`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open
+                      </a>
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Anyone with this link can pay the 70% balance for this order. Safe to share with the pickup office.
+                  </p>
+                </div>
+
+                {order.profiles?.email && (
+                  <div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleSendBalanceReminder}
+                      disabled={sendingBalanceReminder}
+                    >
+                      {sendingBalanceReminder ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Mail className="h-4 w-4 mr-2" />
+                      )}
+                      {order.balance_reminder_sent_at ? 'Resend balance reminder email' : 'Email balance reminder to customer'}
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      A reminder email is also sent automatically when you mark this order as Shipped.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

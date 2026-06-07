@@ -3921,6 +3921,13 @@ export type Database = {
           admin_notes: string | null
           approved_at: string | null
           approved_by: string | null
+          balance_amount_usd: number | null
+          balance_paid_at: string | null
+          balance_payment_provider: string | null
+          balance_payment_reference: string | null
+          balance_payment_url: string | null
+          balance_reminder_sent_at: string | null
+          balance_status: string
           cancel_reason: string | null
           carrier: string | null
           cart_reminder_2_sent_at: string | null
@@ -3929,6 +3936,7 @@ export type Database = {
           contains_vehicle: boolean | null
           created_at: string
           delivered_at: string | null
+          deposit_amount_usd: number | null
           estimated_delivery: string | null
           exchange_rate_used: number | null
           id: string
@@ -3943,6 +3951,7 @@ export type Database = {
           operator_ref_id: string | null
           payment_confirmation_email_sent_at: string | null
           payment_notes: string | null
+          payment_plan: string
           payment_retry_email_sent_at: string | null
           payment_verification_method: string | null
           payment_verified_at: string | null
@@ -3971,6 +3980,13 @@ export type Database = {
           admin_notes?: string | null
           approved_at?: string | null
           approved_by?: string | null
+          balance_amount_usd?: number | null
+          balance_paid_at?: string | null
+          balance_payment_provider?: string | null
+          balance_payment_reference?: string | null
+          balance_payment_url?: string | null
+          balance_reminder_sent_at?: string | null
+          balance_status?: string
           cancel_reason?: string | null
           carrier?: string | null
           cart_reminder_2_sent_at?: string | null
@@ -3979,6 +3995,7 @@ export type Database = {
           contains_vehicle?: boolean | null
           created_at?: string
           delivered_at?: string | null
+          deposit_amount_usd?: number | null
           estimated_delivery?: string | null
           exchange_rate_used?: number | null
           id?: string
@@ -3993,6 +4010,7 @@ export type Database = {
           operator_ref_id?: string | null
           payment_confirmation_email_sent_at?: string | null
           payment_notes?: string | null
+          payment_plan?: string
           payment_retry_email_sent_at?: string | null
           payment_verification_method?: string | null
           payment_verified_at?: string | null
@@ -4021,6 +4039,13 @@ export type Database = {
           admin_notes?: string | null
           approved_at?: string | null
           approved_by?: string | null
+          balance_amount_usd?: number | null
+          balance_paid_at?: string | null
+          balance_payment_provider?: string | null
+          balance_payment_reference?: string | null
+          balance_payment_url?: string | null
+          balance_reminder_sent_at?: string | null
+          balance_status?: string
           cancel_reason?: string | null
           carrier?: string | null
           cart_reminder_2_sent_at?: string | null
@@ -4029,6 +4054,7 @@ export type Database = {
           contains_vehicle?: boolean | null
           created_at?: string
           delivered_at?: string | null
+          deposit_amount_usd?: number | null
           estimated_delivery?: string | null
           exchange_rate_used?: number | null
           id?: string
@@ -4043,6 +4069,7 @@ export type Database = {
           operator_ref_id?: string | null
           payment_confirmation_email_sent_at?: string | null
           payment_notes?: string | null
+          payment_plan?: string
           payment_retry_email_sent_at?: string | null
           payment_verification_method?: string | null
           payment_verified_at?: string | null

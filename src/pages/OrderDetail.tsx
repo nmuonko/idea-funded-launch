@@ -21,6 +21,8 @@ export default function OrderDetail() {
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
   const [buyingAgain, setBuyingAgain] = useState(false);
+  const [payingBalance, setPayingBalance] = useState(false);
+
 
   useEffect(() => {
     if (id) {

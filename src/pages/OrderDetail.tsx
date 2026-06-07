@@ -387,6 +387,57 @@ export default function OrderDetail() {
           </CardContent>
         </Card>
 
+        {/* Deposit / balance card */}
+        {order.payment_plan === 'deposit' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">
+                {language === 'fr' ? 'Plan d\'acompte 30% / 70%' : '30% / 70% Deposit Plan'}
+              </CardTitle>
+              <CardDescription>
+                {order.balance_status === 'paid'
+                  ? (language === 'fr' ? 'Solde réglé.' : 'Balance fully paid.')
+                  : (language === 'fr' ? 'Votre acompte est payé. Le solde est dû à l\'arrivée.' : 'Your deposit is paid. The balance is due on arrival.')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{language === 'fr' ? 'Acompte payé (30%)' : 'Deposit paid (30%)'}</span>
+                  <span className="font-medium text-green-600">${Number(order.deposit_amount_usd || 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{language === 'fr' ? 'Solde (70%)' : 'Balance (70%)'}</span>
+                  <span className="font-medium">${Number(order.balance_amount_usd || 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t">
+                  <span>{language === 'fr' ? 'Statut du solde' : 'Balance status'}</span>
+                  <Badge className={order.balance_status === 'paid' ? 'bg-green-500' : 'bg-amber-500'}>
+                    {order.balance_status === 'paid'
+                      ? (language === 'fr' ? 'Payé' : 'Paid')
+                      : (language === 'fr' ? 'En attente' : 'Pending')}
+                  </Badge>
+                </div>
+                {order.balance_status === 'pending' && (
+                  <Button
+                    onClick={payBalance}
+                    disabled={payingBalance}
+                    className="w-full mt-4 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600"
+                  >
+                    {payingBalance ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{language === 'fr' ? 'Préparation…' : 'Preparing…'}</>
+                    ) : (
+                      <>{language === 'fr' ? `Payer le solde ($${Number(order.balance_amount_usd || 0).toFixed(2)})` : `Pay balance ($${Number(order.balance_amount_usd || 0).toFixed(2)})`}</>
+                    )}
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+
+
         {/* Actions */}
         <div className="flex flex-wrap gap-3">
           {/* Buy Again - show for completed/delivered orders */}

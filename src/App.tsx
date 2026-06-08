@@ -322,6 +322,11 @@ const App = () => {
                   <ChatRouting />
                 </AdminRouteGuard>
               } />
+              <Route path="chatbot-conversations" element={
+                <AdminRouteGuard requiredPermission="can_view_tickets">
+                  <AdminChatbotConversations />
+                </AdminRouteGuard>
+              } />
               <Route path="support-contact" element={
                 <AdminRouteGuard requiredPermission="can_view_tickets">
                   <SupportContactSettings />

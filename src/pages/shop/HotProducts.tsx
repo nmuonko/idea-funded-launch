@@ -17,6 +17,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSupportContact } from '@/hooks/useSupportContact';
 import { toast } from 'sonner';
 import { SEOHead } from '@/components/SEOHead';
+import { useAfriShopChatbot } from '@/contexts/AfriShopChatbotContext';
 
 const HP_ADDED_KEY = 'hp_added_';
 

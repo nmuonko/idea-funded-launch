@@ -71,6 +71,7 @@ export function AdminLayout() {
         { to: '/admin/support-inbox', icon: Headphones, label: t.sidebar.supportInbox || 'Live Chat', permission: 'can_view_tickets' as const },
         { to: '/admin/support-contact', icon: MessageSquare, label: language === 'fr' ? 'Contact Support' : 'Support Contact', permission: 'can_view_tickets' as const },
         { to: '/admin/chat-routing', icon: BarChart3, label: language === 'fr' ? 'Routage Chat' : 'Chat Routing', permission: 'can_view_ticket_analytics' as const },
+        { to: '/admin/chatbot-conversations', icon: MessageSquare, label: language === 'fr' ? 'Conversations Sophie' : 'Sophie Conversations', permission: 'can_view_tickets' as const },
       ]
     },
     {

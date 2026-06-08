@@ -203,7 +203,7 @@ export function AfriShopChatbotWidget() {
             {/* Messages — WhatsApp chat bg */}
             <div
               ref={scrollRef}
-              className="flex-1 overflow-y-auto px-3 py-3 space-y-1.5"
+              className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-1.5"
               style={{
                 backgroundColor: '#0b141a',
                 backgroundImage:

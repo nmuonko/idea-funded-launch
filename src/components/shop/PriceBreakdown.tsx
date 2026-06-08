@@ -157,25 +157,32 @@ function DepositOrTotal({
   if (depositDueNowUsd != null && depositDueNowUsd > 0 && depositDueNowUsd < total) {
     const balance = Math.max(0, total - depositDueNowUsd);
     return (
-      <div className="space-y-2">
+      <div className="space-y-3">
         <div className="flex items-center justify-between text-sm">
           <span className="text-white/60">{isFr ? 'Total commande' : 'Order total'}</span>
           <span className="text-white/80">${total.toFixed(2)}</span>
         </div>
-        <div className="flex items-center justify-between">
-          <span className="text-white font-medium">
-            {isFr ? 'À payer maintenant (30%)' : 'Due now (30%)'}
-          </span>
-          <span className="text-xl font-bold text-white">${depositDueNowUsd.toFixed(2)}</span>
-        </div>
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-white/50">
-            {isFr ? 'Solde à l’arrivée (70%)' : 'Balance on arrival (70%)'}
-          </span>
-          <span className="text-white/70">${balance.toFixed(2)}</span>
+        <div className="rounded-xl border border-blue-400/30 bg-blue-500/10 px-3 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-medium text-white">
+              {isFr ? 'À payer maintenant' : 'Due now'}
+              <span className="ml-1 text-xs text-white/60">(30%)</span>
+            </span>
+            <span className="text-xl font-bold text-white whitespace-nowrap">
+              ${depositDueNowUsd.toFixed(2)}
+            </span>
+          </div>
+          <div className="mt-1.5 flex items-center justify-between gap-3 text-xs">
+            <span className="text-white/55">
+              {isFr ? 'Solde à l’arrivée' : 'Balance on arrival'}
+              <span className="ml-1 text-white/40">(70%)</span>
+            </span>
+            <span className="text-white/70 whitespace-nowrap">${balance.toFixed(2)}</span>
+          </div>
         </div>
       </div>
     );
+
   }
   return (
     <div className="flex items-center justify-between">

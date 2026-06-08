@@ -439,6 +439,7 @@ export default function HotProducts() {
               const isTrending = trendingIds.has(product.id);
               const cleanTitle = cleanProductTitle(product.title);
               const shareLink = `${SHARE_PREVIEW_BASE_URL}?id=${encodeURIComponent(product.id)}`;
+              const payLink = `${window.location.origin}/hot-products/${product.id}`;
               const productImage = resolveProductImage(product);
               const productSummary = (product.description_fr || '').replace(/\s+/g, ' ').trim();
               const shortSummary = productSummary.length > 160 ? `${productSummary.slice(0, 157).trimEnd()}…` : productSummary;
@@ -449,7 +450,7 @@ export default function HotProducts() {
                 price: formatCurrency(product.total_price_usd, { locale: locale as any }),
                 ref: productRef,
                 image: productImage,
-                link: shareLink,
+                link: payLink,
               }));
               const waHref = `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}?text=${waMsg}`;
               return (

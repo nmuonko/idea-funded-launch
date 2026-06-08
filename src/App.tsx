@@ -490,6 +490,7 @@ const App = () => {
                      </Suspense>
               </BrowserRouter>
                  </TooltipProvider>
+                 </AfriShopChatbotProvider>
                </SupportChatProvider>
             </ShopCartProvider>
           </AuthProvider>

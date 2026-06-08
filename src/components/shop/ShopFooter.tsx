@@ -78,12 +78,12 @@ import { useSupportContact } from '@/hooks/useSupportContact';
              <h3 className="text-white font-semibold text-base mb-5">{shop.help || 'Aide'}</h3>
              <ul className="space-y-3">
                <li>
-                 <button 
-                   onClick={openChat}
-                   className="text-white/60 hover:text-white text-sm transition-colors text-left"
-                 >
-                   Support
-                 </button>
+                  <button 
+                    onClick={open}
+                    className="text-white/60 hover:text-white text-sm transition-colors text-left"
+                  >
+                    Support
+                  </button>
                </li>
                <li>
                  <Link to="/refunds" className="text-white/60 hover:text-white text-sm transition-colors">
@@ -169,13 +169,13 @@ import { useSupportContact } from '@/hooks/useSupportContact';
              <span>Email</span>
            </a>
            <span className="text-white/20">•</span>
-           <button
-             onClick={openChat}
-             className="flex items-center gap-2 text-white/70 hover:text-white text-sm transition-colors group"
-           >
-             <MessageCircle className="h-4 w-4 text-primary group-hover:text-primary/80" />
-             <span>Chat</span>
-           </button>
+            <button
+              onClick={open}
+              className="flex items-center gap-2 text-white/70 hover:text-white text-sm transition-colors group"
+            >
+              <MessageCircle className="h-4 w-4 text-primary group-hover:text-primary/80" />
+              <span>Chat</span>
+            </button>
          </div>
  
          {/* Bottom Bar */}

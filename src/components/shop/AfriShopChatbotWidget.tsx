@@ -74,6 +74,7 @@ export function AfriShopChatbotWidget() {
     setInput('');
     setSending(true);
 
+    const startedAt = Date.now();
     try {
       const history = messages.slice(-8).map(m => ({ role: m.role, content: m.content }));
       const { data, error } = await supabase.functions.invoke('chatbot-ask', {
@@ -91,8 +92,20 @@ export function AfriShopChatbotWidget() {
       if (data?.conversation_id && !conversationId) setConversationId(data.conversation_id);
       const answer = data?.answer || "Je préfère vous mettre en contact avec notre équipe afin de vous donner une réponse exacte.";
       const escalate = !!data?.needs_escalation;
+
+      // Human-like typing delay: 1–2s short, 2–3s longer
+      const isLong = answer.length > 140;
+      const targetDelay = isLong
+        ? 2000 + Math.random() * 1000
+        : 1000 + Math.random() * 1000;
+      const elapsed = Date.now() - startedAt;
+      const wait = Math.max(0, targetDelay - elapsed);
+      await new Promise(r => setTimeout(r, wait));
+
       setMessages(m => [...m, { id: crypto.randomUUID(), role: 'assistant', content: answer, ts: Date.now(), escalate }]);
     } catch (e) {
+      const elapsed = Date.now() - startedAt;
+      await new Promise(r => setTimeout(r, Math.max(0, 1200 - elapsed)));
       setMessages(m => [...m, {
         id: crypto.randomUUID(), role: 'assistant', ts: Date.now(), escalate: true,
         content: "Je préfère vous mettre en contact avec notre équipe afin de vous donner une réponse exacte.",
@@ -193,10 +206,13 @@ export function AfriShopChatbotWidget() {
 
               {sending && (
                 <div className="flex justify-start">
-                  <div className="bg-[#202C33] rounded-lg rounded-tl-none px-3 py-2 flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 bg-white/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                    <span className="h-1.5 w-1.5 bg-white/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                    <span className="h-1.5 w-1.5 bg-white/60 rounded-full animate-bounce" />
+                  <div className="flex flex-col items-start gap-1">
+                    <div className="text-[10px] text-white/50 px-1">AfriShop Assistant est en train d'écrire…</div>
+                    <div className="bg-[#202C33] rounded-lg rounded-tl-none px-3 py-2 flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 bg-white/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                      <span className="h-1.5 w-1.5 bg-white/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                      <span className="h-1.5 w-1.5 bg-white/60 rounded-full animate-bounce" />
+                    </div>
                   </div>
                 </div>
               )}

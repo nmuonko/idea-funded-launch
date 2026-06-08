@@ -643,17 +643,7 @@ export default function HotProducts() {
         </div>
       </main>
 
-      {/* Floating WhatsApp "Need help?" CTA */}
-      <a
-        href={heroWhatsappUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label={t.whatsappAria}
-        className="fixed right-4 bottom-24 sm:bottom-6 z-40 inline-flex items-center gap-2 h-12 px-4 rounded-full bg-green-600 hover:bg-green-700 text-white font-semibold text-sm shadow-[0_8px_24px_rgba(34,197,94,0.45)] transition-transform hover:scale-105 active:scale-95"
-      >
-        <MessageCircle className="w-5 h-5" aria-hidden="true" />
-        <span className="hidden sm:inline">{t.floatingHelp}</span>
-      </a>
+      {/* Global AfriShop chatbot widget provides the floating help button */}
 
       <ShopFooter />
       <BottomNavigation />

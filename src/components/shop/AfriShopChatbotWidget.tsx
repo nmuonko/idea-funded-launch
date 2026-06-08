@@ -159,6 +159,7 @@ export function AfriShopChatbotWidget() {
             exit={{ opacity: 0, y: 24, scale: 0.96 }}
             transition={{ duration: 0.18 }}
             className="fixed inset-0 sm:inset-auto sm:right-4 sm:bottom-4 z-[70] sm:w-[380px] sm:h-[600px] sm:max-h-[85vh] flex flex-col bg-[#0b141a] sm:rounded-2xl shadow-2xl overflow-hidden border border-white/5"
+            style={{ height: '100dvh', maxHeight: '100dvh' }}
           >
             {/* Header — WhatsApp green */}
             <div className="flex items-center gap-3 px-3 py-2.5 bg-[#075E54] text-white">

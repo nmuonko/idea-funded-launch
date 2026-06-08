@@ -165,6 +165,7 @@ const App = () => {
           <AuthProvider>
             <ShopCartProvider>
                <SupportChatProvider>
+                 <AfriShopChatbotProvider>
                  <TooltipProvider>
                 <LanguagePreferenceModal />
                 <Toaster />
@@ -172,6 +173,7 @@ const App = () => {
                    <BrowserRouter>
                      {/* Global floating contact widget for shop */}
                      <FloatingContactWidget />
+                     <AfriShopChatbotWidget />
                      <Suspense fallback={<LazyFallback />}>
           <Routes>
         <Route path="/" element={<ShopHome />} />

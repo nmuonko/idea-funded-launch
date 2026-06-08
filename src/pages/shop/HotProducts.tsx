@@ -154,6 +154,7 @@ export default function HotProducts() {
   const { session } = useAuth();
   const { whatsapp, whatsappUrl, emailUrl } = useSupportContact();
   const prefersReducedMotion = useReducedMotion();
+  const { open: openChatbot } = useAfriShopChatbot();
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());

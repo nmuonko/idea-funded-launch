@@ -71,6 +71,7 @@ const AdminDubaiUploads = lazy(() => import("./pages/admin/DubaiUploads"));
 const DubaiUpload = lazy(() => import("./pages/DubaiUpload"));
 const AdminInternationalProducts = lazy(() => import("./pages/admin/InternationalProducts"));
 const AdminTelegramImport = lazy(() => import("./pages/admin/TelegramImport"));
+const AdminChatbotConversations = lazy(() => import("./pages/admin/ChatbotConversations"));
 const AdminCountryShippingRates = lazy(() => import("./pages/admin/CountryShippingRates"));
 const CountryShop = lazy(() => import("./pages/shop/CountryShop"));
 const CountryComingSoon = lazy(() => import("./pages/shop/CountryComingSoon"));

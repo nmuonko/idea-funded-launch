@@ -15,6 +15,8 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { AdminThemeProvider } from "@/contexts/AdminThemeContext";
 import { ShopCartProvider } from "@/contexts/ShopCartContext";
+import { AfriShopChatbotProvider } from "@/contexts/AfriShopChatbotContext";
+import { AfriShopChatbotWidget } from "@/components/shop/AfriShopChatbotWidget";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ShopProtectedRoute } from "@/components/shop/ShopProtectedRoute";
 import { AdminRouteGuard } from "@/components/admin/AdminRouteGuard";

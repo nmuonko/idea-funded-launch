@@ -88,6 +88,14 @@ export function AfriShopChatbotWidget() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, sending]);
 
+  // Lock background scroll while chat is open (mobile keyboard friendliness)
+  useEffect(() => {
+    if (!isOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [isOpen]);
+
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || sending) return;

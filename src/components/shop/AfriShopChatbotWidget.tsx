@@ -206,7 +206,7 @@ export function AfriShopChatbotWidget() {
                         : 'bg-[#202C33] text-white/95 rounded-tl-none'
                     )}
                   >
-                    <div>{m.content}</div>
+                    <div>{renderMessageContent(m.content)}</div>
                     <div className={cn('text-[10px] mt-0.5 flex items-center gap-0.5 justify-end', m.role === 'user' ? 'text-white/60' : 'text-white/40')}>
                       <span>{formatTime(m.ts)}</span>
                       {m.role === 'user' && <CheckCheck className="w-3 h-3" />}

@@ -19,7 +19,10 @@ interface PriceBreakdownProps {
   serverLineTotalUsd?: number;
   productTitle?: string;
   productCategoryKey?: string | null;
+  /** When set, displays deposit breakdown: this amount is due now (30%), remainder shown as balance on arrival. */
+  depositDueNowUsd?: number | null;
 }
+
 
 export function PriceBreakdown({
   itemPriceUsd,

@@ -79,7 +79,7 @@ import { useSupportContact } from '@/hooks/useSupportContact';
              <ul className="space-y-3">
                <li>
                   <button 
-                    onClick={open}
+                    onClick={() => open()}
                     className="text-white/60 hover:text-white text-sm transition-colors text-left"
                   >
                     Support
@@ -170,7 +170,7 @@ import { useSupportContact } from '@/hooks/useSupportContact';
            </a>
            <span className="text-white/20">•</span>
             <button
-              onClick={open}
+              onClick={() => open()}
               className="flex items-center gap-2 text-white/70 hover:text-white text-sm transition-colors group"
             >
               <MessageCircle className="h-4 w-4 text-primary group-hover:text-primary/80" />

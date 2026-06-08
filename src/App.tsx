@@ -163,17 +163,14 @@ const App = () => {
       <QueryClientProvider client={queryClient}>
         <LanguageProvider>
           <AuthProvider>
-            <ShopCartProvider>
-               <SupportChatProvider>
+             <ShopCartProvider>
                  <AfriShopChatbotProvider>
                  <TooltipProvider>
                 <LanguagePreferenceModal />
                 <Toaster />
                    <Sonner />
-                   <BrowserRouter>
-                     {/* Global floating contact widget for shop */}
-                     <FloatingContactWidget />
-                     <AfriShopChatbotWidget />
+                    <BrowserRouter>
+                      <AfriShopChatbotWidget />
                      <Suspense fallback={<LazyFallback />}>
           <Routes>
         <Route path="/" element={<ShopHome />} />
@@ -487,12 +484,11 @@ const App = () => {
             
             <Route path="*" element={<NotFound />} />
           </Routes>
-                     </Suspense>
-              </BrowserRouter>
-                 </TooltipProvider>
-                 </AfriShopChatbotProvider>
-               </SupportChatProvider>
-            </ShopCartProvider>
+                      </Suspense>
+               </BrowserRouter>
+                  </TooltipProvider>
+                  </AfriShopChatbotProvider>
+             </ShopCartProvider>
           </AuthProvider>
         </LanguageProvider>
       </QueryClientProvider>

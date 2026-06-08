@@ -88,12 +88,26 @@ export function AfriShopChatbotWidget() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, sending]);
 
-  // Lock background scroll while chat is open (mobile keyboard friendliness)
+  // Lock background scroll while chat is open; also keep iOS pinned so the keyboard
+  // does not push the chat panel out of the viewport.
   useEffect(() => {
     if (!isOpen) return;
-    const prev = document.body.style.overflow;
+    const prevOverflow = document.body.style.overflow;
+    const prevPosition = document.body.style.position;
+    const prevTop = document.body.style.top;
+    const prevWidth = document.body.style.width;
+    const scrollY = window.scrollY;
     document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.position = prevPosition;
+      document.body.style.top = prevTop;
+      document.body.style.width = prevWidth;
+      window.scrollTo(0, scrollY);
+    };
   }, [isOpen]);
 
   async function send(text: string) {
@@ -166,7 +180,7 @@ export function AfriShopChatbotWidget() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.96 }}
             transition={{ duration: 0.18 }}
-            className="fixed inset-0 sm:inset-auto sm:right-4 sm:bottom-4 z-[70] h-[100dvh] max-h-[100dvh] sm:h-[600px] sm:max-h-[85vh] sm:w-[380px] flex flex-col bg-[#0b141a] sm:rounded-2xl shadow-2xl overflow-hidden border border-white/5"
+            className="fixed inset-0 sm:inset-auto sm:right-4 sm:bottom-4 z-[70] h-[100svh] max-h-[100svh] sm:h-[600px] sm:max-h-[85vh] sm:w-[380px] flex flex-col bg-[#0b141a] sm:rounded-2xl shadow-2xl overflow-hidden border border-white/5"
             style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
           >
             {/* Header — WhatsApp green, app-page style on mobile */}
@@ -189,7 +203,7 @@ export function AfriShopChatbotWidget() {
             {/* Messages — WhatsApp chat bg */}
             <div
               ref={scrollRef}
-              className="flex-1 overflow-y-auto px-3 py-3 space-y-1.5"
+              className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-1.5"
               style={{
                 backgroundColor: '#0b141a',
                 backgroundImage:
@@ -277,7 +291,6 @@ export function AfriShopChatbotWidget() {
                 placeholder="Écrivez un message…"
                 className="flex-1 min-w-0 bg-[#2a3942] text-white text-base sm:text-sm placeholder:text-white/40 rounded-full px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#25D366]/40"
                 disabled={sending}
-                autoFocus
                 enterKeyHint="send"
                 inputMode="text"
                 autoComplete="off"

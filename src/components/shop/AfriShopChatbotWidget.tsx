@@ -29,6 +29,28 @@ function formatTime(ts: number) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+function renderMessageContent(text: string) {
+  const urlRe = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRe);
+  return parts.map((part, i) => {
+    if (urlRe.test(part)) {
+      urlRe.lastIndex = 0;
+      return (
+        <a
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline text-[#53bdeb] break-all font-medium"
+        >
+          {part}
+        </a>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
 function getSessionId() {
   try {
     let s = localStorage.getItem('afrishop_chatbot_session');

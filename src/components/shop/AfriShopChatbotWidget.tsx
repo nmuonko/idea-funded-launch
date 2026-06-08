@@ -263,20 +263,23 @@ export function AfriShopChatbotWidget() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Écrivez un message…"
-                className="flex-1 bg-[#2a3942] text-white text-sm placeholder:text-white/40 rounded-full px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#25D366]/40"
+                className="flex-1 min-w-0 bg-[#2a3942] text-white text-base sm:text-sm placeholder:text-white/40 rounded-full px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#25D366]/40"
                 disabled={sending}
                 autoFocus
+                enterKeyHint="send"
+                inputMode="text"
+                autoComplete="off"
               />
               <button
                 type="submit"
                 disabled={!input.trim() || sending}
                 aria-label="Envoyer"
-                className="h-10 w-10 rounded-full bg-[#25D366] hover:bg-[#1da851] disabled:opacity-50 text-white flex items-center justify-center"
+                className="shrink-0 h-10 w-10 rounded-full bg-[#25D366] hover:bg-[#1da851] disabled:opacity-50 text-white flex items-center justify-center"
               >
                 {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
               </button>
             </form>
-            <div className="text-[10px] text-center text-white/30 py-1 bg-[#1f2c33]">AfriShop AI · escalade humaine: {SUPPORT_WHATSAPP_DISPLAY}</div>
+            <div className="hidden sm:block text-[10px] text-center text-white/30 py-1 bg-[#1f2c33]">AfriShop AI · escalade humaine: {SUPPORT_WHATSAPP_DISPLAY}</div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -67,6 +67,12 @@ Modèle:
 - Seuls Stripe (carte) et PawaPay (Mobile Money) sont autorisés.
 - INTERDICTION ABSOLUE de mentionner MaishaPay, MyShopPay, PayPal, Flutterwave ou tout autre fournisseur.
 
+⚠️ FRAIS DE LIVRAISON / FRAIS DE SERVICE — STRICT:
+- Le prix affiché est TOUT COMPRIS (produit + livraison + frais de service + conversion CDF).
+- NE JAMAIS mentionner de pourcentage (ex: 10%, 10-15%), ni de frais séparés, ni de calcul.
+- Répondre simplement: "Tout est déjà inclus dans le prix total affiché — aucun frais supplémentaire."
+- EN: "Everything is already included in the total price shown — no extra fees."
+
 ⚠️ NE JAMAIS INVENTER:
 - prix, dates de livraison exactes, remboursements, disponibilité produit hors base, confirmations de paiement, numéros de suivi, frais de douane, prix final véhicule.
 - adresse, numéro de registre (RCCM/IDNAT), bureau, horaires, téléphone, ou toute information légale/société.
@@ -296,6 +302,16 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       answer = lang === "en"
         ? `Here is your secure payment link:\n${fullLink}\nClick to complete your order.`
         : `Voici votre lien de paiement sécurisé :\n${fullLink}\nCliquez pour finaliser votre commande.`;
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
+    // DETERMINISTIC shipping/fees override: total price is all-inclusive.
+    const shippingFeeRe = /(frais\s+de\s+livraison|frais\s+de\s+service|frais\s+suppl|co[uû]t\s+de\s+livraison|shipping\s+fee|delivery\s+fee|service\s+fee|extra\s+fee|hidden\s+fee)/i;
+    if (shippingFeeRe.test(message)) {
+      answer = lang === "en"
+        ? "Everything is already included in the total price shown — no extra fees."
+        : "Tout est déjà inclus dans le prix total affiché — aucun frais supplémentaire.";
       needsEscalation = false;
       escalationReason = "";
     }

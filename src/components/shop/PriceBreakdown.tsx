@@ -142,3 +142,46 @@ export function PriceBreakdown({
     </div>
   );
 }
+
+function DepositOrTotal({
+  total,
+  depositDueNowUsd,
+  isFr,
+  fallbackLabel,
+}: {
+  total: number;
+  depositDueNowUsd: number | null;
+  isFr: boolean;
+  fallbackLabel: string;
+}) {
+  if (depositDueNowUsd != null && depositDueNowUsd > 0 && depositDueNowUsd < total) {
+    const balance = Math.max(0, total - depositDueNowUsd);
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-white/60">{isFr ? 'Total commande' : 'Order total'}</span>
+          <span className="text-white/80">${total.toFixed(2)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-white font-medium">
+            {isFr ? 'À payer maintenant (30%)' : 'Due now (30%)'}
+          </span>
+          <span className="text-xl font-bold text-white">${depositDueNowUsd.toFixed(2)}</span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-white/50">
+            {isFr ? 'Solde à l’arrivée (70%)' : 'Balance on arrival (70%)'}
+          </span>
+          <span className="text-white/70">${balance.toFixed(2)}</span>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-white font-medium">{fallbackLabel}</span>
+      <span className="text-xl font-bold text-white">${total.toFixed(2)}</span>
+    </div>
+  );
+}
+

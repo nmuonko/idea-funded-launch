@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom';
 import { Mail, MessageCircle } from 'lucide-react';
 import afrishopLogo from '@/assets/afrishop-logo.png';
- import { useSupportChat } from '@/contexts/SupportChatContext';
- import { useLanguage } from '@/contexts/LanguageContext';
+import { useAfriShopChatbot } from '@/contexts/AfriShopChatbotContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
- import { useSupportContact } from '@/hooks/useSupportContact';
+import { useSupportContact } from '@/hooks/useSupportContact';
  
  // WhatsApp icon component
  function WhatsAppIcon({ className }: { className?: string }) {
@@ -20,9 +20,9 @@ import { translations } from '@/lib/i18n/translations';
    const t = translations[language] || translations.en;
    const shop = t.shop as Record<string, string>;
    const common = t.common as Record<string, string>;
-   const currentYear = new Date().getFullYear();
-   const { openChat } = useSupportChat();
-   const { whatsapp, email: supportEmail } = useSupportContact();
+  const currentYear = new Date().getFullYear();
+  const { open } = useAfriShopChatbot();
+  const { whatsapp, email: supportEmail } = useSupportContact();
  
    return (
     <footer className="bg-black pb-24 md:pb-0">

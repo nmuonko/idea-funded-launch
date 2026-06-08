@@ -2173,6 +2173,92 @@ export type Database = {
         }
         Relationships: []
       }
+      chatbot_conversations: {
+        Row: {
+          created_at: string
+          escalated: boolean
+          escalation_reason: string | null
+          id: string
+          language: string
+          last_message_at: string
+          product_context: Json | null
+          session_id: string
+          status: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          escalated?: boolean
+          escalation_reason?: string | null
+          id?: string
+          language?: string
+          last_message_at?: string
+          product_context?: Json | null
+          session_id: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          escalated?: boolean
+          escalation_reason?: string | null
+          id?: string
+          language?: string
+          last_message_at?: string
+          product_context?: Json | null
+          session_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      chatbot_messages: {
+        Row: {
+          classification: Json | null
+          confidence: number | null
+          content: string
+          conversation_id: string
+          created_at: string
+          escalation_reason: string | null
+          id: string
+          needs_escalation: boolean | null
+          role: string
+        }
+        Insert: {
+          classification?: Json | null
+          confidence?: number | null
+          content: string
+          conversation_id: string
+          created_at?: string
+          escalation_reason?: string | null
+          id?: string
+          needs_escalation?: boolean | null
+          role: string
+        }
+        Update: {
+          classification?: Json | null
+          confidence?: number | null
+          content?: string
+          conversation_id?: string
+          created_at?: string
+          escalation_reason?: string | null
+          id?: string
+          needs_escalation?: boolean | null
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chatbot_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "chatbot_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       checkout_funnel_log: {
         Row: {
           created_at: string

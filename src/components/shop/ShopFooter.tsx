@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom';
 import { Mail, MessageCircle } from 'lucide-react';
 import afrishopLogo from '@/assets/afrishop-logo.png';
- import { useSupportChat } from '@/contexts/SupportChatContext';
- import { useLanguage } from '@/contexts/LanguageContext';
+import { useAfriShopChatbot } from '@/contexts/AfriShopChatbotContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
- import { useSupportContact } from '@/hooks/useSupportContact';
+import { useSupportContact } from '@/hooks/useSupportContact';
  
  // WhatsApp icon component
  function WhatsAppIcon({ className }: { className?: string }) {
@@ -20,9 +20,9 @@ import { translations } from '@/lib/i18n/translations';
    const t = translations[language] || translations.en;
    const shop = t.shop as Record<string, string>;
    const common = t.common as Record<string, string>;
-   const currentYear = new Date().getFullYear();
-   const { openChat } = useSupportChat();
-   const { whatsapp, email: supportEmail } = useSupportContact();
+  const currentYear = new Date().getFullYear();
+  const { open } = useAfriShopChatbot();
+  const { whatsapp, email: supportEmail } = useSupportContact();
  
    return (
     <footer className="bg-black pb-24 md:pb-0">
@@ -78,12 +78,12 @@ import { translations } from '@/lib/i18n/translations';
              <h3 className="text-white font-semibold text-base mb-5">{shop.help || 'Aide'}</h3>
              <ul className="space-y-3">
                <li>
-                 <button 
-                   onClick={openChat}
-                   className="text-white/60 hover:text-white text-sm transition-colors text-left"
-                 >
-                   Support
-                 </button>
+                  <button 
+                    onClick={() => open()}
+                    className="text-white/60 hover:text-white text-sm transition-colors text-left"
+                  >
+                    Support
+                  </button>
                </li>
                <li>
                  <Link to="/refunds" className="text-white/60 hover:text-white text-sm transition-colors">
@@ -169,13 +169,13 @@ import { translations } from '@/lib/i18n/translations';
              <span>Email</span>
            </a>
            <span className="text-white/20">•</span>
-           <button
-             onClick={openChat}
-             className="flex items-center gap-2 text-white/70 hover:text-white text-sm transition-colors group"
-           >
-             <MessageCircle className="h-4 w-4 text-primary group-hover:text-primary/80" />
-             <span>Chat</span>
-           </button>
+            <button
+              onClick={() => open()}
+              className="flex items-center gap-2 text-white/70 hover:text-white text-sm transition-colors group"
+            >
+              <MessageCircle className="h-4 w-4 text-primary group-hover:text-primary/80" />
+              <span>Chat</span>
+            </button>
          </div>
  
          {/* Bottom Bar */}

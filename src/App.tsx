@@ -103,8 +103,6 @@ import TrackOrder from "./pages/TrackOrder";
 import EmailConfirmed from "./pages/EmailConfirmed";
 
 import { AdminLayout } from "@/components/layout/AdminLayout";
-import { FloatingContactWidget } from "@/components/shop/FloatingContactWidget";
- import { SupportChatProvider } from "@/contexts/SupportChatContext";
 
 // Shop pages — eagerly loaded (primary user flow)
 import ShopHome from "./pages/shop/ShopHome";

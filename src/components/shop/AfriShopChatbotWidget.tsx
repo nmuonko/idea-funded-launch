@@ -142,7 +142,7 @@ export function AfriShopChatbotWidget() {
             <div className="flex items-center gap-3 px-3 py-2.5 bg-[#075E54] text-white">
               <div className="h-10 w-10 rounded-full bg-white/15 flex items-center justify-center font-bold">A</div>
               <div className="flex-1 min-w-0">
-                <div className="font-semibold text-sm leading-tight">Sophie AfriShop ⭐</div>
+                <div className="font-semibold text-sm leading-tight">Sophie</div>
                 <div className="text-[11px] text-white/70 flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400"></span> en ligne
                 </div>

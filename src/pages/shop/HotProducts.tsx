@@ -17,6 +17,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSupportContact } from '@/hooks/useSupportContact';
 import { toast } from 'sonner';
 import { SEOHead } from '@/components/SEOHead';
+import { useAfriShopChatbot } from '@/contexts/AfriShopChatbotContext';
 
 const HP_ADDED_KEY = 'hp_added_';
 
@@ -153,6 +154,7 @@ export default function HotProducts() {
   const { session } = useAuth();
   const { whatsapp, whatsappUrl, emailUrl } = useSupportContact();
   const prefersReducedMotion = useReducedMotion();
+  const { open: openChatbot } = useAfriShopChatbot();
   const [products, setProducts] = useState<HotProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
@@ -553,24 +555,26 @@ export default function HotProducts() {
                         )}
                       </Button>
 
-                      <a
-                        href={waHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className={`block rounded-xl ${FOCUS_RING}`}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openChatbot({
+                            id: product.id,
+                            title: cleanTitle,
+                            price_usd: product.total_price_usd,
+                            image: productImage,
+                            link: shareLink,
+                            category: (product as any).category || undefined,
+                          });
+                        }}
+                        className="w-full h-9 text-xs font-semibold rounded-xl bg-green-600/10 hover:bg-green-600/20 text-green-300 border-green-500/40"
                         aria-label={`${t.whatsapp} — ${cleanTitle}`}
                       >
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="w-full h-9 text-xs font-semibold rounded-xl bg-green-600/10 hover:bg-green-600/20 text-green-300 border-green-500/40"
-                          tabIndex={-1}
-                        >
-                          <MessageCircle className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
-                          {t.whatsapp}
-                        </Button>
-                      </a>
+                        <MessageCircle className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
+                        {t.whatsapp}
+                      </Button>
                     </div>
                   </div>
                 </motion.div>
@@ -639,17 +643,7 @@ export default function HotProducts() {
         </div>
       </main>
 
-      {/* Floating WhatsApp "Need help?" CTA */}
-      <a
-        href={heroWhatsappUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label={t.whatsappAria}
-        className="fixed right-4 bottom-24 sm:bottom-6 z-40 inline-flex items-center gap-2 h-12 px-4 rounded-full bg-green-600 hover:bg-green-700 text-white font-semibold text-sm shadow-[0_8px_24px_rgba(34,197,94,0.45)] transition-transform hover:scale-105 active:scale-95"
-      >
-        <MessageCircle className="w-5 h-5" aria-hidden="true" />
-        <span className="hidden sm:inline">{t.floatingHelp}</span>
-      </a>
+      {/* Global AfriShop chatbot widget provides the floating help button */}
 
       <ShopFooter />
       <BottomNavigation />

@@ -292,7 +292,6 @@ export function AfriShopChatbotWidget() {
                 className="flex-1 min-w-0 bg-[#2a3942] text-white text-base sm:text-sm placeholder:text-white/40 rounded-full px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#25D366]/40"
                 disabled={sending}
                 enterKeyHint="send"
-                enterKeyHint="send"
                 inputMode="text"
                 autoComplete="off"
               />

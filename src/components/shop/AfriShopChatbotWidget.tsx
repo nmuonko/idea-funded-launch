@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, X, Send, Loader2, Check, CheckCheck } from 'lucide-react';
+import { MessageCircle, X, Send, Loader2, Check, CheckCheck, ArrowLeft } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAfriShopChatbot } from '@/contexts/AfriShopChatbotContext';
@@ -167,17 +167,21 @@ export function AfriShopChatbotWidget() {
             exit={{ opacity: 0, y: 24, scale: 0.96 }}
             transition={{ duration: 0.18 }}
             className="fixed inset-0 sm:inset-auto sm:right-4 sm:bottom-4 z-[70] h-[100dvh] max-h-[100dvh] sm:h-[600px] sm:max-h-[85vh] sm:w-[380px] flex flex-col bg-[#0b141a] sm:rounded-2xl shadow-2xl overflow-hidden border border-white/5"
+            style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
           >
-            {/* Header — WhatsApp green */}
-            <div className="flex items-center gap-3 px-3 py-2.5 bg-[#075E54] text-white">
-              <div className="h-10 w-10 rounded-full bg-white/15 flex items-center justify-center font-bold">A</div>
+            {/* Header — WhatsApp green, app-page style on mobile */}
+            <div className="flex items-center gap-2 px-2 sm:px-3 py-2.5 bg-[#075E54] text-white">
+              <button onClick={close} aria-label="Retour" className="sm:hidden p-2 -ml-1 rounded-full hover:bg-white/10">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div className="h-10 w-10 rounded-full bg-white/15 flex items-center justify-center font-bold">S</div>
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-sm leading-tight">Sophie</div>
                 <div className="text-[11px] text-white/70 flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400"></span> en ligne
                 </div>
               </div>
-              <button onClick={close} aria-label="Fermer" className="p-2 rounded-full hover:bg-white/10">
+              <button onClick={close} aria-label="Fermer" className="hidden sm:inline-flex p-2 rounded-full hover:bg-white/10">
                 <X className="w-5 h-5" />
               </button>
             </div>

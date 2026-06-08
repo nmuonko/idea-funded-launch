@@ -52,7 +52,7 @@ export function AfriShopChatbotWidget() {
     if (messages.length > 0) return;
     const greet = product?.title
       ? `Bonjour 👋\nJe vois que vous êtes intéressé par : ${product.title}.\n${product.price_usd != null ? `Prix : ${product.price_usd} USD${product.price_cdf ? ` / ~${product.price_cdf.toLocaleString('fr-FR')} CDF` : ''}.\n` : ''}Voulez-vous que je vous aide avant le paiement ?`
-      : `Bonjour 👋 Je suis Sophie AfriShop ⭐. Comment puis-je vous aider ?`;
+      : `Bonjour 👋 Je suis Sophie. Comment puis-je vous aider ?`;
     setMessages([{ id: crypto.randomUUID(), role: 'assistant', content: greet, ts: Date.now() }]);
   }, [isOpen, product, messages.length]);
 

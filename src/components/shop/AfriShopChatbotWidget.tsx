@@ -206,10 +206,13 @@ export function AfriShopChatbotWidget() {
 
               {sending && (
                 <div className="flex justify-start">
-                  <div className="bg-[#202C33] rounded-lg rounded-tl-none px-3 py-2 flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 bg-white/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                    <span className="h-1.5 w-1.5 bg-white/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                    <span className="h-1.5 w-1.5 bg-white/60 rounded-full animate-bounce" />
+                  <div className="flex flex-col items-start gap-1">
+                    <div className="text-[10px] text-white/50 px-1">AfriShop Assistant est en train d'écrire…</div>
+                    <div className="bg-[#202C33] rounded-lg rounded-tl-none px-3 py-2 flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 bg-white/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                      <span className="h-1.5 w-1.5 bg-white/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                      <span className="h-1.5 w-1.5 bg-white/60 rounded-full animate-bounce" />
+                    </div>
                   </div>
                 </div>
               )}

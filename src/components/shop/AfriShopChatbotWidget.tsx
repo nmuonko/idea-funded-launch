@@ -67,6 +67,27 @@ export function AfriShopChatbotWidget() {
   const [sending, setSending] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Track iOS visualViewport so panel resizes precisely when the keyboard opens.
+  useEffect(() => {
+    if (!isOpen) return;
+    const vv = (window as any).visualViewport;
+    if (!vv) return;
+    const apply = () => {
+      if (panelRef.current && window.innerWidth < 640) {
+        panelRef.current.style.height = `${vv.height}px`;
+      }
+    };
+    apply();
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    return () => {
+      vv.removeEventListener('resize', apply);
+      vv.removeEventListener('scroll', apply);
+      if (panelRef.current) panelRef.current.style.height = '';
+    };
+  }, [isOpen]);
 
   // Greeting when opened
   useEffect(() => {

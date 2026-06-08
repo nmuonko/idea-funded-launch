@@ -555,24 +555,26 @@ export default function HotProducts() {
                         )}
                       </Button>
 
-                      <a
-                        href={waHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className={`block rounded-xl ${FOCUS_RING}`}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openChatbot({
+                            id: product.id,
+                            title: cleanTitle,
+                            price_usd: product.total_price_usd,
+                            image: productImage,
+                            link: shareLink,
+                            category: (product as any).category || undefined,
+                          });
+                        }}
+                        className="w-full h-9 text-xs font-semibold rounded-xl bg-green-600/10 hover:bg-green-600/20 text-green-300 border-green-500/40"
                         aria-label={`${t.whatsapp} — ${cleanTitle}`}
                       >
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="w-full h-9 text-xs font-semibold rounded-xl bg-green-600/10 hover:bg-green-600/20 text-green-300 border-green-500/40"
-                          tabIndex={-1}
-                        >
-                          <MessageCircle className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
-                          {t.whatsapp}
-                        </Button>
-                      </a>
+                        <MessageCircle className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
+                        {t.whatsapp}
+                      </Button>
                     </div>
                   </div>
                 </motion.div>

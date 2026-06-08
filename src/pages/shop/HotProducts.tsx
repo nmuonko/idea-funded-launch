@@ -439,6 +439,7 @@ export default function HotProducts() {
               const isTrending = trendingIds.has(product.id);
               const cleanTitle = cleanProductTitle(product.title);
               const shareLink = `${SHARE_PREVIEW_BASE_URL}?id=${encodeURIComponent(product.id)}`;
+              const payLink = `${window.location.origin}/hot-products/${product.id}`;
               const productImage = resolveProductImage(product);
               const productSummary = (product.description_fr || '').replace(/\s+/g, ' ').trim();
               const shortSummary = productSummary.length > 160 ? `${productSummary.slice(0, 157).trimEnd()}…` : productSummary;
@@ -449,7 +450,7 @@ export default function HotProducts() {
                 price: formatCurrency(product.total_price_usd, { locale: locale as any }),
                 ref: productRef,
                 image: productImage,
-                link: shareLink,
+                link: payLink,
               }));
               const waHref = `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}?text=${waMsg}`;
               return (
@@ -556,24 +557,24 @@ export default function HotProducts() {
                       </Button>
 
                       <Button
+                        asChild
                         size="sm"
                         variant="outline"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openChatbot({
-                            id: product.id,
-                            title: cleanTitle,
-                            price_usd: product.total_price_usd,
-                            image: productImage,
-                            link: shareLink,
-                            category: (product as any).category || undefined,
-                          });
-                        }}
                         className="w-full h-9 text-xs font-semibold rounded-xl bg-green-600/10 hover:bg-green-600/20 text-green-300 border-green-500/40"
-                        aria-label={`${t.whatsapp} — ${cleanTitle}`}
                       >
-                        <MessageCircle className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
-                        {t.whatsapp}
+                        <a
+                          href={waHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            trackClick(product, 'click');
+                          }}
+                          aria-label={`${t.whatsapp} — ${cleanTitle}`}
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
+                          {t.whatsapp}
+                        </a>
                       </Button>
                     </div>
                   </div>

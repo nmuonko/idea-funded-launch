@@ -52,7 +52,7 @@ export function AfriShopChatbotWidget() {
     if (messages.length > 0) return;
     const greet = product?.title
       ? `Bonjour 👋\nJe vois que vous êtes intéressé par : ${product.title}.\n${product.price_usd != null ? `Prix : ${product.price_usd} USD${product.price_cdf ? ` / ~${product.price_cdf.toLocaleString('fr-FR')} CDF` : ''}.\n` : ''}Voulez-vous que je vous aide avant le paiement ?`
-      : `Bonjour 👋 Je suis Sophie AfriShop ⭐. Comment puis-je vous aider ?`;
+      : `Bonjour 👋 Je suis Sophie. Comment puis-je vous aider ?`;
     setMessages([{ id: crypto.randomUUID(), role: 'assistant', content: greet, ts: Date.now() }]);
   }, [isOpen, product, messages.length]);
 
@@ -142,7 +142,7 @@ export function AfriShopChatbotWidget() {
             <div className="flex items-center gap-3 px-3 py-2.5 bg-[#075E54] text-white">
               <div className="h-10 w-10 rounded-full bg-white/15 flex items-center justify-center font-bold">A</div>
               <div className="flex-1 min-w-0">
-                <div className="font-semibold text-sm leading-tight">Sophie AfriShop ⭐</div>
+                <div className="font-semibold text-sm leading-tight">Sophie</div>
                 <div className="text-[11px] text-white/70 flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400"></span> en ligne
                 </div>

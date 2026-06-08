@@ -306,6 +306,16 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       escalationReason = "";
     }
 
+    // DETERMINISTIC shipping/fees override: total price is all-inclusive.
+    const shippingFeeRe = /(frais\s+de\s+livraison|frais\s+de\s+service|frais\s+suppl|co[uû]t\s+de\s+livraison|shipping\s+fee|delivery\s+fee|service\s+fee|extra\s+fee|hidden\s+fee)/i;
+    if (shippingFeeRe.test(message)) {
+      answer = lang === "en"
+        ? "Everything is already included in the total price shown — no extra fees."
+        : "Tout est déjà inclus dans le prix total affiché — aucun frais supplémentaire.";
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
     if (needsEscalation || !answer) {
       answer = fallbackAnswer;
     }

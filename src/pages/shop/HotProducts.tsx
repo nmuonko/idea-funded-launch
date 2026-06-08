@@ -568,7 +568,7 @@ export default function HotProducts() {
                           rel="noopener noreferrer"
                           onClick={(e) => {
                             e.stopPropagation();
-                            trackClick(product, 'whatsapp');
+                            trackClick(product, 'click');
                           }}
                           aria-label={`${t.whatsapp} — ${cleanTitle}`}
                         >

@@ -96,10 +96,13 @@ export function PriceBreakdown({
             <div className="border-t border-white/10 pt-3" />
           </>
         )}
-        <div className="flex items-center justify-between">
-          <span className="text-white font-medium">{shop.total || 'Total'}</span>
-          <span className="text-xl font-bold text-white">${fixedTotal.toFixed(2)}</span>
-        </div>
+        <DepositOrTotal
+          total={fixedTotal}
+          depositDueNowUsd={depositDueNowUsd ?? null}
+          isFr={language === 'fr'}
+          fallbackLabel={shop.total || 'Total'}
+        />
+
       </div>
     );
   }

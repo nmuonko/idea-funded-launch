@@ -287,6 +287,19 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     // Scrub forbidden payment terms from any AI output
     answer = scrubPaymentTerms(answer);
 
+    // DETERMINISTIC payment-link override: if user asks how to pay and we have a product link,
+    // always return the payment link directly (don't rely on the model to remember).
+    const payIntentRe = /(comment\s+pay|où\s+pay|ou\s+pay|lien\s+de\s+paiement|payer\s+maintenant|je\s+veux\s+payer|paiement|how\s+to\s+pay|pay\s+now|payment\s+link|where\s+(do\s+i\s+|to\s+)?pay|checkout|buy\s+now)/i;
+    if (product?.link && payIntentRe.test(message)) {
+      const origin = req.headers.get("origin") || "";
+      const fullLink = product.link.startsWith("http") ? product.link : `${origin}${product.link}`;
+      answer = lang === "en"
+        ? `Here is your secure payment link:\n${fullLink}\nClick to complete your order.`
+        : `Voici votre lien de paiement sécurisé :\n${fullLink}\nCliquez pour finaliser votre commande.`;
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
     if (needsEscalation || !answer) {
       answer = fallbackAnswer;
     }

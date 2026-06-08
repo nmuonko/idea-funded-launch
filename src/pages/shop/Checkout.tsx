@@ -1039,7 +1039,11 @@ export default function Checkout() {
                     itemPriceUsd={effectiveCheckoutTotal} 
                     serverTotal={orderServerTotal ?? serverTotalUsd} 
                     isFixedPrice={effectiveCheckoutItems.length > 0 && effectiveCheckoutItems.every(item => item.isFixedPrice)}
+                    depositDueNowUsd={paymentPlan === 'deposit' && depositEligible
+                      ? Math.ceil(effectiveCheckoutTotal * 0.30 * 100) / 100
+                      : null}
                   />
+
 
                   <Button
                     type="submit"

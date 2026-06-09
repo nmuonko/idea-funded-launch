@@ -107,7 +107,14 @@ interface ProductContext {
   category?: string;
 }
 
-type CatalogMatch = { title: string; price_usd: number | null; product_url: string | null; source?: string };
+type CatalogMatch = {
+  title: string;            // original (kept for scoring/debug)
+  display_name: string;     // cleaned, customer-friendly
+  condition: string;        // "Neuf" | "Renewed" | "Refurbished" | "Used"
+  price_usd: number | null;
+  product_url: string | null;
+  source?: string;
+};
 
 function normalizeProductQuery(text: string) {
   return text.toLowerCase()
@@ -121,21 +128,93 @@ function normalizeProductQuery(text: string) {
     .replace(/\bgooglepixel\b/g, "google pixel");
 }
 
-function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en") {
+// Strip noisy supplier-style fragments and shorten Amazon/eBay titles into a
+// friendly product name customers can read (e.g. "Galaxy S22 128GB Phantom Black").
+function cleanProductName(raw: string, lang: "fr" | "en"): string {
+  if (!raw) return "";
+  let t = raw;
+  // Remove parenthetical noise: "(Unlocked)", "(Renewed)", "(US Version)", etc.
+  t = t.replace(/\s*\([^)]*\)/g, " ");
+  // Remove seller / version / region tags
+  t = t.replace(/\b(US Version|International Version|Factory Unlocked|GSM Unlocked|Unlocked|SIM Free|Dual SIM|Single SIM|eSIM|Brand New|Sealed|Open Box|Renewed|Refurbished|Pre-?Owned|Used|For (?:T-Mobile|AT&T|Verizon|Sprint|Cricket|Metro)|Locked to [^,]+)\b/gi, " ");
+  // Remove trailing seller bits after dashes ("- Cosmic Orange - Unlocked")
+  t = t.replace(/\s*[-–—,]\s*$/g, "");
+  // Collapse whitespace and stray punctuation
+  t = t.replace(/[•|]+/g, " ").replace(/\s{2,}/g, " ").replace(/\s+,/g, ",").trim();
+  // Trim trailing commas / dashes
+  t = t.replace(/[,;:\-–—]+$/g, "").trim();
+  // Cap length so it stays one short clickable line
+  const MAX = 70;
+  if (t.length > MAX) t = t.slice(0, MAX).replace(/\s+\S*$/, "") + "…";
+  return t || raw;
+}
+
+function detectCondition(title: string, lang: "fr" | "en"): string {
+  const t = (title || "").toLowerCase();
+  if (/\brenewed\b/.test(t)) return "Renewed";
+  if (/\brefurbished?\b/.test(t)) return "Refurbished";
+  if (/\b(used|pre[- ]?owned|second[- ]?hand)\b/.test(t)) return lang === "en" ? "Used" : "Occasion";
+  // Default for AfriShop: phones are sold new unless title explicitly says otherwise.
+  return lang === "en" ? "New" : "Neuf";
+}
+
+const CONDITION_TAGLINE_FR: Record<string, string> = {
+  "Neuf": "Neuf",
+  "Renewed": "Renewed (reconditionné par le vendeur, garantie)",
+  "Refurbished": "Refurbished (reconditionné, garantie)",
+  "Occasion": "Occasion",
+};
+const CONDITION_TAGLINE_EN: Record<string, string> = {
+  "New": "New",
+  "Renewed": "Renewed (seller-refurbished, warranty)",
+  "Refurbished": "Refurbished (warranty)",
+  "Used": "Used",
+};
+
+function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en"): string {
   const useful = matches.filter(p => p.price_usd != null).slice(0, 3);
   if (!useful.length) return "";
-  const lines = useful.map(p => {
-    const priceStr = `${Number(p.price_usd).toLocaleString("en-US")} USD`;
-    // Markdown-style link: product description wraps the internal AfriShop URL,
-    // so clicking takes the user straight to the payment page (no add-to-cart).
-    return p.product_url
-      ? `• [${p.title} — ${priceStr}](${p.product_url})`
-      : `• ${p.title} — ${priceStr}`;
-  });
-  const intro = lang === "en"
-    ? `Yes, we have it. Tap the product below to pay securely on AfriShop:`
-    : `Oui, nous l'avons. Touchez le produit ci-dessous pour payer sur AfriShop :`;
-  return `${intro}\n${lines.join("\n")}`;
+
+  // Sort by price ascending so the "économique" → "premium" narrative flows naturally.
+  const sorted = [...useful].sort((a, b) => (a.price_usd! - b.price_usd!));
+
+  const taglineMap = lang === "en" ? CONDITION_TAGLINE_EN : CONDITION_TAGLINE_FR;
+
+  const lineFor = (p: CatalogMatch) => {
+    const price = `${Number(p.price_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD`;
+    const name = p.display_name || cleanProductName(p.title, lang);
+    const linked = p.product_url ? `[${name} — ${price}](${p.product_url})` : `${name} — ${price}`;
+    const cond = taglineMap[p.condition] || p.condition;
+    return `• ${linked}\n  ${cond}`;
+  };
+
+  // Pick a "best balance" recommendation: prefer the middle option when 3 exist,
+  // otherwise the cheapest in-stock one.
+  const recommended = sorted.length >= 3 ? sorted[1] : sorted[0];
+  const recName = recommended.display_name || cleanProductName(recommended.title, lang);
+  const recPrice = `${Number(recommended.price_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD`;
+
+  if (lang === "en") {
+    return [
+      `Yes 👌 We have a few options for you.`,
+      ``,
+      `Top picks:`,
+      ...sorted.map(lineFor),
+      ``,
+      `I'd recommend **${recName}** at ${recPrice} for the best value.`,
+      `Which one would you like to order?`,
+    ].join("\n");
+  }
+
+  return [
+    `Oui 👌 Nous avons plusieurs options pour vous.`,
+    ``,
+    `Voici les meilleurs choix :`,
+    ...sorted.map(lineFor),
+    ``,
+    `Je vous recommande **${recName}** à ${recPrice} pour le meilleur rapport qualité-prix.`,
+    `Lequel souhaitez-vous commander ?`,
+  ].join("\n");
 }
 
 function buildInternalProductUrl(
@@ -145,7 +224,6 @@ function buildInternalProductUrl(
 ): string | null {
   const base = (baseUrl || "https://afrishop-usa.com").replace(/\/$/, "");
   if (source === "hot_products_showcase" && row.id) {
-    // Hot products: ?hp=ID goes directly to checkout (single-item isolated payment).
     return `${base}/checkout?hp=${encodeURIComponent(row.id)}`;
   }
   if (source === "catalog_items" && row.provider && row.provider_product_id) {

@@ -340,7 +340,14 @@ Deno.serve(async (req) => {
           if (!r.title || price == null) continue;
           const internalUrl = buildInternalProductUrl(baseUrl, source, r);
           if (!catalogMatches.some(m => m.title === r.title && m.product_url === internalUrl)) {
-            catalogMatches.push({ title: r.title, price_usd: Number(price), product_url: internalUrl, source });
+            catalogMatches.push({
+              title: r.title,
+              display_name: cleanProductName(r.title, lang),
+              condition: r.condition && String(r.condition).trim() ? String(r.condition).trim() : detectCondition(r.title, lang),
+              price_usd: Number(price),
+              product_url: internalUrl,
+              source,
+            });
           }
         }
       };

@@ -13,6 +13,7 @@ import { mapCategoryAndSubcategory } from "./categoryMapper.ts";
 import { isAllowedMotorListing } from "./motorsFilter.ts";
 import { CatalogFilters } from "./sortFilterNormalizer.ts";
 import { CatalogItem, mapEbayItemToResponse } from "./catalogItemMapper.ts";
+import { isImplausiblyLow, getPriceFloor } from "./priceFloors.ts";
 import { createClient } from "@supabase/supabase-js";
 
 export interface EbayFetchParams {
@@ -198,6 +199,26 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
         });
         return category !== "clothing_shoes_accessories";
       });
+
+      // Price-floor guardrail: drop listings priced absurdly below the
+      // model's minimum reasonable USD price (auction starting bids,
+      // parts-only, "for repair" listings, etc.). Prevents us from showing
+      // (and selling at) drastically wrong prices for premium phones.
+      {
+        const before = filteredItems.length;
+        const dropped: string[] = [];
+        filteredItems = filteredItems.filter(item => {
+          if (isImplausiblyLow(item.title, item.price_usd)) {
+            const f = getPriceFloor(item.title);
+            dropped.push(`${item.provider_product_id}@${item.price_usd}<${f?.floorUsd}`);
+            return false;
+          }
+          return true;
+        });
+        if (dropped.length > 0) {
+          console.warn(`[EBAY_FETCH] requestId=${requestId} price_floor dropped ${dropped.length}/${before}: ${dropped.slice(0, 5).join(", ")}`);
+        }
+      }
 
       const mappedCount = filteredItems.length;
 

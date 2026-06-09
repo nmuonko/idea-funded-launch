@@ -124,10 +124,34 @@ function normalizeProductQuery(text: string) {
 function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en") {
   const useful = matches.filter(p => p.price_usd != null).slice(0, 3);
   if (!useful.length) return "";
-  const lines = useful.map(p => `• ${p.title} — ${Number(p.price_usd).toLocaleString("en-US")} USD${p.product_url ? `\n${p.product_url}` : ""}`);
-  return lang === "en"
-    ? `Yes, we have it in the catalogue. Current price:\n${lines.join("\n")}`
-    : `Oui, nous l'avons dans le catalogue. Prix actuel :\n${lines.join("\n")}`;
+  const lines = useful.map(p => {
+    const priceStr = `${Number(p.price_usd).toLocaleString("en-US")} USD`;
+    // Markdown-style link: product description wraps the internal AfriShop URL,
+    // so clicking takes the user straight to the payment page (no add-to-cart).
+    return p.product_url
+      ? `• [${p.title} — ${priceStr}](${p.product_url})`
+      : `• ${p.title} — ${priceStr}`;
+  });
+  const intro = lang === "en"
+    ? `Yes, we have it. Tap the product below to pay securely on AfriShop:`
+    : `Oui, nous l'avons. Touchez le produit ci-dessous pour payer sur AfriShop :`;
+  return `${intro}\n${lines.join("\n")}`;
+}
+
+function buildInternalProductUrl(
+  baseUrl: string,
+  source: string | undefined,
+  row: { id?: string | null; provider?: string | null; provider_product_id?: string | null },
+): string | null {
+  const base = (baseUrl || "https://afrishop-usa.com").replace(/\/$/, "");
+  if (source === "hot_products_showcase" && row.id) {
+    // Hot products: ?hp=ID goes directly to checkout (single-item isolated payment).
+    return `${base}/checkout?hp=${encodeURIComponent(row.id)}`;
+  }
+  if (source === "catalog_items" && row.provider && row.provider_product_id) {
+    return `${base}/product/${encodeURIComponent(row.provider)}/${encodeURIComponent(row.provider_product_id)}`;
+  }
+  return null;
 }
 
 async function fetchKb(supabase: any, language: string) {
@@ -216,7 +240,7 @@ Deno.serve(async (req) => {
 
       const catalogQuery = () => supabase
         .from("catalog_items")
-        .select("title,price_usd,product_url")
+        .select("id,provider,provider_product_id,title,price_usd")
         .eq("is_active", true)
         .not("price_usd", "is", null)
         .order("popularity_score", { ascending: false, nullsFirst: false })
@@ -224,18 +248,21 @@ Deno.serve(async (req) => {
 
       const hotProductsQuery = () => supabase
         .from("hot_products_showcase")
-        .select("title,total_price_usd,price_usd,product_url")
+        .select("id,title,total_price_usd,price_usd")
         .eq("is_active", true)
         .not("total_price_usd", "is", null)
         .order("sort_order", { ascending: true, nullsFirst: false })
         .limit(5);
 
+      const baseUrl = (req.headers.get("origin") || Deno.env.get("FRONTEND_BASE_URL") || "https://afrishop-usa.com").trim();
+
       const addMatches = (rows: any[] | null | undefined, source: string) => {
         for (const r of rows || []) {
           const price = r.total_price_usd ?? r.price_usd ?? null;
           if (!r.title || price == null) continue;
-          if (!catalogMatches.some(m => m.title === r.title && m.product_url === r.product_url)) {
-            catalogMatches.push({ title: r.title, price_usd: Number(price), product_url: r.product_url ?? null, source });
+          const internalUrl = buildInternalProductUrl(baseUrl, source, r);
+          if (!catalogMatches.some(m => m.title === r.title && m.product_url === internalUrl)) {
+            catalogMatches.push({ title: r.title, price_usd: Number(price), product_url: internalUrl, source });
           }
         }
       };

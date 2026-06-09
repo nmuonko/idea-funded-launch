@@ -9,12 +9,25 @@ import sophieProfile from '@/assets/sophie-profile.jpg';
 import { getWhatsAppUrl, SUPPORT_WHATSAPP_DISPLAY } from '@/lib/supportConfig';
 import { cn } from '@/lib/utils';
 
+interface ProductCard {
+  title: string;
+  price_usd: number | null;
+  image_url?: string | null;
+  images?: string[];
+  capacity?: string | null;
+  color?: string | null;
+  condition?: string | null;
+  product_url: string | null;
+  cta_label?: string;
+}
+
 interface ChatMsg {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   ts: number;
   escalate?: boolean;
+  product_card?: ProductCard | null;
 }
 
 const QUICK_REPLIES = [

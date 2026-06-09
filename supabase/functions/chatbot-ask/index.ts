@@ -92,6 +92,8 @@ Si client en colère → présente UNE excuse brève puis escalade.
 - Pour une simple question de clarification, POSE la question au lieu d'escalader.
 - Tu peux répondre à des questions générales sur AfriShop (modèle, délais, paiements, parrainage, garantie, produits interdits) à partir du contexte fourni ci-dessus — ce n'est pas "hors-sujet".
 - N'escalade QUE si: client demande explicitement un humain, paiement échoué, litige, remboursement, commande manquante, suivi indisponible, client clairement en colère, question légale/société sans info dans la base, ou information factuelle précise manquante (prix exact, date exacte, numéro de suivi).
+`.trim();
+
 
 interface ProductContext {
   id?: string;

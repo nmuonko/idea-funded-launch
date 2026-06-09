@@ -321,6 +321,49 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       escalationReason = "";
     }
 
+    // DETERMINISTIC order-status override: look up the user's most recent order from the backend.
+    const orderStatusRe = /(statut.*commande|suivi.*commande|où.*commande|ma\s+commande|order\s+status|track.*order|where.*order|my\s+order)/i;
+    if (orderStatusRe.test(message) || classification.category === "ORDER_STATUS" || classification.intent === "TRACK_ORDER") {
+      if (userId) {
+        try {
+          const { data: orders } = await supabase
+            .from("orders")
+            .select("id,order_number,status,created_at,total_usd")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false })
+            .limit(1);
+          const o = orders?.[0];
+          if (o) {
+            const statusLabels: Record<string, string> = {
+              DRAFT: "Brouillon", PENDING_PAYMENT: "Paiement en attente", PAID: "Payée",
+              PROCESSING: "En préparation", SHIPPED: "Expédiée", COMPLETED: "Livrée",
+              CANCELLED: "Annulée", REFUNDED: "Remboursée",
+            };
+            const label = statusLabels[o.status] || o.status;
+            const ref = o.order_number || o.id?.slice(0, 8);
+            answer = lang === "en"
+              ? `Your latest order #${ref} is: ${o.status}. You'll receive email/WhatsApp updates as it progresses.`
+              : `Votre dernière commande #${ref} : ${label}. Vous recevrez des notifications par email/WhatsApp à chaque étape.`;
+          } else {
+            answer = lang === "en"
+              ? "I don't see any order on your account yet. Once you place one, we'll send email/WhatsApp updates at each step."
+              : "Je ne vois aucune commande sur votre compte pour l'instant. Dès que vous passerez commande, vous recevrez des notifications par email/WhatsApp à chaque étape.";
+          }
+        } catch {
+          answer = lang === "en"
+            ? "We'll send email/WhatsApp updates as your order progresses."
+            : "Vous recevrez des notifications par email/WhatsApp concernant l'avancement de votre commande.";
+        }
+      } else {
+        answer = lang === "en"
+          ? "Sign in to see your order status. We also send email/WhatsApp updates at each step."
+          : "Connectez-vous pour voir le statut de votre commande. Vous recevrez aussi des notifications par email/WhatsApp à chaque étape.";
+      }
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
+
     if (needsEscalation || !answer) {
       answer = fallbackAnswer;
     }

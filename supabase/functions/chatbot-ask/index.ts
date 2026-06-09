@@ -212,12 +212,20 @@ function detectCondition(title: string, lang: "fr" | "en"): string {
   const t = (title || "").toLowerCase();
   if (/\brenewed\b/.test(t)) return "Renewed";
   if (/\brefurbished?\b/.test(t)) return "Refurbished";
-  if (/\b(used|pre[- ]?owned|second[- ]?hand)\b/.test(t)) return lang === "en" ? "Used" : "Occasion";
+  if (/\b(used|pre[- ]?owned|second[- ]?hand|d[’']?occasion|occasion)\b/.test(t)) return lang === "en" ? "Used" : "Occasion";
   if (/\b(very\s+good|excellent|good)\s+condition\b/.test(t)) return "Refurbished";
   if (/\bopen\s*box\b/.test(t)) return "Refurbished";
   if (/\bdamaged|scratches|cracked|broken|for\s+parts\b/.test(t)) return lang === "en" ? "Used" : "Occasion";
   // Default for AfriShop: phones are sold new unless title explicitly says otherwise.
   return lang === "en" ? "New" : "Neuf";
+}
+
+function displayableCondition(condition: string | null | undefined, lang: "fr" | "en"): string | null {
+  const c = String(condition || "").toLowerCase();
+  if (!c) return null;
+  if (c === "neuf" || c === "new") return lang === "en" ? "New" : "Neuf";
+  if (c === "occasion" || c === "used") return lang === "en" ? "Used" : "Occasion";
+  return null;
 }
 
 const CONDITION_TAGLINE_FR: Record<string, string> = {
@@ -250,13 +258,17 @@ function pickBestMatch(matches: CatalogMatch[], opts?: { wantsNew?: boolean }): 
 function formatPriceAnswer(match: CatalogMatch, lang: "fr" | "en"): string {
   const name = match.display_name || cleanProductName(match.title, lang);
   const price = match.price_usd != null ? `${Number(match.price_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD` : "";
-  const url = match.product_url;
   if (lang === "en") {
-    const cta = url ? `\n\n[Order now](${url})` : `\n\nTap "Order now" below to checkout securely.`;
-    return `Yes 👌 here's the best match for you:\n\n${name}${price ? ` — ${price}` : ""}\nFree delivery to DRC included${cta}`;
+    return `Yes 👌 here's the best match for you:\n\n${name}${price ? ` — ${price}` : ""}\nFree delivery to DRC included.`;
   }
-  const cta = url ? `\n\n[Commander maintenant](${url})` : `\n\nCliquez sur « Commander maintenant » ci-dessous pour passer commande en toute sécurité.`;
-  return `Oui 👌 voici la meilleure option pour vous :\n\n${name}${price ? ` — ${price}` : ""}\nLivraison RDC incluse${cta}`;
+  return `Oui 👌 voici la meilleure option pour vous :\n\n${name}${price ? ` — ${price}` : ""}\nLivraison RDC incluse.`;
+}
+
+function formatOptionsAnswer(matches: CatalogMatch[], lang: "fr" | "en"): string {
+  const count = Math.min(matches.length, 3);
+  return lang === "en"
+    ? `Here ${count === 1 ? "is" : "are"} ${count} available option${count === 1 ? "" : "s"}:`
+    : `Voici ${count} option${count === 1 ? "" : "s"} disponible${count === 1 ? "" : "s"} :`;
 }
 
 
@@ -269,8 +281,8 @@ function buildInternalProductUrl(
   if (source === "hot_products_showcase" && row.id) {
     return `${base}/checkout?hp=${encodeURIComponent(row.id)}`;
   }
-  if (source === "catalog_items" && row.provider && row.provider_product_id) {
-    return `${base}/product/${encodeURIComponent(row.provider)}/${encodeURIComponent(row.provider_product_id)}`;
+  if (source === "catalog_items" && row.id) {
+    return `${base}/checkout?ci=${encodeURIComponent(row.id)}`;
   }
   return null;
 }
@@ -350,7 +362,14 @@ Deno.serve(async (req) => {
     let catalogMatches: CatalogMatch[] = [];
     try {
       // Normalize common typos / phonetic spellings before tokenizing
-      const normalized = normalizeProductQuery(message);
+      const followUpOptionsRe = /(autre|autres|diff[ée]rent|different|couleur|color|mod[èe]les?|models?|options?|choix|capacity|capacit[ée]|gb|tb|plusieurs|more)/i;
+      const recentUserContext = history
+        .filter(h => h.role !== "assistant")
+        .slice(-3)
+        .map(h => h.content)
+        .join(" ");
+      const lookupText = followUpOptionsRe.test(message) ? `${recentUserContext} ${message}` : message;
+      const normalized = normalizeProductQuery(lookupText);
 
       const stop = new Set([
         // Articles / generic
@@ -363,6 +382,8 @@ Deno.serve(async (req) => {
         "tout","neuf","neuve","carton","scelle","scellé","scellee","scellée","sealed","brand","new","nouveau","nouvelle","original","authentique","authentic",
         // Filler
         "moi","mon","ma","mes","ton","ta","tes","son","sa","ses","notre","votre","leur","aussi","juste","seulement","only","just",
+        // Follow-up choice words should not change the requested model
+        "autre","autres","different","différent","differente","différente","couleur","color","modele","modèle","model","models","options","option","choix","capacity","capacite","capacité","plusieurs","more",
       ]);
       const tokens = normalized
         .replace(/[^\p{L}\p{N}\s-]/gu, " ")
@@ -622,23 +643,35 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     // the curated catalog response — no escalation, no Amazon/eBay leakage.
     const priceQuestionRe = /(combien|combine|prix|co[uû]te|cout|cost|price|how\s+much)/i;
     const productIntentRe = /(disponible|avez[- ]vous|avez vous|j['e]?\s*(?:ai\s+besoin|cherche|voudrais|veux|voulais)|besoin\s+d|je cherche|cherche|recherche|achat|acheter|commander|order|buy|need|looking\s+for|want|tout\s+neuf|en\s+carton|carton\s+scell|scell[ée]|sealed|brand\s+new|new\s+in\s+box|neuf)/i;
-    const wantsNew = /\b(tout\s+neuf|neuf|neuve|carton\s+scell|scell[ée]e?s?|sealed|brand\s+new|new\s+in\s+box|nib)\b/i.test(message);
+    const wantsNewContext = `${history.filter(h => h.role !== "assistant").slice(-3).map(h => h.content).join(" ")} ${message}`;
+    const wantsNew = /\b(tout\s+neuf|neuf|neuve|carton\s+scell|scell[ée]e?s?|sealed|brand\s+new|new\s+in\s+box|nib)\b/i.test(wantsNewContext);
     let productCard: any = null;
-    if (catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message))) {
-      const best = pickBestMatch(catalogMatches, { wantsNew });
+    let productCards: any[] = [];
+    const asksForMoreOptions = /(autre|autres|diff[ée]rent|different|couleur|color|mod[èe]les?|models?|options?|choix|capacity|capacit[ée]|gb|tb|plusieurs|more)/i.test(message);
+    if (catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message) || asksForMoreOptions)) {
+      const selectedMatches = asksForMoreOptions ? catalogMatches.filter(p => p.price_usd != null).slice(0, 3) : [];
+      const best = asksForMoreOptions ? selectedMatches[0] : pickBestMatch(catalogMatches, { wantsNew });
+      const toCard = (match: CatalogMatch) => ({
+        title: match.display_name || cleanProductName(match.title, lang),
+        price_usd: match.price_usd,
+        image_url: match.image_url || null,
+        images: match.images || [],
+        capacity: match.capacity || null,
+        color: match.color || null,
+        condition: displayableCondition(match.condition, lang),
+        product_url: match.product_url,
+        cta_label: lang === "en" ? "Order now" : "Commander maintenant",
+      });
       if (best) {
         answer = formatPriceAnswer(best, lang);
-        productCard = {
-          title: best.display_name || cleanProductName(best.title, lang),
-          price_usd: best.price_usd,
-          image_url: best.image_url || null,
-          images: best.images || [],
-          capacity: best.capacity || null,
-          color: best.color || null,
-          condition: best.condition || null,
-          product_url: best.product_url,
-          cta_label: lang === "en" ? "Order now" : "Commander maintenant",
-        };
+        if (asksForMoreOptions && selectedMatches.length > 1) {
+          answer = formatOptionsAnswer(selectedMatches, lang);
+          productCards = selectedMatches.map(toCard);
+          productCard = productCards[0];
+        } else {
+          productCard = toCard(best);
+          productCards = [productCard];
+        }
         needsEscalation = false;
         escalationReason = "";
       }
@@ -761,6 +794,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       needs_escalation: needsEscalation,
       escalation_reason: needsEscalation ? escalationReason : null,
       product_card: needsEscalation ? null : productCard,
+      product_cards: needsEscalation ? [] : productCards,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     console.error(e);

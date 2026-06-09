@@ -221,6 +221,7 @@ export function AfriShopChatbotWidget() {
       if (data?.conversation_id && !conversationId) setConversationId(data.conversation_id);
       const answer = data?.answer || "Je préfère vous mettre en contact avec notre équipe afin de vous donner une réponse exacte.";
       const escalate = !!data?.needs_escalation;
+      const product_card: ProductCard | null = data?.product_card ?? null;
 
       // Human-like typing delay: 1–2s short, 2–3s longer
       const isLong = answer.length > 140;
@@ -231,7 +232,7 @@ export function AfriShopChatbotWidget() {
       const wait = Math.max(0, targetDelay - elapsed);
       await new Promise(r => setTimeout(r, wait));
 
-      setMessages(m => [...m, { id: crypto.randomUUID(), role: 'assistant', content: answer, ts: Date.now(), escalate }]);
+      setMessages(m => [...m, { id: crypto.randomUUID(), role: 'assistant', content: answer, ts: Date.now(), escalate, product_card }]);
     } catch (e) {
       const elapsed = Date.now() - startedAt;
       await new Promise(r => setTimeout(r, Math.max(0, 1200 - elapsed)));

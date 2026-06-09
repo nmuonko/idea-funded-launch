@@ -368,7 +368,7 @@ Deno.serve(async (req) => {
 
       const catalogQuery = () => supabase
         .from("catalog_items")
-        .select("id,provider,provider_product_id,title,price_usd,condition")
+        .select("id,provider,provider_product_id,title,price_usd,condition,image_url,images")
         .eq("is_active", true)
         .not("price_usd", "is", null)
         .order("popularity_score", { ascending: false, nullsFirst: false })
@@ -376,7 +376,7 @@ Deno.serve(async (req) => {
 
       const hotProductsQuery = () => supabase
         .from("hot_products_showcase")
-        .select("id,title,total_price_usd,price_usd")
+        .select("id,title,total_price_usd,price_usd,image_url,gallery_images")
         .eq("is_active", true)
         .not("total_price_usd", "is", null)
         .order("sort_order", { ascending: true, nullsFirst: false })
@@ -390,17 +390,24 @@ Deno.serve(async (req) => {
           if (!r.title || price == null) continue;
           const internalUrl = buildInternalProductUrl(baseUrl, source, r);
           if (!catalogMatches.some(m => m.title === r.title && m.product_url === internalUrl)) {
+            const imgs: string[] = Array.isArray(r.gallery_images) ? r.gallery_images
+              : Array.isArray(r.images) ? r.images : [];
             catalogMatches.push({
               title: r.title,
               display_name: cleanProductName(r.title, lang),
               condition: r.condition && String(r.condition).trim() ? String(r.condition).trim() : detectCondition(r.title, lang),
               price_usd: Number(price),
               product_url: internalUrl,
+              image_url: r.image_url || imgs[0] || null,
+              images: imgs,
+              capacity: extractCapacity(r.title),
+              color: extractColor(r.title),
               source,
             });
           }
         }
       };
+
 
       if (tokens.length > 0) {
         // 1) Exact all-token title match in hot products first (these are visible storefront products).

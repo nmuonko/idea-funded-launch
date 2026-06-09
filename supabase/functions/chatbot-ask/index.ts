@@ -619,11 +619,27 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     const priceQuestionRe = /(combien|combine|prix|co[uû]te|cout|cost|price|how\s+much)/i;
     const productIntentRe = /(disponible|avez[- ]vous|avez vous|j['e]?\s*(?:ai\s+besoin|cherche|voudrais|veux|voulais)|besoin\s+d|je cherche|cherche|recherche|achat|acheter|commander|order|buy|need|looking\s+for|want|tout\s+neuf|en\s+carton|carton\s+scell|scell[ée]|sealed|brand\s+new|new\s+in\s+box|neuf)/i;
     const wantsNew = /\b(tout\s+neuf|neuf|neuve|carton\s+scell|scell[ée]e?s?|sealed|brand\s+new|new\s+in\s+box|nib)\b/i.test(message);
+    let productCard: any = null;
     if (catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message))) {
-      answer = formatPriceAnswer(catalogMatches, lang, { wantsNew });
-      needsEscalation = false;
-      escalationReason = "";
+      const best = pickBestMatch(catalogMatches, { wantsNew });
+      if (best) {
+        answer = formatPriceAnswer(best, lang);
+        productCard = {
+          title: best.display_name || cleanProductName(best.title, lang),
+          price_usd: best.price_usd,
+          image_url: best.image_url || null,
+          images: best.images || [],
+          capacity: best.capacity || null,
+          color: best.color || null,
+          condition: best.condition || null,
+          product_url: best.product_url,
+          cta_label: lang === "en" ? "Order now" : "Commander maintenant",
+        };
+        needsEscalation = false;
+        escalationReason = "";
+      }
     }
+
 
     // DETERMINISTIC payment-link override: if user asks how to pay and we have a product link,
     // always return the payment link directly (don't rely on the model to remember).

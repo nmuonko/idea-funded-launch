@@ -208,7 +208,10 @@ Deno.serve(async (req) => {
       const normalized = normalizeProductQuery(message);
 
       const stop = new Set(["the","a","an","is","of","for","and","or","to","in","on","with","price","cost","prix","combien","quel","quelle","est","le","la","les","un","une","de","du","des","pour","ça","ca","coute","coûte","cout","much","how","what","tell","me","please","svp","stp","s'il","plait","plaît","combine"]);
-      const tokens = normalized.replace(/[^\p{L}\p{N}\s-]/gu, " ").split(/\s+/).filter(w => w.length > 2 && !stop.has(w));
+      const tokens = normalized
+        .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+        .split(/\s+/)
+        .filter(w => (/^\d{2,}$/.test(w) || w.length > 2) && !stop.has(w));
       const mustHave = ["iphone", "samsung", "pixel", "galaxy", "macbook", "ipad", "airpods"].filter(t => tokens.includes(t));
 
       const catalogQuery = () => supabase
@@ -283,7 +286,16 @@ Deno.serve(async (req) => {
           if (deviceMatches.length > 0) catalogMatches = deviceMatches;
         }
 
-        catalogMatches = catalogMatches.slice(0, 5);
+        catalogMatches = catalogMatches
+          .map(p => {
+            const title = normalizeProductQuery(p.title);
+            const tokenScore = tokens.reduce((sum, t) => sum + (title.includes(t) ? (/^\d+$/.test(t) ? 30 : 10) : -8), 0);
+            const hotBoost = p.source === "hot_products_showcase" ? 35 : 0;
+            return { ...p, _score: tokenScore + hotBoost } as CatalogMatch & { _score: number };
+          })
+          .sort((a, b) => b._score - a._score)
+          .slice(0, 5)
+          .map(({ _score, ...p }) => p);
       }
     } catch (e) {
       console.warn("catalog lookup failed", e);

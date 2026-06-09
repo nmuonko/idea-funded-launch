@@ -171,7 +171,7 @@ export default function ChatbotConversations() {
                           'max-w-[75%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words',
                           m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
                         )}>
-                          {m.content}
+                          {m.role === 'assistant' ? renderAssistantContent(m.content) : m.content}
                           <div className="text-[10px] mt-1 opacity-60">{new Date(m.created_at).toLocaleString('fr-FR')}</div>
                         </div>
                         {m.role === 'user' && (

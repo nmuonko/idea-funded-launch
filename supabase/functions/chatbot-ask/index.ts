@@ -178,10 +178,53 @@ Deno.serve(async (req) => {
 
     const { faqRows, kbaRows } = await fetchKb(supabase, lang === "en" ? "en" : "fr");
 
+    // Product price lookup: if user mentions a product, search the catalog.
+    let catalogMatches: { title: string; price_usd: number | null; product_url: string | null }[] = [];
+    try {
+      // Extract meaningful keywords (drop common words & price/question words)
+      const stop = new Set(["the","a","an","is","of","for","and","or","to","in","on","with","price","cost","prix","combien","quel","quelle","est","le","la","les","un","une","de","du","des","pour","ça","ca","coute","coûte","much","how","what","tell","me","please","svp","stp","s'il","plait","plaît"]);
+      const tokens = message.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, " ").split(/\s+/).filter(w => w.length > 2 && !stop.has(w));
+      if (tokens.length > 0) {
+        const searchTerm = tokens.slice(0, 6).join(" ");
+        const { data } = await supabase
+          .from("catalog_items")
+          .select("title,price_usd,product_url")
+          .eq("is_active", true)
+          .not("price_usd", "is", null)
+          .textSearch("search_text", tokens.join(" | "), { type: "websearch", config: "simple" })
+          .order("popularity_score", { ascending: false, nullsFirst: false })
+          .limit(5);
+        if (data && data.length > 0) {
+          catalogMatches = data as any;
+        } else {
+          // Fallback: ilike on title with the longest token
+          const longest = tokens.sort((a, b) => b.length - a.length)[0];
+          const { data: data2 } = await supabase
+            .from("catalog_items")
+            .select("title,price_usd,product_url")
+            .eq("is_active", true)
+            .not("price_usd", "is", null)
+            .ilike("title", `%${longest}%`)
+            .order("popularity_score", { ascending: false, nullsFirst: false })
+            .limit(5);
+          if (data2) catalogMatches = data2 as any;
+        }
+      }
+    } catch (e) {
+      console.warn("catalog lookup failed", e);
+    }
+
+    const catalogBlock = catalogMatches.length
+      ? catalogMatches.map((p, i) => `[PRODUIT ${i + 1}] ${p.title} — ${p.price_usd} USD${p.product_url ? ` — ${p.product_url}` : ""}`).join("\n")
+      : "(aucun produit correspondant trouvé dans le catalogue)";
+
     const systemPrompt = `${BUSINESS_CONTEXT_FR}
 
 Base de connaissances (UNIQUE source autorisée pour les faits — utilise-la, ne devine PAS):
 ${buildKbBlock(faqRows, kbaRows)}
+
+Catalogue AfriShop (produits réels, prix tout-inclus en USD — utilise ces prix si le client demande un prix):
+${catalogBlock}
 
 Contexte produit:
 ${buildProductBlock(product)}

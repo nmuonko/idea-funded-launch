@@ -14,7 +14,15 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
 // --- Guardrail constants ---
-const FORBIDDEN_PAYMENT_TERMS = [/maishapay/gi, /myshoppay/gi, /my\s*shop\s*pay/gi, /flutterwave/gi, /paypal/gi];
+const FORBIDDEN_PAYMENT_TERMS: { re: RegExp; replace: string }[] = [
+  { re: /\bmaishapay\b/gi, replace: "Mobile Money" },
+  { re: /\bmyshoppay\b/gi, replace: "Mobile Money" },
+  { re: /\bmy\s*shop\s*pay\b/gi, replace: "Mobile Money" },
+  { re: /\bflutterwave\b/gi, replace: "Mobile Money" },
+  { re: /\bpaypal\b/gi, replace: "carte bancaire" },
+  { re: /\bpawa\s*pay\b/gi, replace: "Mobile Money" },
+  { re: /\bstripe\b/gi, replace: "carte bancaire" },
+];
 const SENSITIVE_PATTERNS = [
   { re: /\b(?:\d[ -]*?){13,19}\b/g, replace: "[CARD_REDACTED]" }, // card numbers
   { re: /\bcvv\s*[:=]?\s*\d{3,4}\b/gi, replace: "[CVV_REDACTED]" },

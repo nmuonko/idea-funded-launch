@@ -57,7 +57,7 @@ Modèle:
 - Dès le paiement confirmé, AfriShop lance la commande USA → RDC.
 - Délai de livraison: 2 à 4 semaines selon la ville de livraison et le moment de l'achat, mais la plupart arrivent dans les 10 jours ouvrés (ne JAMAIS donner de date exacte).
 - Prix affichés en USD; total également affiché en CDF au checkout.
-- Paiement en 1 fois OU plan acompte 30% / solde 70% à l'arrivée (selon éligibilité).
+- Paiement: 1) 100% en ligne avant expédition (Stripe carte ou PawaPay Mobile Money), OU 2) plan acompte 30% maintenant et 70% à la livraison avant le retrait (selon éligibilité). NE JAMAIS dire "pas de paiement à la livraison" — le plan 30/70 existe.
 - Produits interdits: livres, contenu numérique, abonnements, articles adultes/NSFW.
 - Statuts commande: DRAFT, PENDING_PAYMENT, PAID, PROCESSING, SHIPPED, COMPLETED.
 - Programme parrainage: 10% commission via mobile money après seuil de 5 USD.

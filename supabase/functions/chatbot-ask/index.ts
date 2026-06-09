@@ -756,6 +756,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       },
       needs_escalation: needsEscalation,
       escalation_reason: needsEscalation ? escalationReason : null,
+      product_card: needsEscalation ? null : productCard,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     console.error(e);

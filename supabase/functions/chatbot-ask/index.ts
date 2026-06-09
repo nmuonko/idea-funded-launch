@@ -107,6 +107,29 @@ interface ProductContext {
   category?: string;
 }
 
+type CatalogMatch = { title: string; price_usd: number | null; product_url: string | null; source?: string };
+
+function normalizeProductQuery(text: string) {
+  return text.toLowerCase()
+    .replace(/\buniphone\b/g, "iphone")
+    .replace(/\buni\s+phone\b/g, "iphone")
+    .replace(/\bayphone\b/g, "iphone")
+    .replace(/\bayfone\b/g, "iphone")
+    .replace(/\bifone\b/g, "iphone")
+    .replace(/\bi-phone\b/g, "iphone")
+    .replace(/\bsamsoung\b/g, "samsung")
+    .replace(/\bgooglepixel\b/g, "google pixel");
+}
+
+function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en") {
+  const useful = matches.filter(p => p.price_usd != null).slice(0, 3);
+  if (!useful.length) return "";
+  const lines = useful.map(p => `• ${p.title} — ${Number(p.price_usd).toLocaleString("en-US")} USD${p.product_url ? `\n${p.product_url}` : ""}`);
+  return lang === "en"
+    ? `Yes, we have it in the catalogue. Current price:\n${lines.join("\n")}`
+    : `Oui, nous l'avons dans le catalogue. Prix actuel :\n${lines.join("\n")}`;
+}
+
 async function fetchKb(supabase: any, language: string) {
   const [faq, kba] = await Promise.all([
     supabase.from("faq_kb").select("question,answer").eq("is_active", true).eq("language", language)

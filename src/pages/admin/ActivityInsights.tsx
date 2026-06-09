@@ -131,7 +131,7 @@ function CheckoutFunnel({ range }: { range: Range }) {
       const { data: paid } = await supabase
         .from('orders')
         .select('id')
-        .eq('status', 'paid')
+        .eq('status', 'PAID')
         .gte('created_at', sinceISO(range))
         .limit(20000);
 

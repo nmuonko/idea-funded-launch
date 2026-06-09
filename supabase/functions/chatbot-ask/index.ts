@@ -240,7 +240,7 @@ Deno.serve(async (req) => {
 
       const catalogQuery = () => supabase
         .from("catalog_items")
-        .select("title,price_usd,product_url")
+        .select("id,provider,provider_product_id,title,price_usd")
         .eq("is_active", true)
         .not("price_usd", "is", null)
         .order("popularity_score", { ascending: false, nullsFirst: false })
@@ -248,18 +248,21 @@ Deno.serve(async (req) => {
 
       const hotProductsQuery = () => supabase
         .from("hot_products_showcase")
-        .select("title,total_price_usd,price_usd,product_url")
+        .select("id,title,total_price_usd,price_usd")
         .eq("is_active", true)
         .not("total_price_usd", "is", null)
         .order("sort_order", { ascending: true, nullsFirst: false })
         .limit(5);
 
+      const baseUrl = (req.headers.get("origin") || Deno.env.get("FRONTEND_BASE_URL") || "https://afrishop-usa.com").trim();
+
       const addMatches = (rows: any[] | null | undefined, source: string) => {
         for (const r of rows || []) {
           const price = r.total_price_usd ?? r.price_usd ?? null;
           if (!r.title || price == null) continue;
-          if (!catalogMatches.some(m => m.title === r.title && m.product_url === r.product_url)) {
-            catalogMatches.push({ title: r.title, price_usd: Number(price), product_url: r.product_url ?? null, source });
+          const internalUrl = buildInternalProductUrl(baseUrl, source, r);
+          if (!catalogMatches.some(m => m.title === r.title && m.product_url === internalUrl)) {
+            catalogMatches.push({ title: r.title, price_usd: Number(price), product_url: internalUrl, source });
           }
         }
       };

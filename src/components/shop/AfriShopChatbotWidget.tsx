@@ -22,7 +22,6 @@ const QUICK_REPLIES = [
   'Délai de livraison',
   'Frais de livraison',
   'Statut de ma commande',
-  'Parler à un agent',
 ];
 
 function formatTime(ts: number) {

@@ -30,6 +30,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { buildAmazonProductDetailUrl, normalizeAmazonProductUrl } from '@/lib/amazonProductLinks';
 import { resolveDisplayPrice } from '@/lib/serverPricing';
+import { cleanProductText } from '@/lib/cleanProductText';
 
 /**
  * Determine if a product is a vehicle listing.
@@ -1133,7 +1134,7 @@ export default function ProductDetailsPage() {
               {product.description && (
                 <div className="pt-6 border-t border-white/10">
                   <h3 className="text-lg font-semibold text-white mb-3">Description</h3>
-                  <p className="text-white/70 whitespace-pre-line break-words">{product.description}</p>
+                  <p className="text-white/70 whitespace-pre-line break-words">{cleanProductText(product.description)}</p>
                 </div>
               )}
 

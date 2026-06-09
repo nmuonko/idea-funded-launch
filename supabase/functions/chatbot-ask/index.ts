@@ -165,8 +165,8 @@ function cleanProductName(raw: string, lang: "fr" | "en"): string {
   t = t.replace(/\s*-\s*(?:Cell Phones|Electronics|Computers).*$/i, "");
   // Remove parenthetical noise: "(Unlocked)", "(Renewed)", "(US Version)", etc.
   t = t.replace(/\s*\([^)]*\)/g, " ");
-  // Remove seller / version / region tags
-  t = t.replace(/\b(US Version|International Version|Factory Unlocked|GSM Unlocked|Unlocked|SIM Free|Dual SIM|Single SIM|eSIM|Brand New|Sealed|Open Box|Renewed|Refurbished|Pre-?Owned|Used|For (?:T-Mobile|AT&T|Verizon|Sprint|Cricket|Metro)|Locked to [^,]+|Smartphone|Android Cell Phone|Cell Phone)\b/gi, " ");
+  // Remove seller / version / region tags — plus reconditionné / garantie fragments
+  t = t.replace(/\b(US Version|International Version|Factory Unlocked|GSM Unlocked|Unlocked|SIM Free|Dual SIM|Single SIM|eSIM|Brand New|Sealed|Open Box|Renewed|Refurbished|Pre-?Owned|Used|For (?:T-Mobile|AT&T|Verizon|Sprint|Cricket|Metro)|Locked to [^,]+|Smartphone|Android Cell Phone|Cell Phone|reconditionn[ée](?:\s*par\s*le\s*vendeur)?|garantie)\b/gi, " ");
   // Remove ampersand-tail noise like "Camera & …"
   t = t.replace(/\s*[,&]\s*(?:8K\s+Camera|Camera|Charger|Cable|Box|Accessories?).*$/i, "");
   // Remove trailing seller bits after dashes/commas
@@ -196,14 +196,14 @@ function detectCondition(title: string, lang: "fr" | "en"): string {
 
 const CONDITION_TAGLINE_FR: Record<string, string> = {
   "Neuf": "Neuf",
-  "Renewed": "Renewed (reconditionné par le vendeur, garantie)",
-  "Refurbished": "Refurbished (reconditionné, garantie)",
+  "Renewed": "Renewed",
+  "Refurbished": "Refurbished",
   "Occasion": "Occasion",
 };
 const CONDITION_TAGLINE_EN: Record<string, string> = {
   "New": "New",
-  "Renewed": "Renewed (seller-refurbished, warranty)",
-  "Refurbished": "Refurbished (warranty)",
+  "Renewed": "Renewed",
+  "Refurbished": "Refurbished",
   "Used": "Used",
 };
 
@@ -231,7 +231,10 @@ function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en", opts?: { 
     const name = p.display_name || cleanProductName(p.title, lang);
     const cond = taglineMap[p.condition] || p.condition;
     const cta = p.product_url ? `[${ctaLabel}](${p.product_url})` : ctaLabel;
-    return `${name} — ${price}\n${cond} · ${shippingLine}\n${cta}`;
+    const condLower = cond.toLowerCase();
+    const hideCond = condLower.includes("renewed") || condLower.includes("refurbished") || condLower.includes("reconditionné") || condLower.includes("garantie");
+    const statusLine = hideCond ? shippingLine : `${cond} · ${shippingLine}`;
+    return `${name} — ${price}\n${statusLine}\n${cta}`;
   };
 
   const recommended = sorted.length >= 2 ? sorted[Math.floor(sorted.length / 2)] : sorted[0];

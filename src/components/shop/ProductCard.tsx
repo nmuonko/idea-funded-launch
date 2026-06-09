@@ -9,6 +9,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { collectProductImageCandidates, handleImageLoad, handleImageError, pickBestImage } from '@/lib/imageValidation';
+import { cleanProductText } from '@/lib/cleanProductText';
 
 export interface Product {
   id: string;
@@ -217,7 +218,7 @@ export function ProductCard({ product, className, compact = false, coverImage = 
           "font-semibold text-black leading-snug tracking-tight line-clamp-2",
           compact ? "text-[13px] min-h-[2.4rem]" : "text-sm sm:text-[15px] min-h-[2.6rem]"
         )}>
-          {product.title}
+          {cleanProductText(product.title)}
         </h3>
 
         {/* Rating */}

@@ -1045,11 +1045,11 @@ export default function Checkout() {
                       <div key={item.id} className="flex gap-3">
                         <img
                           src={sanitizeCartImage(item.imageUrl)}
-                          alt={item.title}
+                          alt={cleanProductText(item.title)}
                           className="w-12 h-12 rounded-lg object-contain bg-white/5"
                         />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-white/80 line-clamp-1">{item.title}</p>
+                          <p className="text-sm text-white/80 line-clamp-1">{cleanProductText(item.title)}</p>
                           <p className="text-xs text-white/50">{shop.qty || 'Qty'}: {item.quantity}</p>
                         </div>
                       </div>

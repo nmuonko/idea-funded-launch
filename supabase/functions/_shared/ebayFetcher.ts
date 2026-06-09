@@ -13,6 +13,7 @@ import { mapCategoryAndSubcategory } from "./categoryMapper.ts";
 import { isAllowedMotorListing } from "./motorsFilter.ts";
 import { CatalogFilters } from "./sortFilterNormalizer.ts";
 import { CatalogItem, mapEbayItemToResponse } from "./catalogItemMapper.ts";
+import { isImplausiblyLow, getPriceFloor } from "./priceFloors.ts";
 import { createClient } from "@supabase/supabase-js";
 
 export interface EbayFetchParams {

@@ -188,8 +188,11 @@ Deno.serve(async (req) => {
   let sent = 0, skipped = 0, failed = 0;
 
   for (const o of orders ?? []) {
-    const email: string | null = o.customer_email ?? null;
+    const profile = (o as any).profiles ?? null;
+    const email: string | null = profile?.email ?? null;
     if (!email) { skipped++; continue; }
+    const name: string | null = profile?.full_name ?? profile?.name ?? null;
+    const lang: Lang = (profile?.language === 'en' ? 'en' : 'fr');
 
     const slots = computeSlots(new Date(o.created_at));
 
@@ -205,9 +208,8 @@ Deno.serve(async (req) => {
       if (sentSet.has(attempt)) continue;
       if (slots[i].getTime() > now.getTime()) break; // not due yet; later attempts also future
 
-      const lang: Lang = (o.language === 'en' ? 'en' : 'fr');
       const { subject, html } = renderEmail({
-        name: o.customer_name ?? null,
+        name,
         orderId: o.id,
         totalUsd: o.total_usd ?? null,
         attempt,

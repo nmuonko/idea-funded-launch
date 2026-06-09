@@ -107,7 +107,14 @@ interface ProductContext {
   category?: string;
 }
 
-type CatalogMatch = { title: string; price_usd: number | null; product_url: string | null; source?: string };
+type CatalogMatch = {
+  title: string;            // original (kept for scoring/debug)
+  display_name: string;     // cleaned, customer-friendly
+  condition: string;        // "Neuf" | "Renewed" | "Refurbished" | "Used"
+  price_usd: number | null;
+  product_url: string | null;
+  source?: string;
+};
 
 function normalizeProductQuery(text: string) {
   return text.toLowerCase()
@@ -121,21 +128,100 @@ function normalizeProductQuery(text: string) {
     .replace(/\bgooglepixel\b/g, "google pixel");
 }
 
-function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en") {
+// Strip noisy supplier-style fragments and shorten Amazon/eBay titles into a
+// friendly product name customers can read (e.g. "Galaxy S22 128GB Phantom Black").
+function cleanProductName(raw: string, lang: "fr" | "en"): string {
+  if (!raw) return "";
+  let t = raw;
+  // Drop common marketplace prefixes / suffixes
+  t = t.replace(/^\s*(Amazon\.com[:\-]?|eBay[:\-]?|New\s+Listing[:\-]?)\s*/i, "");
+  t = t.replace(/\s*:\s*Cell Phones.*$/i, "");
+  t = t.replace(/\s*-\s*(?:Cell Phones|Electronics|Computers).*$/i, "");
+  // Remove parenthetical noise: "(Unlocked)", "(Renewed)", "(US Version)", etc.
+  t = t.replace(/\s*\([^)]*\)/g, " ");
+  // Remove seller / version / region tags
+  t = t.replace(/\b(US Version|International Version|Factory Unlocked|GSM Unlocked|Unlocked|SIM Free|Dual SIM|Single SIM|eSIM|Brand New|Sealed|Open Box|Renewed|Refurbished|Pre-?Owned|Used|For (?:T-Mobile|AT&T|Verizon|Sprint|Cricket|Metro)|Locked to [^,]+|Smartphone|Android Cell Phone|Cell Phone)\b/gi, " ");
+  // Remove ampersand-tail noise like "Camera & …"
+  t = t.replace(/\s*[,&]\s*(?:8K\s+Camera|Camera|Charger|Cable|Box|Accessories?).*$/i, "");
+  // Remove trailing seller bits after dashes/commas
+  t = t.replace(/\s*[-–—,]\s*$/g, "");
+  // Collapse whitespace and stray punctuation
+  t = t.replace(/[•|]+/g, " ").replace(/,\s*,+/g, ",").replace(/\s{2,}/g, " ").replace(/\s+,/g, ",").trim();
+  // Trim trailing commas / dashes / ellipses-leading punctuation
+  t = t.replace(/[,;:\-–—]+$/g, "").trim();
+  t = t.replace(/^[,;:\-–—]+/g, "").trim();
+  // Cap length so it stays one short clickable line
+  const MAX = 70;
+  if (t.length > MAX) t = t.slice(0, MAX).replace(/\s+\S*$/, "") + "…";
+  return t || raw;
+}
+
+function detectCondition(title: string, lang: "fr" | "en"): string {
+  const t = (title || "").toLowerCase();
+  if (/\brenewed\b/.test(t)) return "Renewed";
+  if (/\brefurbished?\b/.test(t)) return "Refurbished";
+  if (/\b(used|pre[- ]?owned|second[- ]?hand)\b/.test(t)) return lang === "en" ? "Used" : "Occasion";
+  // Default for AfriShop: phones are sold new unless title explicitly says otherwise.
+  return lang === "en" ? "New" : "Neuf";
+}
+
+const CONDITION_TAGLINE_FR: Record<string, string> = {
+  "Neuf": "Neuf",
+  "Renewed": "Renewed (reconditionné par le vendeur, garantie)",
+  "Refurbished": "Refurbished (reconditionné, garantie)",
+  "Occasion": "Occasion",
+};
+const CONDITION_TAGLINE_EN: Record<string, string> = {
+  "New": "New",
+  "Renewed": "Renewed (seller-refurbished, warranty)",
+  "Refurbished": "Refurbished (warranty)",
+  "Used": "Used",
+};
+
+function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en"): string {
   const useful = matches.filter(p => p.price_usd != null).slice(0, 3);
   if (!useful.length) return "";
-  const lines = useful.map(p => {
-    const priceStr = `${Number(p.price_usd).toLocaleString("en-US")} USD`;
-    // Markdown-style link: product description wraps the internal AfriShop URL,
-    // so clicking takes the user straight to the payment page (no add-to-cart).
-    return p.product_url
-      ? `• [${p.title} — ${priceStr}](${p.product_url})`
-      : `• ${p.title} — ${priceStr}`;
-  });
-  const intro = lang === "en"
-    ? `Yes, we have it. Tap the product below to pay securely on AfriShop:`
-    : `Oui, nous l'avons. Touchez le produit ci-dessous pour payer sur AfriShop :`;
-  return `${intro}\n${lines.join("\n")}`;
+
+  // Sort by price ascending so the "économique" → "premium" narrative flows naturally.
+  const sorted = [...useful].sort((a, b) => (a.price_usd! - b.price_usd!));
+
+  const taglineMap = lang === "en" ? CONDITION_TAGLINE_EN : CONDITION_TAGLINE_FR;
+
+  const lineFor = (p: CatalogMatch) => {
+    const price = `${Number(p.price_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD`;
+    const name = p.display_name || cleanProductName(p.title, lang);
+    const linked = p.product_url ? `[${name} — ${price}](${p.product_url})` : `${name} — ${price}`;
+    const cond = taglineMap[p.condition] || p.condition;
+    return `• ${linked}\n  ${cond}`;
+  };
+
+  // Pick a "best balance" recommendation: prefer the middle option when 3 exist,
+  // otherwise the cheapest in-stock one.
+  const recommended = sorted.length >= 3 ? sorted[1] : sorted[0];
+  const recName = recommended.display_name || cleanProductName(recommended.title, lang);
+  const recPrice = `${Number(recommended.price_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD`;
+
+  if (lang === "en") {
+    return [
+      `Yes 👌 We have a few options for you.`,
+      ``,
+      `Top picks:`,
+      ...sorted.map(lineFor),
+      ``,
+      `I'd recommend **${recName}** at ${recPrice} for the best value.`,
+      `Which one would you like to order?`,
+    ].join("\n");
+  }
+
+  return [
+    `Oui 👌 Nous avons plusieurs options pour vous.`,
+    ``,
+    `Voici les meilleurs choix :`,
+    ...sorted.map(lineFor),
+    ``,
+    `Je vous recommande **${recName}** à ${recPrice} pour le meilleur rapport qualité-prix.`,
+    `Lequel souhaitez-vous commander ?`,
+  ].join("\n");
 }
 
 function buildInternalProductUrl(
@@ -145,7 +231,6 @@ function buildInternalProductUrl(
 ): string | null {
   const base = (baseUrl || "https://afrishop-usa.com").replace(/\/$/, "");
   if (source === "hot_products_showcase" && row.id) {
-    // Hot products: ?hp=ID goes directly to checkout (single-item isolated payment).
     return `${base}/checkout?hp=${encodeURIComponent(row.id)}`;
   }
   if (source === "catalog_items" && row.provider && row.provider_product_id) {
@@ -231,7 +316,18 @@ Deno.serve(async (req) => {
       // Normalize common typos / phonetic spellings before tokenizing
       const normalized = normalizeProductQuery(message);
 
-      const stop = new Set(["the","a","an","is","of","for","and","or","to","in","on","with","price","cost","prix","combien","quel","quelle","est","le","la","les","un","une","de","du","des","pour","ça","ca","coute","coûte","cout","much","how","what","tell","me","please","svp","stp","s'il","plait","plaît","combine"]);
+      const stop = new Set([
+        // Articles / generic
+        "the","a","an","is","of","for","and","or","to","in","on","with","price","cost","prix","combien","quel","quelle","est","le","la","les","un","une","de","du","des","pour","ça","ca","coute","coûte","cout","much","how","what","tell","me","please","svp","stp","s'il","plait","plaît","combine",
+        // Greetings
+        "bonjour","bonsoir","salut","hello","hey","coucou","merci","thanks","thank",
+        // Intent / request verbs
+        "besoin","cherche","recherche","voudrais","veux","voulais","achat","acheter","commander","order","buy","need","looking","want","get","take",
+        // Condition keywords (we want the device, not other items titled "new")
+        "tout","neuf","neuve","carton","scelle","scellé","scellee","scellée","sealed","brand","new","nouveau","nouvelle","original","authentique","authentic",
+        // Filler
+        "moi","mon","ma","mes","ton","ta","tes","son","sa","ses","notre","votre","leur","aussi","juste","seulement","only","just",
+      ]);
       const tokens = normalized
         .replace(/[^\p{L}\p{N}\s-]/gu, " ")
         .split(/\s+/)
@@ -240,7 +336,7 @@ Deno.serve(async (req) => {
 
       const catalogQuery = () => supabase
         .from("catalog_items")
-        .select("id,provider,provider_product_id,title,price_usd")
+        .select("id,provider,provider_product_id,title,price_usd,condition")
         .eq("is_active", true)
         .not("price_usd", "is", null)
         .order("popularity_score", { ascending: false, nullsFirst: false })
@@ -262,7 +358,14 @@ Deno.serve(async (req) => {
           if (!r.title || price == null) continue;
           const internalUrl = buildInternalProductUrl(baseUrl, source, r);
           if (!catalogMatches.some(m => m.title === r.title && m.product_url === internalUrl)) {
-            catalogMatches.push({ title: r.title, price_usd: Number(price), product_url: internalUrl, source });
+            catalogMatches.push({
+              title: r.title,
+              display_name: cleanProductName(r.title, lang),
+              condition: r.condition && String(r.condition).trim() ? String(r.condition).trim() : detectCondition(r.title, lang),
+              price_usd: Number(price),
+              product_url: internalUrl,
+              source,
+            });
           }
         }
       };
@@ -329,7 +432,7 @@ Deno.serve(async (req) => {
     }
 
     const catalogBlock = catalogMatches.length
-      ? catalogMatches.map((p, i) => `[PRODUIT ${i + 1}] ${p.title} — ${p.price_usd} USD${p.product_url ? ` — ${p.product_url}` : ""}`).join("\n")
+      ? catalogMatches.map((p, i) => `[PRODUIT ${i + 1}] ${p.display_name} — ${p.price_usd} USD — état: ${p.condition}${p.product_url ? ` — ${p.product_url}` : ""}`).join("\n")
       : "(aucun produit correspondant trouvé dans le catalogue)";
 
     const systemPrompt = `${BUSINESS_CONTEXT_FR}
@@ -468,10 +571,12 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     // Scrub forbidden payment terms from any AI output
     answer = scrubPaymentTerms(answer);
 
-    // DETERMINISTIC product-price override: if the catalogue has a match, answer with the price.
-    // This avoids needless WhatsApp escalation for visible products like hot products.
+    // DETERMINISTIC product-catalog override: whenever we found matching products in the
+    // AfriShop catalog AND the user is clearly asking about / requesting one, answer with
+    // the curated catalog response — no escalation, no Amazon/eBay leakage.
     const priceQuestionRe = /(combien|combine|prix|co[uû]te|cout|cost|price|how\s+much)/i;
-    if (catalogMatches.length > 0 && priceQuestionRe.test(message)) {
+    const productIntentRe = /(disponible|avez[- ]vous|avez vous|j['e]?\s*(?:ai\s+besoin|cherche|voudrais|veux|voulais)|besoin\s+d|je cherche|cherche|recherche|achat|acheter|commander|order|buy|need|looking\s+for|want|tout\s+neuf|en\s+carton|carton\s+scell|scell[ée]|sealed|brand\s+new|new\s+in\s+box|neuf)/i;
+    if (catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message))) {
       answer = formatPriceAnswer(catalogMatches, lang);
       needsEscalation = false;
       escalationReason = "";

@@ -125,7 +125,33 @@ function normalizeProductQuery(text: string) {
     .replace(/\bifone\b/g, "iphone")
     .replace(/\bi-phone\b/g, "iphone")
     .replace(/\bsamsoung\b/g, "samsung")
-    .replace(/\bgooglepixel\b/g, "google pixel");
+    .replace(/\bgooglepixel\b/g, "google pixel")
+    // Split glued model variants: "14pro", "14promax", "15promax", "14ProMax"
+    .replace(/(\d{1,2})\s*pro\s*max\b/g, "$1 pro max")
+    .replace(/(\d{1,2})\s*promax\b/g, "$1 pro max")
+    .replace(/(\d{1,2})\s*pro\b/g, "$1 pro")
+    .replace(/(\d{1,2})\s*plus\b/g, "$1 plus")
+    .replace(/(\d{1,2})\s*mini\b/g, "$1 mini")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+// Phone accessory / spare-part filter — must NEVER be returned when user asks for a phone.
+const PHONE_ACCESSORY_RE = /\b(accessor(?:y|ies)|case|cover|sleeve|skin|pouch|wallet|holster|screen\s*protector|tempered\s*glass|protector|charging\s*port|dock|mic\s*flex|flex\s*cable|replacement|spare\s*parts?|battery\s*replacement|battery\s*pack|camera\s*lens(?:\s*replacement)?|lcd|digitizer|cable|cord|charger|adapter|repair|housing|back\s*glass|back\s*cover|motherboard|logic\s*board|holder|mount|magsafe|strap|stand|tripod|earbuds?\s*case|grip|popsocket|car\s*mount|sim\s*tray|button|speaker\s*replacement|frame|bezel|oem\s+part)\b/i;
+
+// Phone brand / family tokens used to detect a phone request.
+const PHONE_BRAND_TOKENS = ["iphone","galaxy","pixel","motorola","moto","oneplus","xiaomi","redmi","huawei","oppo","vivo","nokia","sony\u00a0xperia","xperia"];
+
+function isPhoneRequest(normalizedMessage: string, tokens: string[]): boolean {
+  if (tokens.some(t => PHONE_BRAND_TOKENS.includes(t))) return true;
+  return /\b(smartphone|t[ée]l[ée]phone|phone)\b/i.test(normalizedMessage);
+}
+
+function isPhoneTitle(title: string): boolean {
+  if (!title) return false;
+  if (PHONE_ACCESSORY_RE.test(title)) return false;
+  // Must look like a phone (brand + model OR explicit "smartphone")
+  return /\b(iphone|galaxy\s*(?:s|note|z|a|m)?\d|pixel\s*\d|moto(?:rola)?\s+\w|oneplus\s*\d|redmi|xiaomi|huawei|oppo|vivo|smartphone)\b/i.test(title);
 }
 
 // Strip noisy supplier-style fragments and shorten Amazon/eBay titles into a

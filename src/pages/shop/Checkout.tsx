@@ -20,6 +20,7 @@ import { translations } from '@/lib/i18n/translations';
 import { trackInitiateCheckout } from '@/lib/tiktokPixel';
 import { trackMetaInitiateCheckout } from '@/lib/metaPixel';
 import { sanitizeCartImage } from '@/lib/imageValidation';
+import { cleanProductText } from '@/lib/cleanProductText';
 
 
 interface ShippingAddress {
@@ -85,39 +86,64 @@ export default function Checkout() {
     const params = new URLSearchParams(location.search);
     return params.get('hp') || null;
   }, [location.search]);
+  const catalogItemId = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('ci') || null;
+  }, [location.search]);
+  const directCheckoutId = hotProductId || catalogItemId;
 
   const [sharedHotProduct, setSharedHotProduct] = useState<HotProductCheckoutData | null>(() => {
     const state = location.state as any;
     return state?.hotProduct ?? null;
   });
-  const [loadingSharedProduct, setLoadingSharedProduct] = useState(!!hotProductId && !(location.state as any)?.hotProduct);
+  const [loadingSharedProduct, setLoadingSharedProduct] = useState(!!directCheckoutId && !(location.state as any)?.hotProduct);
   const hotProductHydratedRef = useRef(false);
 
   // Fetch hot product from DB when we only have the URL param (no router state)
   useEffect(() => {
-    if (!hotProductId || sharedHotProduct) {
+    if (!directCheckoutId || sharedHotProduct) {
       setLoadingSharedProduct(false);
       return;
     }
     let cancelled = false;
     const load = async () => {
       try {
-        const { data } = await supabase
-          .from('hot_products_showcase')
-          .select('id, title, image_url, total_price_usd, provider, provider_product_id, product_url')
-          .eq('id', hotProductId)
-          .eq('is_active', true)
-          .single();
-        if (!cancelled && data) setSharedHotProduct(data as HotProductCheckoutData);
+        if (hotProductId) {
+          const { data } = await supabase
+            .from('hot_products_showcase')
+            .select('id, title, image_url, total_price_usd, provider, provider_product_id, product_url')
+            .eq('id', hotProductId)
+            .eq('is_active', true)
+            .single();
+          if (!cancelled && data) setSharedHotProduct(data as HotProductCheckoutData);
+        } else if (catalogItemId) {
+          const { data } = await supabase
+            .from('catalog_items')
+            .select('id, title, image_url, price_usd, provider, provider_product_id, product_url')
+            .eq('id', catalogItemId)
+            .eq('is_active', true)
+            .single();
+          if (!cancelled && data) {
+            setSharedHotProduct({
+              id: data.id,
+              title: data.title,
+              image_url: data.image_url,
+              total_price_usd: Number(data.price_usd),
+              provider: data.provider,
+              provider_product_id: data.provider_product_id,
+              product_url: data.product_url,
+            });
+          }
+        }
       } catch (e) {
-        console.error('[CHECKOUT] Failed to fetch shared hot product:', e);
+        console.error('[CHECKOUT] Failed to fetch direct checkout product:', e);
       } finally {
         if (!cancelled) setLoadingSharedProduct(false);
       }
     };
     void load();
     return () => { cancelled = true; };
-  }, [hotProductId, sharedHotProduct]);
+  }, [directCheckoutId, hotProductId, catalogItemId, sharedHotProduct]);
 
   // Auto-add hot product to cart once (so processCheckout can use real cart items)
   useEffect(() => {
@@ -140,7 +166,7 @@ export default function Checkout() {
     void addItem({
       productId: sharedHotProduct.provider_product_id || hpUrl,
       provider: sharedHotProduct.provider,
-      title: sharedHotProduct.title,
+      title: cleanProductText(sharedHotProduct.title),
       imageUrl: sharedHotProduct.image_url,
       priceUsd: sharedHotProduct.total_price_usd,
       quantity: 1,
@@ -182,7 +208,7 @@ export default function Checkout() {
       id: `local_hp_${sharedHotProduct.id}`,
       productId: sharedHotProduct.provider_product_id || hpUrl || sharedHotProduct.id,
       provider: sharedHotProduct.provider,
-      title: sharedHotProduct.title,
+      title: cleanProductText(sharedHotProduct.title),
       imageUrl: sharedHotProduct.image_url,
       priceUsd: sharedHotProduct.total_price_usd,
       quantity: 1,
@@ -192,19 +218,19 @@ export default function Checkout() {
     }];
   }, [sharedHotProduct]);
 
-  // When ?hp= is present, ONLY show that single product (Amazon-style isolated checkout)
+  // When ?hp= or ?ci= is present, ONLY show that single product (direct Sophie checkout)
   // Otherwise use cart items normally
-  const effectiveCheckoutItems = hotProductId && hotProductFallbackItems.length > 0
+  const effectiveCheckoutItems = directCheckoutId && hotProductFallbackItems.length > 0
     ? hotProductFallbackItems
     : (checkoutItems.length > 0 ? checkoutItems : hotProductFallbackItems);
-  const effectiveCheckoutTotal = hotProductId && sharedHotProduct
+  const effectiveCheckoutTotal = directCheckoutId && sharedHotProduct
     ? sharedHotProduct.total_price_usd
     : (checkoutItems.length > 0 ? checkoutTotal : (sharedHotProduct?.total_price_usd ?? 0));
 
   // Deposit plan eligibility: total >= $100 AND no vehicle items.
   // Hot products are never vehicles. Cart vehicle check uses ShopCartContext flag.
   const isFr = language === 'fr';
-  const hasVehicleInCheckout = hotProductId ? false : (selectedHasVehicleItems || false);
+  const hasVehicleInCheckout = directCheckoutId ? false : (selectedHasVehicleItems || false);
   const depositEligible = effectiveCheckoutTotal >= 100 && !hasVehicleInCheckout;
   const depositIneligibleReason = !depositEligible
     ? hasVehicleInCheckout
@@ -223,7 +249,7 @@ export default function Checkout() {
   const didAttemptRestoreRef = useRef(false);
   useEffect(() => {
     if (didAttemptRestoreRef.current) return;
-    if (hotProductId) { didAttemptRestoreRef.current = true; return; }
+    if (directCheckoutId) { didAttemptRestoreRef.current = true; return; }
     if (!initialized) return;
 
     if (!cartLoading && items.length === 0) {
@@ -238,7 +264,7 @@ export default function Checkout() {
     if (!cartLoading && items.length > 0) {
       didAttemptRestoreRef.current = true;
     }
-  }, [initialized, cartLoading, items.length]);
+  }, [directCheckoutId, initialized, cartLoading, items.length, restoreFromPendingCheckout]);
 
   // Meta Pixel: InitiateCheckout — fire once when /checkout opens with a non-zero total
   const metaInitiateFiredRef = useRef(false);
@@ -715,7 +741,7 @@ export default function Checkout() {
 
   if (!session) {
     // items may still be empty if cart context hasn't hydrated yet — fall back to localStorage, then router state
-    const displayItems = items.length > 0 ? items : (() => {
+    const displayItems = directCheckoutId && hotProductFallbackItems.length > 0 ? hotProductFallbackItems : items.length > 0 ? items : (() => {
       try {
         const raw = localStorage.getItem('afrishop_cart');
         const parsed = raw ? JSON.parse(raw) : [];
@@ -1019,11 +1045,11 @@ export default function Checkout() {
                       <div key={item.id} className="flex gap-3">
                         <img
                           src={sanitizeCartImage(item.imageUrl)}
-                          alt={item.title}
+                          alt={cleanProductText(item.title)}
                           className="w-12 h-12 rounded-lg object-contain bg-white/5"
                         />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-white/80 line-clamp-1">{item.title}</p>
+                          <p className="text-sm text-white/80 line-clamp-1">{cleanProductText(item.title)}</p>
                           <p className="text-xs text-white/50">{shop.qty || 'Qty'}: {item.quantity}</p>
                         </div>
                       </div>

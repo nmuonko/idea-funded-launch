@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/formatCurrency';
+import { cleanProductText } from '@/lib/cleanProductText';
 import type { CartItem } from '@/contexts/ShopCartContext';
 
 
@@ -123,12 +124,12 @@ export function CheckoutInlineLogin({ language, shop, cartItems = [] }: Checkout
                   <div key={item.id} className="flex gap-4 rounded-xl bg-white/5 border border-white/10 p-3">
                     <img
                       src={item.imageUrl}
-                      alt={item.title}
+                      alt={cleanProductText(item.title)}
                       className="w-24 h-24 rounded-lg object-contain bg-white flex-shrink-0"
                       loading="lazy"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white font-medium line-clamp-2">{item.title}</p>
+                      <p className="text-sm text-white font-medium line-clamp-2">{cleanProductText(item.title)}</p>
                       <p className="text-xs text-white/50 mt-1">
                         {isFr ? 'Quantité' : 'Qty'}: {item.quantity}
                       </p>

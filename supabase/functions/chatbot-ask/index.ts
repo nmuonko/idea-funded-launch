@@ -368,7 +368,7 @@ Deno.serve(async (req) => {
         .eq("is_active", true)
         .not("price_usd", "is", null)
         .order("popularity_score", { ascending: false, nullsFirst: false })
-        .limit(5);
+        .limit(40);
 
       const hotProductsQuery = () => supabase
         .from("hot_products_showcase")
@@ -376,7 +376,7 @@ Deno.serve(async (req) => {
         .eq("is_active", true)
         .not("total_price_usd", "is", null)
         .order("sort_order", { ascending: true, nullsFirst: false })
-        .limit(5);
+        .limit(20);
 
       const baseUrl = (req.headers.get("origin") || Deno.env.get("FRONTEND_BASE_URL") || "https://afrishop-usa.com").trim();
 

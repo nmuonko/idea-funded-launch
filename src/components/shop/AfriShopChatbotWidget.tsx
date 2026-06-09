@@ -30,25 +30,36 @@ function formatTime(ts: number) {
 }
 
 function renderMessageContent(text: string) {
-  const urlRe = /(https?:\/\/[^\s]+)/g;
-  const parts = text.split(urlRe);
-  return parts.map((part, i) => {
-    if (urlRe.test(part)) {
-      urlRe.lastIndex = 0;
-      return (
-        <a
-          key={i}
-          href={part}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline text-[#53bdeb] break-all font-medium"
-        >
-          {part}
-        </a>
-      );
+  // Supports markdown-style links [label](url) AND bare URLs.
+  // We tokenize the string into plain segments, markdown links, and bare URLs.
+  const pattern = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s)]+)/g;
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let key = 0;
+  let m: RegExpExecArray | null;
+  while ((m = pattern.exec(text)) !== null) {
+    if (m.index > lastIndex) {
+      nodes.push(<span key={key++}>{text.slice(lastIndex, m.index)}</span>);
     }
-    return <span key={i}>{part}</span>;
-  });
+    const label = m[1];
+    const href = m[2] || m[3];
+    nodes.push(
+      <a
+        key={key++}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline text-[#53bdeb] break-all font-medium"
+      >
+        {label || href}
+      </a>
+    );
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < text.length) {
+    nodes.push(<span key={key++}>{text.slice(lastIndex)}</span>);
+  }
+  return nodes;
 }
 
 function getSessionId() {

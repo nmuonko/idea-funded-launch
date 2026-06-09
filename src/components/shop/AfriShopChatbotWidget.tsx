@@ -250,7 +250,7 @@ export function AfriShopChatbotWidget() {
               <button onClick={close} aria-label="Retour" className="sm:hidden p-2 -ml-1 rounded-full hover:bg-white/10">
                 <ArrowLeft className="w-5 h-5" />
               </button>
-              <div className="h-10 w-10 rounded-full bg-white/15 flex items-center justify-center font-bold">S</div>
+              <img src={sophieProfile} alt="Sophie" className="h-10 w-10 rounded-full object-cover border border-white/20" />
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-sm leading-tight">Sophie</div>
                 <div className="text-[11px] text-white/70 flex items-center gap-1">

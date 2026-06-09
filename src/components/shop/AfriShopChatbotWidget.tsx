@@ -60,10 +60,23 @@ function getSessionId() {
   } catch { return crypto.randomUUID(); }
 }
 
+const STORAGE_PREFIX = 'afrishop_chatbot_msgs:';
+function storageKey(productId?: string | null) {
+  return `${STORAGE_PREFIX}${productId || 'general'}`;
+}
+function loadStoredMessages(productId?: string | null): ChatMsg[] {
+  try {
+    const raw = localStorage.getItem(storageKey(productId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
 export function AfriShopChatbotWidget() {
   const { isOpen, product, open, close } = useAfriShopChatbot();
   const { user } = useAuth();
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [messages, setMessages] = useState<ChatMsg[]>(() => loadStoredMessages(product?.id));
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -71,7 +84,7 @@ export function AfriShopChatbotWidget() {
   const panelRef = useRef<HTMLDivElement>(null);
 
 
-  // Greeting when opened
+  // Greeting only if no stored history
   useEffect(() => {
     if (!isOpen) return;
     if (messages.length > 0) return;
@@ -81,11 +94,20 @@ export function AfriShopChatbotWidget() {
     setMessages([{ id: crypto.randomUUID(), role: 'assistant', content: greet, ts: Date.now() }]);
   }, [isOpen, product, messages.length]);
 
-  // Reset conversation when product context changes (new product opened)
+  // Load stored history when product context changes
   useEffect(() => {
-    setMessages([]);
+    setMessages(loadStoredMessages(product?.id));
     setConversationId(null);
   }, [product?.id]);
+
+  // Persist messages so they survive page refresh
+  useEffect(() => {
+    try {
+      const key = storageKey(product?.id);
+      if (messages.length === 0) localStorage.removeItem(key);
+      else localStorage.setItem(key, JSON.stringify(messages.slice(-50)));
+    } catch { /* ignore quota */ }
+  }, [messages, product?.id]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });

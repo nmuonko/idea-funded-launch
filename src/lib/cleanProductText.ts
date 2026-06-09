@@ -18,7 +18,13 @@ export function cleanProductText(text: string): string {
     /\bgarantie\b/gi,
     /\bpre[-\s]?owned\b/gi,
     /\bseller[-\s]?refurbished\b/gi,
+    /\bused\b/gi,
+    /\bsecond[-\s]?hand\b/gi,
+    /\bd[’']?occasion\b/gi,
+    /\boccasion\b/gi,
+    /\bopen[-\s]?box\b/gi,
   ];
+
   for (const re of unwanted) {
     t = t.replace(re, "");
   }

@@ -173,7 +173,7 @@ Deno.serve(async (req) => {
 
   const { data: orders, error } = await supabase
     .from('orders')
-    .select('id, user_id, total_usd, created_at, customer_email, customer_name, language')
+    .select('id, user_id, total_usd, created_at, profiles:profiles!orders_user_id_fkey(email, full_name, name, language)')
     .eq('status', 'PENDING_PAYMENT')
     .gte('created_at', windowStart)
     .limit(200);

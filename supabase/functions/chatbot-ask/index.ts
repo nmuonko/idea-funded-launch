@@ -233,11 +233,9 @@ const CONDITION_TAGLINE_EN: Record<string, string> = {
   "Used": "Used",
 };
 
-function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en", opts?: { wantsNew?: boolean }): string {
+function pickBestMatch(matches: CatalogMatch[], opts?: { wantsNew?: boolean }): CatalogMatch | null {
   let useful = matches.filter(p => p.price_usd != null);
-  if (!useful.length) return "";
-
-  // If the customer asked for "neuf / sealed / brand new", prefer New items.
+  if (!useful.length) return null;
   if (opts?.wantsNew) {
     const newOnly = useful.filter(p => {
       const c = (p.condition || "").toLowerCase();
@@ -245,44 +243,18 @@ function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en", opts?: { 
     });
     if (newOnly.length > 0) useful = newOnly;
   }
-
-  useful = useful.slice(0, 3);
-  const sorted = [...useful].sort((a, b) => (a.price_usd! - b.price_usd!));
-  const taglineMap = lang === "en" ? CONDITION_TAGLINE_EN : CONDITION_TAGLINE_FR;
-  const ctaLabel = lang === "en" ? "Order now" : "Commander maintenant";
-  const shippingLine = lang === "en" ? "Delivery to DRC included" : "Livraison RDC incluse";
-
-  const blockFor = (p: CatalogMatch) => {
-    const price = `${Number(p.price_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD`;
-    const name = p.display_name || cleanProductName(p.title, lang);
-    const cond = taglineMap[p.condition] || p.condition;
-    const cta = p.product_url ? `[${ctaLabel}](${p.product_url})` : ctaLabel;
-    const condLower = cond.toLowerCase();
-    const hideCond = condLower.includes("renewed") || condLower.includes("refurbished") || condLower.includes("reconditionné") || condLower.includes("garantie");
-    const statusLine = hideCond ? shippingLine : `${cond} · ${shippingLine}`;
-    return `${name} — ${price}\n${statusLine}\n${cta}`;
-  };
-
-  const recommended = sorted.length >= 2 ? sorted[Math.floor(sorted.length / 2)] : sorted[0];
-  const recName = recommended.display_name || cleanProductName(recommended.title, lang);
-
-  if (lang === "en") {
-    return [
-      `Yes 👌 We have options for you.`,
-      ``,
-      ...sorted.map(blockFor).map(b => b + "\n"),
-      `I'd recommend ${recName} for the best balance.`,
-      `Which one would you like to order?`,
-    ].join("\n");
-  }
-  return [
-    `Oui 👌 Nous avons des options pour vous.`,
-    ``,
-    ...sorted.map(blockFor).map(b => b + "\n"),
-    `Je vous recommande ${recName} pour le meilleur équilibre.`,
-    `Lequel souhaitez-vous commander ?`,
-  ].join("\n");
+  // matches already sorted by relevance score upstream; take the best.
+  return useful[0];
 }
+
+function formatPriceAnswer(match: CatalogMatch, lang: "fr" | "en"): string {
+  const name = match.display_name || cleanProductName(match.title, lang);
+  if (lang === "en") {
+    return `Yes 👌 here's the best match for you:\n\n${name}\n\nTap “Order now” below to checkout securely.`;
+  }
+  return `Oui 👌 voici la meilleure option pour vous :\n\n${name}\n\nCliquez sur « Commander maintenant » ci-dessous pour passer commande en toute sécurité.`;
+}
+
 
 function buildInternalProductUrl(
   baseUrl: string,

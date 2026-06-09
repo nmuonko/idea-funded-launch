@@ -309,7 +309,18 @@ Deno.serve(async (req) => {
       // Normalize common typos / phonetic spellings before tokenizing
       const normalized = normalizeProductQuery(message);
 
-      const stop = new Set(["the","a","an","is","of","for","and","or","to","in","on","with","price","cost","prix","combien","quel","quelle","est","le","la","les","un","une","de","du","des","pour","ça","ca","coute","coûte","cout","much","how","what","tell","me","please","svp","stp","s'il","plait","plaît","combine"]);
+      const stop = new Set([
+        // Articles / generic
+        "the","a","an","is","of","for","and","or","to","in","on","with","price","cost","prix","combien","quel","quelle","est","le","la","les","un","une","de","du","des","pour","ça","ca","coute","coûte","cout","much","how","what","tell","me","please","svp","stp","s'il","plait","plaît","combine",
+        // Greetings
+        "bonjour","bonsoir","salut","hello","hey","coucou","merci","thanks","thank",
+        // Intent / request verbs
+        "besoin","cherche","recherche","voudrais","veux","voulais","achat","acheter","commander","order","buy","need","looking","want","get","take",
+        // Condition keywords (we want the device, not other items titled "new")
+        "tout","neuf","neuve","carton","scelle","scellé","scellee","scellée","sealed","brand","new","nouveau","nouvelle","original","authentique","authentic",
+        // Filler
+        "moi","mon","ma","mes","ton","ta","tes","son","sa","ses","notre","votre","leur","aussi","juste","seulement","only","just",
+      ]);
       const tokens = normalized
         .replace(/[^\p{L}\p{N}\s-]/gu, " ")
         .split(/\s+/)

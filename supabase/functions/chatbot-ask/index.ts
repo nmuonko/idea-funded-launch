@@ -257,11 +257,16 @@ function pickBestMatch(matches: CatalogMatch[], opts?: { wantsNew?: boolean }): 
 
 function formatPriceAnswer(match: CatalogMatch, lang: "fr" | "en"): string {
   const name = match.display_name || cleanProductName(match.title, lang);
-  const price = match.price_usd != null ? `${Number(match.price_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD` : "";
+  const bits: string[] = [];
+  if (match.capacity) bits.push(match.capacity);
+  if (match.color) bits.push(match.color);
+  const cond = displayableCondition(match.condition, lang);
+  if (cond) bits.push(cond);
+  const desc = bits.length ? ` (${bits.join(" · ")})` : "";
   if (lang === "en") {
-    return `Yes 👌 here's the best match for you:\n\n${name}${price ? ` — ${price}` : ""}\nFree delivery to DRC included.`;
+    return `Here's a great match for you 👇\n${name}${desc}\nFree delivery to DRC included.`;
   }
-  return `Oui 👌 voici la meilleure option pour vous :\n\n${name}${price ? ` — ${price}` : ""}\nLivraison RDC incluse.`;
+  return `Voici une excellente option pour vous 👇\n${name}${desc}\nLivraison RDC incluse.`;
 }
 
 function formatOptionsAnswer(matches: CatalogMatch[], lang: "fr" | "en"): string {
@@ -642,7 +647,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     // AfriShop catalog AND the user is clearly asking about / requesting one, answer with
     // the curated catalog response — no escalation, no Amazon/eBay leakage.
     const priceQuestionRe = /(combien|combine|prix|co[uû]te|cout|cost|price|how\s+much)/i;
-    const productIntentRe = /(disponible|avez[- ]vous|avez vous|j['e]?\s*(?:ai\s+besoin|cherche|voudrais|veux|voulais)|besoin\s+d|je cherche|cherche|recherche|achat|acheter|commander|order|buy|need|looking\s+for|want|tout\s+neuf|en\s+carton|carton\s+scell|scell[ée]|sealed|brand\s+new|new\s+in\s+box|neuf)/i;
+    const productIntentRe = /(disponible|avez[- ]vous|avez vous|j['e]?\s*(?:ai\s+besoin|cherche|voudrais|veux|voulais)|\bbesoin\b|je cherche|cherche|recherche|achat|acheter|commander|order|buy|need|looking\s+for|want|tout\s+neuf|en\s+carton|carton\s+scell|scell[ée]|sealed|brand\s+new|new\s+in\s+box|neuf|iphone|samsung|pixel|galaxy|macbook|ipad|airpods)/i;
     const wantsNewContext = `${history.filter(h => h.role !== "assistant").slice(-3).map(h => h.content).join(" ")} ${message}`;
     const wantsNew = /\b(tout\s+neuf|neuf|neuve|carton\s+scell|scell[ée]e?s?|sealed|brand\s+new|new\s+in\s+box|nib)\b/i.test(wantsNewContext);
     let productCard: any = null;

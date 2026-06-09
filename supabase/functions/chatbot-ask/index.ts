@@ -204,48 +204,50 @@ const CONDITION_TAGLINE_EN: Record<string, string> = {
   "Used": "Used",
 };
 
-function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en"): string {
-  const useful = matches.filter(p => p.price_usd != null).slice(0, 3);
+function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en", opts?: { wantsNew?: boolean }): string {
+  let useful = matches.filter(p => p.price_usd != null);
   if (!useful.length) return "";
 
-  // Sort by price ascending so the "économique" → "premium" narrative flows naturally.
+  // If the customer asked for "neuf / sealed / brand new", prefer New items.
+  if (opts?.wantsNew) {
+    const newOnly = useful.filter(p => {
+      const c = (p.condition || "").toLowerCase();
+      return c === "neuf" || c === "new";
+    });
+    if (newOnly.length > 0) useful = newOnly;
+  }
+
+  useful = useful.slice(0, 3);
   const sorted = [...useful].sort((a, b) => (a.price_usd! - b.price_usd!));
-
   const taglineMap = lang === "en" ? CONDITION_TAGLINE_EN : CONDITION_TAGLINE_FR;
+  const ctaLabel = lang === "en" ? "Order now" : "Commander maintenant";
+  const shippingLine = lang === "en" ? "Delivery to DRC included" : "Livraison RDC incluse";
 
-  const lineFor = (p: CatalogMatch) => {
+  const blockFor = (p: CatalogMatch) => {
     const price = `${Number(p.price_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD`;
     const name = p.display_name || cleanProductName(p.title, lang);
-    const linked = p.product_url ? `[${name} — ${price}](${p.product_url})` : `${name} — ${price}`;
     const cond = taglineMap[p.condition] || p.condition;
-    return `• ${linked}\n  ${cond}`;
+    const cta = p.product_url ? `[${ctaLabel}](${p.product_url})` : ctaLabel;
+    return `${name} — ${price}\n${cond} · ${shippingLine}\n${cta}`;
   };
 
-  // Pick a "best balance" recommendation: prefer the middle option when 3 exist,
-  // otherwise the cheapest in-stock one.
-  const recommended = sorted.length >= 3 ? sorted[1] : sorted[0];
+  const recommended = sorted.length >= 2 ? sorted[Math.floor(sorted.length / 2)] : sorted[0];
   const recName = recommended.display_name || cleanProductName(recommended.title, lang);
-  const recPrice = `${Number(recommended.price_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD`;
 
   if (lang === "en") {
     return [
-      `Yes 👌 We have a few options for you.`,
+      `Yes 👌 We have options for you.`,
       ``,
-      `Top picks:`,
-      ...sorted.map(lineFor),
-      ``,
-      `I'd recommend **${recName}** at ${recPrice} for the best value.`,
+      ...sorted.map(blockFor).map(b => b + "\n"),
+      `I'd recommend ${recName} for the best balance.`,
       `Which one would you like to order?`,
     ].join("\n");
   }
-
   return [
-    `Oui 👌 Nous avons plusieurs options pour vous.`,
+    `Oui 👌 Nous avons des options pour vous.`,
     ``,
-    `Voici les meilleurs choix :`,
-    ...sorted.map(lineFor),
-    ``,
-    `Je vous recommande **${recName}** à ${recPrice} pour le meilleur rapport qualité-prix.`,
+    ...sorted.map(blockFor).map(b => b + "\n"),
+    `Je vous recommande ${recName} pour le meilleur équilibre.`,
     `Lequel souhaitez-vous commander ?`,
   ].join("\n");
 }

@@ -7668,6 +7668,12 @@ export type Database = {
         }
         Returns: Json
       }
+      flag_price_outliers: {
+        Args: { p_min_peers?: number; p_ratio?: number }
+        Returns: {
+          flagged_count: number
+        }[]
+      }
       generate_cart_hash_from_order: {
         Args: {
           p_currency: string

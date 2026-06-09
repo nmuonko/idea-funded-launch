@@ -607,8 +607,9 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     // the curated catalog response — no escalation, no Amazon/eBay leakage.
     const priceQuestionRe = /(combien|combine|prix|co[uû]te|cout|cost|price|how\s+much)/i;
     const productIntentRe = /(disponible|avez[- ]vous|avez vous|j['e]?\s*(?:ai\s+besoin|cherche|voudrais|veux|voulais)|besoin\s+d|je cherche|cherche|recherche|achat|acheter|commander|order|buy|need|looking\s+for|want|tout\s+neuf|en\s+carton|carton\s+scell|scell[ée]|sealed|brand\s+new|new\s+in\s+box|neuf)/i;
+    const wantsNew = /\b(tout\s+neuf|neuf|neuve|carton\s+scell|scell[ée]e?s?|sealed|brand\s+new|new\s+in\s+box|nib)\b/i.test(message);
     if (catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message))) {
-      answer = formatPriceAnswer(catalogMatches, lang);
+      answer = formatPriceAnswer(catalogMatches, lang, { wantsNew });
       needsEscalation = false;
       escalationReason = "";
     }

@@ -303,41 +303,7 @@ const App = () => {
                   <CartsManagement />
                 </AdminRouteGuard>
               } />
-              <Route path="ab-tests" element={
-                <AdminRouteGuard requiredPermission="can_view_ab_results">
-                  <ABTestResults />
-                </AdminRouteGuard>
-              } />
-              <Route path="payments" element={
-                <AdminRouteGuard requiredPermission="can_view_payments">
-                  <AdminPayments />
-                </AdminRouteGuard>
-              } />
-              <Route path="abandoned-checkouts" element={
-                <AdminRouteGuard requiredPermission="can_view_payments">
-                  <AdminAbandonedCheckouts />
-                </AdminRouteGuard>
-              } />
-              <Route path="support-inbox" element={
-                <AdminRouteGuard requiredPermission="can_view_tickets">
-                  <AdminSupportInbox />
-                </AdminRouteGuard>
-              } />
-              <Route path="chat-routing" element={
-                <AdminRouteGuard requiredPermission="can_view_ticket_analytics">
-                  <ChatRouting />
-                </AdminRouteGuard>
-              } />
-              <Route path="chatbot-conversations" element={
-                <AdminRouteGuard requiredPermission="can_view_tickets">
-                  <AdminChatbotConversations />
-                </AdminRouteGuard>
-              } />
-              <Route path="support-contact" element={
-                <AdminRouteGuard requiredPermission="can_view_tickets">
-                  <SupportContactSettings />
-                </AdminRouteGuard>
-              } />
+              {/* Knowledge base */}
               <Route path="knowledge-base" element={
                 <AdminRouteGuard requiredPermission="can_view_knowledge_base">
                   <AdminKnowledgeBase />
@@ -368,21 +334,6 @@ const App = () => {
                   <AdminShippingTypes />
                 </AdminRouteGuard>
               } />
-              <Route path="analytics" element={
-                <AdminRouteGuard requiredPermission="can_view_analytics">
-                  <AdminAnalytics />
-                </AdminRouteGuard>
-              } />
-              <Route path="demand-insights" element={
-                <AdminRouteGuard requiredPermission="can_view_analytics">
-                  <DemandInsights />
-                </AdminRouteGuard>
-              } />
-              <Route path="activity-insights" element={
-                <AdminRouteGuard requiredPermission="can_view_analytics">
-                  <ActivityInsights />
-                </AdminRouteGuard>
-              } />
               <Route path="settings" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <AdminFeesSettings />
@@ -393,26 +344,9 @@ const App = () => {
                   <ThemeSettings />
                 </AdminRouteGuard>
               } />
-              <Route path="audit-log" element={
-                <AdminRouteGuard requiredPermission="can_view_dashboard">
-                  <AuditLog />
-                </AdminRouteGuard>
-              } />
               <Route path="quote-requests" element={
                 <AdminRouteGuard requiredPermission="can_view_orders">
                   <QuoteRequests />
-                </AdminRouteGuard>
-              } />
-              {/* transfer-proofs and price-confirmations routes removed */}
-              <Route path="health" element={
-                <AdminRouteGuard requiredPermission="can_view_dashboard">
-                  <AdminHealth />
-                </AdminRouteGuard>
-              } />
-              {/* bank-transfer-settings route removed */}
-              <Route path="payments-settings" element={
-                <AdminRouteGuard requiredPermission="can_view_payments">
-                  <PaymentsSettings />
                 </AdminRouteGuard>
               } />
               <Route path="service-zones" element={
@@ -420,73 +354,9 @@ const App = () => {
                   <ServiceZones />
                 </AdminRouteGuard>
               } />
-              {/* cache-settings route removed — merged into catalog-sources */}
-              <Route path="catalog-cache" element={
-                <AdminRouteGuard requiredPermission="can_view_settings">
-                  <CatalogCache />
-                </AdminRouteGuard>
-              } />
-              <Route path="auto-learning" element={
-                <AdminRouteGuard requiredPermission="can_view_settings">
-                  <AutoLearning />
-                </AdminRouteGuard>
-              } />
-              {/* catalog-builder and cars-settings routes removed */}
-              <Route path="catalog-sources" element={
-                <AdminRouteGuard requiredPermission="can_view_settings">
-                  <CatalogSourcesSettings />
-                </AdminRouteGuard>
-              } />
-              {/* home-curation route removed - consolidated into home-recipes */}
-              <Route path="home-recipes" element={
-                <AdminRouteGuard requiredPermission="can_view_settings">
-                  <HomeRecipes />
-                </AdminRouteGuard>
-              } />
-              <Route path="price-review" element={
-                <AdminRouteGuard requiredPermission="can_view_settings">
-                  <PriceReview />
-                </AdminRouteGuard>
-              } />
               <Route path="price-validation" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <PriceValidation />
-                </AdminRouteGuard>
-              } />
-              {/* search-relevancy route removed */}
-              <Route path="referrals" element={
-                <AdminRouteGuard requiredPermission="can_view_marketing">
-                  <AdminReferrals />
-                </AdminRouteGuard>
-              } />
-              <Route path="hot-products" element={
-                <AdminRouteGuard requiredPermission="can_view_marketing">
-                  <AdminHotProducts />
-                </AdminRouteGuard>
-              } />
-              <Route path="dubai-uploads" element={
-                <AdminRouteGuard requiredPermission="can_view_marketing">
-                  <AdminDubaiUploads />
-                </AdminRouteGuard>
-              } />
-              <Route path="reels" element={
-                <AdminRouteGuard requiredPermission="can_view_marketing">
-                  <AdminReels />
-                </AdminRouteGuard>
-              } />
-              <Route path="bundle-links" element={
-                <AdminRouteGuard requiredPermission="can_view_marketing">
-                  <AdminBundleLinks />
-                </AdminRouteGuard>
-              } />
-              <Route path="international-products" element={
-                <AdminRouteGuard requiredPermission="can_view_marketing">
-                  <AdminInternationalProducts />
-                </AdminRouteGuard>
-              } />
-              <Route path="telegram-import" element={
-                <AdminRouteGuard requiredPermission="can_view_marketing">
-                  <AdminTelegramImport />
                 </AdminRouteGuard>
               } />
               <Route path="country-shipping" element={
@@ -494,6 +364,157 @@ const App = () => {
                   <AdminCountryShippingRates />
                 </AdminRouteGuard>
               } />
+
+              {/* ===== Finance hub (tabs) ===== */}
+              <Route path="finance" element={<Navigate to="/admin/payments" replace />} />
+              <Route element={<FinanceHub />}>
+                <Route path="payments" element={
+                  <AdminRouteGuard requiredPermission="can_view_payments">
+                    <AdminPayments />
+                  </AdminRouteGuard>
+                } />
+                <Route path="abandoned-checkouts" element={
+                  <AdminRouteGuard requiredPermission="can_view_payments">
+                    <AdminAbandonedCheckouts />
+                  </AdminRouteGuard>
+                } />
+                <Route path="payments-settings" element={
+                  <AdminRouteGuard requiredPermission="can_view_payments">
+                    <PaymentsSettings />
+                  </AdminRouteGuard>
+                } />
+              </Route>
+
+              {/* ===== Support hub (tabs) ===== */}
+              <Route path="support" element={<Navigate to="/admin/support-inbox" replace />} />
+              <Route element={<SupportHub />}>
+                <Route path="support-inbox" element={
+                  <AdminRouteGuard requiredPermission="can_view_tickets">
+                    <AdminSupportInbox />
+                  </AdminRouteGuard>
+                } />
+                <Route path="support-contact" element={
+                  <AdminRouteGuard requiredPermission="can_view_tickets">
+                    <SupportContactSettings />
+                  </AdminRouteGuard>
+                } />
+                <Route path="chat-routing" element={
+                  <AdminRouteGuard requiredPermission="can_view_ticket_analytics">
+                    <ChatRouting />
+                  </AdminRouteGuard>
+                } />
+                <Route path="chatbot-conversations" element={
+                  <AdminRouteGuard requiredPermission="can_view_tickets">
+                    <AdminChatbotConversations />
+                  </AdminRouteGuard>
+                } />
+              </Route>
+
+              {/* ===== Marketing hub (tabs) ===== */}
+              <Route path="marketing" element={<Navigate to="/admin/hot-products" replace />} />
+              <Route element={<MarketingHub />}>
+                <Route path="hot-products" element={
+                  <AdminRouteGuard requiredPermission="can_view_marketing">
+                    <AdminHotProducts />
+                  </AdminRouteGuard>
+                } />
+                <Route path="reels" element={
+                  <AdminRouteGuard requiredPermission="can_view_marketing">
+                    <AdminReels />
+                  </AdminRouteGuard>
+                } />
+                <Route path="international-products" element={
+                  <AdminRouteGuard requiredPermission="can_view_marketing">
+                    <AdminInternationalProducts />
+                  </AdminRouteGuard>
+                } />
+                <Route path="telegram-import" element={
+                  <AdminRouteGuard requiredPermission="can_view_marketing">
+                    <AdminTelegramImport />
+                  </AdminRouteGuard>
+                } />
+                <Route path="bundle-links" element={
+                  <AdminRouteGuard requiredPermission="can_view_marketing">
+                    <AdminBundleLinks />
+                  </AdminRouteGuard>
+                } />
+                <Route path="dubai-uploads" element={
+                  <AdminRouteGuard requiredPermission="can_view_marketing">
+                    <AdminDubaiUploads />
+                  </AdminRouteGuard>
+                } />
+                <Route path="referrals" element={
+                  <AdminRouteGuard requiredPermission="can_view_marketing">
+                    <AdminReferrals />
+                  </AdminRouteGuard>
+                } />
+              </Route>
+
+              {/* ===== Insights hub (tabs) ===== */}
+              <Route path="insights" element={<Navigate to="/admin/analytics" replace />} />
+              <Route element={<InsightsHub />}>
+                <Route path="analytics" element={
+                  <AdminRouteGuard requiredPermission="can_view_analytics">
+                    <AdminAnalytics />
+                  </AdminRouteGuard>
+                } />
+                <Route path="activity-insights" element={
+                  <AdminRouteGuard requiredPermission="can_view_analytics">
+                    <ActivityInsights />
+                  </AdminRouteGuard>
+                } />
+                <Route path="demand-insights" element={
+                  <AdminRouteGuard requiredPermission="can_view_analytics">
+                    <DemandInsights />
+                  </AdminRouteGuard>
+                } />
+                <Route path="ab-tests" element={
+                  <AdminRouteGuard requiredPermission="can_view_ab_results">
+                    <ABTestResults />
+                  </AdminRouteGuard>
+                } />
+              </Route>
+
+              {/* ===== System hub (tabs, super-admin) ===== */}
+              <Route path="system" element={<Navigate to="/admin/home-recipes" replace />} />
+              <Route element={<SystemHub />}>
+                <Route path="home-recipes" element={
+                  <AdminRouteGuard requiredPermission="can_view_settings">
+                    <HomeRecipes />
+                  </AdminRouteGuard>
+                } />
+                <Route path="price-review" element={
+                  <AdminRouteGuard requiredPermission="can_view_settings">
+                    <PriceReview />
+                  </AdminRouteGuard>
+                } />
+                <Route path="catalog-sources" element={
+                  <AdminRouteGuard requiredPermission="can_view_settings">
+                    <CatalogSourcesSettings />
+                  </AdminRouteGuard>
+                } />
+                <Route path="catalog-cache" element={
+                  <AdminRouteGuard requiredPermission="can_view_settings">
+                    <CatalogCache />
+                  </AdminRouteGuard>
+                } />
+                <Route path="auto-learning" element={
+                  <AdminRouteGuard requiredPermission="can_view_settings">
+                    <AutoLearning />
+                  </AdminRouteGuard>
+                } />
+                <Route path="health" element={
+                  <AdminRouteGuard requiredPermission="can_view_dashboard">
+                    <AdminHealth />
+                  </AdminRouteGuard>
+                } />
+                <Route path="audit-log" element={
+                  <AdminRouteGuard requiredPermission="can_view_dashboard">
+                    <AuditLog />
+                  </AdminRouteGuard>
+                } />
+              </Route>
+
               <Route path="access-denied" element={<AdminAccessDenied />} />
           </Route>
             

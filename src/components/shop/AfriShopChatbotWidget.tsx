@@ -5,6 +5,7 @@ import { MessageCircle, X, Send, Loader2, Check, CheckCheck, ArrowLeft } from 'l
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAfriShopChatbot } from '@/contexts/AfriShopChatbotContext';
+import sophieProfile from '@/assets/sophie-profile.jpg';
 import { getWhatsAppUrl, SUPPORT_WHATSAPP_DISPLAY } from '@/lib/supportConfig';
 import { cn } from '@/lib/utils';
 

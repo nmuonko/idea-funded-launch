@@ -207,6 +207,33 @@ export function AdminLayout() {
                     );
                   })}
                 </div>
+              ) : section.items.length === 1 ? (
+                // Single-item section (hub entry) - flat button
+                (() => {
+                  const item = section.items[0];
+                  const itemExact = 'exact' in item ? item.exact : false;
+                  const isActive = itemExact
+                    ? location.pathname === item.to
+                    : sectionActive;
+                  return (
+                    <Link
+                      key={section.title}
+                      to={item.to}
+                      onClick={() => setIsMobileOpen(false)}
+                    >
+                      <Button
+                        variant={isActive ? 'default' : 'ghost'}
+                        className={cn(
+                          'w-full justify-start gap-3 px-2 transition-all duration-200',
+                          isActive && 'shadow-glow'
+                        )}
+                      >
+                        <item.icon className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">{item.label}</span>
+                      </Button>
+                    </Link>
+                  );
+                })()
               ) : (
                 // Expanded mode - collapsible sections
                 <Collapsible

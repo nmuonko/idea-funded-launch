@@ -7,6 +7,9 @@ export function cleanProductText(text: string): string {
   if (!text) return "";
   let t = text;
 
+  // Remove whole parenthetical fragments if they contain unwanted condition noise.
+  t = t.replace(/\([^)]*(?:refurbished|renewed|reconditionn[ée]|seller[-\s]?refurbished|garantie)[^)]*\)/gi, "");
+
   // Whole-word removals (case-insensitive)
   const unwanted = [
     /\brefurbished\b/gi,
@@ -23,6 +26,7 @@ export function cleanProductText(text: string): string {
   // Collapse leftover double spaces, stray punctuation clusters
   t = t.replace(/\s{2,}/g, " ");
   t = t.replace(/\s*[,;:\-–—·]+\s*/g, " ");
+  t = t.replace(/\(\s*\)|\[\s*\]/g, "");
   t = t.replace(/\s{2,}/g, " ");
   return t.trim();
 }

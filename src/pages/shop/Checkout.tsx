@@ -20,6 +20,7 @@ import { translations } from '@/lib/i18n/translations';
 import { trackInitiateCheckout } from '@/lib/tiktokPixel';
 import { trackMetaInitiateCheckout } from '@/lib/metaPixel';
 import { sanitizeCartImage } from '@/lib/imageValidation';
+import { cleanProductText } from '@/lib/cleanProductText';
 
 
 interface ShippingAddress {
@@ -165,7 +166,7 @@ export default function Checkout() {
     void addItem({
       productId: sharedHotProduct.provider_product_id || hpUrl,
       provider: sharedHotProduct.provider,
-      title: sharedHotProduct.title,
+      title: cleanProductText(sharedHotProduct.title),
       imageUrl: sharedHotProduct.image_url,
       priceUsd: sharedHotProduct.total_price_usd,
       quantity: 1,
@@ -207,7 +208,7 @@ export default function Checkout() {
       id: `local_hp_${sharedHotProduct.id}`,
       productId: sharedHotProduct.provider_product_id || hpUrl || sharedHotProduct.id,
       provider: sharedHotProduct.provider,
-      title: sharedHotProduct.title,
+      title: cleanProductText(sharedHotProduct.title),
       imageUrl: sharedHotProduct.image_url,
       priceUsd: sharedHotProduct.total_price_usd,
       quantity: 1,

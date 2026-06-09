@@ -21,7 +21,6 @@ const QUICK_REPLIES = [
   'Comment payer ?',
   'Délai de livraison',
   'Frais de livraison',
-  'Statut de ma commande',
 ];
 
 function formatTime(ts: number) {

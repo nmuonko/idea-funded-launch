@@ -90,6 +90,7 @@ export function AdminLayout() {
       title: language === 'fr' ? 'Insights' : 'Insights',
       items: [
         { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics, permission: 'can_view_analytics' as const },
+        { to: '/admin/activity-insights', icon: Activity, label: language === 'fr' ? 'Activité & Funnel' : 'Activity & Funnel', permission: 'can_view_analytics' as const },
         { to: '/admin/demand-insights', icon: TrendingUp, label: language === 'fr' ? 'Demand Insights' : 'Demand Insights', permission: 'can_view_analytics' as const },
         { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'can_view_ab_results' as const },
       ]

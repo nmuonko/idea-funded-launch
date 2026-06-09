@@ -41,6 +41,7 @@ const AdminShipping = lazy(() => import("./pages/admin/Shipping"));
 const AdminShippingTypes = lazy(() => import("./pages/admin/ShippingTypes"));
 const AdminAnalytics = lazy(() => import("./pages/admin/Analytics"));
 const DemandInsights = lazy(() => import("./pages/admin/DemandInsights"));
+const ActivityInsights = lazy(() => import("./pages/admin/ActivityInsights"));
 const AdminPayments = lazy(() => import("./pages/admin/Payments"));
 const AdminAbandonedCheckouts = lazy(() => import("./pages/admin/AbandonedCheckouts"));
 const AdminSupportInbox = lazy(() => import("./pages/admin/SupportInbox"));
@@ -370,6 +371,11 @@ const App = () => {
               <Route path="demand-insights" element={
                 <AdminRouteGuard requiredPermission="can_view_analytics">
                   <DemandInsights />
+                </AdminRouteGuard>
+              } />
+              <Route path="activity-insights" element={
+                <AdminRouteGuard requiredPermission="can_view_analytics">
+                  <ActivityInsights />
                 </AdminRouteGuard>
               } />
               <Route path="settings" element={

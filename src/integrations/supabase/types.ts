@@ -4350,6 +4350,47 @@ export type Database = {
           },
         ]
       }
+      payment_pending_reminders: {
+        Row: {
+          attempt_number: number
+          channel: string
+          created_at: string
+          error: string | null
+          id: string
+          order_id: string
+          scheduled_for: string
+          sent_at: string
+        }
+        Insert: {
+          attempt_number: number
+          channel?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          order_id: string
+          scheduled_for: string
+          sent_at?: string
+        }
+        Update: {
+          attempt_number?: number
+          channel?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          order_id?: string
+          scheduled_for?: string
+          sent_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_pending_reminders_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_providers: {
         Row: {
           config_public: Json | null

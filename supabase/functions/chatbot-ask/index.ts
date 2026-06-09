@@ -187,6 +187,9 @@ function detectCondition(title: string, lang: "fr" | "en"): string {
   if (/\brenewed\b/.test(t)) return "Renewed";
   if (/\brefurbished?\b/.test(t)) return "Refurbished";
   if (/\b(used|pre[- ]?owned|second[- ]?hand)\b/.test(t)) return lang === "en" ? "Used" : "Occasion";
+  if (/\b(very\s+good|excellent|good)\s+condition\b/.test(t)) return "Refurbished";
+  if (/\bopen\s*box\b/.test(t)) return "Refurbished";
+  if (/\bdamaged|scratches|cracked|broken|for\s+parts\b/.test(t)) return lang === "en" ? "Used" : "Occasion";
   // Default for AfriShop: phones are sold new unless title explicitly says otherwise.
   return lang === "en" ? "New" : "Neuf";
 }

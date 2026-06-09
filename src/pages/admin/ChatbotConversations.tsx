@@ -3,7 +3,32 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, MessageCircle, User, Bot, AlertTriangle } from 'lucide-react';
+import { Loader2, MessageCircle, User, Bot, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+
+// Renders message content with markdown links [text](url) as inline buttons
+function renderAssistantContent(text: string) {
+  const parts: React.ReactNode[] = [];
+  const regex = /\[([^\]]+)\]\(([^)]+)\)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > last) parts.push(<span key={`t${i}`}>{text.slice(last, m.index)}</span>);
+    const label = m[1];
+    const url = m[2];
+    parts.push(
+      <a key={`l${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 my-1 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium no-underline">
+        <ExternalLink className="w-3 h-3" />
+        {label.replace(/^[«»\s]+|[«»\s]+$/g, '')}
+      </a>
+    );
+    last = m.index + m[0].length;
+    i++;
+  }
+  if (last < text.length) parts.push(<span key={`t${i}`}>{text.slice(last)}</span>);
+  return parts.length > 0 ? parts : text;
+}
 import { cn } from '@/lib/utils';
 
 interface Conversation {
@@ -146,7 +171,7 @@ export default function ChatbotConversations() {
                           'max-w-[75%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words',
                           m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
                         )}>
-                          {m.content}
+                          {m.role === 'assistant' ? renderAssistantContent(m.content) : m.content}
                           <div className="text-[10px] mt-1 opacity-60">{new Date(m.created_at).toLocaleString('fr-FR')}</div>
                         </div>
                         {m.role === 'user' && (

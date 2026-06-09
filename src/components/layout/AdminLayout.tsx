@@ -60,39 +60,25 @@ export function AdminLayout() {
     {
       title: language === 'fr' ? 'Finance' : 'Finance',
       items: [
-        { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'can_view_payments' as const },
-        { to: '/admin/abandoned-checkouts', icon: AlertTriangle, label: language === 'fr' ? 'Paniers abandonnés' : 'Abandoned Checkouts', permission: 'can_view_payments' as const },
-        { to: '/admin/payments-settings', icon: DollarSign, label: language === 'fr' ? 'Fournisseurs' : 'Providers', permission: 'can_view_payments' as const },
+        { to: '/admin/payments', icon: Wallet, label: language === 'fr' ? 'Finance' : 'Finance', permission: 'can_view_payments' as const },
       ]
     },
     {
       title: 'Support',
       items: [
-        { to: '/admin/support-inbox', icon: Headphones, label: t.sidebar.supportInbox || 'Live Chat', permission: 'can_view_tickets' as const },
-        { to: '/admin/support-contact', icon: MessageSquare, label: language === 'fr' ? 'Contact Support' : 'Support Contact', permission: 'can_view_tickets' as const },
-        { to: '/admin/chat-routing', icon: BarChart3, label: language === 'fr' ? 'Routage Chat' : 'Chat Routing', permission: 'can_view_ticket_analytics' as const },
-        { to: '/admin/chatbot-conversations', icon: MessageSquare, label: language === 'fr' ? 'Conversations Sophie' : 'Sophie Conversations', permission: 'can_view_tickets' as const },
+        { to: '/admin/support-inbox', icon: Headphones, label: 'Support', permission: 'can_view_tickets' as const },
       ]
     },
     {
       title: language === 'fr' ? 'Marketing' : 'Marketing',
       items: [
-        { to: '/admin/hot-products', icon: Flame, label: language === 'fr' ? 'Produits Vedettes' : 'Hot Products', permission: 'can_view_marketing' as const },
-        { to: '/admin/reels', icon: Film, label: language === 'fr' ? 'Reels (Vidéos)' : 'Reels (Videos)', permission: 'can_view_marketing' as const },
-        { to: '/admin/international-products', icon: Globe, label: language === 'fr' ? 'Produits Internationaux' : 'International Products', permission: 'can_view_marketing' as const },
-        { to: '/admin/telegram-import', icon: Send, label: language === 'fr' ? 'Import Telegram' : 'Telegram Import', permission: 'can_view_marketing' as const },
-        { to: '/admin/bundle-links', icon: Package, label: language === 'fr' ? 'Packs Produits' : 'Bundle Links', permission: 'can_view_marketing' as const },
-        { to: '/admin/dubai-uploads', icon: Flame, label: language === 'fr' ? 'Uploads Dubai' : 'Dubai Uploads', permission: 'can_view_marketing' as const },
-        { to: '/admin/referrals', icon: Gift, label: language === 'fr' ? 'Parrainages' : 'Referrals', permission: 'can_view_marketing' as const },
+        { to: '/admin/hot-products', icon: Flame, label: 'Marketing', permission: 'can_view_marketing' as const },
       ]
     },
     {
       title: language === 'fr' ? 'Insights' : 'Insights',
       items: [
-        { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics, permission: 'can_view_analytics' as const },
-        { to: '/admin/activity-insights', icon: Activity, label: language === 'fr' ? 'Activité & Funnel' : 'Activity & Funnel', permission: 'can_view_analytics' as const },
-        { to: '/admin/demand-insights', icon: TrendingUp, label: language === 'fr' ? 'Demand Insights' : 'Demand Insights', permission: 'can_view_analytics' as const },
-        { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'can_view_ab_results' as const },
+        { to: '/admin/analytics', icon: BarChart, label: 'Insights', permission: 'can_view_analytics' as const },
       ]
     },
     {
@@ -108,13 +94,7 @@ export function AdminLayout() {
     ...(isSuperAdmin ? [{
       title: language === 'fr' ? 'Système' : 'System',
       items: [
-        { to: '/admin/home-recipes', icon: Home, label: language === 'fr' ? 'Curation Accueil' : 'Home Curation', exact: false, permission: 'can_view_settings' as const },
-        { to: '/admin/price-review', icon: Activity, label: language === 'fr' ? 'Révision Prix' : 'Price Review', exact: false, permission: 'can_view_settings' as const },
-        { to: '/admin/catalog-sources', icon: Store, label: language === 'fr' ? 'Config Catalogue' : 'Catalog Config', exact: false, permission: 'can_view_settings' as const },
-        { to: '/admin/catalog-cache', icon: Archive, label: language === 'fr' ? 'Cache Catalogue' : 'Catalog Cache', exact: false, permission: 'can_view_settings' as const },
-        { to: '/admin/auto-learning', icon: Brain, label: 'Auto-Learning', exact: false, permission: 'can_view_settings' as const },
-        { to: '/admin/health', icon: Activity, label: t.sidebar.health || 'Health', exact: false, permission: 'can_view_dashboard' as const },
-        { to: '/admin/audit-log', icon: Shield, label: t.sidebar.auditLog, exact: false, permission: 'can_view_dashboard' as const },
+        { to: '/admin/home-recipes', icon: Database, label: language === 'fr' ? 'Système' : 'System', exact: false, permission: 'can_view_settings' as const },
       ]
     }] : []),
   ], [t, language, isSuperAdmin]);

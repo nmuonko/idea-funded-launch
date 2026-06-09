@@ -201,23 +201,17 @@ Deno.serve(async (req) => {
 
     const { faqRows, kbaRows } = await fetchKb(supabase, lang === "en" ? "en" : "fr");
 
-    // Product price lookup: if user mentions a product, search the catalog.
-    let catalogMatches: { title: string; price_usd: number | null; product_url: string | null }[] = [];
+    // Product price lookup: if user mentions a product, search the catalogue and hot products.
+    let catalogMatches: CatalogMatch[] = [];
     try {
       // Normalize common typos / phonetic spellings before tokenizing
-      const normalized = message.toLowerCase()
-        .replace(/\buniphone\b/g, "iphone")
-        .replace(/\bayphone\b/g, "iphone")
-        .replace(/\bayfone\b/g, "iphone")
-        .replace(/\bifone\b/g, "iphone")
-        .replace(/\bi-phone\b/g, "iphone")
-        .replace(/\bsamsoung\b/g, "samsung")
-        .replace(/\bgooglepixel\b/g, "google pixel");
+      const normalized = normalizeProductQuery(message);
 
       const stop = new Set(["the","a","an","is","of","for","and","or","to","in","on","with","price","cost","prix","combien","quel","quelle","est","le","la","les","un","une","de","du","des","pour","ça","ca","coute","coûte","cout","much","how","what","tell","me","please","svp","stp","s'il","plait","plaît","combine"]);
       const tokens = normalized.replace(/[^\p{L}\p{N}\s-]/gu, " ").split(/\s+/).filter(w => w.length > 2 && !stop.has(w));
+      const mustHave = ["iphone", "samsung", "pixel", "galaxy", "macbook", "ipad", "airpods"].filter(t => tokens.includes(t));
 
-      const baseQuery = () => supabase
+      const catalogQuery = () => supabase
         .from("catalog_items")
         .select("title,price_usd,product_url")
         .eq("is_active", true)
@@ -225,23 +219,75 @@ Deno.serve(async (req) => {
         .order("popularity_score", { ascending: false, nullsFirst: false })
         .limit(5);
 
-      if (tokens.length > 0) {
-        // 1) Full-text search
-        const { data } = await baseQuery()
-          .textSearch("search_text", tokens.join(" | "), { type: "websearch", config: "simple" });
-        if (data && data.length > 0) catalogMatches = data as any;
+      const hotProductsQuery = () => supabase
+        .from("hot_products_showcase")
+        .select("title,total_price_usd,price_usd,product_url")
+        .eq("is_active", true)
+        .not("total_price_usd", "is", null)
+        .order("sort_order", { ascending: true, nullsFirst: false })
+        .limit(5);
 
-        // 2) Fallback: ilike on title with the longest token
+      const addMatches = (rows: any[] | null | undefined, source: string) => {
+        for (const r of rows || []) {
+          const price = r.total_price_usd ?? r.price_usd ?? null;
+          if (!r.title || price == null) continue;
+          if (!catalogMatches.some(m => m.title === r.title && m.product_url === r.product_url)) {
+            catalogMatches.push({ title: r.title, price_usd: Number(price), product_url: r.product_url ?? null, source });
+          }
+        }
+      };
+
+      if (tokens.length > 0) {
+        // 1) Exact all-token title match in hot products first (these are visible storefront products).
+        let hot = hotProductsQuery();
+        for (const t of tokens) hot = hot.ilike("title", `%${t}%`);
+        const { data: hotExact } = await hot;
+        addMatches(hotExact, "hot_products_showcase");
+
+        // 2) Full-text catalog search
+        const { data } = await catalogQuery()
+          .textSearch("search_text", tokens.join(" & "), { type: "websearch", config: "simple" });
+        addMatches(data, "catalog_items");
+
+        // 3) Fallback: ilike on title with brand + longest model token, not accessories-only noise.
         if (catalogMatches.length === 0) {
           const longest = [...tokens].sort((a, b) => b.length - a.length)[0];
-          const { data: data2 } = await baseQuery().ilike("title", `%${longest}%`);
-          if (data2 && data2.length > 0) catalogMatches = data2 as any;
+          const titleNeedles = [...new Set([...mustHave, longest])].filter(Boolean);
+          let hotLoose = hotProductsQuery();
+          for (const t of titleNeedles) hotLoose = hotLoose.ilike("title", `%${t}%`);
+          const [{ data: hotLooseData }, { data: data2 }] = await Promise.all([
+            hotLoose,
+            catalogQuery().ilike("title", `%${longest}%`),
+          ]);
+          addMatches(hotLooseData, "hot_products_showcase");
+          addMatches(data2, "catalog_items");
         }
 
-        // 3) Last resort: try each remaining token via ilike until something matches
+        // 4) Last resort: brand token via hot products, then catalog.
         if (catalogMatches.length === 0) {
-          for (const t of tokens) {
-            const { data: d3 } = await baseQuery().ilike("title", `%${t}%`);
+          for (const t of mustHave.length ? mustHave : tokens) {
+            const [{ data: h3 }, { data: d3 }] = await Promise.all([
+              hotProductsQuery().ilike("title", `%${t}%`),
+              catalogQuery().ilike("title", `%${t}%`),
+            ]);
+            addMatches(h3, "hot_products_showcase");
+            addMatches(d3, "catalog_items");
+            if (catalogMatches.length > 0) break;
+          }
+        }
+
+        // Prefer true phone/tablet/computer products over accessories when the user asks a device price.
+        if (mustHave.length > 0) {
+          const accessoryRe = /\b(case|cover|screen protector|protector|charger|cable|cord|holder|mount|holster|magsafe|adapter|wallet|strap)\b/i;
+          const deviceMatches = catalogMatches.filter(p => !accessoryRe.test(p.title));
+          if (deviceMatches.length > 0) catalogMatches = deviceMatches;
+        }
+
+        catalogMatches = catalogMatches.slice(0, 5);
+      }
+    } catch (e) {
+      console.warn("catalog lookup failed", e);
+    }
             if (d3 && d3.length > 0) { catalogMatches = d3 as any; break; }
           }
         }

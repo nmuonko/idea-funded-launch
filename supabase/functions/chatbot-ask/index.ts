@@ -318,7 +318,7 @@ Deno.serve(async (req) => {
 
       const catalogQuery = () => supabase
         .from("catalog_items")
-        .select("id,provider,provider_product_id,title,price_usd")
+        .select("id,provider,provider_product_id,title,price_usd,condition")
         .eq("is_active", true)
         .not("price_usd", "is", null)
         .order("popularity_score", { ascending: false, nullsFirst: false })

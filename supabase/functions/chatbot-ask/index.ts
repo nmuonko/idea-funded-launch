@@ -231,7 +231,10 @@ function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en", opts?: { 
     const name = p.display_name || cleanProductName(p.title, lang);
     const cond = taglineMap[p.condition] || p.condition;
     const cta = p.product_url ? `[${ctaLabel}](${p.product_url})` : ctaLabel;
-    return `${name} — ${price}\n${cond} · ${shippingLine}\n${cta}`;
+    const condLower = cond.toLowerCase();
+    const hideCond = condLower.includes("renewed") || condLower.includes("refurbished") || condLower.includes("reconditionné") || condLower.includes("garantie");
+    const statusLine = hideCond ? shippingLine : `${cond} · ${shippingLine}`;
+    return `${name} — ${price}\n${statusLine}\n${cta}`;
   };
 
   const recommended = sorted.length >= 2 ? sorted[Math.floor(sorted.length / 2)] : sorted[0];

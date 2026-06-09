@@ -196,14 +196,14 @@ function detectCondition(title: string, lang: "fr" | "en"): string {
 
 const CONDITION_TAGLINE_FR: Record<string, string> = {
   "Neuf": "Neuf",
-  "Renewed": "Renewed (reconditionné par le vendeur, garantie)",
-  "Refurbished": "Refurbished (reconditionné, garantie)",
+  "Renewed": "Renewed",
+  "Refurbished": "Refurbished",
   "Occasion": "Occasion",
 };
 const CONDITION_TAGLINE_EN: Record<string, string> = {
   "New": "New",
-  "Renewed": "Renewed (seller-refurbished, warranty)",
-  "Refurbished": "Refurbished (warranty)",
+  "Renewed": "Renewed",
+  "Refurbished": "Refurbished",
   "Used": "Used",
 };
 

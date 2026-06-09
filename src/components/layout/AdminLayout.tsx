@@ -275,9 +275,7 @@ export function AdminLayout() {
                   <CollapsibleContent className="space-y-1">
                     {section.items.map((item) => {
                       const itemExact = 'exact' in item ? item.exact : false;
-                      const isActive = itemExact 
-                        ? location.pathname === item.to
-                        : location.pathname.startsWith(item.to);
+                      const isActive = isItemActive(item.to, !!itemExact);
                       
                       return (
                         <Link 

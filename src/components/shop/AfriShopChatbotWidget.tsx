@@ -107,13 +107,13 @@ export function AfriShopChatbotWidget() {
     if (!vv) return;
     const isDesktop = window.matchMedia('(min-width: 640px)').matches;
     if (isDesktop) return;
+    const panel = panelRef.current;
 
     const apply = () => {
-      const el = panelRef.current;
-      if (!el) return;
-      el.style.height = `${vv.height}px`;
-      el.style.top = `${vv.offsetTop}px`;
-      el.style.bottom = 'auto';
+      if (!panel) return;
+      panel.style.height = `${vv.height}px`;
+      panel.style.top = `${vv.offsetTop}px`;
+      panel.style.bottom = 'auto';
       // Keep latest message in view when keyboard opens
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
     };
@@ -123,8 +123,7 @@ export function AfriShopChatbotWidget() {
     return () => {
       vv.removeEventListener('resize', apply);
       vv.removeEventListener('scroll', apply);
-      const el = panelRef.current;
-      if (el) { el.style.height = ''; el.style.top = ''; el.style.bottom = ''; }
+      if (panel) { panel.style.height = ''; panel.style.top = ''; panel.style.bottom = ''; }
     };
   }, [isOpen]);
 

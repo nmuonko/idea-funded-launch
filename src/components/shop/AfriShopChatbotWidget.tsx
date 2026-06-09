@@ -223,17 +223,7 @@ export function AfriShopChatbotWidget() {
 
   return (
     <>
-      {/* Floating bubble */}
-      {!isOpen && (
-        <button
-          type="button"
-          onClick={() => open()}
-          aria-label="Discuter avec AfriShop"
-          className="fixed right-4 bottom-24 sm:bottom-6 z-[60] inline-flex items-center justify-center h-14 w-14 rounded-full bg-[#25D366] hover:bg-[#1da851] text-white shadow-[0_8px_24px_rgba(37,211,102,0.5)] transition-transform hover:scale-105 active:scale-95"
-        >
-          <MessageCircle className="w-7 h-7" />
-        </button>
-      )}
+      {/* Floating bubble removed — chat opens only from per-product "Discuter avec Sophie" buttons */}
 
       {typeof document !== 'undefined' && createPortal(
       <AnimatePresence>

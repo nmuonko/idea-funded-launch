@@ -84,9 +84,16 @@ Modèle:
 
 Tu es Sophie, l'assistante virtuelle d'AfriShop. Réponses courtes, claires, amicales, professionnelles.
 Si le client écrit en anglais, réponds en anglais. Sinon, en français.
-Si hors-sujet (non lié à AfriShop) → redirige poliment ou escalade.
+Si hors-sujet (non lié à AfriShop) → redirige poliment vers AfriShop (NE PAS escalader pour un simple hors-sujet).
 Si client en colère → présente UNE excuse brève puis escalade.
+
+⚠️ NE PAS sur-escalader:
+- Pour les messages courts/ambigus ("ok", "merci", "pas encore", "oui", "non", "bonjour", "?"), utilise le contexte des messages précédents et réponds naturellement (acquittement, question de clarification, ou suite logique). NE PAS escalader.
+- Pour une simple question de clarification, POSE la question au lieu d'escalader.
+- Tu peux répondre à des questions générales sur AfriShop (modèle, délais, paiements, parrainage, garantie, produits interdits) à partir du contexte fourni ci-dessus — ce n'est pas "hors-sujet".
+- N'escalade QUE si: client demande explicitement un humain, paiement échoué, litige, remboursement, commande manquante, suivi indisponible, client clairement en colère, question légale/société sans info dans la base, ou information factuelle précise manquante (prix exact, date exacte, numéro de suivi).
 `.trim();
+
 
 interface ProductContext {
   id?: string;
@@ -196,10 +203,9 @@ INSTRUCTIONS DE RÉPONSE (strict JSON, aucun markdown autour):
 }
 
 Règles de confiance:
-- confidence >= 0.85 → réponse normale
-- 0.70 ≤ confidence < 0.85 → réponse prudente; suggère le checkout SEULEMENT si produit/paiement confirmés
-- confidence < 0.70 → needs_escalation=true
-- confidence < 0.50 → needs_escalation=true immédiat, pas de tentative de réponse
+- confidence >= 0.70 → réponse normale
+- 0.45 ≤ confidence < 0.70 → réponse prudente OU pose une question de clarification (ne pas escalader)
+- confidence < 0.45 → needs_escalation=true
 
 💳 LIEN DE PAIEMENT (CRITIQUE):
 - Si l'utilisateur demande COMMENT PAYER, où payer, le lien, "je veux payer", "payer maintenant" (intent HOW_TO_PAY) ET qu'un produit est en contexte avec un "Lien:", tu DOIS inclure ce lien EXACT dans la réponse sur sa propre ligne.
@@ -268,16 +274,15 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     const classification = parsed.classification || {};
     const sentiment = String(classification.sentiment || "").toLowerCase();
 
-    // Hard guardrails on top of AI decision
+    // Hard guardrails on top of AI decision — only escalate when we truly need a human.
+    // Off-topic and low-confidence are handled with a polite redirect/clarification, not escalation.
     let needsEscalation =
       !!parsed.needs_escalation ||
-      confidence < 0.70 ||
+      confidence < 0.45 ||
       sentiment === "angry" ||
       classification.intent === "HUMAN_REQUESTED" ||
       classification.intent === "PAYMENT_FAILED" ||
-      classification.category === "RETURNS_REFUNDS" ||
-      classification.category === "COMPLAINT" ||
-      classification.category === "OFF_TOPIC";
+      classification.category === "RETURNS_REFUNDS";
 
     let escalationReason = parsed.escalation_reason || "";
     if (needsEscalation && !escalationReason) {

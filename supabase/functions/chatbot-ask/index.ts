@@ -125,7 +125,7 @@ const COLOR_TOKENS = [
 ];
 function extractCapacity(title: string): string | null {
   if (!title) return null;
-  const m = title.match(/\b(\d{2,4})\s?(GB|TB)\b/i);
+  const m = title.match(/\b(\d{1,4})\s?(GB|TB)\b/i);
   if (!m) return null;
   return `${m[1]} ${m[2].toUpperCase()}`;
 }

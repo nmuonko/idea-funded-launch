@@ -43,7 +43,7 @@ function sanitizeInput(text: string): string {
 
 function scrubPaymentTerms(text: string): string {
   let out = text;
-  for (const re of FORBIDDEN_PAYMENT_TERMS) out = out.replace(re, "PawaPay/Stripe");
+  for (const { re, replace } of FORBIDDEN_PAYMENT_TERMS) out = out.replace(re, replace);
   return out;
 }
 

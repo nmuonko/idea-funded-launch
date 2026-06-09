@@ -133,16 +133,23 @@ function normalizeProductQuery(text: string) {
 function cleanProductName(raw: string, lang: "fr" | "en"): string {
   if (!raw) return "";
   let t = raw;
+  // Drop common marketplace prefixes / suffixes
+  t = t.replace(/^\s*(Amazon\.com[:\-]?|eBay[:\-]?|New\s+Listing[:\-]?)\s*/i, "");
+  t = t.replace(/\s*:\s*Cell Phones.*$/i, "");
+  t = t.replace(/\s*-\s*(?:Cell Phones|Electronics|Computers).*$/i, "");
   // Remove parenthetical noise: "(Unlocked)", "(Renewed)", "(US Version)", etc.
   t = t.replace(/\s*\([^)]*\)/g, " ");
   // Remove seller / version / region tags
-  t = t.replace(/\b(US Version|International Version|Factory Unlocked|GSM Unlocked|Unlocked|SIM Free|Dual SIM|Single SIM|eSIM|Brand New|Sealed|Open Box|Renewed|Refurbished|Pre-?Owned|Used|For (?:T-Mobile|AT&T|Verizon|Sprint|Cricket|Metro)|Locked to [^,]+)\b/gi, " ");
-  // Remove trailing seller bits after dashes ("- Cosmic Orange - Unlocked")
+  t = t.replace(/\b(US Version|International Version|Factory Unlocked|GSM Unlocked|Unlocked|SIM Free|Dual SIM|Single SIM|eSIM|Brand New|Sealed|Open Box|Renewed|Refurbished|Pre-?Owned|Used|For (?:T-Mobile|AT&T|Verizon|Sprint|Cricket|Metro)|Locked to [^,]+|Smartphone|Android Cell Phone|Cell Phone)\b/gi, " ");
+  // Remove ampersand-tail noise like "Camera & …"
+  t = t.replace(/\s*[,&]\s*(?:8K\s+Camera|Camera|Charger|Cable|Box|Accessories?).*$/i, "");
+  // Remove trailing seller bits after dashes/commas
   t = t.replace(/\s*[-–—,]\s*$/g, "");
   // Collapse whitespace and stray punctuation
   t = t.replace(/[•|]+/g, " ").replace(/\s{2,}/g, " ").replace(/\s+,/g, ",").trim();
-  // Trim trailing commas / dashes
+  // Trim trailing commas / dashes / ellipses-leading punctuation
   t = t.replace(/[,;:\-–—]+$/g, "").trim();
+  t = t.replace(/^[,;:\-–—]+/g, "").trim();
   // Cap length so it stays one short clickable line
   const MAX = 70;
   if (t.length > MAX) t = t.slice(0, MAX).replace(/\s+\S*$/, "") + "…";

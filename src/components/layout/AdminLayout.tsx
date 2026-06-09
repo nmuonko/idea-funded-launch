@@ -60,39 +60,25 @@ export function AdminLayout() {
     {
       title: language === 'fr' ? 'Finance' : 'Finance',
       items: [
-        { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'can_view_payments' as const },
-        { to: '/admin/abandoned-checkouts', icon: AlertTriangle, label: language === 'fr' ? 'Paniers abandonnés' : 'Abandoned Checkouts', permission: 'can_view_payments' as const },
-        { to: '/admin/payments-settings', icon: DollarSign, label: language === 'fr' ? 'Fournisseurs' : 'Providers', permission: 'can_view_payments' as const },
+        { to: '/admin/payments', icon: Wallet, label: language === 'fr' ? 'Finance' : 'Finance', permission: 'can_view_payments' as const },
       ]
     },
     {
       title: 'Support',
       items: [
-        { to: '/admin/support-inbox', icon: Headphones, label: t.sidebar.supportInbox || 'Live Chat', permission: 'can_view_tickets' as const },
-        { to: '/admin/support-contact', icon: MessageSquare, label: language === 'fr' ? 'Contact Support' : 'Support Contact', permission: 'can_view_tickets' as const },
-        { to: '/admin/chat-routing', icon: BarChart3, label: language === 'fr' ? 'Routage Chat' : 'Chat Routing', permission: 'can_view_ticket_analytics' as const },
-        { to: '/admin/chatbot-conversations', icon: MessageSquare, label: language === 'fr' ? 'Conversations Sophie' : 'Sophie Conversations', permission: 'can_view_tickets' as const },
+        { to: '/admin/support-inbox', icon: Headphones, label: 'Support', permission: 'can_view_tickets' as const },
       ]
     },
     {
       title: language === 'fr' ? 'Marketing' : 'Marketing',
       items: [
-        { to: '/admin/hot-products', icon: Flame, label: language === 'fr' ? 'Produits Vedettes' : 'Hot Products', permission: 'can_view_marketing' as const },
-        { to: '/admin/reels', icon: Film, label: language === 'fr' ? 'Reels (Vidéos)' : 'Reels (Videos)', permission: 'can_view_marketing' as const },
-        { to: '/admin/international-products', icon: Globe, label: language === 'fr' ? 'Produits Internationaux' : 'International Products', permission: 'can_view_marketing' as const },
-        { to: '/admin/telegram-import', icon: Send, label: language === 'fr' ? 'Import Telegram' : 'Telegram Import', permission: 'can_view_marketing' as const },
-        { to: '/admin/bundle-links', icon: Package, label: language === 'fr' ? 'Packs Produits' : 'Bundle Links', permission: 'can_view_marketing' as const },
-        { to: '/admin/dubai-uploads', icon: Flame, label: language === 'fr' ? 'Uploads Dubai' : 'Dubai Uploads', permission: 'can_view_marketing' as const },
-        { to: '/admin/referrals', icon: Gift, label: language === 'fr' ? 'Parrainages' : 'Referrals', permission: 'can_view_marketing' as const },
+        { to: '/admin/hot-products', icon: Flame, label: 'Marketing', permission: 'can_view_marketing' as const },
       ]
     },
     {
       title: language === 'fr' ? 'Insights' : 'Insights',
       items: [
-        { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics, permission: 'can_view_analytics' as const },
-        { to: '/admin/activity-insights', icon: Activity, label: language === 'fr' ? 'Activité & Funnel' : 'Activity & Funnel', permission: 'can_view_analytics' as const },
-        { to: '/admin/demand-insights', icon: TrendingUp, label: language === 'fr' ? 'Demand Insights' : 'Demand Insights', permission: 'can_view_analytics' as const },
-        { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'can_view_ab_results' as const },
+        { to: '/admin/analytics', icon: BarChart, label: 'Insights', permission: 'can_view_analytics' as const },
       ]
     },
     {
@@ -108,13 +94,7 @@ export function AdminLayout() {
     ...(isSuperAdmin ? [{
       title: language === 'fr' ? 'Système' : 'System',
       items: [
-        { to: '/admin/home-recipes', icon: Home, label: language === 'fr' ? 'Curation Accueil' : 'Home Curation', exact: false, permission: 'can_view_settings' as const },
-        { to: '/admin/price-review', icon: Activity, label: language === 'fr' ? 'Révision Prix' : 'Price Review', exact: false, permission: 'can_view_settings' as const },
-        { to: '/admin/catalog-sources', icon: Store, label: language === 'fr' ? 'Config Catalogue' : 'Catalog Config', exact: false, permission: 'can_view_settings' as const },
-        { to: '/admin/catalog-cache', icon: Archive, label: language === 'fr' ? 'Cache Catalogue' : 'Catalog Cache', exact: false, permission: 'can_view_settings' as const },
-        { to: '/admin/auto-learning', icon: Brain, label: 'Auto-Learning', exact: false, permission: 'can_view_settings' as const },
-        { to: '/admin/health', icon: Activity, label: t.sidebar.health || 'Health', exact: false, permission: 'can_view_dashboard' as const },
-        { to: '/admin/audit-log', icon: Shield, label: t.sidebar.auditLog, exact: false, permission: 'can_view_dashboard' as const },
+        { to: '/admin/home-recipes', icon: Database, label: language === 'fr' ? 'Système' : 'System', exact: false, permission: 'can_view_settings' as const },
       ]
     }] : []),
   ], [t, language, isSuperAdmin]);
@@ -141,13 +121,26 @@ export function AdminLayout() {
     setOpenSections(prev => ({ ...prev, [title]: !prev[title] }));
   };
 
+  // Hub groupings: any of these paths activates the hub sidebar entry
+  const HUB_PATHS: Record<string, string[]> = {
+    '/admin/payments': ['/admin/payments', '/admin/abandoned-checkouts', '/admin/payments-settings', '/admin/finance'],
+    '/admin/support-inbox': ['/admin/support-inbox', '/admin/support-contact', '/admin/chat-routing', '/admin/chatbot-conversations', '/admin/support'],
+    '/admin/hot-products': ['/admin/hot-products', '/admin/reels', '/admin/international-products', '/admin/telegram-import', '/admin/bundle-links', '/admin/dubai-uploads', '/admin/referrals', '/admin/marketing'],
+    '/admin/analytics': ['/admin/analytics', '/admin/activity-insights', '/admin/demand-insights', '/admin/ab-tests', '/admin/insights'],
+    '/admin/home-recipes': ['/admin/home-recipes', '/admin/price-review', '/admin/catalog-sources', '/admin/catalog-cache', '/admin/auto-learning', '/admin/health', '/admin/audit-log', '/admin/system'],
+  };
+
+  const isItemActive = (to: string, exact: boolean) => {
+    const paths = HUB_PATHS[to];
+    if (paths) return paths.some(p => location.pathname === p || location.pathname.startsWith(p + '/'));
+    return exact ? location.pathname === to : location.pathname.startsWith(to);
+  };
+
   // Check if any item in a section is active
   const isSectionActive = (items: typeof filteredSections[0]['items']) => {
     return items.some(item => {
       const itemExact = 'exact' in item ? item.exact : false;
-      return itemExact 
-        ? location.pathname === item.to
-        : location.pathname.startsWith(item.to);
+      return isItemActive(item.to, !!itemExact);
     });
   };
 
@@ -203,9 +196,7 @@ export function AdminLayout() {
                 <div key={section.title} className="space-y-1">
                   {section.items.map((item) => {
                     const itemExact = 'exact' in item ? item.exact : false;
-                    const isActive = itemExact 
-                      ? location.pathname === item.to
-                      : location.pathname.startsWith(item.to);
+                    const isActive = isItemActive(item.to, !!itemExact);
                     
                     return (
                       <Tooltip key={item.to}>
@@ -227,6 +218,33 @@ export function AdminLayout() {
                     );
                   })}
                 </div>
+              ) : section.items.length === 1 ? (
+                // Single-item section (hub entry) - flat button
+                (() => {
+                  const item = section.items[0];
+                  const itemExact = 'exact' in item ? item.exact : false;
+                  const isActive = itemExact
+                    ? location.pathname === item.to
+                    : sectionActive;
+                  return (
+                    <Link
+                      key={section.title}
+                      to={item.to}
+                      onClick={() => setIsMobileOpen(false)}
+                    >
+                      <Button
+                        variant={isActive ? 'default' : 'ghost'}
+                        className={cn(
+                          'w-full justify-start gap-3 px-2 transition-all duration-200',
+                          isActive && 'shadow-glow'
+                        )}
+                      >
+                        <item.icon className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">{item.label}</span>
+                      </Button>
+                    </Link>
+                  );
+                })()
               ) : (
                 // Expanded mode - collapsible sections
                 <Collapsible
@@ -257,9 +275,7 @@ export function AdminLayout() {
                   <CollapsibleContent className="space-y-1">
                     {section.items.map((item) => {
                       const itemExact = 'exact' in item ? item.exact : false;
-                      const isActive = itemExact 
-                        ? location.pathname === item.to
-                        : location.pathname.startsWith(item.to);
+                      const isActive = isItemActive(item.to, !!itemExact);
                       
                       return (
                         <Link 

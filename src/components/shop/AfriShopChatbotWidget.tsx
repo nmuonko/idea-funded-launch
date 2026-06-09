@@ -69,25 +69,6 @@ export function AfriShopChatbotWidget() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Track iOS visualViewport so panel resizes precisely when the keyboard opens.
-  useEffect(() => {
-    if (!isOpen) return;
-    const vv = (window as any).visualViewport;
-    if (!vv) return;
-    const apply = () => {
-      if (panelRef.current && window.innerWidth < 640) {
-        panelRef.current.style.height = `${vv.height}px`;
-      }
-    };
-    apply();
-    vv.addEventListener('resize', apply);
-    vv.addEventListener('scroll', apply);
-    return () => {
-      vv.removeEventListener('resize', apply);
-      vv.removeEventListener('scroll', apply);
-      if (panelRef.current) panelRef.current.style.height = '';
-    };
-  }, [isOpen]);
 
   // Greeting when opened
   useEffect(() => {
@@ -109,25 +90,13 @@ export function AfriShopChatbotWidget() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, sending]);
 
-  // Lock background scroll while chat is open; also keep iOS pinned so the keyboard
-  // does not push the chat panel out of the viewport.
+  // Lock background scroll while chat is open.
   useEffect(() => {
     if (!isOpen) return;
     const prevOverflow = document.body.style.overflow;
-    const prevPosition = document.body.style.position;
-    const prevTop = document.body.style.top;
-    const prevWidth = document.body.style.width;
-    const scrollY = window.scrollY;
     document.body.style.overflow = 'hidden';
-    document.body.style.position = 'fixed';
-    document.body.style.top = `-${scrollY}px`;
-    document.body.style.width = '100%';
     return () => {
       document.body.style.overflow = prevOverflow;
-      document.body.style.position = prevPosition;
-      document.body.style.top = prevTop;
-      document.body.style.width = prevWidth;
-      window.scrollTo(0, scrollY);
     };
   }, [isOpen]);
 

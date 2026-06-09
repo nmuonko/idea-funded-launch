@@ -146,7 +146,7 @@ function cleanProductName(raw: string, lang: "fr" | "en"): string {
   // Remove trailing seller bits after dashes/commas
   t = t.replace(/\s*[-–—,]\s*$/g, "");
   // Collapse whitespace and stray punctuation
-  t = t.replace(/[•|]+/g, " ").replace(/\s{2,}/g, " ").replace(/\s+,/g, ",").trim();
+  t = t.replace(/[•|]+/g, " ").replace(/,\s*,+/g, ",").replace(/\s{2,}/g, " ").replace(/\s+,/g, ",").trim();
   // Trim trailing commas / dashes / ellipses-leading punctuation
   t = t.replace(/[,;:\-–—]+$/g, "").trim();
   t = t.replace(/^[,;:\-–—]+/g, "").trim();

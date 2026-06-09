@@ -65,7 +65,7 @@ Modèle:
 - Dès le paiement confirmé, AfriShop lance la commande USA → RDC.
 - Délai de livraison: 2 à 4 semaines selon la ville et le moment de l'achat, la plupart arrivent en 10 jours ouvrés (ne JAMAIS donner de date exacte).
 - Prix affichés en USD; total aussi affiché en CDF au checkout.
-- Paiement: 100% en ligne avant expédition, OU plan 30% maintenant + 70% à la livraison avant retrait (selon éligibilité). NE JAMAIS dire "pas de paiement à la livraison".
+- Paiement: 100% en ligne avant expédition, OU plan 30% maintenant + 70% à la livraison avant retrait — disponible pour TOUS les clients, sans condition. NE JAMAIS dire "pas de paiement à la livraison" ni "selon éligibilité".
 - Produits interdits: livres, contenu numérique, abonnements, articles adultes/NSFW.
 - Parrainage: 10% commission via mobile money après seuil de 5 USD.
 - Véhicules: marges variables. Si données précises manquantes, escalader.
@@ -178,10 +178,53 @@ Deno.serve(async (req) => {
 
     const { faqRows, kbaRows } = await fetchKb(supabase, lang === "en" ? "en" : "fr");
 
+    // Product price lookup: if user mentions a product, search the catalog.
+    let catalogMatches: { title: string; price_usd: number | null; product_url: string | null }[] = [];
+    try {
+      // Extract meaningful keywords (drop common words & price/question words)
+      const stop = new Set(["the","a","an","is","of","for","and","or","to","in","on","with","price","cost","prix","combien","quel","quelle","est","le","la","les","un","une","de","du","des","pour","ça","ca","coute","coûte","much","how","what","tell","me","please","svp","stp","s'il","plait","plaît"]);
+      const tokens = message.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, " ").split(/\s+/).filter(w => w.length > 2 && !stop.has(w));
+      if (tokens.length > 0) {
+        const searchTerm = tokens.slice(0, 6).join(" ");
+        const { data } = await supabase
+          .from("catalog_items")
+          .select("title,price_usd,product_url")
+          .eq("is_active", true)
+          .not("price_usd", "is", null)
+          .textSearch("search_text", tokens.join(" | "), { type: "websearch", config: "simple" })
+          .order("popularity_score", { ascending: false, nullsFirst: false })
+          .limit(5);
+        if (data && data.length > 0) {
+          catalogMatches = data as any;
+        } else {
+          // Fallback: ilike on title with the longest token
+          const longest = tokens.sort((a, b) => b.length - a.length)[0];
+          const { data: data2 } = await supabase
+            .from("catalog_items")
+            .select("title,price_usd,product_url")
+            .eq("is_active", true)
+            .not("price_usd", "is", null)
+            .ilike("title", `%${longest}%`)
+            .order("popularity_score", { ascending: false, nullsFirst: false })
+            .limit(5);
+          if (data2) catalogMatches = data2 as any;
+        }
+      }
+    } catch (e) {
+      console.warn("catalog lookup failed", e);
+    }
+
+    const catalogBlock = catalogMatches.length
+      ? catalogMatches.map((p, i) => `[PRODUIT ${i + 1}] ${p.title} — ${p.price_usd} USD${p.product_url ? ` — ${p.product_url}` : ""}`).join("\n")
+      : "(aucun produit correspondant trouvé dans le catalogue)";
+
     const systemPrompt = `${BUSINESS_CONTEXT_FR}
 
 Base de connaissances (UNIQUE source autorisée pour les faits — utilise-la, ne devine PAS):
 ${buildKbBlock(faqRows, kbaRows)}
+
+Catalogue AfriShop (produits réels, prix tout-inclus en USD — utilise ces prix si le client demande un prix):
+${catalogBlock}
 
 Contexte produit:
 ${buildProductBlock(product)}
@@ -223,9 +266,17 @@ Règles d'escalade — needs_escalation=true si:
 - RAG ne contient pas la réponse
 - question hors AfriShop (OFF_TOPIC)
 
+💰 PRIX PRODUIT (CRITIQUE):
+- Si le client demande le prix d'un produit ET qu'un produit correspondant apparaît dans "Catalogue AfriShop", DONNE le prix exact en USD depuis le catalogue (tout inclus).
+- Format court FR: "Le {produit} est à {X} USD chez nous (tout inclus). [Voir le produit]({lien})"
+- Format court EN: "The {product} is {X} USD with us (all included). [View]({link})"
+- Si plusieurs correspondances, propose les 2-3 plus pertinentes en bullets.
+- Si AUCUNE correspondance dans le catalogue, dis simplement: FR "Je n'ai pas ce modèle dans notre catalogue actuel. Voulez-vous que je vous oriente vers des produits similaires disponibles ?" / EN equivalent. NE JAMAIS demander au client de coller un lien Amazon/Alibaba.
+
 NE JAMAIS:
-- inventer prix, dates, suivi, douane, prix véhicule final
+- inventer des prix qui ne sont pas dans le catalogue ou le contexte produit
 - mentionner MaishaPay/MyShopPay/PayPal/Flutterwave
+- demander au client de coller un lien externe (Amazon, Alibaba, etc.)
 - donner conseil légal, financier, médical, ou d'immigration
 - afficher la confidence au client
 

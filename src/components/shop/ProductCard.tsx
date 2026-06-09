@@ -9,6 +9,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { collectProductImageCandidates, handleImageLoad, handleImageError, pickBestImage } from '@/lib/imageValidation';
+import { cleanProductText } from '@/lib/cleanProductText';
 
 export interface Product {
   id: string;

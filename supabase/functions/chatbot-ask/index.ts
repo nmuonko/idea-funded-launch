@@ -55,7 +55,7 @@ AfriShop (American Goodwill SARL, RDC) aide les clients en RDC à acheter des pr
 Modèle:
 - Le client parcourt les produits, clique sur "Payer", saisit ses infos (nom, email, adresse), choisit Mobile Money (PawaPay) ou carte bancaire (Stripe), puis confirme le paiement.
 - Dès le paiement confirmé, AfriShop lance la commande USA → RDC.
-- Délai de livraison typique: 10 à 17 jours selon la ville (ne JAMAIS donner de date exacte).
+- Délai de livraison: 2 à 4 semaines selon la ville de livraison et le moment de l'achat, mais la plupart arrivent dans les 10 jours ouvrés (ne JAMAIS donner de date exacte).
 - Prix affichés en USD; total également affiché en CDF au checkout.
 - Paiement en 1 fois OU plan acompte 30% / solde 70% à l'arrivée (selon éligibilité).
 - Produits interdits: livres, contenu numérique, abonnements, articles adultes/NSFW.

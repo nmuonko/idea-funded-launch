@@ -1133,7 +1133,7 @@ export default function ProductDetailsPage() {
               {product.description && (
                 <div className="pt-6 border-t border-white/10">
                   <h3 className="text-lg font-semibold text-white mb-3">Description</h3>
-                  <p className="text-white/70 whitespace-pre-line break-words">{product.description}</p>
+                  <p className="text-white/70 whitespace-pre-line break-words">{cleanProductText(product.description)}</p>
                 </div>
               )}
 

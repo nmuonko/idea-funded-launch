@@ -213,6 +213,7 @@ export function AfriShopChatbotWidget() {
         </button>
       )}
 
+      {typeof document !== 'undefined' && createPortal(
       <AnimatePresence>
         {isOpen && (
           <>
@@ -358,7 +359,9 @@ export function AfriShopChatbotWidget() {
             </motion.div>
           </>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body
+      )}
     </>
   );
 }

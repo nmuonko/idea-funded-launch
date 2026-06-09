@@ -275,16 +275,15 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     const classification = parsed.classification || {};
     const sentiment = String(classification.sentiment || "").toLowerCase();
 
-    // Hard guardrails on top of AI decision
+    // Hard guardrails on top of AI decision — only escalate when we truly need a human.
+    // Off-topic and low-confidence are handled with a polite redirect/clarification, not escalation.
     let needsEscalation =
       !!parsed.needs_escalation ||
-      confidence < 0.70 ||
+      confidence < 0.45 ||
       sentiment === "angry" ||
       classification.intent === "HUMAN_REQUESTED" ||
       classification.intent === "PAYMENT_FAILED" ||
-      classification.category === "RETURNS_REFUNDS" ||
-      classification.category === "COMPLAINT" ||
-      classification.category === "OFF_TOPIC";
+      classification.category === "RETURNS_REFUNDS";
 
     let escalationReason = parsed.escalation_reason || "";
     if (needsEscalation && !escalationReason) {

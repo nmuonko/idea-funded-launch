@@ -9,12 +9,25 @@ import sophieProfile from '@/assets/sophie-profile.jpg';
 import { getWhatsAppUrl, SUPPORT_WHATSAPP_DISPLAY } from '@/lib/supportConfig';
 import { cn } from '@/lib/utils';
 
+interface ProductCard {
+  title: string;
+  price_usd: number | null;
+  image_url?: string | null;
+  images?: string[];
+  capacity?: string | null;
+  color?: string | null;
+  condition?: string | null;
+  product_url: string | null;
+  cta_label?: string;
+}
+
 interface ChatMsg {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   ts: number;
   escalate?: boolean;
+  product_card?: ProductCard | null;
 }
 
 const QUICK_REPLIES = [
@@ -208,6 +221,7 @@ export function AfriShopChatbotWidget() {
       if (data?.conversation_id && !conversationId) setConversationId(data.conversation_id);
       const answer = data?.answer || "Je préfère vous mettre en contact avec notre équipe afin de vous donner une réponse exacte.";
       const escalate = !!data?.needs_escalation;
+      const product_card: ProductCard | null = data?.product_card ?? null;
 
       // Human-like typing delay: 1–2s short, 2–3s longer
       const isLong = answer.length > 140;
@@ -218,7 +232,7 @@ export function AfriShopChatbotWidget() {
       const wait = Math.max(0, targetDelay - elapsed);
       await new Promise(r => setTimeout(r, wait));
 
-      setMessages(m => [...m, { id: crypto.randomUUID(), role: 'assistant', content: answer, ts: Date.now(), escalate }]);
+      setMessages(m => [...m, { id: crypto.randomUUID(), role: 'assistant', content: answer, ts: Date.now(), escalate, product_card }]);
     } catch (e) {
       const elapsed = Date.now() - startedAt;
       await new Promise(r => setTimeout(r, Math.max(0, 1200 - elapsed)));
@@ -306,6 +320,59 @@ export function AfriShopChatbotWidget() {
                     )}
                   >
                     <div>{renderMessageContent(m.content)}</div>
+                    {m.role === 'assistant' && m.product_card && (
+                      <div className="mt-2 rounded-xl overflow-hidden bg-gradient-to-br from-[#0b3b2e] to-[#0e5a44] border border-[#25D366]/30 shadow-lg">
+                        {m.product_card.image_url && (
+                          <div className="bg-white flex items-center justify-center p-2">
+                            <img
+                              src={m.product_card.image_url}
+                              alt={m.product_card.title}
+                              className="max-h-44 w-auto object-contain"
+                            />
+                          </div>
+                        )}
+                        <div className="p-3 space-y-2">
+                          <div className="text-sm font-semibold text-white leading-snug">
+                            {m.product_card.title}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 text-[11px]">
+                            {m.product_card.capacity && (
+                              <span className="px-2 py-0.5 rounded-full bg-white/10 text-white/90 border border-white/10">
+                                {m.product_card.capacity}
+                              </span>
+                            )}
+                            {m.product_card.color && (
+                              <span className="px-2 py-0.5 rounded-full bg-white/10 text-white/90 border border-white/10">
+                                {m.product_card.color}
+                              </span>
+                            )}
+                            {m.product_card.condition && (
+                              <span className="px-2 py-0.5 rounded-full bg-white/10 text-white/90 border border-white/10">
+                                {m.product_card.condition}
+                              </span>
+                            )}
+                            <span className="px-2 py-0.5 rounded-full bg-white/10 text-white/80 border border-white/10">
+                              Livraison RDC incluse
+                            </span>
+                          </div>
+                          {m.product_card.price_usd != null && (
+                            <div className="text-lg font-bold text-white">
+                              {Number(m.product_card.price_usd).toLocaleString('en-US', { maximumFractionDigits: 2 })} USD
+                            </div>
+                          )}
+                          {m.product_card.product_url && (
+                            <a
+                              href={m.product_card.product_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-1 w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30"
+                            >
+                              {m.product_card.cta_label || 'Commander maintenant'} →
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     <div className={cn('text-[10px] mt-0.5 flex items-center gap-0.5 justify-end', m.role === 'user' ? 'text-white/60' : 'text-white/40')}>
                       <span>{formatTime(m.ts)}</span>
                       {m.role === 'user' && <CheckCheck className="w-3 h-3" />}

@@ -113,8 +113,34 @@ type CatalogMatch = {
   condition: string;        // "Neuf" | "Renewed" | "Refurbished" | "Used"
   price_usd: number | null;
   product_url: string | null;
+  image_url?: string | null;
+  images?: string[];
+  capacity?: string | null;
+  color?: string | null;
   source?: string;
 };
+
+const COLOR_TOKENS = [
+  "black","white","silver","gold","graphite","midnight","starlight","blue","red","green","purple","pink","yellow","orange","gray","grey","titanium","natural","desert","cosmic","space","sierra","alpine","pacific","deep","rose","jet","coral","mint","lavender","cream",
+];
+function extractCapacity(title: string): string | null {
+  if (!title) return null;
+  const m = title.match(/\b(\d{1,4})\s?(GB|TB)\b/i);
+  if (!m) return null;
+  return `${m[1]} ${m[2].toUpperCase()}`;
+}
+function extractColor(title: string): string | null {
+  if (!title) return null;
+  const t = title.toLowerCase();
+  // Try multi-word colors first
+  const multi = t.match(/\b(cosmic\s+orange|desert\s+titanium|natural\s+titanium|deep\s+purple|midnight\s+black|alpine\s+green|pacific\s+blue|sierra\s+blue|rose\s+gold|jet\s+black|space\s+gray|space\s+grey|starlight|graphite|midnight|titanium)\b/);
+  if (multi) return multi[1].replace(/\b\w/g, c => c.toUpperCase());
+  for (const c of COLOR_TOKENS) {
+    const re = new RegExp(`\\b${c}\\b`, "i");
+    if (re.test(t)) return c.charAt(0).toUpperCase() + c.slice(1);
+  }
+  return null;
+}
 
 function normalizeProductQuery(text: string) {
   return text.toLowerCase()
@@ -207,11 +233,9 @@ const CONDITION_TAGLINE_EN: Record<string, string> = {
   "Used": "Used",
 };
 
-function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en", opts?: { wantsNew?: boolean }): string {
+function pickBestMatch(matches: CatalogMatch[], opts?: { wantsNew?: boolean }): CatalogMatch | null {
   let useful = matches.filter(p => p.price_usd != null);
-  if (!useful.length) return "";
-
-  // If the customer asked for "neuf / sealed / brand new", prefer New items.
+  if (!useful.length) return null;
   if (opts?.wantsNew) {
     const newOnly = useful.filter(p => {
       const c = (p.condition || "").toLowerCase();
@@ -219,44 +243,18 @@ function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en", opts?: { 
     });
     if (newOnly.length > 0) useful = newOnly;
   }
-
-  useful = useful.slice(0, 3);
-  const sorted = [...useful].sort((a, b) => (a.price_usd! - b.price_usd!));
-  const taglineMap = lang === "en" ? CONDITION_TAGLINE_EN : CONDITION_TAGLINE_FR;
-  const ctaLabel = lang === "en" ? "Order now" : "Commander maintenant";
-  const shippingLine = lang === "en" ? "Delivery to DRC included" : "Livraison RDC incluse";
-
-  const blockFor = (p: CatalogMatch) => {
-    const price = `${Number(p.price_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD`;
-    const name = p.display_name || cleanProductName(p.title, lang);
-    const cond = taglineMap[p.condition] || p.condition;
-    const cta = p.product_url ? `[${ctaLabel}](${p.product_url})` : ctaLabel;
-    const condLower = cond.toLowerCase();
-    const hideCond = condLower.includes("renewed") || condLower.includes("refurbished") || condLower.includes("reconditionné") || condLower.includes("garantie");
-    const statusLine = hideCond ? shippingLine : `${cond} · ${shippingLine}`;
-    return `${name} — ${price}\n${statusLine}\n${cta}`;
-  };
-
-  const recommended = sorted.length >= 2 ? sorted[Math.floor(sorted.length / 2)] : sorted[0];
-  const recName = recommended.display_name || cleanProductName(recommended.title, lang);
-
-  if (lang === "en") {
-    return [
-      `Yes 👌 We have options for you.`,
-      ``,
-      ...sorted.map(blockFor).map(b => b + "\n"),
-      `I'd recommend ${recName} for the best balance.`,
-      `Which one would you like to order?`,
-    ].join("\n");
-  }
-  return [
-    `Oui 👌 Nous avons des options pour vous.`,
-    ``,
-    ...sorted.map(blockFor).map(b => b + "\n"),
-    `Je vous recommande ${recName} pour le meilleur équilibre.`,
-    `Lequel souhaitez-vous commander ?`,
-  ].join("\n");
+  // matches already sorted by relevance score upstream; take the best.
+  return useful[0];
 }
+
+function formatPriceAnswer(match: CatalogMatch, lang: "fr" | "en"): string {
+  const name = match.display_name || cleanProductName(match.title, lang);
+  if (lang === "en") {
+    return `Yes 👌 here's the best match for you:\n\n${name}\n\nTap “Order now” below to checkout securely.`;
+  }
+  return `Oui 👌 voici la meilleure option pour vous :\n\n${name}\n\nCliquez sur « Commander maintenant » ci-dessous pour passer commande en toute sécurité.`;
+}
+
 
 function buildInternalProductUrl(
   baseUrl: string,
@@ -370,7 +368,7 @@ Deno.serve(async (req) => {
 
       const catalogQuery = () => supabase
         .from("catalog_items")
-        .select("id,provider,provider_product_id,title,price_usd,condition")
+        .select("id,provider,provider_product_id,title,price_usd,condition,image_url,images")
         .eq("is_active", true)
         .not("price_usd", "is", null)
         .order("popularity_score", { ascending: false, nullsFirst: false })
@@ -378,7 +376,7 @@ Deno.serve(async (req) => {
 
       const hotProductsQuery = () => supabase
         .from("hot_products_showcase")
-        .select("id,title,total_price_usd,price_usd")
+        .select("id,title,total_price_usd,price_usd,image_url,gallery_images")
         .eq("is_active", true)
         .not("total_price_usd", "is", null)
         .order("sort_order", { ascending: true, nullsFirst: false })
@@ -392,17 +390,24 @@ Deno.serve(async (req) => {
           if (!r.title || price == null) continue;
           const internalUrl = buildInternalProductUrl(baseUrl, source, r);
           if (!catalogMatches.some(m => m.title === r.title && m.product_url === internalUrl)) {
+            const imgs: string[] = Array.isArray(r.gallery_images) ? r.gallery_images
+              : Array.isArray(r.images) ? r.images : [];
             catalogMatches.push({
               title: r.title,
               display_name: cleanProductName(r.title, lang),
               condition: r.condition && String(r.condition).trim() ? String(r.condition).trim() : detectCondition(r.title, lang),
               price_usd: Number(price),
               product_url: internalUrl,
+              image_url: r.image_url || imgs[0] || null,
+              images: imgs,
+              capacity: extractCapacity(r.title),
+              color: extractColor(r.title),
               source,
             });
           }
         }
       };
+
 
       if (tokens.length > 0) {
         // 1) Exact all-token title match in hot products first (these are visible storefront products).
@@ -614,11 +619,27 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     const priceQuestionRe = /(combien|combine|prix|co[uû]te|cout|cost|price|how\s+much)/i;
     const productIntentRe = /(disponible|avez[- ]vous|avez vous|j['e]?\s*(?:ai\s+besoin|cherche|voudrais|veux|voulais)|besoin\s+d|je cherche|cherche|recherche|achat|acheter|commander|order|buy|need|looking\s+for|want|tout\s+neuf|en\s+carton|carton\s+scell|scell[ée]|sealed|brand\s+new|new\s+in\s+box|neuf)/i;
     const wantsNew = /\b(tout\s+neuf|neuf|neuve|carton\s+scell|scell[ée]e?s?|sealed|brand\s+new|new\s+in\s+box|nib)\b/i.test(message);
+    let productCard: any = null;
     if (catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message))) {
-      answer = formatPriceAnswer(catalogMatches, lang, { wantsNew });
-      needsEscalation = false;
-      escalationReason = "";
+      const best = pickBestMatch(catalogMatches, { wantsNew });
+      if (best) {
+        answer = formatPriceAnswer(best, lang);
+        productCard = {
+          title: best.display_name || cleanProductName(best.title, lang),
+          price_usd: best.price_usd,
+          image_url: best.image_url || null,
+          images: best.images || [],
+          capacity: best.capacity || null,
+          color: best.color || null,
+          condition: best.condition || null,
+          product_url: best.product_url,
+          cta_label: lang === "en" ? "Order now" : "Commander maintenant",
+        };
+        needsEscalation = false;
+        escalationReason = "";
+      }
     }
+
 
     // DETERMINISTIC payment-link override: if user asks how to pay and we have a product link,
     // always return the payment link directly (don't rely on the model to remember).
@@ -735,6 +756,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       },
       needs_escalation: needsEscalation,
       escalation_reason: needsEscalation ? escalationReason : null,
+      product_card: needsEscalation ? null : productCard,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     console.error(e);

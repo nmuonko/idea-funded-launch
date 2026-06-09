@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, X, Send, Loader2, Check, CheckCheck, ArrowLeft } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -97,6 +98,28 @@ export function AfriShopChatbotWidget() {
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen]);
+
+  // On mobile, hide the shop page behind the chat so iOS keyboard translucency never shows products.
+  useEffect(() => {
+    if (!isOpen) return;
+    const isDesktop = window.matchMedia('(min-width: 640px)').matches;
+    if (isDesktop) return;
+
+    const root = document.getElementById('root');
+    const prevRootVisibility = root?.style.visibility ?? '';
+    const prevBodyBackground = document.body.style.backgroundColor;
+    const prevHtmlBackground = document.documentElement.style.backgroundColor;
+
+    if (root) root.style.visibility = 'hidden';
+    document.body.style.backgroundColor = '#0b141a';
+    document.documentElement.style.backgroundColor = '#0b141a';
+
+    return () => {
+      if (root) root.style.visibility = prevRootVisibility;
+      document.body.style.backgroundColor = prevBodyBackground;
+      document.documentElement.style.backgroundColor = prevHtmlBackground;
     };
   }, [isOpen]);
 

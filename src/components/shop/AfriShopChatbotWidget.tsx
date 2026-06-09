@@ -107,13 +107,13 @@ export function AfriShopChatbotWidget() {
     if (!vv) return;
     const isDesktop = window.matchMedia('(min-width: 640px)').matches;
     if (isDesktop) return;
+    const panel = panelRef.current;
 
     const apply = () => {
-      const el = panelRef.current;
-      if (!el) return;
-      el.style.height = `${vv.height}px`;
-      el.style.top = `${vv.offsetTop}px`;
-      el.style.bottom = 'auto';
+      if (!panel) return;
+      panel.style.height = `${vv.height}px`;
+      panel.style.top = `${vv.offsetTop}px`;
+      panel.style.bottom = 'auto';
       // Keep latest message in view when keyboard opens
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
     };
@@ -123,8 +123,7 @@ export function AfriShopChatbotWidget() {
     return () => {
       vv.removeEventListener('resize', apply);
       vv.removeEventListener('scroll', apply);
-      const el = panelRef.current;
-      if (el) { el.style.height = ''; el.style.top = ''; el.style.bottom = ''; }
+      if (panel) { panel.style.height = ''; panel.style.top = ''; panel.style.bottom = ''; }
     };
   }, [isOpen]);
 
@@ -193,15 +192,24 @@ export function AfriShopChatbotWidget() {
 
       <AnimatePresence>
         {isOpen && (
-          <motion.div
-            ref={panelRef}
-            initial={{ opacity: 0, y: 24, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 24, scale: 0.96 }}
-            transition={{ duration: 0.18 }}
-            className="fixed inset-0 sm:inset-auto sm:right-4 sm:bottom-4 z-[70] h-[100dvh] max-h-[100dvh] sm:h-[600px] sm:max-h-[85vh] sm:w-[380px] flex flex-col bg-[#0b141a] sm:rounded-2xl shadow-2xl overflow-hidden border border-white/5"
-            style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
-          >
+          <>
+            <motion.div
+              aria-hidden="true"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.12 }}
+              className="fixed inset-0 z-[69] bg-[#0b141a] sm:hidden"
+            />
+            <motion.div
+              ref={panelRef}
+              initial={{ opacity: 0, y: 24, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 24, scale: 0.96 }}
+              transition={{ duration: 0.18 }}
+              className="fixed inset-0 sm:inset-auto sm:right-4 sm:bottom-4 z-[70] h-[100dvh] max-h-[100dvh] sm:h-[600px] sm:max-h-[85vh] sm:w-[380px] flex flex-col bg-[#0b141a] sm:rounded-2xl shadow-2xl overflow-hidden border border-white/5"
+              style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+            >
             {/* Header — WhatsApp green, app-page style on mobile */}
             <div className="flex items-center gap-2 px-2 sm:px-3 py-2.5 bg-[#075E54] text-white">
               <button onClick={close} aria-label="Retour" className="sm:hidden p-2 -ml-1 rounded-full hover:bg-white/10">
@@ -324,7 +332,8 @@ export function AfriShopChatbotWidget() {
               </button>
             </form>
             <div className="hidden sm:block text-[10px] text-center text-white/30 py-1 bg-[#1f2c33]">AfriShop AI · escalade humaine: {SUPPORT_WHATSAPP_DISPLAY}</div>
-          </motion.div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </>

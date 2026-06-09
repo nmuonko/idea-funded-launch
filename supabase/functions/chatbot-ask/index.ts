@@ -113,8 +113,34 @@ type CatalogMatch = {
   condition: string;        // "Neuf" | "Renewed" | "Refurbished" | "Used"
   price_usd: number | null;
   product_url: string | null;
+  image_url?: string | null;
+  images?: string[];
+  capacity?: string | null;
+  color?: string | null;
   source?: string;
 };
+
+const COLOR_TOKENS = [
+  "black","white","silver","gold","graphite","midnight","starlight","blue","red","green","purple","pink","yellow","orange","gray","grey","titanium","natural","desert","cosmic","space","sierra","alpine","pacific","deep","rose","jet","coral","mint","lavender","cream",
+];
+function extractCapacity(title: string): string | null {
+  if (!title) return null;
+  const m = title.match(/\b(\d{2,4})\s?(GB|TB)\b/i);
+  if (!m) return null;
+  return `${m[1]} ${m[2].toUpperCase()}`;
+}
+function extractColor(title: string): string | null {
+  if (!title) return null;
+  const t = title.toLowerCase();
+  // Try multi-word colors first
+  const multi = t.match(/\b(cosmic\s+orange|desert\s+titanium|natural\s+titanium|deep\s+purple|midnight\s+black|alpine\s+green|pacific\s+blue|sierra\s+blue|rose\s+gold|jet\s+black|space\s+gray|space\s+grey|starlight|graphite|midnight|titanium)\b/);
+  if (multi) return multi[1].replace(/\b\w/g, c => c.toUpperCase());
+  for (const c of COLOR_TOKENS) {
+    const re = new RegExp(`\\b${c}\\b`, "i");
+    if (re.test(t)) return c.charAt(0).toUpperCase() + c.slice(1);
+  }
+  return null;
+}
 
 function normalizeProductQuery(text: string) {
   return text.toLowerCase()

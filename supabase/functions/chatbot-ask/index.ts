@@ -249,10 +249,14 @@ function pickBestMatch(matches: CatalogMatch[], opts?: { wantsNew?: boolean }): 
 
 function formatPriceAnswer(match: CatalogMatch, lang: "fr" | "en"): string {
   const name = match.display_name || cleanProductName(match.title, lang);
+  const price = match.price_usd != null ? `${Number(match.price_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD` : "";
+  const url = match.product_url;
   if (lang === "en") {
-    return `Yes 👌 here's the best match for you:\n\n${name}\n\nTap “Order now” below to checkout securely.`;
+    const cta = url ? `\n\n[Order now](${url})` : `\n\nTap "Order now" below to checkout securely.`;
+    return `Yes 👌 here's the best match for you:\n\n${name}${price ? ` — ${price}` : ""}\nFree delivery to DRC included${cta}`;
   }
-  return `Oui 👌 voici la meilleure option pour vous :\n\n${name}\n\nCliquez sur « Commander maintenant » ci-dessous pour passer commande en toute sécurité.`;
+  const cta = url ? `\n\n[Commander maintenant](${url})` : `\n\nCliquez sur « Commander maintenant » ci-dessous pour passer commande en toute sécurité.`;
+  return `Oui 👌 voici la meilleure option pour vous :\n\n${name}${price ? ` — ${price}` : ""}\nLivraison RDC incluse${cta}`;
 }
 
 

@@ -181,33 +181,46 @@ Deno.serve(async (req) => {
     // Product price lookup: if user mentions a product, search the catalog.
     let catalogMatches: { title: string; price_usd: number | null; product_url: string | null }[] = [];
     try {
-      // Extract meaningful keywords (drop common words & price/question words)
-      const stop = new Set(["the","a","an","is","of","for","and","or","to","in","on","with","price","cost","prix","combien","quel","quelle","est","le","la","les","un","une","de","du","des","pour","ça","ca","coute","coûte","much","how","what","tell","me","please","svp","stp","s'il","plait","plaît"]);
-      const tokens = message.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, " ").split(/\s+/).filter(w => w.length > 2 && !stop.has(w));
+      // Normalize common typos / phonetic spellings before tokenizing
+      const normalized = message.toLowerCase()
+        .replace(/\buniphone\b/g, "iphone")
+        .replace(/\bayphone\b/g, "iphone")
+        .replace(/\bayfone\b/g, "iphone")
+        .replace(/\bifone\b/g, "iphone")
+        .replace(/\bi-phone\b/g, "iphone")
+        .replace(/\bsamsoung\b/g, "samsung")
+        .replace(/\bgooglepixel\b/g, "google pixel");
+
+      const stop = new Set(["the","a","an","is","of","for","and","or","to","in","on","with","price","cost","prix","combien","quel","quelle","est","le","la","les","un","une","de","du","des","pour","ça","ca","coute","coûte","cout","much","how","what","tell","me","please","svp","stp","s'il","plait","plaît","combine"]);
+      const tokens = normalized.replace(/[^\p{L}\p{N}\s-]/gu, " ").split(/\s+/).filter(w => w.length > 2 && !stop.has(w));
+
+      const baseQuery = () => supabase
+        .from("catalog_items")
+        .select("title,price_usd,product_url")
+        .eq("is_active", true)
+        .not("price_usd", "is", null)
+        .order("popularity_score", { ascending: false, nullsFirst: false })
+        .limit(5);
+
       if (tokens.length > 0) {
-        const searchTerm = tokens.slice(0, 6).join(" ");
-        const { data } = await supabase
-          .from("catalog_items")
-          .select("title,price_usd,product_url")
-          .eq("is_active", true)
-          .not("price_usd", "is", null)
-          .textSearch("search_text", tokens.join(" | "), { type: "websearch", config: "simple" })
-          .order("popularity_score", { ascending: false, nullsFirst: false })
-          .limit(5);
-        if (data && data.length > 0) {
-          catalogMatches = data as any;
-        } else {
-          // Fallback: ilike on title with the longest token
-          const longest = tokens.sort((a, b) => b.length - a.length)[0];
-          const { data: data2 } = await supabase
-            .from("catalog_items")
-            .select("title,price_usd,product_url")
-            .eq("is_active", true)
-            .not("price_usd", "is", null)
-            .ilike("title", `%${longest}%`)
-            .order("popularity_score", { ascending: false, nullsFirst: false })
-            .limit(5);
-          if (data2) catalogMatches = data2 as any;
+        // 1) Full-text search
+        const { data } = await baseQuery()
+          .textSearch("search_text", tokens.join(" | "), { type: "websearch", config: "simple" });
+        if (data && data.length > 0) catalogMatches = data as any;
+
+        // 2) Fallback: ilike on title with the longest token
+        if (catalogMatches.length === 0) {
+          const longest = [...tokens].sort((a, b) => b.length - a.length)[0];
+          const { data: data2 } = await baseQuery().ilike("title", `%${longest}%`);
+          if (data2 && data2.length > 0) catalogMatches = data2 as any;
+        }
+
+        // 3) Last resort: try each remaining token via ilike until something matches
+        if (catalogMatches.length === 0) {
+          for (const t of tokens) {
+            const { data: d3 } = await baseQuery().ilike("title", `%${t}%`);
+            if (d3 && d3.length > 0) { catalogMatches = d3 as any; break; }
+          }
         }
       }
     } catch (e) {

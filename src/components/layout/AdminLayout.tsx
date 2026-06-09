@@ -121,13 +121,26 @@ export function AdminLayout() {
     setOpenSections(prev => ({ ...prev, [title]: !prev[title] }));
   };
 
+  // Hub groupings: any of these paths activates the hub sidebar entry
+  const HUB_PATHS: Record<string, string[]> = {
+    '/admin/payments': ['/admin/payments', '/admin/abandoned-checkouts', '/admin/payments-settings', '/admin/finance'],
+    '/admin/support-inbox': ['/admin/support-inbox', '/admin/support-contact', '/admin/chat-routing', '/admin/chatbot-conversations', '/admin/support'],
+    '/admin/hot-products': ['/admin/hot-products', '/admin/reels', '/admin/international-products', '/admin/telegram-import', '/admin/bundle-links', '/admin/dubai-uploads', '/admin/referrals', '/admin/marketing'],
+    '/admin/analytics': ['/admin/analytics', '/admin/activity-insights', '/admin/demand-insights', '/admin/ab-tests', '/admin/insights'],
+    '/admin/home-recipes': ['/admin/home-recipes', '/admin/price-review', '/admin/catalog-sources', '/admin/catalog-cache', '/admin/auto-learning', '/admin/health', '/admin/audit-log', '/admin/system'],
+  };
+
+  const isItemActive = (to: string, exact: boolean) => {
+    const paths = HUB_PATHS[to];
+    if (paths) return paths.some(p => location.pathname === p || location.pathname.startsWith(p + '/'));
+    return exact ? location.pathname === to : location.pathname.startsWith(to);
+  };
+
   // Check if any item in a section is active
   const isSectionActive = (items: typeof filteredSections[0]['items']) => {
     return items.some(item => {
       const itemExact = 'exact' in item ? item.exact : false;
-      return itemExact 
-        ? location.pathname === item.to
-        : location.pathname.startsWith(item.to);
+      return isItemActive(item.to, !!itemExact);
     });
   };
 

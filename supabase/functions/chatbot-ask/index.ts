@@ -165,8 +165,8 @@ function cleanProductName(raw: string, lang: "fr" | "en"): string {
   t = t.replace(/\s*-\s*(?:Cell Phones|Electronics|Computers).*$/i, "");
   // Remove parenthetical noise: "(Unlocked)", "(Renewed)", "(US Version)", etc.
   t = t.replace(/\s*\([^)]*\)/g, " ");
-  // Remove seller / version / region tags
-  t = t.replace(/\b(US Version|International Version|Factory Unlocked|GSM Unlocked|Unlocked|SIM Free|Dual SIM|Single SIM|eSIM|Brand New|Sealed|Open Box|Renewed|Refurbished|Pre-?Owned|Used|For (?:T-Mobile|AT&T|Verizon|Sprint|Cricket|Metro)|Locked to [^,]+|Smartphone|Android Cell Phone|Cell Phone)\b/gi, " ");
+  // Remove seller / version / region tags — plus reconditionné / garantie fragments
+  t = t.replace(/\b(US Version|International Version|Factory Unlocked|GSM Unlocked|Unlocked|SIM Free|Dual SIM|Single SIM|eSIM|Brand New|Sealed|Open Box|Renewed|Refurbished|Pre-?Owned|Used|For (?:T-Mobile|AT&T|Verizon|Sprint|Cricket|Metro)|Locked to [^,]+|Smartphone|Android Cell Phone|Cell Phone|reconditionn[ée](?:\s*par\s*le\s*vendeur)?|garantie)\b/gi, " ");
   // Remove ampersand-tail noise like "Camera & …"
   t = t.replace(/\s*[,&]\s*(?:8K\s+Camera|Camera|Charger|Cable|Box|Accessories?).*$/i, "");
   // Remove trailing seller bits after dashes/commas

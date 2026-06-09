@@ -553,10 +553,12 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     // Scrub forbidden payment terms from any AI output
     answer = scrubPaymentTerms(answer);
 
-    // DETERMINISTIC product-price override: if the catalogue has a match, answer with the price.
-    // This avoids needless WhatsApp escalation for visible products like hot products.
+    // DETERMINISTIC product-catalog override: whenever we found matching products in the
+    // AfriShop catalog AND the user is clearly asking about / requesting one, answer with
+    // the curated catalog response — no escalation, no Amazon/eBay leakage.
     const priceQuestionRe = /(combien|combine|prix|co[uû]te|cout|cost|price|how\s+much)/i;
-    if (catalogMatches.length > 0 && priceQuestionRe.test(message)) {
+    const productIntentRe = /(disponible|avez[- ]vous|avez vous|j['e]?\s*(?:ai\s+besoin|cherche|voudrais|veux|voulais)|besoin\s+d|je cherche|cherche|recherche|achat|acheter|commander|order|buy|need|looking\s+for|want|tout\s+neuf|en\s+carton|carton\s+scell|scell[ée]|sealed|brand\s+new|new\s+in\s+box|neuf)/i;
+    if (catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message))) {
       answer = formatPriceAnswer(catalogMatches, lang);
       needsEscalation = false;
       escalationReason = "";

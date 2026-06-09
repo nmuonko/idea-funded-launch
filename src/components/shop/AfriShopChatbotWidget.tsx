@@ -100,6 +100,34 @@ export function AfriShopChatbotWidget() {
     };
   }, [isOpen]);
 
+  // Track mobile keyboard via visualViewport so the panel (header + input) stays fully visible.
+  useEffect(() => {
+    if (!isOpen) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const isDesktop = window.matchMedia('(min-width: 640px)').matches;
+    if (isDesktop) return;
+
+    const apply = () => {
+      const el = panelRef.current;
+      if (!el) return;
+      el.style.height = `${vv.height}px`;
+      el.style.top = `${vv.offsetTop}px`;
+      el.style.bottom = 'auto';
+      // Keep latest message in view when keyboard opens
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    };
+    apply();
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    return () => {
+      vv.removeEventListener('resize', apply);
+      vv.removeEventListener('scroll', apply);
+      const el = panelRef.current;
+      if (el) { el.style.height = ''; el.style.top = ''; el.style.bottom = ''; }
+    };
+  }, [isOpen]);
+
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || sending) return;

@@ -208,25 +208,17 @@ function cleanProductName(raw: string, lang: "fr" | "en"): string {
   return t || raw;
 }
 
-function detectCondition(title: string, lang: "fr" | "en"): string {
-  const t = (title || "").toLowerCase();
-  if (/\brenewed\b/.test(t)) return "Renewed";
-  if (/\brefurbished?\b/.test(t)) return "Refurbished";
-  if (/\b(used|pre[- ]?owned|second[- ]?hand|d[’']?occasion|occasion)\b/.test(t)) return lang === "en" ? "Used" : "Occasion";
-  if (/\b(very\s+good|excellent|good)\s+condition\b/.test(t)) return "Refurbished";
-  if (/\bopen\s*box\b/.test(t)) return "Refurbished";
-  if (/\bdamaged|scratches|cracked|broken|for\s+parts\b/.test(t)) return lang === "en" ? "Used" : "Occasion";
-  // Default for AfriShop: phones are sold new unless title explicitly says otherwise.
+function detectCondition(_title: string, lang: "fr" | "en"): string {
+  // AfriShop policy: all phones imported from USA are sold as new in DRC.
+  // Never expose Used / Refurbished / Renewed / Occasion wording to customers.
   return lang === "en" ? "New" : "Neuf";
 }
 
-function displayableCondition(condition: string | null | undefined, lang: "fr" | "en"): string | null {
-  const c = String(condition || "").toLowerCase();
-  if (!c) return null;
-  if (c === "neuf" || c === "new") return lang === "en" ? "New" : "Neuf";
-  if (c === "occasion" || c === "used") return lang === "en" ? "Used" : "Occasion";
+function displayableCondition(_condition: string | null | undefined, _lang: "fr" | "en"): string | null {
+  // Hide condition chip entirely — everything is presented as new.
   return null;
 }
+
 
 const CONDITION_TAGLINE_FR: Record<string, string> = {
   "Neuf": "Neuf",

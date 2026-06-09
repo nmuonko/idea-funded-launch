@@ -288,13 +288,6 @@ Deno.serve(async (req) => {
     } catch (e) {
       console.warn("catalog lookup failed", e);
     }
-            if (d3 && d3.length > 0) { catalogMatches = d3 as any; break; }
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("catalog lookup failed", e);
-    }
 
     const catalogBlock = catalogMatches.length
       ? catalogMatches.map((p, i) => `[PRODUIT ${i + 1}] ${p.title} — ${p.price_usd} USD${p.product_url ? ` — ${p.product_url}` : ""}`).join("\n")
@@ -435,6 +428,15 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
 
     // Scrub forbidden payment terms from any AI output
     answer = scrubPaymentTerms(answer);
+
+    // DETERMINISTIC product-price override: if the catalogue has a match, answer with the price.
+    // This avoids needless WhatsApp escalation for visible products like hot products.
+    const priceQuestionRe = /(combien|combine|prix|co[uû]te|cout|cost|price|how\s+much)/i;
+    if (catalogMatches.length > 0 && priceQuestionRe.test(message)) {
+      answer = formatPriceAnswer(catalogMatches, lang);
+      needsEscalation = false;
+      escalationReason = "";
+    }
 
     // DETERMINISTIC payment-link override: if user asks how to pay and we have a product link,
     // always return the payment link directly (don't rely on the model to remember).

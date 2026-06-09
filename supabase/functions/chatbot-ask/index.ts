@@ -57,7 +57,7 @@ Modèle:
 - Dès le paiement confirmé, AfriShop lance la commande USA → RDC.
 - Délai de livraison: 2 à 4 semaines selon la ville de livraison et le moment de l'achat, mais la plupart arrivent dans les 10 jours ouvrés (ne JAMAIS donner de date exacte).
 - Prix affichés en USD; total également affiché en CDF au checkout.
-- Paiement en 1 fois OU plan acompte 30% / solde 70% à l'arrivée (selon éligibilité).
+- Paiement: 1) 100% en ligne avant expédition (Stripe carte ou PawaPay Mobile Money), OU 2) plan acompte 30% maintenant et 70% à la livraison avant le retrait (selon éligibilité). NE JAMAIS dire "pas de paiement à la livraison" — le plan 30/70 existe.
 - Produits interdits: livres, contenu numérique, abonnements, articles adultes/NSFW.
 - Statuts commande: DRAFT, PENDING_PAYMENT, PAID, PROCESSING, SHIPPED, COMPLETED.
 - Programme parrainage: 10% commission via mobile money après seuil de 5 USD.
@@ -320,6 +320,49 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       needsEscalation = false;
       escalationReason = "";
     }
+
+    // DETERMINISTIC order-status override: look up the user's most recent order from the backend.
+    const orderStatusRe = /(statut.*commande|suivi.*commande|où.*commande|ma\s+commande|order\s+status|track.*order|where.*order|my\s+order)/i;
+    if (orderStatusRe.test(message) || classification.category === "ORDER_STATUS" || classification.intent === "TRACK_ORDER") {
+      if (userId) {
+        try {
+          const { data: orders } = await supabase
+            .from("orders")
+            .select("id,order_number,status,created_at,total_usd")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false })
+            .limit(1);
+          const o = orders?.[0];
+          if (o) {
+            const statusLabels: Record<string, string> = {
+              DRAFT: "Brouillon", PENDING_PAYMENT: "Paiement en attente", PAID: "Payée",
+              PROCESSING: "En préparation", SHIPPED: "Expédiée", COMPLETED: "Livrée",
+              CANCELLED: "Annulée", REFUNDED: "Remboursée",
+            };
+            const label = statusLabels[o.status] || o.status;
+            const ref = o.order_number || o.id?.slice(0, 8);
+            answer = lang === "en"
+              ? `Your latest order #${ref} is: ${o.status}. You'll receive email/WhatsApp updates as it progresses.`
+              : `Votre dernière commande #${ref} : ${label}. Vous recevrez des notifications par email/WhatsApp à chaque étape.`;
+          } else {
+            answer = lang === "en"
+              ? "I don't see any order on your account yet. Once you place one, we'll send email/WhatsApp updates at each step."
+              : "Je ne vois aucune commande sur votre compte pour l'instant. Dès que vous passerez commande, vous recevrez des notifications par email/WhatsApp à chaque étape.";
+          }
+        } catch {
+          answer = lang === "en"
+            ? "We'll send email/WhatsApp updates as your order progresses."
+            : "Vous recevrez des notifications par email/WhatsApp concernant l'avancement de votre commande.";
+        }
+      } else {
+        answer = lang === "en"
+          ? "Sign in to see your order status. We also send email/WhatsApp updates at each step."
+          : "Connectez-vous pour voir le statut de votre commande. Vous recevrez aussi des notifications par email/WhatsApp à chaque étape.";
+      }
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
 
     if (needsEscalation || !answer) {
       answer = fallbackAnswer;

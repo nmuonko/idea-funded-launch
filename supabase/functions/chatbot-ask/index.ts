@@ -414,7 +414,7 @@ Deno.serve(async (req) => {
     }
 
     const catalogBlock = catalogMatches.length
-      ? catalogMatches.map((p, i) => `[PRODUIT ${i + 1}] ${p.title} — ${p.price_usd} USD${p.product_url ? ` — ${p.product_url}` : ""}`).join("\n")
+      ? catalogMatches.map((p, i) => `[PRODUIT ${i + 1}] ${p.display_name} — ${p.price_usd} USD — état: ${p.condition}${p.product_url ? ` — ${p.product_url}` : ""}`).join("\n")
       : "(aucun produit correspondant trouvé dans le catalogue)";
 
     const systemPrompt = `${BUSINESS_CONTEXT_FR}

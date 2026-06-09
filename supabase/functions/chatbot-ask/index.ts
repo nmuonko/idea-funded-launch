@@ -125,7 +125,33 @@ function normalizeProductQuery(text: string) {
     .replace(/\bifone\b/g, "iphone")
     .replace(/\bi-phone\b/g, "iphone")
     .replace(/\bsamsoung\b/g, "samsung")
-    .replace(/\bgooglepixel\b/g, "google pixel");
+    .replace(/\bgooglepixel\b/g, "google pixel")
+    // Split glued model variants: "14pro", "14promax", "15promax", "14ProMax"
+    .replace(/(\d{1,2})\s*pro\s*max\b/g, "$1 pro max")
+    .replace(/(\d{1,2})\s*promax\b/g, "$1 pro max")
+    .replace(/(\d{1,2})\s*pro\b/g, "$1 pro")
+    .replace(/(\d{1,2})\s*plus\b/g, "$1 plus")
+    .replace(/(\d{1,2})\s*mini\b/g, "$1 mini")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+// Phone accessory / spare-part filter — must NEVER be returned when user asks for a phone.
+const PHONE_ACCESSORY_RE = /\b(accessor(?:y|ies)|case|cover|sleeve|skin|pouch|wallet|holster|screen\s*protector|tempered\s*glass|protector|charging\s*port|dock|mic\s*flex|flex\s*cable|replacement|spare\s*parts?|battery\s*replacement|battery\s*pack|camera\s*lens(?:\s*replacement)?|lcd|digitizer|cable|cord|charger|adapter|repair|housing|back\s*glass|back\s*cover|motherboard|logic\s*board|holder|mount|magsafe|strap|stand|tripod|earbuds?\s*case|grip|popsocket|car\s*mount|sim\s*tray|button|speaker\s*replacement|frame|bezel|oem\s+part)\b/i;
+
+// Phone brand / family tokens used to detect a phone request.
+const PHONE_BRAND_TOKENS = ["iphone","galaxy","pixel","motorola","moto","oneplus","xiaomi","redmi","huawei","oppo","vivo","nokia","sony\u00a0xperia","xperia"];
+
+function isPhoneRequest(normalizedMessage: string, tokens: string[]): boolean {
+  if (tokens.some(t => PHONE_BRAND_TOKENS.includes(t))) return true;
+  return /\b(smartphone|t[ée]l[ée]phone|phone)\b/i.test(normalizedMessage);
+}
+
+function isPhoneTitle(title: string): boolean {
+  if (!title) return false;
+  if (PHONE_ACCESSORY_RE.test(title)) return false;
+  // Must look like a phone (brand + model OR explicit "smartphone")
+  return /\b(iphone|galaxy\s*(?:s|note|z|a|m)?\d|pixel\s*\d|moto(?:rola)?\s+\w|oneplus\s*\d|redmi|xiaomi|huawei|oppo|vivo|smartphone)\b/i.test(title);
 }
 
 // Strip noisy supplier-style fragments and shorten Amazon/eBay titles into a
@@ -161,6 +187,9 @@ function detectCondition(title: string, lang: "fr" | "en"): string {
   if (/\brenewed\b/.test(t)) return "Renewed";
   if (/\brefurbished?\b/.test(t)) return "Refurbished";
   if (/\b(used|pre[- ]?owned|second[- ]?hand)\b/.test(t)) return lang === "en" ? "Used" : "Occasion";
+  if (/\b(very\s+good|excellent|good)\s+condition\b/.test(t)) return "Refurbished";
+  if (/\bopen\s*box\b/.test(t)) return "Refurbished";
+  if (/\bdamaged|scratches|cracked|broken|for\s+parts\b/.test(t)) return lang === "en" ? "Used" : "Occasion";
   // Default for AfriShop: phones are sold new unless title explicitly says otherwise.
   return lang === "en" ? "New" : "Neuf";
 }
@@ -178,48 +207,50 @@ const CONDITION_TAGLINE_EN: Record<string, string> = {
   "Used": "Used",
 };
 
-function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en"): string {
-  const useful = matches.filter(p => p.price_usd != null).slice(0, 3);
+function formatPriceAnswer(matches: CatalogMatch[], lang: "fr" | "en", opts?: { wantsNew?: boolean }): string {
+  let useful = matches.filter(p => p.price_usd != null);
   if (!useful.length) return "";
 
-  // Sort by price ascending so the "économique" → "premium" narrative flows naturally.
+  // If the customer asked for "neuf / sealed / brand new", prefer New items.
+  if (opts?.wantsNew) {
+    const newOnly = useful.filter(p => {
+      const c = (p.condition || "").toLowerCase();
+      return c === "neuf" || c === "new";
+    });
+    if (newOnly.length > 0) useful = newOnly;
+  }
+
+  useful = useful.slice(0, 3);
   const sorted = [...useful].sort((a, b) => (a.price_usd! - b.price_usd!));
-
   const taglineMap = lang === "en" ? CONDITION_TAGLINE_EN : CONDITION_TAGLINE_FR;
+  const ctaLabel = lang === "en" ? "Order now" : "Commander maintenant";
+  const shippingLine = lang === "en" ? "Delivery to DRC included" : "Livraison RDC incluse";
 
-  const lineFor = (p: CatalogMatch) => {
+  const blockFor = (p: CatalogMatch) => {
     const price = `${Number(p.price_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD`;
     const name = p.display_name || cleanProductName(p.title, lang);
-    const linked = p.product_url ? `[${name} — ${price}](${p.product_url})` : `${name} — ${price}`;
     const cond = taglineMap[p.condition] || p.condition;
-    return `• ${linked}\n  ${cond}`;
+    const cta = p.product_url ? `[${ctaLabel}](${p.product_url})` : ctaLabel;
+    return `${name} — ${price}\n${cond} · ${shippingLine}\n${cta}`;
   };
 
-  // Pick a "best balance" recommendation: prefer the middle option when 3 exist,
-  // otherwise the cheapest in-stock one.
-  const recommended = sorted.length >= 3 ? sorted[1] : sorted[0];
+  const recommended = sorted.length >= 2 ? sorted[Math.floor(sorted.length / 2)] : sorted[0];
   const recName = recommended.display_name || cleanProductName(recommended.title, lang);
-  const recPrice = `${Number(recommended.price_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD`;
 
   if (lang === "en") {
     return [
-      `Yes 👌 We have a few options for you.`,
+      `Yes 👌 We have options for you.`,
       ``,
-      `Top picks:`,
-      ...sorted.map(lineFor),
-      ``,
-      `I'd recommend **${recName}** at ${recPrice} for the best value.`,
+      ...sorted.map(blockFor).map(b => b + "\n"),
+      `I'd recommend ${recName} for the best balance.`,
       `Which one would you like to order?`,
     ].join("\n");
   }
-
   return [
-    `Oui 👌 Nous avons plusieurs options pour vous.`,
+    `Oui 👌 Nous avons des options pour vous.`,
     ``,
-    `Voici les meilleurs choix :`,
-    ...sorted.map(lineFor),
-    ``,
-    `Je vous recommande **${recName}** à ${recPrice} pour le meilleur rapport qualité-prix.`,
+    ...sorted.map(blockFor).map(b => b + "\n"),
+    `Je vous recommande ${recName} pour le meilleur équilibre.`,
     `Lequel souhaitez-vous commander ?`,
   ].join("\n");
 }
@@ -340,7 +371,7 @@ Deno.serve(async (req) => {
         .eq("is_active", true)
         .not("price_usd", "is", null)
         .order("popularity_score", { ascending: false, nullsFirst: false })
-        .limit(5);
+        .limit(40);
 
       const hotProductsQuery = () => supabase
         .from("hot_products_showcase")
@@ -348,7 +379,7 @@ Deno.serve(async (req) => {
         .eq("is_active", true)
         .not("total_price_usd", "is", null)
         .order("sort_order", { ascending: true, nullsFirst: false })
-        .limit(5);
+        .limit(20);
 
       const baseUrl = (req.headers.get("origin") || Deno.env.get("FRONTEND_BASE_URL") || "https://afrishop-usa.com").trim();
 
@@ -409,10 +440,13 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Prefer true phone/tablet/computer products over accessories when the user asks a device price.
-        if (mustHave.length > 0) {
-          const accessoryRe = /\b(case|cover|screen protector|protector|charger|cable|cord|holder|mount|holster|magsafe|adapter|wallet|strap)\b/i;
-          const deviceMatches = catalogMatches.filter(p => !accessoryRe.test(p.title));
+        // Phone request: STRICT — drop every accessory/spare-part listing.
+        const phoneRequest = isPhoneRequest(normalized, tokens);
+        if (phoneRequest) {
+          catalogMatches = catalogMatches.filter(p => isPhoneTitle(p.title));
+        } else if (mustHave.length > 0) {
+          // Generic device request: still prefer non-accessories.
+          const deviceMatches = catalogMatches.filter(p => !PHONE_ACCESSORY_RE.test(p.title));
           if (deviceMatches.length > 0) catalogMatches = deviceMatches;
         }
 
@@ -576,8 +610,9 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     // the curated catalog response — no escalation, no Amazon/eBay leakage.
     const priceQuestionRe = /(combien|combine|prix|co[uû]te|cout|cost|price|how\s+much)/i;
     const productIntentRe = /(disponible|avez[- ]vous|avez vous|j['e]?\s*(?:ai\s+besoin|cherche|voudrais|veux|voulais)|besoin\s+d|je cherche|cherche|recherche|achat|acheter|commander|order|buy|need|looking\s+for|want|tout\s+neuf|en\s+carton|carton\s+scell|scell[ée]|sealed|brand\s+new|new\s+in\s+box|neuf)/i;
+    const wantsNew = /\b(tout\s+neuf|neuf|neuve|carton\s+scell|scell[ée]e?s?|sealed|brand\s+new|new\s+in\s+box|nib)\b/i.test(message);
     if (catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message))) {
-      answer = formatPriceAnswer(catalogMatches, lang);
+      answer = formatPriceAnswer(catalogMatches, lang, { wantsNew });
       needsEscalation = false;
       escalationReason = "";
     }
@@ -653,7 +688,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     }
 
     // Strip any leaked confidence mentions
-    answer = answer.replace(/confidence[^.]*\./gi, "").trim();
+    answer = answer.replace(/confidence[^.]*\./gi, "").replace(/\*\*/g, "").trim();
 
     // Persist business-safe metadata only
     const safeClassification = {

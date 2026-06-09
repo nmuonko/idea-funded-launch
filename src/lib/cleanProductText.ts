@@ -22,7 +22,7 @@ export function cleanProductText(text: string): string {
 
   // Collapse leftover double spaces, stray punctuation clusters
   t = t.replace(/\s{2,}/g, " ");
-  t = t.replace(/\s*[,;:\-–—]+\s*/g, " ");
+  t = t.replace(/\s*[,;:\-–—·]+\s*/g, " ");
   t = t.replace(/\s{2,}/g, " ");
   return t.trim();
 }

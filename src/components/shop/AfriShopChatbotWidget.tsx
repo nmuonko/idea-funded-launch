@@ -56,16 +56,29 @@ function renderMessageContent(text: string) {
     }
     const label = m[1];
     const href = m[2] || m[3];
+    const isCommanderCta = label && /commander|order\s*now|payer|buy\s*now/i.test(label);
     nodes.push(
-      <a
-        key={key++}
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline text-[#53bdeb] break-all font-medium"
-      >
-        {label || href}
-      </a>
+      isCommanderCta ? (
+        <a
+          key={key++}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="my-2 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline w-full"
+        >
+          {label} →
+        </a>
+      ) : (
+        <a
+          key={key++}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline text-[#53bdeb] break-all font-medium"
+        >
+          {label || href}
+        </a>
+      )
     );
     lastIndex = m.index + m[0].length;
   }

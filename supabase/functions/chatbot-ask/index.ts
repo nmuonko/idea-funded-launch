@@ -437,10 +437,13 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Prefer true phone/tablet/computer products over accessories when the user asks a device price.
-        if (mustHave.length > 0) {
-          const accessoryRe = /\b(case|cover|screen protector|protector|charger|cable|cord|holder|mount|holster|magsafe|adapter|wallet|strap)\b/i;
-          const deviceMatches = catalogMatches.filter(p => !accessoryRe.test(p.title));
+        // Phone request: STRICT — drop every accessory/spare-part listing.
+        const phoneRequest = isPhoneRequest(normalized, tokens);
+        if (phoneRequest) {
+          catalogMatches = catalogMatches.filter(p => isPhoneTitle(p.title));
+        } else if (mustHave.length > 0) {
+          // Generic device request: still prefer non-accessories.
+          const deviceMatches = catalogMatches.filter(p => !PHONE_ACCESSORY_RE.test(p.title));
           if (deviceMatches.length > 0) catalogMatches = deviceMatches;
         }
 

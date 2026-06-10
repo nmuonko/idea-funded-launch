@@ -580,9 +580,21 @@ export default function Checkout() {
         throw new Error(data.message || data.error || 'Checkout failed');
       }
 
-      // Handle structured failure responses (success:false / ok:false with a code but no `error` field).
-      // The backend returns this for things like PRICE_DRIFT_DETECTED — without explicit handling
-      // the UI just spins because none of the success branches below match.
+      // Backend may silently re-quote any line whose source price drifted since
+      // the user last saw it. We never block — just inform the user that the
+      // price on screen was updated to match the live source price.
+      if (Array.isArray(data?.price_adjustments) && data.price_adjustments.length > 0) {
+        const n = data.price_adjustments.length;
+        toast({
+          title: isFr ? 'Prix mis à jour' : 'Prices updated',
+          description: isFr
+            ? `${n} article${n > 1 ? 's' : ''} a vu son prix ajusté au tarif actuel.`
+            : `${n} item${n > 1 ? 's' : ''} had ${n > 1 ? 'their prices' : 'its price'} adjusted to the current rate.`,
+        });
+      }
+
+      // Legacy structured-failure branch (kept as a safety net; drift is no
+      // longer returned as a failure now that we silently re-quote above).
       if (data && (data.success === false || data.ok === false) && !data.provider) {
         const code = data.code || 'CHECKOUT_FAILED';
         const msg = (isFr ? data.message_fr : data.message_en) || data.message || data.error ||
@@ -590,13 +602,6 @@ export default function Checkout() {
         console.warn('[WEB_CHECKOUT] Structured failure:', code, data);
         await logFunnel('checkout_failed', 'error', `${code}: ${msg}`);
         setCheckoutError(msg);
-        if (code === 'PRICE_DRIFT_DETECTED') {
-          toast({
-            title: isFr ? 'Prix mis à jour' : 'Prices updated',
-            description: msg,
-            variant: 'destructive',
-          });
-        }
         setLoading(false);
         return;
       }

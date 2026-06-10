@@ -343,47 +343,35 @@ export default function HotProducts() {
   return (
     <>
       <SEOHead title={t.pageTitle} description={t.pageDescription} />
-    <div
-      className="relative min-h-screen pb-safe-nav text-[#1C1208] overflow-hidden"
-      style={{
-        background:
-          'linear-gradient(135deg, #FFF7E8 0%, #F8E7C8 45%, #FFF3DD 100%)',
-      }}
-    >
-      {/* Soft radial glows for premium depth */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-        <div className="absolute -top-32 -left-32 w-[480px] h-[480px] rounded-full bg-orange-200/40 blur-3xl" />
-        <div className="absolute top-1/3 -right-40 w-[520px] h-[520px] rounded-full bg-amber-200/40 blur-3xl" />
-        <div className="absolute bottom-0 left-1/3 w-[420px] h-[420px] rounded-full bg-yellow-100/50 blur-3xl" />
-      </div>
-
+    <div className="relative min-h-screen pb-safe-nav text-neutral-900 bg-[#FAFAFA]">
       <div className="relative">
         <ShopHeader />
 
         <main className="pt-20 px-3 sm:px-4 pb-24">
           <div className="mx-auto max-w-6xl">
             {/* Breadcrumb */}
-            <nav className="flex items-center gap-2 text-sm text-[#5C4630] mb-4" aria-label="Breadcrumb">
+            <nav className="flex items-center gap-2 text-sm text-neutral-500 mb-4" aria-label="Breadcrumb">
               <button
                 type="button"
                 onClick={() => navigate('/')}
-                className="hover:text-[#1C1208] transition-colors"
+                className="hover:text-neutral-900 transition-colors"
               >
                 {t.home}
               </button>
-              <span className="text-[#C9A87A]">›</span>
-              <span className="text-[#1C1208] font-medium">{t.heroTitle}</span>
+              <span className="text-neutral-300">›</span>
+              <span className="text-neutral-900 font-medium">{t.heroTitle}</span>
             </nav>
 
-            {/* Clean light page header */}
-            <header className="mb-6">
+            {/* Clean page header */}
+            <header className="mb-6 pb-5 border-b border-neutral-200">
               <div className="min-w-0">
-                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-[#1C1208]">
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-neutral-900">
                   {t.heroTitle}
                 </h1>
-                <p className="text-[#5C4630] text-sm sm:text-base mt-2">{t.heroSubtitle}</p>
+                <p className="text-neutral-500 text-sm sm:text-base mt-2">{t.heroSubtitle}</p>
               </div>
             </header>
+
 
 
             {/* Filter / Sort Bar — light theme */}

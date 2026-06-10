@@ -53,7 +53,7 @@ const HP_STRINGS = {
     sortFeatured: 'Featured',
     sortPriceAsc: 'Price: low to high',
     sortPriceDesc: 'Price: high to low',
-    sectionTrending: '🔥 Trending now',
+    sectionTrending: 'Trending now',
     countItems: (n: number) => `${n} item${n === 1 ? '' : 's'}`,
     floatingHelp: 'Need help?',
 
@@ -88,7 +88,7 @@ const HP_STRINGS = {
     sortFeatured: 'En vedette',
     sortPriceAsc: 'Prix : croissant',
     sortPriceDesc: 'Prix : décroissant',
-    sectionTrending: '🔥 Produits en tendance',
+    sectionTrending: 'Produits en tendance',
     countItems: (n: number) => `${n} article${n === 1 ? '' : 's'}`,
     floatingHelp: 'Besoin d\'aide ?',
 
@@ -376,30 +376,15 @@ export default function HotProducts() {
             </nav>
 
             {/* Clean light page header */}
-            <header className="flex flex-wrap items-start justify-between gap-4 mb-6">
+            <header className="mb-6">
               <div className="min-w-0">
-                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-[#1C1208] flex items-center gap-3">
-                  <span aria-hidden="true">🔥</span>
-                  <span>{t.heroTitle}</span>
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-[#1C1208]">
+                  {t.heroTitle}
                 </h1>
                 <p className="text-[#5C4630] text-sm sm:text-base mt-2">{t.heroSubtitle}</p>
               </div>
-
-              {/* Trust card */}
-              <div className="flex items-center gap-3 rounded-2xl border border-[#E9D2B0] bg-white/70 backdrop-blur-sm px-4 py-3 shadow-sm">
-                <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
-                  <Sparkles className="w-5 h-5 text-emerald-600" aria-hidden="true" />
-                </div>
-                <div className="text-xs sm:text-sm">
-                  <p className="font-bold text-[#1C1208] leading-tight">
-                    {locale === 'fr' ? 'Livraison rapide en RDC' : 'Fast delivery to DRC'}
-                  </p>
-                  <p className="text-[#5C4630] leading-tight mt-0.5">
-                    {locale === 'fr' ? 'Paiement sécurisé · Garantie incluse' : 'Secure payment · Warranty included'}
-                  </p>
-                </div>
-              </div>
             </header>
+
 
             {/* Filter / Sort Bar — light theme */}
             {!loading && products.length > 0 && (

@@ -344,7 +344,7 @@ export default function HotProducts() {
     <>
       <SEOHead title={t.pageTitle} description={t.pageDescription} />
     <div
-      className="min-h-screen pb-safe-nav text-[#1C1208]"
+      className="relative min-h-screen pb-safe-nav text-[#1C1208] overflow-hidden"
       style={{
         background:
           'linear-gradient(135deg, #FFF7E8 0%, #F8E7C8 45%, #FFF3DD 100%)',

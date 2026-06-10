@@ -632,6 +632,8 @@ export default function HotProducts() {
         <ShopFooter />
         <BottomNavigation />
       </div>
+    </div>
     </>
+
   );
 }

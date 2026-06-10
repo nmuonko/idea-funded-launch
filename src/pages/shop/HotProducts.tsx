@@ -583,10 +583,10 @@ export default function HotProducts() {
               return (
                 <section>
                   <div className="mb-4 flex items-baseline justify-between gap-3">
-                    <h2 className="text-xl sm:text-2xl font-extrabold text-[#1C1208] tracking-tight">
+                    <h2 className="text-xl sm:text-2xl font-extrabold text-neutral-900 tracking-tight">
                       {t.sectionTrending}
                     </h2>
-                    <span className="text-[#5C4630] text-sm whitespace-nowrap">
+                    <span className="text-neutral-500 text-sm whitespace-nowrap">
                       {t.countItems(sorted.length)}
                     </span>
                   </div>

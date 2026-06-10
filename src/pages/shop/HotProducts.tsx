@@ -163,13 +163,6 @@ export default function HotProducts() {
   const [brandFilter, setBrandFilter] = useState<'all' | 'iphone' | 'samsung' | 'pixel'>('all');
   const [viewCounts, setViewCounts] = useState<Record<string, number>>({});
 
-  const BRAND_CHIPS: { key: 'all' | 'iphone' | 'samsung' | 'pixel'; label: string; logo: string | null; match: (t: string) => boolean }[] = [
-    { key: 'all', label: locale === 'fr' ? 'Tous' : 'All', logo: null, match: () => true },
-    { key: 'iphone', label: 'iPhone', logo: '', match: (t) => /iphone|apple/i.test(t) },
-    { key: 'samsung', label: 'Samsung', logo: '', match: (t) => /samsung|galaxy/i.test(t) },
-    { key: 'pixel', label: 'Google Pixel', logo: '', match: (t) => /pixel|google/i.test(t) },
-  ];
-
 
   const locale: HPLocale = (language === 'fr' || language === 'ln') ? 'fr' : 'en';
   const t = HP_STRINGS[locale];

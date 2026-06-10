@@ -344,7 +344,7 @@ export default function HotProducts() {
   return (
     <>
       <SEOHead title={t.pageTitle} description={t.pageDescription} />
-    <div className="min-h-screen bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,11%)] to-[hsl(230,40%,14%)] pb-safe-nav">
+    <div className="min-h-screen bg-[#fbf1de] pb-safe-nav">
       <ShopHeader />
 
       <main className="pt-20 px-3 sm:px-4 pb-24">

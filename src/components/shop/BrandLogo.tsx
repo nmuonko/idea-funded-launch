@@ -16,19 +16,32 @@ export const BrandLogo: React.FC<Props> = ({ brand, className = 'w-4 h-4' }) => 
     );
   }
   if (brand === 'pixel') {
+    // Google "G" multicolor
     return (
       <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
-        <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+        <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
         <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
         <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.93 11.93 0 0124 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
-        <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+        <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
       </svg>
     );
   }
-  // Samsung wordmark-style "S"
+  // Samsung — iconic blue ellipse with white SAMSUNG wordmark
   return (
-    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden="true">
-      <path d="M14.6 7.1c0-.6-.1-1.1-.2-1.4 0-.9-.7-1.6-1.6-1.6h-1.4c-.9 0-1.6.7-1.6 1.6v1.9c0 .9.5 1.4 1.2 1.7l2.5 1.1c.7.3 1.1.7 1.1 1.4v2c0 .9-.4 1.3-1.3 1.3-.8 0-1.3-.4-1.3-1.3v-1H9.5v1c0 1.8 1.4 2.8 3.5 2.8 2.1 0 3.5-1 3.5-2.8v-2.6c0-1.5-.9-2.2-1.9-2.6L12 7.4c-.5-.2-1.1-.4-1.1-1V5.1c0-.7.4-1.1 1.2-1.1.8 0 1.2.4 1.2 1.1V6h2.1V5c0 0-.3-1.9-3.3-1.9-2.1 0-3.3 1-3.3 2.7v2c0 1.4.8 2 1.7 2.4l2.5 1.1c.6.3 1 .5 1 1.2v1.7c0 .7-.3 1.1-1.2 1.1-.9 0-1.2-.5-1.2-1.2v-1.1H9.4v1c0 1.8 1.4 2.8 3.4 2.8z"/>
+    <svg viewBox="0 0 120 36" className={className} aria-hidden="true" preserveAspectRatio="xMidYMid meet">
+      <ellipse cx="60" cy="18" rx="58" ry="16" fill="#1428A0" />
+      <text
+        x="60"
+        y="23"
+        textAnchor="middle"
+        fontFamily="Arial, Helvetica, sans-serif"
+        fontWeight="700"
+        fontSize="14"
+        fill="#ffffff"
+        letterSpacing="1"
+      >
+        SAMSUNG
+      </text>
     </svg>
   );
 };

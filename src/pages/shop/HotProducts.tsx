@@ -547,7 +547,7 @@ export default function HotProducts() {
                           title={t.whatsapp}
                         >
                           <MessageCircle className="w-4 h-4 mr-1.5 shrink-0" aria-hidden="true" />
-                          <span className="truncate">{whatsapp || t.whatsapp}</span>
+                          <span className="truncate">WhatsApp</span>
                         </Button>
                       </div>
                     </div>

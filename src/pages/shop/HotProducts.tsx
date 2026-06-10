@@ -161,7 +161,7 @@ export default function HotProducts() {
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'featured' | 'price_asc' | 'price_desc'>('featured');
-  const [brandFilter, setBrandFilter] = useState<'all' | 'iphone' | 'samsung' | 'pixel'>('all');
+  const [brandFilter, setBrandFilter] = useState<'iphone' | 'samsung' | 'pixel'>('iphone');
   const [viewCounts, setViewCounts] = useState<Record<string, number>>({});
 
 

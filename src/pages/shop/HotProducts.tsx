@@ -527,7 +527,7 @@ export default function HotProducts() {
                       <div className="mt-auto grid grid-cols-1 gap-1.5 pt-2">
                         <Button
                           size="sm"
-                          className={`w-full h-8.5 min-w-0 text-xs font-bold rounded-lg bg-[#1C1208] hover:bg-[#2A1C10] text-white shadow-sm ${FOCUS_RING}`}
+                          className={`w-full h-9 min-w-0 text-xs font-bold rounded-lg bg-[#1C1208] hover:bg-[#2A1C10] text-white shadow-sm ${FOCUS_RING}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             trackClick(product, 'buy_now');

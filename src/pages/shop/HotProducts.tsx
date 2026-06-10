@@ -434,9 +434,11 @@ export default function HotProducts() {
 
           {!loading && (() => {
             const q = searchQuery.trim().toLowerCase();
-            const filtered = q
+            const activeBrand = BRAND_CHIPS.find(c => c.key === brandFilter) || BRAND_CHIPS[0];
+            let filtered = q
               ? products.filter(p => cleanProductTitle(p.title).toLowerCase().includes(q))
               : products;
+            filtered = filtered.filter(p => activeBrand.match(cleanProductTitle(p.title)));
 
             const trendingIds = new Set(products.slice(0, 5).map(p => p.id));
 

@@ -21,7 +21,10 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, OPTIONS',
 };
 
-const PUBLIC_ACTIONS = new Set(['register', 'login', 'confirm_all_users', 'create_referrer']);
+// SECURITY: confirm_all_users is NOT public — it bypasses email ownership
+// verification and is now gated by service-role / cron-secret inside the action.
+const PUBLIC_ACTIONS = new Set(['register', 'login', 'create_referrer']);
+const SERVICE_ONLY_ACTIONS = new Set(['confirm_all_users']);
 
 function jsonRes(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -779,8 +782,24 @@ serve(async (req) => {
       return jsonRes({ ok: false, error: `Unknown action "${action}". Supported: ${SUPPORTED_ACTIONS.join(', ')}` }, 400);
     }
 
-    // Auth gate for non-public actions
-    if (!PUBLIC_ACTIONS.has(action)) {
+    // Service-only actions: require service-role bearer or cron secret.
+    // These bypass user-level checks (e.g. bulk admin operations) and must
+    // never be callable by anonymous or regular authenticated users.
+    if (SERVICE_ONLY_ACTIONS.has(action)) {
+      const authHeader = req.headers.get('authorization') || '';
+      const bearer = authHeader.toLowerCase().startsWith('bearer ')
+        ? authHeader.slice(7)
+        : '';
+      const cronSecret = req.headers.get('x-cron-secret') || '';
+      const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+      const isService = bearer && serviceKey && bearer === serviceKey;
+      const isCron = cronSecret && cronSecret === 'afrishop-internal-cron-2026';
+      if (!isService && !isCron) {
+        console.warn(`[auth-service] UNAUTHORIZED service-only action attempt: ${action}`);
+        return jsonRes({ ok: false, error: 'Unauthorized' }, 401);
+      }
+    } else if (!PUBLIC_ACTIONS.has(action)) {
+      // Auth gate for normal authenticated actions
       const authResult = await getAuthUser(req);
       if (authResult instanceof Response) return authResult;
     }

@@ -44,10 +44,15 @@ export default function PaymentPending() {
           .single();
         
         if (order && !orderAmount) {
-          setOrderAmount({
-            usd: order.total_usd || (urlTotalUsd ? parseFloat(urlTotalUsd) : 0),
-            cdf: order.total_cdf || 0,
-          });
+          // For deposit plan, the amount being charged now is the URL total (30%),
+          // not the order's full total.
+          const usdNow = isDeposit && urlTotalUsd
+            ? parseFloat(urlTotalUsd)
+            : (order.total_usd || (urlTotalUsd ? parseFloat(urlTotalUsd) : 0));
+          const cdfNow = isDeposit
+            ? Math.round(usdNow * (exchangeRate || 0))
+            : (order.total_cdf || 0);
+          setOrderAmount({ usd: usdNow, cdf: cdfNow });
         }
         
         if (order?.status === 'PAID') {

@@ -266,10 +266,17 @@ export default function HotProducts() {
   }, []);
 
   const trackClick = (product: HotProduct, eventType: 'view' | 'click' | 'buy_now') => {
+    // Optimistically increment local view counter on any user-initiated click
+    if (eventType === 'click' || eventType === 'buy_now') {
+      const k = `${product.provider}:${product.provider_product_id}`;
+      setViewCounts((prev) => ({ ...prev, [k]: (prev[k] || 0) + 1 }));
+    }
+    // Persist as a 'view' for clicks so the aggregated count reflects engagement
+    const persistedType = eventType === 'click' ? 'view' : eventType;
     supabase.from('hot_product_clicks' as any).insert({
       provider_product_id: product.provider_product_id,
       provider: product.provider,
-      event_type: eventType,
+      event_type: persistedType,
       source: 'web',
       referrer_code: refCode || null,
       session_id: sessionStorage.getItem('hp_session') || (() => { const s = crypto.randomUUID(); sessionStorage.setItem('hp_session', s); return s; })(),

@@ -580,6 +580,27 @@ export default function Checkout() {
         throw new Error(data.message || data.error || 'Checkout failed');
       }
 
+      // Handle structured failure responses (success:false / ok:false with a code but no `error` field).
+      // The backend returns this for things like PRICE_DRIFT_DETECTED — without explicit handling
+      // the UI just spins because none of the success branches below match.
+      if (data && (data.success === false || data.ok === false) && !data.provider) {
+        const code = data.code || 'CHECKOUT_FAILED';
+        const msg = (isFr ? data.message_fr : data.message_en) || data.message || data.error ||
+          (isFr ? 'Le paiement n\'a pas pu être démarré. Veuillez réessayer.' : 'Payment could not be started. Please try again.');
+        console.warn('[WEB_CHECKOUT] Structured failure:', code, data);
+        await logFunnel('checkout_failed', 'error', `${code}: ${msg}`);
+        setCheckoutError(msg);
+        if (code === 'PRICE_DRIFT_DETECTED') {
+          toast({
+            title: isFr ? 'Prix mis à jour' : 'Prices updated',
+            description: msg,
+            variant: 'destructive',
+          });
+        }
+        setLoading(false);
+        return;
+      }
+
       // Check for inline provider error (provider was attempted but failed)
       if (data?.provider_error) {
         console.warn('[WEB_CHECKOUT] Inline provider failed, showing error', data.provider_error);

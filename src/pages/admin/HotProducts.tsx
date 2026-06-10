@@ -1255,9 +1255,20 @@ export default function HotProducts() {
                         />
                         <p className="text-[10px] text-muted-foreground">{p.provider} · {p.provider_product_id}</p>
                       </div>
-                      <Button variant="ghost" size="icon" className="shrink-0" onClick={() => removeProduct(p.id)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <div className="flex items-center gap-1.5" title={t('Show on Hot Products page', 'Afficher sur la page Produits Phares')}>
+                          <Switch
+                            checked={p.is_active !== false}
+                            onCheckedChange={(v) => toggleShowcaseActive(p.id, v)}
+                          />
+                          <span className="text-[10px] text-muted-foreground">
+                            {p.is_active !== false ? t('Visible', 'Visible') : t('Hidden', 'Masqué')}
+                          </span>
+                        </div>
+                        <Button variant="ghost" size="icon" onClick={() => removeProduct(p.id)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
 
                     {/* Editable price breakdown */}

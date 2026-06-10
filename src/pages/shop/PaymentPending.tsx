@@ -21,6 +21,8 @@ export default function PaymentPending() {
   const orderId = searchParams.get('order_id');
   const provider = searchParams.get('provider') || 'pawapay';
   const urlTotalUsd = searchParams.get('total_usd');
+  const plan = searchParams.get('plan'); // 'deposit' when paying 30% upfront
+  const isDeposit = plan === 'deposit';
   
   const [status, setStatus] = useState<'pending' | 'paid' | 'failed'>('pending');
   const [loading, setLoading] = useState(false);

@@ -5,6 +5,7 @@ import { Loader2, Flame, Zap, MessageCircle, Mail, Home, Search, TrendingUp, Spa
 import { motion, useReducedMotion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
+import { BrandLogo } from '@/components/shop/BrandLogo';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { Button } from '@/components/ui/button';
 import { ProductCardSkeleton } from '@/components/shop/ProductCardSkeleton';
@@ -266,10 +267,17 @@ export default function HotProducts() {
   }, []);
 
   const trackClick = (product: HotProduct, eventType: 'view' | 'click' | 'buy_now') => {
+    // Optimistically increment local view counter on any user-initiated click
+    if (eventType === 'click' || eventType === 'buy_now') {
+      const k = `${product.provider}:${product.provider_product_id}`;
+      setViewCounts((prev) => ({ ...prev, [k]: (prev[k] || 0) + 1 }));
+    }
+    // Persist as a 'view' for clicks so the aggregated count reflects engagement
+    const persistedType = eventType === 'click' ? 'view' : eventType;
     supabase.from('hot_product_clicks' as any).insert({
       provider_product_id: product.provider_product_id,
       provider: product.provider,
-      event_type: eventType,
+      event_type: persistedType,
       source: 'web',
       referrer_code: refCode || null,
       session_id: sessionStorage.getItem('hp_session') || (() => { const s = crypto.randomUUID(); sessionStorage.setItem('hp_session', s); return s; })(),
@@ -405,7 +413,15 @@ export default function HotProducts() {
                         }`}
                         aria-pressed={active}
                       >
-                        {chip.label}
+                        <span className="inline-flex items-center gap-2">
+                          {chip.key !== 'all' && (
+                            <BrandLogo
+                              brand={chip.key as 'iphone' | 'samsung' | 'pixel'}
+                              className={chip.key === 'samsung' ? 'h-4 w-auto' : 'w-4 h-4'}
+                            />
+                          )}
+                          <span>{chip.label}</span>
+                        </span>
                       </button>
                     );
                   })}
@@ -471,9 +487,6 @@ export default function HotProducts() {
                   className="relative flex flex-col bg-[#15181d] border border-white/[0.08] rounded-2xl overflow-hidden group hover:border-orange-500/40 transition-colors hover:shadow-[0_0_24px_rgba(249,115,22,0.15)] transform-gpu"
                 >
                   <div className="absolute top-2.5 left-2.5 z-10 flex flex-col gap-1 items-start">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-md">
-                      <Flame className="w-3 h-3" aria-hidden="true" /> {isDubai ? t.dubai : t.deal}
-                    </span>
                     {isTrending && !isDubai && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-pink-500 to-purple-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-md">
                         <TrendingUp className="w-3 h-3" aria-hidden="true" /> Top

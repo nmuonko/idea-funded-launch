@@ -146,7 +146,7 @@ const resolveProductImage = (product: HotProduct): string => {
 
 // Shared focus ring class for keyboard a11y on dark backgrounds
 const FOCUS_RING =
-  'focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#15181d]';
+  'focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E85D1F] focus-visible:ring-offset-2 focus-visible:ring-offset-white';
 
 export default function HotProducts() {
   const navigate = useNavigate();
@@ -343,47 +343,35 @@ export default function HotProducts() {
   return (
     <>
       <SEOHead title={t.pageTitle} description={t.pageDescription} />
-    <div
-      className="relative min-h-screen pb-safe-nav text-[#1C1208] overflow-hidden"
-      style={{
-        background:
-          'linear-gradient(135deg, #FFF7E8 0%, #F8E7C8 45%, #FFF3DD 100%)',
-      }}
-    >
-      {/* Soft radial glows for premium depth */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-        <div className="absolute -top-32 -left-32 w-[480px] h-[480px] rounded-full bg-orange-200/40 blur-3xl" />
-        <div className="absolute top-1/3 -right-40 w-[520px] h-[520px] rounded-full bg-amber-200/40 blur-3xl" />
-        <div className="absolute bottom-0 left-1/3 w-[420px] h-[420px] rounded-full bg-yellow-100/50 blur-3xl" />
-      </div>
-
+    <div className="relative min-h-screen pb-safe-nav text-neutral-900 bg-[#FAFAFA]">
       <div className="relative">
         <ShopHeader />
 
         <main className="pt-20 px-3 sm:px-4 pb-24">
           <div className="mx-auto max-w-6xl">
             {/* Breadcrumb */}
-            <nav className="flex items-center gap-2 text-sm text-[#5C4630] mb-4" aria-label="Breadcrumb">
+            <nav className="flex items-center gap-2 text-sm text-neutral-500 mb-4" aria-label="Breadcrumb">
               <button
                 type="button"
                 onClick={() => navigate('/')}
-                className="hover:text-[#1C1208] transition-colors"
+                className="hover:text-neutral-900 transition-colors"
               >
                 {t.home}
               </button>
-              <span className="text-[#C9A87A]">›</span>
-              <span className="text-[#1C1208] font-medium">{t.heroTitle}</span>
+              <span className="text-neutral-300">›</span>
+              <span className="text-neutral-900 font-medium">{t.heroTitle}</span>
             </nav>
 
-            {/* Clean light page header */}
-            <header className="mb-6">
+            {/* Clean page header */}
+            <header className="mb-6 pb-5 border-b border-neutral-200">
               <div className="min-w-0">
-                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-[#1C1208]">
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-neutral-900">
                   {t.heroTitle}
                 </h1>
-                <p className="text-[#5C4630] text-sm sm:text-base mt-2">{t.heroSubtitle}</p>
+                <p className="text-neutral-500 text-sm sm:text-base mt-2">{t.heroSubtitle}</p>
               </div>
             </header>
+
 
 
             {/* Filter / Sort Bar — light theme */}
@@ -399,8 +387,8 @@ export default function HotProducts() {
                         onClick={() => setBrandFilter(chip.key)}
                         className={`whitespace-nowrap h-11 px-5 rounded-full text-sm font-semibold border transition-all ${FOCUS_RING} ${
                           active
-                            ? 'bg-[#1C1208] text-white border-[#1C1208] shadow-md'
-                            : 'bg-white text-[#1C1208] border-[#E9D2B0] hover:border-[#1C1208]/40 hover:shadow-sm'
+                            ? 'bg-neutral-900 text-white border-neutral-900 shadow-sm'
+                            : 'bg-white text-neutral-900 border-neutral-200 hover:border-neutral-900/40 hover:shadow-sm'
                         }`}
                         aria-pressed={active}
                       >
@@ -418,7 +406,7 @@ export default function HotProducts() {
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
-                  className={`h-11 px-4 rounded-full bg-white border border-[#E9D2B0] text-[#1C1208] text-sm font-medium focus:border-[#1C1208]/40 ${FOCUS_RING}`}
+                  className={`h-11 px-4 rounded-full bg-white border border-neutral-200 text-neutral-900 text-sm font-medium focus:border-neutral-900/40 ${FOCUS_RING}`}
                   aria-label={t.sortLabel}
                 >
                   <option value="featured">{`${t.sortLabel} ${t.sortFeatured}`}</option>
@@ -468,11 +456,11 @@ export default function HotProducts() {
                     initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2, delay: prefersReducedMotion ? 0 : Math.min(index * 0.02, 0.2) }}
-                    className="relative flex flex-col bg-[#FFFDF8] border border-[#EADFC6] rounded-xl overflow-hidden group hover:border-[#C9A87A] transition-all hover:shadow-[0_8px_24px_-12px_rgba(120,80,30,0.22)] transform-gpu"
+                    className="relative flex flex-col bg-white border border-neutral-200/80 rounded-xl overflow-hidden group hover:border-neutral-300 transition-all hover:shadow-[0_10px_30px_-12px_rgba(0,0,0,0.15)] transform-gpu"
                   >
                     <button
                       type="button"
-                      className={`aspect-square bg-gradient-to-br from-white to-[#FAF3E4] overflow-hidden text-left ${FOCUS_RING}`}
+                      className={`aspect-square bg-white overflow-hidden text-left ${FOCUS_RING}`}
                       onClick={() => {
                         trackClick(product, 'click');
                         navigate(`/share/hp/${product.id}`);
@@ -482,7 +470,7 @@ export default function HotProducts() {
                       <img
                         src={productImage}
                         alt={cleanTitle}
-                        className="w-full h-full object-contain p-3 group-hover:scale-[1.05] transition-transform duration-300"
+                        className="w-full h-full object-contain p-4 group-hover:scale-[1.05] transition-transform duration-300"
                         loading="lazy"
                         onError={(e) => {
                           const img = e.currentTarget;
@@ -493,10 +481,10 @@ export default function HotProducts() {
                       />
                     </button>
 
-                    <div className="flex flex-col flex-1 p-3 gap-1.5">
+                    <div className="flex flex-col flex-1 p-3 gap-1.5 border-t border-neutral-100">
                       <button
                         type="button"
-                        className={`text-left text-[#1C1208] text-[13px] font-semibold leading-snug line-clamp-2 min-h-[2.25rem] hover:text-[#E86D1F] transition-colors rounded ${FOCUS_RING}`}
+                        className={`text-left text-neutral-900 text-[13px] font-semibold leading-snug line-clamp-2 min-h-[2.25rem] hover:text-[#E85D1F] transition-colors rounded ${FOCUS_RING}`}
                         onClick={() => {
                           trackClick(product, 'click');
                           navigate(`/share/hp/${product.id}`);
@@ -506,28 +494,28 @@ export default function HotProducts() {
                       </button>
 
                       <div className="flex items-baseline justify-between gap-2">
-                        <p className="text-[#1C1208] font-extrabold text-lg leading-none tracking-tight tabular-nums">
+                        <p className="text-neutral-900 font-extrabold text-lg leading-none tracking-tight tabular-nums">
                           {formatCurrency(product.total_price_usd, { locale: locale as any })}
                         </p>
                         {(() => {
                           const v = viewCounts[`${product.provider}:${product.provider_product_id}`] || 0;
                           const display = v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${v}`;
                           return (
-                            <span className="inline-flex items-center gap-0.5 text-[#8B6F4A] text-[10px] font-medium">
+                            <span className="inline-flex items-center gap-0.5 text-neutral-400 text-[10px] font-medium">
                               <Eye className="w-3 h-3" aria-hidden="true" />
                               {display}
                             </span>
                           );
                         })()}
                       </div>
-                      <p className="text-[#0C8A4A] text-[10px] font-medium flex items-center gap-1">
-                        <span aria-hidden="true">✓</span> {t.shippingIncluded}
+                      <p className="text-neutral-500 text-[10px] font-medium flex items-center gap-1">
+                        <span aria-hidden="true" className="text-[#0C8A4A]">✓</span> {t.shippingIncluded}
                       </p>
 
                       <div className="mt-auto grid grid-cols-1 gap-1.5 pt-2">
                         <Button
                           size="sm"
-                          className={`w-full h-9 min-w-0 text-xs font-bold rounded-lg bg-[#1C1208] hover:bg-[#2A1C10] text-white shadow-sm ${FOCUS_RING}`}
+                          className={`w-full h-9 min-w-0 text-xs font-bold rounded-lg bg-[#E85D1F] hover:bg-[#D14F14] text-white shadow-sm ${FOCUS_RING}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             trackClick(product, 'buy_now');
@@ -542,6 +530,7 @@ export default function HotProducts() {
                             <><Zap className="w-3.5 h-3.5 mr-1 shrink-0" aria-hidden="true" /> <span className="min-w-0 truncate">{isDubai ? t.orderNow : t.payNow}</span></>
                           )}
                         </Button>
+
 
                         <Button
                           size="sm"
@@ -572,8 +561,8 @@ export default function HotProducts() {
               if (filtered.length === 0 && products.length > 0) {
                 return (
                   <div className="text-center py-20">
-                    <Search className="w-12 h-12 text-[#C9A87A] mx-auto mb-4" aria-hidden="true" />
-                    <p className="text-[#5C4630] mb-3">{t.noResults}</p>
+                    <Search className="w-12 h-12 text-neutral-300 mx-auto mb-4" aria-hidden="true" />
+                    <p className="text-neutral-500 mb-3">{t.noResults}</p>
                   </div>
                 );
               }
@@ -581,8 +570,8 @@ export default function HotProducts() {
               if (products.length === 0) {
                 return (
                   <div className="text-center py-20">
-                    <Flame className="w-12 h-12 text-[#C9A87A] mx-auto mb-4" aria-hidden="true" />
-                    <p className="text-[#5C4630]">{t.empty}</p>
+                    <Flame className="w-12 h-12 text-neutral-300 mx-auto mb-4" aria-hidden="true" />
+                    <p className="text-neutral-500">{t.empty}</p>
                   </div>
                 );
               }
@@ -594,10 +583,10 @@ export default function HotProducts() {
               return (
                 <section>
                   <div className="mb-4 flex items-baseline justify-between gap-3">
-                    <h2 className="text-xl sm:text-2xl font-extrabold text-[#1C1208] tracking-tight">
+                    <h2 className="text-xl sm:text-2xl font-extrabold text-neutral-900 tracking-tight">
                       {t.sectionTrending}
                     </h2>
-                    <span className="text-[#5C4630] text-sm whitespace-nowrap">
+                    <span className="text-neutral-500 text-sm whitespace-nowrap">
                       {t.countItems(sorted.length)}
                     </span>
                   </div>

@@ -978,6 +978,23 @@ export default function HotProducts() {
     setShowcaseProducts(prev => prev.filter(p => p.id !== id));
   }
 
+  async function toggleShowcaseActive(id: string, next: boolean) {
+    // Optimistic update
+    setShowcaseProducts(prev => prev.map(p => p.id === id ? { ...p, is_active: next } : p));
+    if (id.startsWith('new-')) return; // not yet persisted
+    const { error } = await (supabase.from('hot_products_showcase') as any)
+      .update({ is_active: next })
+      .eq('id', id);
+    if (error) {
+      toast.error(t('Failed to update visibility', 'Échec de la mise à jour'));
+      setShowcaseProducts(prev => prev.map(p => p.id === id ? { ...p, is_active: !next } : p));
+      return;
+    }
+    toast.success(next
+      ? t('Visible on Hot Products', 'Visible sur Produits Phares')
+      : t('Hidden from Hot Products', 'Masqué des Produits Phares'));
+  }
+
   function updateField(id: string, field: keyof ShowcaseProduct, value: any) {
     setShowcaseProducts(prev => prev.map(p => {
       if (p.id !== id) return p;

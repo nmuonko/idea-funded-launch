@@ -545,8 +545,7 @@ export default function HotProducts() {
 
                         <Button
                           size="sm"
-                          variant="outline"
-                          className={`h-9 w-9 p-0 shrink-0 rounded-lg bg-white hover:bg-emerald-50 text-[#0C8A4A] border border-[#0C8A4A]/40 hover:border-[#0C8A4A] ${FOCUS_RING}`}
+                          className={`h-9 px-2.5 shrink-0 rounded-lg bg-[#25D366] hover:bg-[#1FB857] text-white font-bold text-xs shadow-[0_2px_8px_rgba(37,211,102,0.45)] ring-1 ring-[#0C8A4A]/30 ${FOCUS_RING}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             trackClick(product, 'click');
@@ -561,7 +560,8 @@ export default function HotProducts() {
                           }}
                           aria-label={`${t.whatsapp} — ${cleanTitle}`}
                         >
-                          <MessageCircle className="w-4 h-4" aria-hidden="true" />
+                          <MessageCircle className="w-4 h-4 mr-1" aria-hidden="true" />
+                          {t.whatsapp}
                         </Button>
                       </div>
                     </div>

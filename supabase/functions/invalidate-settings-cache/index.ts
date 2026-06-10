@@ -31,24 +31,60 @@ serve(async (req) => {
       return errorResponse('Admin access required', 403);
     }
 
-    // Invalidate the cache
+    // Invalidate in-memory caches (this instance only)
     invalidateSettingsCache();
     invalidateCatalogSettingsCache();
 
-    console.log('[invalidate-settings-cache] Cache invalidated by admin:', user.id);
+    // Wipe persisted priced-output caches so new markup/shipping take effect
+    // immediately across homepage, search, category, collection and hot feeds.
+    // We do NOT touch upstream raw-price caches (price_cache, price_capture_cache,
+    // product_cache) because markup changes don't invalidate the source price.
+    const cacheTables = [
+      'catalog_home_cache',
+      'catalog_home_mobile_sections_cache',
+      'catalog_cache',
+      'catalog_search_cache',
+      'catalog_collection_cache',
+      'catalog_facets_cache',
+      'home_cache_web_feed',
+      'home_cache_mobile_sections',
+      'product_hot_cache',
+      'search_proxy_cache',
+    ];
+
+    const wipeResults: Record<string, string> = {};
+    await Promise.all(
+      cacheTables.map(async (t) => {
+        const { error } = await supabase
+          .from(t)
+          .delete()
+          .gte('created_at', '1900-01-01');
+        if (error) {
+          // Fallback for tables without created_at — match all by primary key
+          const { error: e2 } = await supabase.from(t).delete().not('id', 'is', null);
+          wipeResults[t] = e2 ? `error: ${e2.message}` : 'wiped';
+        } else {
+          wipeResults[t] = 'wiped';
+        }
+      })
+    );
+
+    console.log('[invalidate-settings-cache] Cache invalidated by admin:', user.id, wipeResults);
 
     // Log the action
     await supabase.from('admin_audit_logs').insert({
       admin_id: user.id,
       action_type: 'INVALIDATE_SETTINGS_CACHE',
       target_section: 'settings',
-      details: { timestamp: new Date().toISOString() },
+      details: { timestamp: new Date().toISOString(), wipeResults },
     });
 
     return jsonResponse({
       success: true,
-      message: 'Settings cache invalidated. New values will be loaded on next request.',
+      message: 'Settings cache invalidated. Priced caches wiped — new values active immediately.',
+      wipeResults,
     });
+
 
   } catch (error: any) {
     console.error('[invalidate-settings-cache] Error:', error);

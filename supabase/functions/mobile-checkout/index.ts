@@ -1363,10 +1363,18 @@ serve(async (req) => {
     }
 
     // ============================================
-    // PRICE DRIFT SAFETY NET
-    // For items linked to a catalog product, run a fresh live-price check.
-    // Block checkout if any item is flagged with a large drift (>10%).
+    // PRICE FRESHNESS + SILENT RE-QUOTE
+    // For items linked to a catalog product:
+    //   1. Trigger price-checker for any line whose catalog price is older than 6h.
+    //   2. If the refreshed live price differs from the line's base_price_usd,
+    //      silently substitute the new price into dbItems (the downstream totals
+    //      pipeline will recompute markup, shipping, totals).
+    //   3. Persist the new base_price_usd to order_items so the receipt matches.
+    //   4. Collect priceAdjustments[] to return to the UI as a non-blocking toast.
+    // We NEVER block checkout for drift — per product rule, the user pays the
+    // up-to-date price and is told a price was updated.
     // ============================================
+    let priceAdjustments: Array<{ id: string; name: string; oldPrice: number; newPrice: number }> = [];
     try {
       const cartUrls = dbItems
         .map((it: any) => (typeof it.product_url === 'string' ? it.product_url : ''))
@@ -1380,12 +1388,11 @@ serve(async (req) => {
         );
         const { data: catalogMatches } = await supabaseAdmin
           .from('catalog_items')
-          .select('id, product_url, price_usd, needs_price_review, last_price_check_at')
+          .select('id, product_url, price_usd, last_known_live_price_usd, needs_price_review, last_price_check_at')
           .in('product_url', cartUrls)
           .limit(50);
 
         const matches = catalogMatches || [];
-        // Items that need a fresh check: never checked, or older than 6h
         const sixHoursAgo = Date.now() - 6 * 3600_000;
         const idsToVerify = matches
           .filter((m: any) => !m.last_price_check_at || new Date(m.last_price_check_at).getTime() < sixHoursAgo)
@@ -1402,42 +1409,78 @@ serve(async (req) => {
           }).catch((e) => console.warn('[mobile-checkout] price-checker call failed', e));
         }
 
-        // Re-read flags after verification
+        // Re-read fresh prices after verification
         const { data: refreshed } = await supabaseAdmin
           .from('catalog_items')
-          .select('id, product_url, price_usd, needs_price_review, last_known_live_price_usd')
-          .in('product_url', cartUrls)
-          .eq('needs_price_review', true);
+          .select('id, product_url, price_usd, last_known_live_price_usd')
+          .in('product_url', cartUrls);
 
-        const flaggedUrls = new Set((refreshed || []).map((r: any) => r.product_url));
-        if (flaggedUrls.size > 0) {
-          const flaggedItems = dbItems.filter((it: any) => flaggedUrls.has(it.product_url));
-          console.log('[mobile-checkout] CHECKOUT_PRICE_DRIFT_BLOCKED', {
-            count: flaggedItems.length,
+        const livePriceByUrl = new Map<string, number>();
+        for (const r of (refreshed || [])) {
+          const p = Number(r.last_known_live_price_usd ?? r.price_usd ?? 0);
+          if (p > 0 && r.product_url) livePriceByUrl.set(r.product_url, p);
+        }
+
+        // Compare line-by-line; mutate dbItems + persist
+        for (const it of dbItems) {
+          if (!it.product_url) continue;
+          const livePrice = livePriceByUrl.get(it.product_url);
+          if (!livePrice) continue;
+
+          const currentBase = Number(it.base_price_usd ?? it.unit_price_usd ?? 0);
+          if (currentBase <= 0) continue;
+
+          const drift = Math.abs(livePrice - currentBase) / currentBase;
+          // Re-quote when drift ≥ 1% (avoid noise from rounding)
+          if (drift >= 0.01) {
+            priceAdjustments.push({
+              id: it.id,
+              name: it.title || 'Item',
+              oldPrice: Number(currentBase.toFixed(2)),
+              newPrice: Number(livePrice.toFixed(2)),
+            });
+
+            // Mutate in-memory item so downstream totals use the new price
+            it.base_price_usd = livePrice;
+            it.unit_price_usd = livePrice;
+            it.subtotal_usd = null; // force recompute downstream
+
+            // Persist new base price to the order_items row
+            await supabaseAdmin
+              .from('order_items')
+              .update({
+                base_price_usd: livePrice,
+                unit_price_usd: livePrice,
+                price_source: 'checkout_requote',
+              })
+              .eq('id', it.id)
+              .catch((e: any) => console.warn('[mobile-checkout] requote persist failed', e?.message));
+          }
+        }
+
+        // Clear stale review flags so they don't bother the next checkout
+        const flaggedIds = matches.filter((m: any) => m.needs_price_review).map((m: any) => m.id);
+        if (flaggedIds.length > 0) {
+          await supabaseAdmin
+            .from('catalog_items')
+            .update({ needs_price_review: false })
+            .in('id', flaggedIds)
+            .catch(() => { /* best effort */ });
+        }
+
+        if (priceAdjustments.length > 0) {
+          console.log('[mobile-checkout] SILENT_REQUOTE', {
+            count: priceAdjustments.length,
+            adjustments: priceAdjustments,
           });
-          return jsonResponse({
-            ok: false,
-            success: false,
-            code: 'PRICE_DRIFT_DETECTED',
-            message_fr: "Le prix d'un ou plusieurs articles a changé. Veuillez vérifier votre panier avant de payer.",
-            message_en: "The price of one or more items has changed. Please review your cart before paying.",
-            flaggedItems: flaggedItems.map((it: any) => {
-              const live = (refreshed || []).find((r: any) => r.product_url === it.product_url);
-              return {
-                id: it.id,
-                name: it.title || 'Unknown item',
-                url: it.product_url,
-                oldPrice: it.product_price ?? it.price_usd ?? null,
-                newPrice: live?.last_known_live_price_usd ?? null,
-              };
-            }),
-          }, 409);
         }
       }
     } catch (e) {
-      console.warn('[mobile-checkout] price drift safety net error', (e as Error).message);
-      // Do not fail checkout on safety-net errors
+      console.warn('[mobile-checkout] price freshness re-quote error', (e as Error).message);
+      // Never fail checkout on safety-net errors
     }
+    // Stash adjustments for the success response
+    (req as any)._priceAdjustments = priceAdjustments;
 
     // ============================================
     // CHECKOUT_DEDUPED: Deduplicate cart items

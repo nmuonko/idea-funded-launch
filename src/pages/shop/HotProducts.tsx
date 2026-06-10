@@ -509,10 +509,10 @@ export default function HotProducts() {
                         })()}
                       </div>
 
-                      <div className="mt-auto flex items-stretch gap-1.5 pt-2">
+                      <div className="mt-auto flex flex-col gap-1.5 pt-2">
                         <Button
                           size="sm"
-                          className={`flex-1 h-8 min-w-0 text-[11px] font-bold rounded-md bg-[#E85D1F] hover:bg-[#D14F14] text-white shadow-sm px-2 ${FOCUS_RING}`}
+                          className={`w-full h-8 min-w-0 text-[11px] font-bold rounded-md bg-[#E85D1F] hover:bg-[#D14F14] text-white shadow-sm px-2 ${FOCUS_RING}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             trackClick(product, 'buy_now');
@@ -530,7 +530,7 @@ export default function HotProducts() {
 
                         <Button
                           size="sm"
-                          className={`h-8 w-9 shrink-0 p-0 rounded-md bg-[#25D366] hover:bg-[#1FB857] text-white shadow-[0_2px_8px_rgba(37,211,102,0.4)] ${FOCUS_RING}`}
+                          className={`w-full h-9 rounded-md bg-[#25D366] hover:bg-[#1FB857] text-white font-bold text-[12px] shadow-[0_2px_8px_rgba(37,211,102,0.4)] ${FOCUS_RING}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             trackClick(product, 'click');
@@ -546,7 +546,8 @@ export default function HotProducts() {
                           aria-label={`${t.whatsapp} — ${cleanTitle}`}
                           title={t.whatsapp}
                         >
-                          <MessageCircle className="w-4 h-4" aria-hidden="true" />
+                          <MessageCircle className="w-4 h-4 mr-1.5 shrink-0" aria-hidden="true" />
+                          <span className="truncate">{whatsapp || t.whatsapp}</span>
                         </Button>
                       </div>
                     </div>

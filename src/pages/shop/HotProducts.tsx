@@ -468,11 +468,11 @@ export default function HotProducts() {
                     initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2, delay: prefersReducedMotion ? 0 : Math.min(index * 0.02, 0.2) }}
-                    className="relative flex flex-col bg-[#FFFDF8] border border-[#E9D2B0] rounded-2xl overflow-hidden group hover:border-[#C9A87A] transition-all hover:shadow-[0_10px_30px_-12px_rgba(120,80,30,0.25)] transform-gpu"
+                    className="relative flex flex-col bg-[#FFFDF8] border border-[#EADFC6] rounded-xl overflow-hidden group hover:border-[#C9A87A] transition-all hover:shadow-[0_8px_24px_-12px_rgba(120,80,30,0.22)] transform-gpu"
                   >
                     <button
                       type="button"
-                      className={`aspect-square bg-white overflow-hidden text-left border-b border-[#F0E2C8] ${FOCUS_RING}`}
+                      className={`aspect-square bg-gradient-to-br from-white to-[#FAF3E4] overflow-hidden text-left ${FOCUS_RING}`}
                       onClick={() => {
                         trackClick(product, 'click');
                         navigate(`/share/hp/${product.id}`);
@@ -482,7 +482,7 @@ export default function HotProducts() {
                       <img
                         src={productImage}
                         alt={cleanTitle}
-                        className="w-full h-full object-contain p-4 group-hover:scale-[1.04] transition-transform duration-300"
+                        className="w-full h-full object-contain p-3 group-hover:scale-[1.05] transition-transform duration-300"
                         loading="lazy"
                         onError={(e) => {
                           const img = e.currentTarget;
@@ -493,10 +493,10 @@ export default function HotProducts() {
                       />
                     </button>
 
-                    <div className="flex flex-col flex-1 p-4 gap-2.5">
+                    <div className="flex flex-col flex-1 p-3 gap-1.5">
                       <button
                         type="button"
-                        className={`text-left text-[#1C1208] text-sm font-semibold leading-snug line-clamp-2 min-h-[2.5rem] hover:text-[#E86D1F] transition-colors rounded ${FOCUS_RING}`}
+                        className={`text-left text-[#1C1208] text-[13px] font-semibold leading-snug line-clamp-2 min-h-[2.25rem] hover:text-[#E86D1F] transition-colors rounded ${FOCUS_RING}`}
                         onClick={() => {
                           trackClick(product, 'click');
                           navigate(`/share/hp/${product.id}`);
@@ -505,32 +505,29 @@ export default function HotProducts() {
                         {cleanTitle}
                       </button>
 
-                      <div className="space-y-1">
-                        <p className="text-[#E86D1F] font-extrabold text-2xl leading-none tracking-tight">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <p className="text-[#1C1208] font-extrabold text-lg leading-none tracking-tight tabular-nums">
                           {formatCurrency(product.total_price_usd, { locale: locale as any })}
                         </p>
-                        <p className="text-[#0C8A4A] text-xs font-medium flex items-center gap-1">
-                          <span aria-hidden="true">✓</span> {t.shippingIncluded}
-                        </p>
-                        {isDubai && (
-                          <p className="text-[#8B6F4A] text-[11px]">{t.estDelivery}</p>
-                        )}
                         {(() => {
                           const v = viewCounts[`${product.provider}:${product.provider_product_id}`] || 0;
                           const display = v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${v}`;
                           return (
-                            <p className="inline-flex items-center gap-1 text-[#8B6F4A] text-[11px] font-medium pt-0.5">
+                            <span className="inline-flex items-center gap-0.5 text-[#8B6F4A] text-[10px] font-medium">
                               <Eye className="w-3 h-3" aria-hidden="true" />
-                              {locale === 'fr' ? `${display} vues` : `${display} views`}
-                            </p>
+                              {display}
+                            </span>
                           );
                         })()}
                       </div>
+                      <p className="text-[#0C8A4A] text-[10px] font-medium flex items-center gap-1">
+                        <span aria-hidden="true">✓</span> {t.shippingIncluded}
+                      </p>
 
-                      <div className="mt-auto flex flex-col gap-2 pt-1">
+                      <div className="mt-auto flex items-stretch gap-1.5 pt-2">
                         <Button
                           size="sm"
-                          className={`w-full h-11 text-sm font-bold rounded-xl bg-[#0C8A4A] hover:bg-[#0a7340] text-white shadow-sm ${FOCUS_RING}`}
+                          className={`flex-1 h-9 text-xs font-bold rounded-lg bg-[#1C1208] hover:bg-[#2A1C10] text-white shadow-sm ${FOCUS_RING}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             trackClick(product, 'buy_now');
@@ -540,16 +537,16 @@ export default function HotProducts() {
                           aria-label={`${isDubai ? t.orderNow : t.payNow} — ${cleanTitle}`}
                         >
                           {isProcessing ? (
-                            <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" aria-hidden="true" /> {t.loading}</>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
                           ) : (
-                            <><Zap className="w-4 h-4 mr-1.5" aria-hidden="true" /> {isDubai ? t.orderNow : t.payNow}</>
+                            <><Zap className="w-3.5 h-3.5 mr-1" aria-hidden="true" /> {isDubai ? t.orderNow : t.payNow}</>
                           )}
                         </Button>
 
                         <Button
                           size="sm"
                           variant="outline"
-                          className={`w-full h-10 text-xs font-semibold rounded-xl bg-white hover:bg-emerald-50 text-[#0C8A4A] border border-[#0C8A4A]/40 hover:border-[#0C8A4A] ${FOCUS_RING}`}
+                          className={`h-9 w-9 p-0 shrink-0 rounded-lg bg-white hover:bg-emerald-50 text-[#0C8A4A] border border-[#0C8A4A]/40 hover:border-[#0C8A4A] ${FOCUS_RING}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             trackClick(product, 'click');
@@ -564,8 +561,7 @@ export default function HotProducts() {
                           }}
                           aria-label={`${t.whatsapp} — ${cleanTitle}`}
                         >
-                          <MessageCircle className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
-                          {t.whatsapp}
+                          <MessageCircle className="w-4 h-4" aria-hidden="true" />
                         </Button>
                       </div>
                     </div>
@@ -605,7 +601,7 @@ export default function HotProducts() {
                       {t.countItems(sorted.length)}
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
                     {sorted.map((p, i) => renderCard(p, i))}
                   </div>
                 </section>

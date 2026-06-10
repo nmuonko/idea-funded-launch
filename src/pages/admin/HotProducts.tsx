@@ -19,6 +19,7 @@ import type { ShippingCategoryRow } from '@/lib/shippingCategoryDetector';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
 import { HotProductAnalytics } from '@/components/admin/dashboard/HotProductAnalytics';
 
 function inferProvider(url: string): string | null {

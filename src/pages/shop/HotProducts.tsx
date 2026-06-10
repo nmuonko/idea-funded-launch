@@ -376,8 +376,8 @@ export default function HotProducts() {
 
             {/* Filter / Sort Bar — light theme */}
             {!loading && products.length > 0 && (
-              <div className="flex items-center gap-2 flex-wrap mb-6">
-                <div className="flex items-center gap-2 overflow-x-auto flex-1 min-w-0">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-6">
+                <div className="flex items-center gap-2 overflow-x-auto flex-1 min-w-0 -mx-1 px-1 pb-1 sm:pb-0 scrollbar-hide">
                   {BRAND_CHIPS.map((chip) => {
                     const active = brandFilter === chip.key;
                     return (
@@ -385,14 +385,14 @@ export default function HotProducts() {
                         key={chip.key}
                         type="button"
                         onClick={() => setBrandFilter(chip.key)}
-                        className={`whitespace-nowrap h-11 px-5 rounded-full text-sm font-semibold border transition-all ${FOCUS_RING} ${
+                        className={`shrink-0 whitespace-nowrap h-10 sm:h-11 px-3.5 sm:px-5 rounded-full text-[13px] sm:text-sm font-semibold border transition-all ${FOCUS_RING} ${
                           active
                             ? 'bg-neutral-900 text-white border-neutral-900 shadow-sm'
                             : 'bg-white text-neutral-900 border-neutral-200 hover:border-neutral-900/40 hover:shadow-sm'
                         }`}
                         aria-pressed={active}
                       >
-                        <span className="inline-flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 sm:gap-2">
                           <BrandLogo
                             brand={chip.key}
                             className={chip.key === 'samsung' ? 'h-4 w-auto' : 'w-4 h-4'}
@@ -406,7 +406,7 @@ export default function HotProducts() {
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
-                  className={`h-11 px-4 rounded-full bg-white border border-neutral-200 text-neutral-900 text-sm font-medium focus:border-neutral-900/40 ${FOCUS_RING}`}
+                  className={`w-full sm:w-auto shrink-0 h-10 sm:h-11 px-3 sm:px-4 rounded-full bg-white border border-neutral-200 text-neutral-900 text-[13px] sm:text-sm font-medium focus:border-neutral-900/40 ${FOCUS_RING}`}
                   aria-label={t.sortLabel}
                 >
                   <option value="featured">{`${t.sortLabel} ${t.sortFeatured}`}</option>

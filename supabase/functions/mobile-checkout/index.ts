@@ -2765,6 +2765,7 @@ serve(async (req) => {
     // Return session ready for provider selection
     return jsonResponse({
       success: true,
+      price_adjustments: priceAdjustments,
       order_id: checkoutOrder.id,
       checkout_session_id: checkoutSession?.id || null,
       status: 'awaiting_provider_selection',

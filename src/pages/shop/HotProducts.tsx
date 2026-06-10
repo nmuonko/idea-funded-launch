@@ -389,27 +389,26 @@ export default function HotProducts() {
           {/* Sticky Filter / Sort Bar */}
           {!loading && products.length > 0 && (
             <div className="sticky top-16 z-30 -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 mb-3 bg-black/85 backdrop-blur-md border-b border-white/10">
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" aria-hidden="true" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder={t.searchPlaceholder}
-                    className={`w-full h-10 pl-9 pr-9 rounded-xl bg-[#1a1d23] border border-white/10 text-white text-sm placeholder:text-white/40 focus:border-orange-500/60 ${FOCUS_RING}`}
-                    aria-label={t.searchPlaceholder}
-                  />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-white/10 text-white/60"
-                      aria-label={t.clearSearch}
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 overflow-x-auto flex-1 min-w-0">
+                  {BRAND_CHIPS.map((chip) => {
+                    const active = brandFilter === chip.key;
+                    return (
+                      <button
+                        key={chip.key}
+                        type="button"
+                        onClick={() => setBrandFilter(chip.key)}
+                        className={`whitespace-nowrap h-10 px-4 rounded-full text-sm font-semibold border transition-colors ${FOCUS_RING} ${
+                          active
+                            ? 'bg-white text-black border-white shadow-md'
+                            : 'bg-[#1a1d23] text-white/80 border-white/10 hover:bg-white/10 hover:text-white'
+                        }`}
+                        aria-pressed={active}
+                      >
+                        {chip.label}
+                      </button>
+                    );
+                  })}
                 </div>
                 <select
                   value={sortBy}
@@ -417,7 +416,7 @@ export default function HotProducts() {
                   className={`h-10 px-3 rounded-xl bg-[#1a1d23] border border-white/10 text-white text-xs sm:text-sm focus:border-orange-500/60 ${FOCUS_RING}`}
                   aria-label={t.sortLabel}
                 >
-                  <option value="featured">{t.sortFeatured}</option>
+                  <option value="featured">{`${t.sortLabel} ${t.sortFeatured}`}</option>
                   <option value="price_asc">{t.sortPriceAsc}</option>
                   <option value="price_desc">{t.sortPriceDesc}</option>
                 </select>

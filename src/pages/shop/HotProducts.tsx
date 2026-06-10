@@ -524,10 +524,10 @@ export default function HotProducts() {
                         <span aria-hidden="true">✓</span> {t.shippingIncluded}
                       </p>
 
-                      <div className="mt-auto flex items-stretch gap-1.5 pt-2">
+                      <div className="mt-auto grid grid-cols-1 gap-1.5 pt-2">
                         <Button
                           size="sm"
-                          className={`flex-1 h-9 text-xs font-bold rounded-lg bg-[#1C1208] hover:bg-[#2A1C10] text-white shadow-sm ${FOCUS_RING}`}
+                          className={`w-full h-8.5 min-w-0 text-xs font-bold rounded-lg bg-[#1C1208] hover:bg-[#2A1C10] text-white shadow-sm ${FOCUS_RING}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             trackClick(product, 'buy_now');
@@ -539,13 +539,13 @@ export default function HotProducts() {
                           {isProcessing ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
                           ) : (
-                            <><Zap className="w-3.5 h-3.5 mr-1" aria-hidden="true" /> {isDubai ? t.orderNow : t.payNow}</>
+                            <><Zap className="w-3.5 h-3.5 mr-1 shrink-0" aria-hidden="true" /> <span className="min-w-0 truncate">{isDubai ? t.orderNow : t.payNow}</span></>
                           )}
                         </Button>
 
                         <Button
                           size="sm"
-                          className={`flex-1 h-9 px-2 rounded-lg bg-[#25D366] hover:bg-[#1FB857] text-white font-bold text-xs shadow-[0_2px_8px_rgba(37,211,102,0.45)] ring-1 ring-[#0C8A4A]/30 ${FOCUS_RING}`}
+                          className={`w-full h-9 min-w-0 px-3 rounded-lg bg-[#25D366] hover:bg-[#1FB857] text-white font-extrabold text-xs shadow-[0_3px_12px_rgba(37,211,102,0.5)] ring-1 ring-[#0C8A4A]/30 ${FOCUS_RING}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             trackClick(product, 'click');
@@ -560,8 +560,8 @@ export default function HotProducts() {
                           }}
                           aria-label={`${t.whatsapp} — ${cleanTitle}`}
                         >
-                          <MessageCircle className="w-4 h-4 mr-1" aria-hidden="true" />
-                          {t.whatsapp}
+                          <MessageCircle className="w-4 h-4 mr-1.5 shrink-0" aria-hidden="true" />
+                          <span className="whitespace-nowrap">{t.whatsapp}</span>
                         </Button>
                       </div>
                     </div>

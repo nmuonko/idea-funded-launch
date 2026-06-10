@@ -270,12 +270,22 @@ export default function FeesSettings() {
 
       if (error) throw error;
 
+      // Force-invalidate edge-function caches AND wipe persisted priced caches
+      // so the new markup/shipping show up immediately on home, search, hot, etc.
+      try {
+        const { error: invErr } = await supabase.functions.invoke('invalidate-settings-cache');
+        if (invErr) console.warn('[FeesSettings] cache invalidation warning:', invErr.message);
+      } catch (e) {
+        console.warn('[FeesSettings] cache invalidation failed:', e);
+      }
+
       toast({
         title: t.settings.settingsSaved,
         description: t.settings.settingsSavedDesc,
       });
 
       loadSettings();
+
     } catch (error: any) {
       toast({
         title: t.common.error,

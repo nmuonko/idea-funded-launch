@@ -413,7 +413,15 @@ export default function HotProducts() {
                         }`}
                         aria-pressed={active}
                       >
-                        {chip.label}
+                        <span className="inline-flex items-center gap-2">
+                          {chip.key !== 'all' && (
+                            <BrandLogo
+                              brand={chip.key as 'iphone' | 'samsung' | 'pixel'}
+                              className={chip.key === 'samsung' ? 'h-4 w-auto' : 'w-4 h-4'}
+                            />
+                          )}
+                          <span>{chip.label}</span>
+                        </span>
                       </button>
                     );
                   })}

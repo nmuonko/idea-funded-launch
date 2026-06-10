@@ -2166,6 +2166,7 @@ serve(async (req) => {
               
               return jsonResponse({
                 success: true,
+                price_adjustments: priceAdjustments,
                 order_id: largeOrderCheckout.id,
                 checkout_session_id: largeOrderSession?.id || null,
                 payment_flow: 'STRIPE' as PaymentFlow,

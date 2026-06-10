@@ -88,7 +88,7 @@ const HP_STRINGS = {
     sortFeatured: 'En vedette',
     sortPriceAsc: 'Prix : croissant',
     sortPriceDesc: 'Prix : décroissant',
-    sectionTrending: '🔥 Tendances',
+    sectionTrending: '🔥 Produits en tendance',
     countItems: (n: number) => `${n} article${n === 1 ? '' : 's'}`,
     floatingHelp: 'Besoin d\'aide ?',
 
@@ -161,7 +161,7 @@ export default function HotProducts() {
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'featured' | 'price_asc' | 'price_desc'>('featured');
-  const [brandFilter, setBrandFilter] = useState<'all' | 'iphone' | 'samsung' | 'pixel'>('all');
+  const [brandFilter, setBrandFilter] = useState<'iphone' | 'samsung' | 'pixel'>('iphone');
   const [viewCounts, setViewCounts] = useState<Record<string, number>>({});
 
 
@@ -169,8 +169,7 @@ export default function HotProducts() {
   const t = HP_STRINGS[locale];
   const heroWhatsappUrl = `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}`;
 
-  const BRAND_CHIPS: { key: 'all' | 'iphone' | 'samsung' | 'pixel'; label: string; match: (t: string) => boolean }[] = [
-    { key: 'all', label: locale === 'fr' ? 'Tous' : 'All', match: () => true },
+  const BRAND_CHIPS: { key: 'iphone' | 'samsung' | 'pixel'; label: string; match: (t: string) => boolean }[] = [
     { key: 'iphone', label: 'iPhone', match: (t) => /iphone|apple/i.test(t) },
     { key: 'samsung', label: 'Samsung', match: (t) => /samsung|galaxy/i.test(t) },
     { key: 'pixel', label: 'Google Pixel', match: (t) => /pixel/i.test(t) },
@@ -344,60 +343,67 @@ export default function HotProducts() {
   return (
     <>
       <SEOHead title={t.pageTitle} description={t.pageDescription} />
-    <div className="min-h-screen bg-[#fbf1de] pb-safe-nav">
-      <ShopHeader />
+    <div
+      className="relative min-h-screen pb-safe-nav text-[#1C1208] overflow-hidden"
+      style={{
+        background:
+          'linear-gradient(135deg, #FFF7E8 0%, #F8E7C8 45%, #FFF3DD 100%)',
+      }}
+    >
+      {/* Soft radial glows for premium depth */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+        <div className="absolute -top-32 -left-32 w-[480px] h-[480px] rounded-full bg-orange-200/40 blur-3xl" />
+        <div className="absolute top-1/3 -right-40 w-[520px] h-[520px] rounded-full bg-amber-200/40 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 w-[420px] h-[420px] rounded-full bg-yellow-100/50 blur-3xl" />
+      </div>
 
-      <main className="pt-20 px-3 sm:px-4 pb-24">
-        <div className="mx-auto max-w-6xl">
-          <div className="flex items-center gap-2 mb-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigate('/')}
-              className={`bg-white/5 border-white/15 text-white hover:bg-white/10 hover:text-white ${FOCUS_RING}`}
-            >
-              <Home className="w-4 h-4 mr-2" aria-hidden="true" />
-              {t.home}
-            </Button>
-          </div>
+      <div className="relative">
+        <ShopHeader />
 
-          {/* Hero Banner — slim */}
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative overflow-hidden rounded-2xl mb-3 bg-gradient-to-br from-orange-600 via-red-600 to-pink-600 px-4 py-3 sm:px-6 sm:py-4"
-          >
-            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjA4KSIvPjwvc3ZnPg==')] opacity-50" aria-hidden="true" />
-            <div className="relative z-10 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                <div className="flex-shrink-0 w-11 h-11 sm:w-14 sm:h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                  <Flame className="w-5 h-5 sm:w-7 sm:h-7 text-yellow-300" aria-hidden="true" />
+        <main className="pt-20 px-3 sm:px-4 pb-24">
+          <div className="mx-auto max-w-6xl">
+            {/* Breadcrumb */}
+            <nav className="flex items-center gap-2 text-sm text-[#5C4630] mb-4" aria-label="Breadcrumb">
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="hover:text-[#1C1208] transition-colors"
+              >
+                {t.home}
+              </button>
+              <span className="text-[#C9A87A]">›</span>
+              <span className="text-[#1C1208] font-medium">{t.heroTitle}</span>
+            </nav>
+
+            {/* Clean light page header */}
+            <header className="flex flex-wrap items-start justify-between gap-4 mb-6">
+              <div className="min-w-0">
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-[#1C1208] flex items-center gap-3">
+                  <span aria-hidden="true">🔥</span>
+                  <span>{t.heroTitle}</span>
+                </h1>
+                <p className="text-[#5C4630] text-sm sm:text-base mt-2">{t.heroSubtitle}</p>
+              </div>
+
+              {/* Trust card */}
+              <div className="flex items-center gap-3 rounded-2xl border border-[#E9D2B0] bg-white/70 backdrop-blur-sm px-4 py-3 shadow-sm">
+                <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+                  <Sparkles className="w-5 h-5 text-emerald-600" aria-hidden="true" />
                 </div>
-                <div className="min-w-0">
-                  <h1 className="text-lg sm:text-2xl lg:text-3xl font-extrabold text-white tracking-tight truncate">
-                    {t.heroTitle}
-                  </h1>
-                  <p className="text-white/85 text-xs sm:text-sm mt-0.5">{t.heroSubtitle}</p>
+                <div className="text-xs sm:text-sm">
+                  <p className="font-bold text-[#1C1208] leading-tight">
+                    {locale === 'fr' ? 'Livraison rapide en RDC' : 'Fast delivery to DRC'}
+                  </p>
+                  <p className="text-[#5C4630] leading-tight mt-0.5">
+                    {locale === 'fr' ? 'Paiement sécurisé · Garantie incluse' : 'Secure payment · Warranty included'}
+                  </p>
                 </div>
               </div>
-              <a
-                href={emailUrl(session?.user?.email)}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={t.emailAria}
-                className={`hidden sm:block rounded-full ${FOCUS_RING}`}
-              >
-                <Button size="icon" className="h-10 w-10 rounded-full bg-white/20 hover:bg-white/30 text-white shadow-lg border-2 border-white/30 backdrop-blur-sm" tabIndex={-1}>
-                  <Mail className="h-4 w-4" aria-hidden="true" />
-                </Button>
-              </a>
-            </div>
-          </motion.div>
+            </header>
 
-          {/* Sticky Filter / Sort Bar */}
-          {!loading && products.length > 0 && (
-            <div className="sticky top-16 z-30 -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 mb-3 bg-black/85 backdrop-blur-md border-b border-white/10">
-              <div className="flex items-center gap-2 flex-wrap">
+            {/* Filter / Sort Bar — light theme */}
+            {!loading && products.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap mb-6">
                 <div className="flex items-center gap-2 overflow-x-auto flex-1 min-w-0">
                   {BRAND_CHIPS.map((chip) => {
                     const active = brandFilter === chip.key;
@@ -406,20 +412,18 @@ export default function HotProducts() {
                         key={chip.key}
                         type="button"
                         onClick={() => setBrandFilter(chip.key)}
-                        className={`whitespace-nowrap h-10 px-4 rounded-full text-sm font-semibold border transition-colors ${FOCUS_RING} ${
+                        className={`whitespace-nowrap h-11 px-5 rounded-full text-sm font-semibold border transition-all ${FOCUS_RING} ${
                           active
-                            ? 'bg-white text-black border-white shadow-md'
-                            : 'bg-[#1a1d23] text-white/80 border-white/10 hover:bg-white/10 hover:text-white'
+                            ? 'bg-[#1C1208] text-white border-[#1C1208] shadow-md'
+                            : 'bg-white text-[#1C1208] border-[#E9D2B0] hover:border-[#1C1208]/40 hover:shadow-sm'
                         }`}
                         aria-pressed={active}
                       >
                         <span className="inline-flex items-center gap-2">
-                          {chip.key !== 'all' && (
-                            <BrandLogo
-                              brand={chip.key as 'iphone' | 'samsung' | 'pixel'}
-                              className={chip.key === 'samsung' ? 'h-4 w-auto' : 'w-4 h-4'}
-                            />
-                          )}
+                          <BrandLogo
+                            brand={chip.key}
+                            className={chip.key === 'samsung' ? 'h-4 w-auto' : 'w-4 h-4'}
+                          />
                           <span>{chip.label}</span>
                         </span>
                       </button>
@@ -429,7 +433,7 @@ export default function HotProducts() {
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
-                  className={`h-10 px-3 rounded-xl bg-[#1a1d23] border border-white/10 text-white text-xs sm:text-sm focus:border-orange-500/60 ${FOCUS_RING}`}
+                  className={`h-11 px-4 rounded-full bg-white border border-[#E9D2B0] text-[#1C1208] text-sm font-medium focus:border-[#1C1208]/40 ${FOCUS_RING}`}
                   aria-label={t.sortLabel}
                 >
                   <option value="featured">{`${t.sortLabel} ${t.sortFeatured}`}</option>
@@ -437,234 +441,199 @@ export default function HotProducts() {
                   <option value="price_desc">{t.sortPriceDesc}</option>
                 </select>
               </div>
-            </div>
-          )}
+            )}
 
-          {loading && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4" aria-busy="true" aria-live="polite">
-              {Array.from({ length: 10 }).map((_, i) => (
-                <ProductCardSkeleton key={i} />
-              ))}
-            </div>
-          )}
+            {loading && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5" aria-busy="true" aria-live="polite">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <ProductCardSkeleton key={i} />
+                ))}
+              </div>
+            )}
 
-          {!loading && (() => {
-            const q = searchQuery.trim().toLowerCase();
-            const activeBrand = BRAND_CHIPS.find(c => c.key === brandFilter) || BRAND_CHIPS[0];
-            let filtered = q
-              ? products.filter(p => cleanProductTitle(p.title).toLowerCase().includes(q))
-              : products;
-            filtered = filtered.filter(p => activeBrand.match(cleanProductTitle(p.title)));
+            {!loading && (() => {
+              const q = searchQuery.trim().toLowerCase();
+              const activeBrand = BRAND_CHIPS.find(c => c.key === brandFilter) || BRAND_CHIPS[0];
+              let filtered = q
+                ? products.filter(p => cleanProductTitle(p.title).toLowerCase().includes(q))
+                : products;
+              filtered = filtered.filter(p => activeBrand.match(cleanProductTitle(p.title)));
 
-            const trendingIds = new Set(products.slice(0, 5).map(p => p.id));
-
-            const renderCard = (product: HotProduct, index: number, isDubai: boolean) => {
-              const key = `${product.provider}-${product.provider_product_id}`;
-              const isProcessing = processingIds.has(key);
-              const isTrending = trendingIds.has(product.id);
-              const cleanTitle = cleanProductTitle(product.title);
-              const shareLink = `${SHARE_PREVIEW_BASE_URL}?id=${encodeURIComponent(product.id)}`;
-              const payLink = `${window.location.origin}/hot-products/${product.id}`;
-              const productImage = resolveProductImage(product);
-              const productSummary = (product.description_fr || '').replace(/\s+/g, ' ').trim();
-              const shortSummary = productSummary.length > 160 ? `${productSummary.slice(0, 157).trimEnd()}…` : productSummary;
-              const productRef = `HP-${product.id.slice(0, 8).toUpperCase()}`;
-              const waMsg = encodeURIComponent(t.waMessage({
-                title: cleanTitle,
-                summary: shortSummary,
-                price: formatCurrency(product.total_price_usd, { locale: locale as any }),
-                ref: productRef,
-                image: productImage,
-                link: payLink,
-              }));
-              const waHref = `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}?text=${waMsg}`;
-              return (
-                <motion.div
-                  key={product.id}
-                  initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2, delay: prefersReducedMotion ? 0 : Math.min(index * 0.015, 0.18) }}
-                  className="relative flex flex-col bg-[#15181d] border border-white/[0.08] rounded-2xl overflow-hidden group hover:border-orange-500/40 transition-colors hover:shadow-[0_0_24px_rgba(249,115,22,0.15)] transform-gpu"
-                >
-                  <div className="absolute top-2.5 left-2.5 z-10 flex flex-col gap-1 items-start">
-                    {isTrending && !isDubai && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-pink-500 to-purple-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-md">
-                        <TrendingUp className="w-3 h-3" aria-hidden="true" /> Top
-                      </span>
-                    )}
-                  </div>
-
-                  <button
-                    type="button"
-                    className={`aspect-square bg-white overflow-hidden text-left ${FOCUS_RING}`}
-                    onClick={() => {
-                      trackClick(product, 'click');
-                      navigate(`/share/hp/${product.id}`);
-                    }}
-                    aria-label={cleanTitle}
+              const renderCard = (product: HotProduct, index: number) => {
+                const isDubai = product.link_source === 'dubai';
+                const key = `${product.provider}-${product.provider_product_id}`;
+                const isProcessing = processingIds.has(key);
+                const cleanTitle = cleanProductTitle(product.title);
+                const payLink = `${window.location.origin}/hot-products/${product.id}`;
+                const productImage = resolveProductImage(product);
+                const productSummary = (product.description_fr || '').replace(/\s+/g, ' ').trim();
+                const shortSummary = productSummary.length > 160 ? `${productSummary.slice(0, 157).trimEnd()}…` : productSummary;
+                const productRef = `HP-${product.id.slice(0, 8).toUpperCase()}`;
+                const waMsg = encodeURIComponent(t.waMessage({
+                  title: cleanTitle,
+                  summary: shortSummary,
+                  price: formatCurrency(product.total_price_usd, { locale: locale as any }),
+                  ref: productRef,
+                  image: productImage,
+                  link: payLink,
+                }));
+                return (
+                  <motion.div
+                    key={product.id}
+                    initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2, delay: prefersReducedMotion ? 0 : Math.min(index * 0.02, 0.2) }}
+                    className="relative flex flex-col bg-[#FFFDF8] border border-[#E9D2B0] rounded-2xl overflow-hidden group hover:border-[#C9A87A] transition-all hover:shadow-[0_10px_30px_-12px_rgba(120,80,30,0.25)] transform-gpu"
                   >
-                    <img
-                      src={resolveProductImage(product)}
-                      alt={cleanTitle}
-                      className="w-full h-full object-contain p-2.5 group-hover:scale-[1.03] transition-transform duration-300"
-                      loading="lazy"
-                      onError={(e) => {
-                        const img = e.currentTarget;
-                        if (img.src !== window.location.origin + '/placeholder.svg') {
-                          img.src = '/placeholder.svg';
-                        }
-                      }}
-                    />
-                  </button>
-
-                  <div className="flex flex-col flex-1 p-2.5 sm:p-3 gap-2">
                     <button
                       type="button"
-                      className={`text-left text-white text-[12px] sm:text-[13px] font-medium leading-snug line-clamp-2 min-h-[2.25rem] hover:text-orange-300 transition-colors rounded ${FOCUS_RING}`}
+                      className={`aspect-square bg-white overflow-hidden text-left border-b border-[#F0E2C8] ${FOCUS_RING}`}
                       onClick={() => {
                         trackClick(product, 'click');
                         navigate(`/share/hp/${product.id}`);
                       }}
+                      aria-label={cleanTitle}
                     >
-                      {cleanTitle}
+                      <img
+                        src={productImage}
+                        alt={cleanTitle}
+                        className="w-full h-full object-contain p-4 group-hover:scale-[1.04] transition-transform duration-300"
+                        loading="lazy"
+                        onError={(e) => {
+                          const img = e.currentTarget;
+                          if (img.src !== window.location.origin + '/placeholder.svg') {
+                            img.src = '/placeholder.svg';
+                          }
+                        }}
+                      />
                     </button>
 
-                    <div className="space-y-0.5">
-                      <p className="text-orange-400 font-extrabold text-lg sm:text-xl leading-none tracking-tight">
-                        {formatCurrency(product.total_price_usd, { locale: locale as any })}
-                      </p>
-                      <p className="text-emerald-400/90 text-[10px] font-medium">
-                        ✓ {t.shippingIncluded}
-                      </p>
-                      {isDubai && (
-                        <p className="text-white/50 text-[10px]">{t.estDelivery}</p>
-                      )}
-                      {(() => {
-                        const v = viewCounts[`${product.provider}:${product.provider_product_id}`] || 0;
-                        const display = v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${v}`;
-                        return (
-                          <p className="inline-flex items-center gap-1 text-white/60 text-[10px] font-medium pt-0.5">
-                            <Eye className="w-3 h-3" aria-hidden="true" />
-                            {locale === 'fr' ? `${display} vues` : `${display} views`}
-                          </p>
-                        );
-                      })()}
-                    </div>
-
-                    <div className="mt-auto flex flex-col gap-1.5 pt-1">
-                      <Button
-                        size="sm"
-                        className={`w-full h-10 text-sm font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm ${FOCUS_RING}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          trackClick(product, 'buy_now');
-                          handleBuyNow(product);
-                        }}
-                        disabled={isProcessing}
-                        aria-label={`${isDubai ? t.orderNow : t.payNow} — ${cleanTitle}`}
-                      >
-                        {isProcessing ? (
-                          <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" aria-hidden="true" /> {t.loading}</>
-                        ) : (
-                          <><Zap className="w-4 h-4 mr-1.5" aria-hidden="true" /> {isDubai ? t.orderNow : t.payNow}</>
-                        )}
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full h-9 text-xs font-semibold rounded-xl bg-green-600/10 hover:bg-green-600/20 text-green-300 border-green-500/40"
-                        onClick={(e) => {
-                          e.stopPropagation();
+                    <div className="flex flex-col flex-1 p-4 gap-2.5">
+                      <button
+                        type="button"
+                        className={`text-left text-[#1C1208] text-sm font-semibold leading-snug line-clamp-2 min-h-[2.5rem] hover:text-[#E86D1F] transition-colors rounded ${FOCUS_RING}`}
+                        onClick={() => {
                           trackClick(product, 'click');
-                          openChatbot({
-                            id: product.id,
-                            title: cleanTitle,
-                            price_usd: product.total_price_usd,
-                            image: productImage,
-                            link: payLink,
-                            category: isDubai ? 'dubai' : 'hot_product',
-                          });
+                          navigate(`/share/hp/${product.id}`);
                         }}
-                        aria-label={`${t.whatsapp} — ${cleanTitle}`}
                       >
-                        <MessageCircle className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
-                        {t.whatsapp}
-                      </Button>
-                    </div>
-                  </div>
-                </motion.div>
-              );
-            };
+                        {cleanTitle}
+                      </button>
 
-            const renderSection = (title: string, items: HotProduct[], opts?: { subtitle?: string; topBorder?: boolean }) => {
-              if (items.length === 0) return null;
-              const sorted = [...items];
+                      <div className="space-y-1">
+                        <p className="text-[#E86D1F] font-extrabold text-2xl leading-none tracking-tight">
+                          {formatCurrency(product.total_price_usd, { locale: locale as any })}
+                        </p>
+                        <p className="text-[#0C8A4A] text-xs font-medium flex items-center gap-1">
+                          <span aria-hidden="true">✓</span> {t.shippingIncluded}
+                        </p>
+                        {isDubai && (
+                          <p className="text-[#8B6F4A] text-[11px]">{t.estDelivery}</p>
+                        )}
+                        {(() => {
+                          const v = viewCounts[`${product.provider}:${product.provider_product_id}`] || 0;
+                          const display = v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${v}`;
+                          return (
+                            <p className="inline-flex items-center gap-1 text-[#8B6F4A] text-[11px] font-medium pt-0.5">
+                              <Eye className="w-3 h-3" aria-hidden="true" />
+                              {locale === 'fr' ? `${display} vues` : `${display} views`}
+                            </p>
+                          );
+                        })()}
+                      </div>
+
+                      <div className="mt-auto flex flex-col gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          className={`w-full h-11 text-sm font-bold rounded-xl bg-[#0C8A4A] hover:bg-[#0a7340] text-white shadow-sm ${FOCUS_RING}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            trackClick(product, 'buy_now');
+                            handleBuyNow(product);
+                          }}
+                          disabled={isProcessing}
+                          aria-label={`${isDubai ? t.orderNow : t.payNow} — ${cleanTitle}`}
+                        >
+                          {isProcessing ? (
+                            <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" aria-hidden="true" /> {t.loading}</>
+                          ) : (
+                            <><Zap className="w-4 h-4 mr-1.5" aria-hidden="true" /> {isDubai ? t.orderNow : t.payNow}</>
+                          )}
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className={`w-full h-10 text-xs font-semibold rounded-xl bg-white hover:bg-emerald-50 text-[#0C8A4A] border border-[#0C8A4A]/40 hover:border-[#0C8A4A] ${FOCUS_RING}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            trackClick(product, 'click');
+                            openChatbot({
+                              id: product.id,
+                              title: cleanTitle,
+                              price_usd: product.total_price_usd,
+                              image: productImage,
+                              link: payLink,
+                              category: isDubai ? 'dubai' : 'hot_product',
+                            });
+                          }}
+                          aria-label={`${t.whatsapp} — ${cleanTitle}`}
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
+                          {t.whatsapp}
+                        </Button>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              };
+
+              if (filtered.length === 0 && products.length > 0) {
+                return (
+                  <div className="text-center py-20">
+                    <Search className="w-12 h-12 text-[#C9A87A] mx-auto mb-4" aria-hidden="true" />
+                    <p className="text-[#5C4630] mb-3">{t.noResults}</p>
+                  </div>
+                );
+              }
+
+              if (products.length === 0) {
+                return (
+                  <div className="text-center py-20">
+                    <Flame className="w-12 h-12 text-[#C9A87A] mx-auto mb-4" aria-hidden="true" />
+                    <p className="text-[#5C4630]">{t.empty}</p>
+                  </div>
+                );
+              }
+
+              const sorted = [...filtered];
               if (sortBy === 'price_asc') sorted.sort((a, b) => a.total_price_usd - b.total_price_usd);
               else if (sortBy === 'price_desc') sorted.sort((a, b) => b.total_price_usd - a.total_price_usd);
+
               return (
-                <section className={opts?.topBorder ? 'mt-6 pt-5 border-t border-white/10' : 'mt-5 first:mt-0'}>
-                  <div className="mb-3 flex items-baseline justify-between gap-3">
-                    <div>
-                      <h2 className="text-base sm:text-xl font-extrabold text-white tracking-tight">{title}</h2>
-                      {opts?.subtitle && <p className="text-white/60 text-xs mt-0.5">{opts.subtitle}</p>}
-                    </div>
-                    <span className="text-white/40 text-xs whitespace-nowrap">{t.countItems(items.length)}</span>
+                <section>
+                  <div className="mb-4 flex items-baseline justify-between gap-3">
+                    <h2 className="text-xl sm:text-2xl font-extrabold text-[#1C1208] tracking-tight">
+                      {t.sectionTrending}
+                    </h2>
+                    <span className="text-[#5C4630] text-sm whitespace-nowrap">
+                      {t.countItems(sorted.length)}
+                    </span>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-                    {sorted.map((p, i) => renderCard(p, i, p.link_source === 'dubai'))}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5">
+                    {sorted.map((p, i) => renderCard(p, i))}
                   </div>
                 </section>
               );
-            };
+            })()}
+          </div>
+        </main>
 
-            if (filtered.length === 0 && products.length > 0) {
-              return (
-                <div className="text-center py-20">
-                  <Search className="w-12 h-12 text-white/20 mx-auto mb-4" aria-hidden="true" />
-                  <p className="text-white/50 mb-3">{t.noResults}</p>
-                  <Button variant="outline" size="sm" onClick={() => setSearchQuery('')} className="bg-white/5 border-white/15 text-white hover:bg-white/10 hover:text-white">
-                    {t.clearSearch}
-                  </Button>
-                </div>
-              );
-            }
-
-            if (products.length === 0) {
-              return (
-                <div className="text-center py-20">
-                  <Flame className="w-12 h-12 text-white/20 mx-auto mb-4" aria-hidden="true" />
-                  <p className="text-white/50">{t.empty}</p>
-                </div>
-              );
-            }
-
-            if (q) {
-              return renderSection(`"${searchQuery}"`, filtered);
-            }
-
-            const dubaiItems = filtered.filter(p => p.link_source === 'dubai');
-            const regular = filtered.filter(p => p.link_source !== 'dubai');
-            const trending = regular.filter(p => trendingIds.has(p.id));
-            const allOthers = regular.filter(p => !trendingIds.has(p.id));
-
-            return (
-              <>
-                {renderSection(t.sectionTrending, trending)}
-                {renderSection('All Products', allOthers, { topBorder: trending.length > 0 })}
-                {renderSection(t.dubaiSectionTitle, dubaiItems, { subtitle: t.dubaiSectionSubtitle, topBorder: regular.length > 0 })}
-              </>
-            );
-          })()}
-        </div>
-      </main>
-
-      {/* Global AfriShop chatbot widget provides the floating help button */}
-
-      <ShopFooter />
-      <BottomNavigation />
-
+        <ShopFooter />
+        <BottomNavigation />
+      </div>
     </div>
     </>
+
   );
 }

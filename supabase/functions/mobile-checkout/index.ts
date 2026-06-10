@@ -1892,6 +1892,7 @@ serve(async (req) => {
 
         return jsonResponse({
           success: true,
+          price_adjustments: priceAdjustments,
           order_id: existingOrder.id,
           checkout_session_id: choiceSession?.id || null,
           payment_flow: 'CHOICE_REQUIRED' as PaymentFlow,

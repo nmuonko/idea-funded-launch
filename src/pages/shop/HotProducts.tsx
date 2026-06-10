@@ -146,7 +146,7 @@ const resolveProductImage = (product: HotProduct): string => {
 
 // Shared focus ring class for keyboard a11y on dark backgrounds
 const FOCUS_RING =
-  'focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#15181d]';
+  'focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E85D1F] focus-visible:ring-offset-2 focus-visible:ring-offset-white';
 
 export default function HotProducts() {
   const navigate = useNavigate();

@@ -21,6 +21,8 @@ export default function PaymentPending() {
   const orderId = searchParams.get('order_id');
   const provider = searchParams.get('provider') || 'pawapay';
   const urlTotalUsd = searchParams.get('total_usd');
+  const plan = searchParams.get('plan'); // 'deposit' when paying 30% upfront
+  const isDeposit = plan === 'deposit';
   
   const [status, setStatus] = useState<'pending' | 'paid' | 'failed'>('pending');
   const [loading, setLoading] = useState(false);
@@ -42,17 +44,24 @@ export default function PaymentPending() {
           .single();
         
         if (order && !orderAmount) {
-          setOrderAmount({
-            usd: order.total_usd || (urlTotalUsd ? parseFloat(urlTotalUsd) : 0),
-            cdf: order.total_cdf || 0,
-          });
+          // For deposit plan, the amount being charged now is the URL total (30%),
+          // not the order's full total.
+          const usdNow = isDeposit && urlTotalUsd
+            ? parseFloat(urlTotalUsd)
+            : (order.total_usd || (urlTotalUsd ? parseFloat(urlTotalUsd) : 0));
+          const cdfNow = isDeposit
+            ? Math.round(usdNow * (exchangeRate || 0))
+            : (order.total_cdf || 0);
+          setOrderAmount({ usd: usdNow, cdf: cdfNow });
         }
         
         if (order?.status === 'PAID') {
           setStatus('paid');
           if (!cartClearedRef.current) {
             cartClearedRef.current = true;
-            const purchaseTotal = order.total_usd || (urlTotalUsd ? parseFloat(urlTotalUsd) : 0);
+            const purchaseTotal = isDeposit && urlTotalUsd
+              ? parseFloat(urlTotalUsd)
+              : (order.total_usd || (urlTotalUsd ? parseFloat(urlTotalUsd) : 0));
             trackPurchase(purchaseTotal);
             // Meta Pixel Purchase intentionally NOT fired here — only on /payment-success
             await clearCartOnPaymentSuccess();

@@ -1039,7 +1039,7 @@ export default function HotProducts() {
         provider: p.provider,
         provider_product_id: p.provider_product_id,
         sort_order: i,
-        is_active: true,
+        is_active: p.is_active !== false,
         created_by: currentUser.id,
       }));
       const { error } = await supabase.from('hot_products_showcase').insert(rows);

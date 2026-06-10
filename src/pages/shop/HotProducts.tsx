@@ -5,6 +5,7 @@ import { Loader2, Flame, Zap, MessageCircle, Mail, Home, Search, TrendingUp, Spa
 import { motion, useReducedMotion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
+import { BrandLogo } from '@/components/shop/BrandLogo';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { Button } from '@/components/ui/button';
 import { ProductCardSkeleton } from '@/components/shop/ProductCardSkeleton';

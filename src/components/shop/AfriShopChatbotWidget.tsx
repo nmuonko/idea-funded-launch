@@ -405,6 +405,28 @@ export function AfriShopChatbotWidget() {
                         Contacter un agent sur WhatsApp
                       </a>
                     )}
+                    {m.role === 'assistant' && !m.escalate && (() => {
+                      // Auto-CTA: if Sophie mentions the support WhatsApp number or "numéro" in her reply, offer a WhatsApp button.
+                      const text = m.content || '';
+                      const mentionsNumber =
+                        text.includes(SUPPORT_WHATSAPP_DISPLAY) ||
+                        text.includes(SUPPORT_WHATSAPP_DISPLAY.replace(/\s/g, '')) ||
+                        text.includes('+243973141627') ||
+                        text.includes('243973141627') ||
+                        /votre\s+num[ée]ro|notre\s+num[ée]ro|num[ée]ro\s+whatsapp/i.test(text);
+                      if (!mentionsNumber) return null;
+                      return (
+                        <a
+                          href={getWhatsAppUrl(user?.email)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 inline-flex items-center justify-center gap-1.5 w-full px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                          Ouvrir WhatsApp ({SUPPORT_WHATSAPP_DISPLAY})
+                        </a>
+                      );
+                    })()}
                   </div>
                 </div>
               );})}

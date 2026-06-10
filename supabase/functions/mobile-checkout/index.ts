@@ -2694,6 +2694,7 @@ serve(async (req) => {
 
             return jsonResponse({
               success: true,
+              price_adjustments: priceAdjustments,
               order_id: checkoutOrder.id,
               checkout_session_id: checkoutSession.id,
               status: 'awaiting_provider_selection',

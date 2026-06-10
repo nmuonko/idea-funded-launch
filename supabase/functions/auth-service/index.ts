@@ -21,7 +21,10 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, OPTIONS',
 };
 
-const PUBLIC_ACTIONS = new Set(['register', 'login', 'confirm_all_users', 'create_referrer']);
+// SECURITY: confirm_all_users is NOT public — it bypasses email ownership
+// verification and is now gated by service-role / cron-secret inside the action.
+const PUBLIC_ACTIONS = new Set(['register', 'login', 'create_referrer']);
+const SERVICE_ONLY_ACTIONS = new Set(['confirm_all_users']);
 
 function jsonRes(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {

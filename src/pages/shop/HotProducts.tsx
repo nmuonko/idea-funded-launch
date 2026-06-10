@@ -406,7 +406,7 @@ export default function HotProducts() {
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
-                  className={`h-11 px-4 rounded-full bg-white border border-[#E9D2B0] text-[#1C1208] text-sm font-medium focus:border-[#1C1208]/40 ${FOCUS_RING}`}
+                  className={`h-11 px-4 rounded-full bg-white border border-neutral-200 text-neutral-900 text-sm font-medium focus:border-neutral-900/40 ${FOCUS_RING}`}
                   aria-label={t.sortLabel}
                 >
                   <option value="featured">{`${t.sortLabel} ${t.sortFeatured}`}</option>

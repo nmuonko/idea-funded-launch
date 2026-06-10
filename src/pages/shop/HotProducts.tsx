@@ -518,15 +518,7 @@ export default function HotProducts() {
                         <p className="text-white/50 text-[10px]">{t.estDelivery}</p>
                       )}
                       {(() => {
-                        const raw = viewCounts[`${product.provider}:${product.provider_product_id}`] || 0;
-                        // Always show a viewer count. For brand-new items with low real traffic,
-                        // seed a stable baseline derived from the product id so the number never disappears.
-                        let v = raw;
-                        if (v < 25) {
-                          let hash = 0;
-                          for (let i = 0; i < product.id.length; i++) hash = ((hash << 5) - hash + product.id.charCodeAt(i)) | 0;
-                          v = raw + 25 + Math.abs(hash) % 180;
-                        }
+                        const v = viewCounts[`${product.provider}:${product.provider_product_id}`] || 0;
                         const display = v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${v}`;
                         return (
                           <p className="inline-flex items-center gap-1 text-white/60 text-[10px] font-medium pt-0.5">

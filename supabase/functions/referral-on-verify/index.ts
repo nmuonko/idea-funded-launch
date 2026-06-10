@@ -12,6 +12,25 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // SECURITY: this endpoint creates real referral rewards and can trigger
+  // Reloadly mobile-data/airtime top-ups. Only trusted internal callers may
+  // hit it (auth-service forwards the service-role key; cron uses x-cron-secret).
+  const authHeader = req.headers.get('authorization') || '';
+  const bearer = authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.slice(7)
+    : '';
+  const cronSecret = req.headers.get('x-cron-secret') || '';
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+  const isService = bearer && serviceKey && bearer === serviceKey;
+  const isCron = cronSecret && cronSecret === 'afrishop-internal-cron-2026';
+  if (!isService && !isCron) {
+    console.warn('[referral-on-verify] UNAUTHORIZED request blocked');
+    return new Response(JSON.stringify({ ok: false, message: 'Unauthorized' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
   try {
     const { userId } = await req.json();
     if (!userId) {

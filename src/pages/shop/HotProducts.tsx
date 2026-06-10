@@ -169,8 +169,7 @@ export default function HotProducts() {
   const t = HP_STRINGS[locale];
   const heroWhatsappUrl = `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}`;
 
-  const BRAND_CHIPS: { key: 'all' | 'iphone' | 'samsung' | 'pixel'; label: string; match: (t: string) => boolean }[] = [
-    { key: 'all', label: locale === 'fr' ? 'Tous' : 'All', match: () => true },
+  const BRAND_CHIPS: { key: 'iphone' | 'samsung' | 'pixel'; label: string; match: (t: string) => boolean }[] = [
     { key: 'iphone', label: 'iPhone', match: (t) => /iphone|apple/i.test(t) },
     { key: 'samsung', label: 'Samsung', match: (t) => /samsung|galaxy/i.test(t) },
     { key: 'pixel', label: 'Google Pixel', match: (t) => /pixel/i.test(t) },

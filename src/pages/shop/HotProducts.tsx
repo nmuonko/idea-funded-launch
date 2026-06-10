@@ -545,7 +545,7 @@ export default function HotProducts() {
 
                         <Button
                           size="sm"
-                          className={`h-9 px-2.5 shrink-0 rounded-lg bg-[#25D366] hover:bg-[#1FB857] text-white font-bold text-xs shadow-[0_2px_8px_rgba(37,211,102,0.45)] ring-1 ring-[#0C8A4A]/30 ${FOCUS_RING}`}
+                          className={`flex-1 h-9 px-2 rounded-lg bg-[#25D366] hover:bg-[#1FB857] text-white font-bold text-xs shadow-[0_2px_8px_rgba(37,211,102,0.45)] ring-1 ring-[#0C8A4A]/30 ${FOCUS_RING}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             trackClick(product, 'click');

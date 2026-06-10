@@ -487,9 +487,6 @@ export default function HotProducts() {
                   className="relative flex flex-col bg-[#15181d] border border-white/[0.08] rounded-2xl overflow-hidden group hover:border-orange-500/40 transition-colors hover:shadow-[0_0_24px_rgba(249,115,22,0.15)] transform-gpu"
                 >
                   <div className="absolute top-2.5 left-2.5 z-10 flex flex-col gap-1 items-start">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-md">
-                      <Flame className="w-3 h-3" aria-hidden="true" /> {isDubai ? t.dubai : t.deal}
-                    </span>
                     {isTrending && !isDubai && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-pink-500 to-purple-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-md">
                         <TrendingUp className="w-3 h-3" aria-hidden="true" /> Top

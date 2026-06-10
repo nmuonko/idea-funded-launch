@@ -1607,6 +1607,39 @@ export default function HotProducts() {
                       <span className="text-[11px] text-muted-foreground flex items-center gap-1"><GripVertical className="h-3 w-3" /> {t('Drag to reorder', 'Glisser pour réorganiser')}</span>
                     </div>
                   </div>
+                  <div className="flex items-center gap-2 flex-wrap p-2 border rounded-md bg-muted/30">
+                    <Label className="text-xs font-medium">
+                      {t('Global markup %', 'Marge globale %')}
+                      {selectedLinkIds.size > 0
+                        ? ` (${selectedLinkIds.size} ${t('selected', 'sélectionnés')})`
+                        : ` (${t('all', 'tous')})`}
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        step="1"
+                        min="0"
+                        value={globalMarkupPct}
+                        onChange={e => setGlobalMarkupPct(e.target.value)}
+                        placeholder="15"
+                        className="h-8 w-24 text-sm pr-6"
+                      />
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={applyGlobalMarkupToAll}
+                      disabled={applyingGlobalMarkup || !globalMarkupPct || generatedLinks.length === 0}
+                    >
+                      {applyingGlobalMarkup ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
+                      {t('Apply to items', 'Appliquer aux articles')}
+                    </Button>
+                    <span className="text-[11px] text-muted-foreground">
+                      {t('Recomputes markup & total. Shipping unchanged.', 'Recalcule marge & total. Livraison inchangée.')}
+                    </span>
+                  </div>
+                  <div className="hidden">{/* spacer */}</div>
                   <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleLinksDragEnd}>
                     <SortableContext items={generatedLinks.map(l => l.id)} strategy={verticalListSortingStrategy}>
                       {generatedLinks.map(link => (

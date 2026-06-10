@@ -456,11 +456,11 @@ export default function HotProducts() {
                     initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2, delay: prefersReducedMotion ? 0 : Math.min(index * 0.02, 0.2) }}
-                    className="relative flex flex-col bg-[#FFFDF8] border border-[#EADFC6] rounded-xl overflow-hidden group hover:border-[#C9A87A] transition-all hover:shadow-[0_8px_24px_-12px_rgba(120,80,30,0.22)] transform-gpu"
+                    className="relative flex flex-col bg-white border border-neutral-200/80 rounded-xl overflow-hidden group hover:border-neutral-300 transition-all hover:shadow-[0_10px_30px_-12px_rgba(0,0,0,0.15)] transform-gpu"
                   >
                     <button
                       type="button"
-                      className={`aspect-square bg-gradient-to-br from-white to-[#FAF3E4] overflow-hidden text-left ${FOCUS_RING}`}
+                      className={`aspect-square bg-white overflow-hidden text-left ${FOCUS_RING}`}
                       onClick={() => {
                         trackClick(product, 'click');
                         navigate(`/share/hp/${product.id}`);
@@ -470,7 +470,7 @@ export default function HotProducts() {
                       <img
                         src={productImage}
                         alt={cleanTitle}
-                        className="w-full h-full object-contain p-3 group-hover:scale-[1.05] transition-transform duration-300"
+                        className="w-full h-full object-contain p-4 group-hover:scale-[1.05] transition-transform duration-300"
                         loading="lazy"
                         onError={(e) => {
                           const img = e.currentTarget;
@@ -481,10 +481,10 @@ export default function HotProducts() {
                       />
                     </button>
 
-                    <div className="flex flex-col flex-1 p-3 gap-1.5">
+                    <div className="flex flex-col flex-1 p-3 gap-1.5 border-t border-neutral-100">
                       <button
                         type="button"
-                        className={`text-left text-[#1C1208] text-[13px] font-semibold leading-snug line-clamp-2 min-h-[2.25rem] hover:text-[#E86D1F] transition-colors rounded ${FOCUS_RING}`}
+                        className={`text-left text-neutral-900 text-[13px] font-semibold leading-snug line-clamp-2 min-h-[2.25rem] hover:text-[#E85D1F] transition-colors rounded ${FOCUS_RING}`}
                         onClick={() => {
                           trackClick(product, 'click');
                           navigate(`/share/hp/${product.id}`);
@@ -494,28 +494,28 @@ export default function HotProducts() {
                       </button>
 
                       <div className="flex items-baseline justify-between gap-2">
-                        <p className="text-[#1C1208] font-extrabold text-lg leading-none tracking-tight tabular-nums">
+                        <p className="text-neutral-900 font-extrabold text-lg leading-none tracking-tight tabular-nums">
                           {formatCurrency(product.total_price_usd, { locale: locale as any })}
                         </p>
                         {(() => {
                           const v = viewCounts[`${product.provider}:${product.provider_product_id}`] || 0;
                           const display = v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${v}`;
                           return (
-                            <span className="inline-flex items-center gap-0.5 text-[#8B6F4A] text-[10px] font-medium">
+                            <span className="inline-flex items-center gap-0.5 text-neutral-400 text-[10px] font-medium">
                               <Eye className="w-3 h-3" aria-hidden="true" />
                               {display}
                             </span>
                           );
                         })()}
                       </div>
-                      <p className="text-[#0C8A4A] text-[10px] font-medium flex items-center gap-1">
-                        <span aria-hidden="true">✓</span> {t.shippingIncluded}
+                      <p className="text-neutral-500 text-[10px] font-medium flex items-center gap-1">
+                        <span aria-hidden="true" className="text-[#0C8A4A]">✓</span> {t.shippingIncluded}
                       </p>
 
                       <div className="mt-auto grid grid-cols-1 gap-1.5 pt-2">
                         <Button
                           size="sm"
-                          className={`w-full h-9 min-w-0 text-xs font-bold rounded-lg bg-[#1C1208] hover:bg-[#2A1C10] text-white shadow-sm ${FOCUS_RING}`}
+                          className={`w-full h-9 min-w-0 text-xs font-bold rounded-lg bg-[#E85D1F] hover:bg-[#D14F14] text-white shadow-sm ${FOCUS_RING}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             trackClick(product, 'buy_now');
@@ -530,6 +530,7 @@ export default function HotProducts() {
                             <><Zap className="w-3.5 h-3.5 mr-1 shrink-0" aria-hidden="true" /> <span className="min-w-0 truncate">{isDubai ? t.orderNow : t.payNow}</span></>
                           )}
                         </Button>
+
 
                         <Button
                           size="sm"

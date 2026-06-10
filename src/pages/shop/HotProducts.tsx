@@ -561,8 +561,8 @@ export default function HotProducts() {
               if (filtered.length === 0 && products.length > 0) {
                 return (
                   <div className="text-center py-20">
-                    <Search className="w-12 h-12 text-[#C9A87A] mx-auto mb-4" aria-hidden="true" />
-                    <p className="text-[#5C4630] mb-3">{t.noResults}</p>
+                    <Search className="w-12 h-12 text-neutral-300 mx-auto mb-4" aria-hidden="true" />
+                    <p className="text-neutral-500 mb-3">{t.noResults}</p>
                   </div>
                 );
               }
@@ -570,8 +570,8 @@ export default function HotProducts() {
               if (products.length === 0) {
                 return (
                   <div className="text-center py-20">
-                    <Flame className="w-12 h-12 text-[#C9A87A] mx-auto mb-4" aria-hidden="true" />
-                    <p className="text-[#5C4630]">{t.empty}</p>
+                    <Flame className="w-12 h-12 text-neutral-300 mx-auto mb-4" aria-hidden="true" />
+                    <p className="text-neutral-500">{t.empty}</p>
                   </div>
                 );
               }

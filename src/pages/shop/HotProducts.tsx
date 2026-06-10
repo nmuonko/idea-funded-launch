@@ -387,8 +387,8 @@ export default function HotProducts() {
                         onClick={() => setBrandFilter(chip.key)}
                         className={`whitespace-nowrap h-11 px-5 rounded-full text-sm font-semibold border transition-all ${FOCUS_RING} ${
                           active
-                            ? 'bg-[#1C1208] text-white border-[#1C1208] shadow-md'
-                            : 'bg-white text-[#1C1208] border-[#E9D2B0] hover:border-[#1C1208]/40 hover:shadow-sm'
+                            ? 'bg-neutral-900 text-white border-neutral-900 shadow-sm'
+                            : 'bg-white text-neutral-900 border-neutral-200 hover:border-neutral-900/40 hover:shadow-sm'
                         }`}
                         aria-pressed={active}
                       >

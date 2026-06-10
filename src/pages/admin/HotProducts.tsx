@@ -19,6 +19,7 @@ import type { ShippingCategoryRow } from '@/lib/shippingCategoryDetector';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
 import { HotProductAnalytics } from '@/components/admin/dashboard/HotProductAnalytics';
 
 function inferProvider(url: string): string | null {
@@ -977,6 +978,23 @@ export default function HotProducts() {
     setShowcaseProducts(prev => prev.filter(p => p.id !== id));
   }
 
+  async function toggleShowcaseActive(id: string, next: boolean) {
+    // Optimistic update
+    setShowcaseProducts(prev => prev.map(p => p.id === id ? { ...p, is_active: next } : p));
+    if (id.startsWith('new-')) return; // not yet persisted
+    const { error } = await (supabase.from('hot_products_showcase') as any)
+      .update({ is_active: next })
+      .eq('id', id);
+    if (error) {
+      toast.error(t('Failed to update visibility', 'Échec de la mise à jour'));
+      setShowcaseProducts(prev => prev.map(p => p.id === id ? { ...p, is_active: !next } : p));
+      return;
+    }
+    toast.success(next
+      ? t('Visible on Hot Products', 'Visible sur Produits Phares')
+      : t('Hidden from Hot Products', 'Masqué des Produits Phares'));
+  }
+
   function updateField(id: string, field: keyof ShowcaseProduct, value: any) {
     setShowcaseProducts(prev => prev.map(p => {
       if (p.id !== id) return p;
@@ -1021,7 +1039,7 @@ export default function HotProducts() {
         provider: p.provider,
         provider_product_id: p.provider_product_id,
         sort_order: i,
-        is_active: true,
+        is_active: p.is_active !== false,
         created_by: currentUser.id,
       }));
       const { error } = await supabase.from('hot_products_showcase').insert(rows);
@@ -1237,9 +1255,20 @@ export default function HotProducts() {
                         />
                         <p className="text-[10px] text-muted-foreground">{p.provider} · {p.provider_product_id}</p>
                       </div>
-                      <Button variant="ghost" size="icon" className="shrink-0" onClick={() => removeProduct(p.id)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <div className="flex items-center gap-1.5" title={t('Show on Hot Products page', 'Afficher sur la page Produits Phares')}>
+                          <Switch
+                            checked={p.is_active !== false}
+                            onCheckedChange={(v) => toggleShowcaseActive(p.id, v)}
+                          />
+                          <span className="text-[10px] text-muted-foreground">
+                            {p.is_active !== false ? t('Visible', 'Visible') : t('Hidden', 'Masqué')}
+                          </span>
+                        </div>
+                        <Button variant="ghost" size="icon" onClick={() => removeProduct(p.id)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
 
                     {/* Editable price breakdown */}

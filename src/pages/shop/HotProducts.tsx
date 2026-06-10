@@ -88,7 +88,7 @@ const HP_STRINGS = {
     sortFeatured: 'En vedette',
     sortPriceAsc: 'Prix : croissant',
     sortPriceDesc: 'Prix : décroissant',
-    sectionTrending: '🔥 Tendances',
+    sectionTrending: '🔥 Produits en tendance',
     countItems: (n: number) => `${n} article${n === 1 ? '' : 's'}`,
     floatingHelp: 'Besoin d\'aide ?',
 

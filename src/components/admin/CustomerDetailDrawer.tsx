@@ -37,6 +37,7 @@ import {
 import { toast } from 'sonner';
 import { CustomerTagManager } from './CustomerTagManager';
 import { SendCustomerEmailDialog } from './SendCustomerEmailDialog';
+import { CustomerActivityTimeline } from './CustomerActivityTimeline';
 
 interface CustomerProfile {
   id: string;

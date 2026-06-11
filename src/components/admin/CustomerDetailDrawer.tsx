@@ -37,6 +37,7 @@ import {
 import { toast } from 'sonner';
 import { CustomerTagManager } from './CustomerTagManager';
 import { SendCustomerEmailDialog } from './SendCustomerEmailDialog';
+import { CustomerActivityTimeline } from './CustomerActivityTimeline';
 
 interface CustomerProfile {
   id: string;
@@ -423,6 +424,19 @@ export function CustomerDetailDrawer({ customer, open, onOpenChange, onProfileUp
                     ))}
                   </div>
                 )}
+              </div>
+
+              <Separator />
+
+              {/* Activity Timeline */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                  Activity Timeline
+                </h3>
+                <p className="text-xs text-muted-foreground -mt-2">
+                  Views, searches, clicks, checkout steps & errors — chronological.
+                </p>
+                <CustomerActivityTimeline userId={customer.user_id} />
               </div>
             </div>
           </ScrollArea>

@@ -507,7 +507,7 @@ ${buildKbBlock(faqRows, kbaRows)}
 Catalogue AfriShop (produits réels, prix tout-inclus en USD — utilise ces prix si le client demande un prix):
 ${catalogBlock}
 
-Contexte produit:
+Contexte produit (le client REGARDE ce produit en ce moment — ne lui demande JAMAIS "pour quel produit ?" si ce bloc est rempli):
 ${buildProductBlock(product)}
 
 Langue de réponse: ${lang === "en" ? "English" : "Français"}

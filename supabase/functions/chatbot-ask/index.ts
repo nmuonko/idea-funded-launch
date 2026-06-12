@@ -713,20 +713,37 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     }
 
     // DETERMINISTIC: discount / réduction / negotiation → explain 30/70 payment plan instead of recommending other products.
-    const discountRe = /(r[ée]duction|remise|rabais|discount|promo(?:tion)?|moins\s+cher|baisser\s+le\s+prix|negoci|n[ée]gocier|prix\s+(?:plus\s+)?bas|cheaper|deal|coupon)/i;
-    if (discountRe.test(message)) {
+    const discountRe = /(r[ée]duction|remise|rabais|discount|promo(?:tion)?|moins\s+cher|baisser\s+le\s+prix|negoci|n[ée]gocier|prix\s+(?:plus\s+)?bas|cheaper|deal|coupon|pas\s+de\s+r[ée]duction|il\s+y\s+a\s+pas|y\s+a\s+pas\s+de\s+r[ée]duc)/i;
+    const planQuestionRe = /(paiement\s+en\s+plusieurs|en\s+plusieurs\s+fois|installment|in\s+installments?|deposit|acompte|payer\s+en\s+2|payer\s+en\s+deux|30\s*%|70\s*%|plan\s+de\s+paiement|payment\s+plan)/i;
+    if (discountRe.test(message) || planQuestionRe.test(message)) {
       const origin = req.headers.get("origin") || "";
       const ctxLink = product?.link
         ? (product.link.startsWith("http") ? product.link : `${origin}${product.link}`)
         : "";
-      const ctaFr = ctxLink ? `\n[Commander maintenant](${ctxLink})` : "";
-      const ctaEn = ctxLink ? `\n[Order now](${ctxLink})` : "";
+      const priceNum = typeof product?.price_usd === "number" ? product.price_usd : null;
+      const deposit = priceNum != null ? Math.ceil(priceNum * 0.3) : null;
+      const balance = priceNum != null ? Math.ceil(priceNum * 0.7) : null;
+      const depositTxtFr = deposit != null ? ` (~${deposit} USD aujourd'hui, ${balance} USD à la livraison)` : "";
+      const depositTxtEn = deposit != null ? ` (~${deposit} USD today, ${balance} USD on delivery)` : "";
       answer = lang === "en"
-        ? `Our prices are already **all-inclusive** (product + delivery to DRC + taxes + fees) — we keep them as low as possible, so there's no extra discount.\n\nTo make it easier, you can pay in **2 installments**: **30% deposit now + 70% on delivery** before pickup.${ctaEn}`
-        : `Nos prix sont déjà **tout compris** (produit + livraison RDC + taxes + frais) — nous les gardons au plus bas, il n'y a donc pas de réduction supplémentaire.\n\nPour faciliter l'achat, vous pouvez payer en **2 fois** : **30% d'acompte maintenant + 70% à la livraison** avant retrait.${ctaFr}`;
+        ? `Our prices are already all-inclusive (product + delivery to DRC + taxes + fees) — we keep them as low as possible, so there's no extra discount.\n\nTo make it easier, you can pay in 2 installments: 30% deposit now + 70% on delivery${depositTxtEn}. Tap a button below to continue.`
+        : `Nos prix sont déjà tout compris (produit + livraison RDC + taxes + frais) — nous les gardons au plus bas, il n'y a donc pas de réduction supplémentaire.\n\nPour faciliter l'achat, vous pouvez payer en 2 fois : 30% d'acompte maintenant + 70% à la livraison${depositTxtFr}. Touchez un bouton ci-dessous pour continuer.`;
+      paymentPlan = {
+        has_plan: true,
+        deposit_pct: 30,
+        balance_pct: 70,
+        deposit_usd: deposit,
+        balance_usd: balance,
+        total_usd: priceNum,
+        product_title: product?.title || null,
+        product_url: ctxLink || null,
+        order_url: ctxLink || null,
+      };
       needsEscalation = false;
       escalationReason = "";
     }
+
+
 
     // DETERMINISTIC: product recommendation from catalog (only when we have REAL matches).
     if (!productCard && catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message) || asksForMoreOptions)) {

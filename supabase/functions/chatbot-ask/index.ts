@@ -645,7 +645,38 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     let productCard: any = null;
     let productCards: any[] = [];
     const asksForMoreOptions = /(autre|autres|diff[ée]rent|different|couleur|color|mod[èe]les?|models?|options?|choix|capacity|capacit[ée]|gb|tb|plusieurs|more)/i.test(message);
-    if (catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message) || asksForMoreOptions)) {
+
+    // DETERMINISTIC: if product is in context AND user asks a price question, answer with THAT product's price.
+    // Never recommend a different product when the customer is clearly asking about the one they're viewing.
+    if (product?.title && priceQuestionRe.test(message) && !asksForMoreOptions) {
+      const origin = req.headers.get("origin") || "";
+      const fullLink = product.link
+        ? (product.link.startsWith("http") ? product.link : `${origin}${product.link}`)
+        : "";
+      if (product.price_usd != null) {
+        const cdfTxt = product.price_cdf ? ` (~${product.price_cdf} CDF)` : "";
+        answer = lang === "en"
+          ? `The ${product.title} is **${product.price_usd} USD${cdfTxt}** — all included (delivery to DRC, taxes, fees).${fullLink ? `\n[Order now](${fullLink})` : ""}`
+          : `Le ${product.title} est à **${product.price_usd} USD${cdfTxt}** — tout compris (livraison RDC, taxes, frais).${fullLink ? `\n[Commander maintenant](${fullLink})` : ""}`;
+        productCard = {
+          title: product.title,
+          price_usd: product.price_usd,
+          image_url: product.image || null,
+          images: [],
+          capacity: null,
+          color: null,
+          condition: null,
+          product_url: product.link || "",
+          cta_label: lang === "en" ? "Order now" : "Commander maintenant",
+        };
+        productCards = [productCard];
+        needsEscalation = false;
+        escalationReason = "";
+      }
+    }
+
+    if (!productCard && catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message) || asksForMoreOptions)) {
+
       const selectedMatches = asksForMoreOptions ? catalogMatches.filter(p => p.price_usd != null).slice(0, 3) : [];
       const best = asksForMoreOptions ? selectedMatches[0] : pickBestMatch(catalogMatches, { wantsNew });
       const toCard = (match: CatalogMatch) => ({

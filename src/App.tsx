@@ -19,6 +19,7 @@ import { AfriShopChatbotProvider } from "@/contexts/AfriShopChatbotContext";
 import { AfriShopChatbotWidget } from "@/components/shop/AfriShopChatbotWidget";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ShopProtectedRoute } from "@/components/shop/ShopProtectedRoute";
+import { RouteSEO } from "@/components/RouteSEO";
 import { AdminRouteGuard } from "@/components/admin/AdminRouteGuard";
 import { LanguagePreferenceModal } from "@/components/LanguagePreferenceModal";
 import { SupabaseConfigGuard } from "@/components/SupabaseConfigGuard";
@@ -176,6 +177,7 @@ const App = () => {
                 <Toaster />
                    <Sonner />
                     <BrowserRouter>
+                      <RouteSEO />
                       <AfriShopChatbotWidget />
                      <Suspense fallback={<LazyFallback />}>
           <Routes>

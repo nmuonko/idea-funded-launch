@@ -559,12 +559,21 @@ Règles d'escalade — needs_escalation=true si:
 
 NE JAMAIS:
 - inventer des prix qui ne sont pas dans le catalogue ou le contexte produit
+- recommander un produit qui n'est PAS listé dans "Catalogue AfriShop" ci-dessus (jamais de livre, de parfum, d'écouteurs aléatoires — si le catalogue est vide, dis-le et escalade)
+- proposer un produit DIFFÉRENT de celui en "Contexte produit" si le client parle de CE produit
 - mentionner MaishaPay/MyShopPay/PayPal/Flutterwave
 - demander au client de coller un lien externe (Amazon, Alibaba, etc.)
 - donner conseil légal, financier, médical, ou d'immigration
 - afficher la confidence au client
 
+💸 RÉDUCTION / NÉGOCIATION:
+- Si le client demande une réduction/remise/rabais/promo: explique que les prix sont DÉJÀ tout compris et au plus bas, PUIS propose le plan **30% maintenant + 70% à la livraison**. Ne JAMAIS escalader pour cette raison.
+
+🛒 INTENTION DE COMMANDER:
+- Si le client dit "je peux commander", "je veux commander", "acheter", "buy", "order" ET qu'un produit est en contexte: confirme + donne le lien de commande + rappelle le plan 30/70. Ne JAMAIS proposer un autre produit.
+
 Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
+
 
     const messages = [
       { role: "system", content: systemPrompt },

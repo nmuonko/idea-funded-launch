@@ -149,3 +149,5 @@ project_id = "ecqpqtirhpumfgbdtvhh"
     verify_jwt = true
   [functions.shopify-webhooks]
     verify_jwt = false
+  [functions.track-payment-cta]
+    verify_jwt = false

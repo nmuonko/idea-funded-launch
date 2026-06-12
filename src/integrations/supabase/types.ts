@@ -2259,6 +2259,63 @@ export type Database = {
           },
         ]
       }
+      chatbot_payment_escalations: {
+        Row: {
+          bot_answer: string | null
+          conversation_id: string | null
+          created_at: string
+          customer_message: string
+          id: string
+          message_id: string | null
+          metadata: Json
+          product_id: string | null
+          product_title: string | null
+          reason: string
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          bot_answer?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          customer_message: string
+          id?: string
+          message_id?: string | null
+          metadata?: Json
+          product_id?: string | null
+          product_title?: string | null
+          reason: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          bot_answer?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          customer_message?: string
+          id?: string
+          message_id?: string | null
+          metadata?: Json
+          product_id?: string | null
+          product_title?: string | null
+          reason?: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       checkout_funnel_log: {
         Row: {
           created_at: string
@@ -4263,6 +4320,66 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      payment_cta_clicks: {
+        Row: {
+          actor_role: string
+          admin_id: string | null
+          amount_usd: number | null
+          channel: string
+          conversation_id: string | null
+          created_at: string
+          cta_type: string
+          id: string
+          ip_hash: string | null
+          metadata: Json
+          order_id: string | null
+          product_id: string | null
+          product_title: string | null
+          product_url: string | null
+          session_id: string | null
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          actor_role?: string
+          admin_id?: string | null
+          amount_usd?: number | null
+          channel?: string
+          conversation_id?: string | null
+          created_at?: string
+          cta_type: string
+          id?: string
+          ip_hash?: string | null
+          metadata?: Json
+          order_id?: string | null
+          product_id?: string | null
+          product_title?: string | null
+          product_url?: string | null
+          session_id?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          actor_role?: string
+          admin_id?: string | null
+          amount_usd?: number | null
+          channel?: string
+          conversation_id?: string | null
+          created_at?: string
+          cta_type?: string
+          id?: string
+          ip_hash?: string | null
+          metadata?: Json
+          order_id?: string | null
+          product_id?: string | null
+          product_title?: string | null
+          product_url?: string | null
+          session_id?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
       }
       payment_events: {
         Row: {

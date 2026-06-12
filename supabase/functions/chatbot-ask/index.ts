@@ -896,7 +896,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       resolved: !needsEscalation,
     };
 
-    await supabase.from("chatbot_messages").insert({
+    const { data: insertedMsg } = await supabase.from("chatbot_messages").insert({
       conversation_id: convId,
       role: "assistant",
       content: answer,
@@ -904,7 +904,37 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       confidence,
       needs_escalation: needsEscalation,
       escalation_reason: escalationReason || null,
-    });
+    }).select("id").single();
+
+    // Payment-related escalation: customer asked a payment/pricing/discount question
+    // but Sophie could not produce an actionable next step (no payment plan, no product card).
+    try {
+      const paymentTopicRe = /(pay|payer|paiement|payment|achat|acheter|order|commander|prix|price|cost|co[uû]t|combien|how\s+much|r[ée]duction|discount|remise|deposit|acompte|installment|en\s+plusieurs)/i;
+      const askedPayment = paymentTopicRe.test(message);
+      const hasActionable = !!paymentPlan?.has_plan || !!productCard?.product_url || !!product?.link;
+      if (askedPayment && (needsEscalation || !hasActionable)) {
+        const reason = needsEscalation
+          ? (escalationReason || "NO_ACTIONABLE_PAYMENT_STEP")
+          : "NO_ACTIONABLE_PAYMENT_STEP";
+        await supabase.from("chatbot_payment_escalations").insert({
+          conversation_id: convId,
+          message_id: insertedMsg?.id ?? null,
+          user_id: userId ?? null,
+          customer_message: String(message).slice(0, 2000),
+          bot_answer: String(answer).slice(0, 4000),
+          reason,
+          product_id: product?.id ?? null,
+          product_title: product?.title ?? null,
+          metadata: {
+            lang,
+            category: classification.category || null,
+            intent: classification.intent || null,
+          },
+        });
+      }
+    } catch (e) {
+      console.error("[chatbot-ask] payment escalation log failed", e);
+    }
 
     await supabase
       .from("chatbot_conversations")
@@ -927,6 +957,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       escalation_reason: needsEscalation ? escalationReason : null,
       product_card: needsEscalation ? null : productCard,
       product_cards: needsEscalation ? [] : productCards,
+      payment_plan: paymentPlan,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     console.error(e);

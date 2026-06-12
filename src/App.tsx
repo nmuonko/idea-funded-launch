@@ -73,6 +73,7 @@ const DubaiUpload = lazy(() => import("./pages/DubaiUpload"));
 const AdminInternationalProducts = lazy(() => import("./pages/admin/InternationalProducts"));
 const AdminTelegramImport = lazy(() => import("./pages/admin/TelegramImport"));
 const AdminChatbotConversations = lazy(() => import("./pages/admin/ChatbotConversations"));
+const PaymentEscalations = lazy(() => import("./pages/admin/PaymentEscalations"));
 const AdminCountryShippingRates = lazy(() => import("./pages/admin/CountryShippingRates"));
 const FinanceHub = lazy(() => import("./pages/admin/hubs").then(m => ({ default: m.FinanceHub })));
 const SupportHub = lazy(() => import("./pages/admin/hubs").then(m => ({ default: m.SupportHub })));

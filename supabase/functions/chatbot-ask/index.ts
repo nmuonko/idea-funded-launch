@@ -688,6 +688,23 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       escalationReason = "";
     }
 
+    // DETERMINISTIC availability override: if a product is in context and user asks about availability,
+    // confirm directly instead of asking which product.
+    const availabilityRe = /(disponib|confirmer\s+la\s+dispo|en\s+stock|stock|available|availability|in\s+stock)/i;
+    if (product?.title && availabilityRe.test(message)) {
+      const origin = req.headers.get("origin") || "";
+      const fullLink = product.link
+        ? (product.link.startsWith("http") ? product.link : `${origin}${product.link}`)
+        : "";
+      const priceTxt = product.price_usd != null ? ` à ${product.price_usd} USD (tout inclus)` : "";
+      const priceTxtEn = product.price_usd != null ? ` at ${product.price_usd} USD (all included)` : "";
+      answer = lang === "en"
+        ? `Yes, the ${product.title} is available${priceTxtEn}.${fullLink ? `\n[Order now](${fullLink})` : ""}`
+        : `Oui, le ${product.title} est disponible${priceTxt}.${fullLink ? `\n[Commander maintenant](${fullLink})` : ""}`;
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
     // DETERMINISTIC shipping/fees override: total price is all-inclusive.
     const shippingFeeRe = /(frais\s+de\s+livraison|frais\s+de\s+service|frais\s+suppl|co[uû]t\s+de\s+livraison|shipping\s+fee|delivery\s+fee|service\s+fee|extra\s+fee|hidden\s+fee)/i;
     if (shippingFeeRe.test(message)) {

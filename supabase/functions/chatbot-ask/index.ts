@@ -653,6 +653,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     const wantsNew = /\b(tout\s+neuf|neuf|neuve|carton\s+scell|scell[ée]e?s?|sealed|brand\s+new|new\s+in\s+box|nib)\b/i.test(wantsNewContext);
     let productCard: any = null;
     let productCards: any[] = [];
+    let paymentPlan: any = null;
     const asksForMoreOptions = /(autre|autres|diff[ée]rent|different|couleur|color|mod[èe]les?|models?|options?|choix|capacity|capacit[ée]|gb|tb|plusieurs|more)/i.test(message);
 
     // DETERMINISTIC: if product is in context AND user asks a price question, answer with THAT product's price.

@@ -272,6 +272,7 @@ export function AfriShopChatbotWidget() {
       const product_cards: ProductCard[] = Array.isArray(data?.product_cards)
         ? data.product_cards
         : (product_card ? [product_card] : []);
+      const payment_plan: PaymentPlan | null = data?.payment_plan ?? null;
 
       // Human-like typing delay: 1–2s short, 2–3s longer
       const isLong = answer.length > 140;
@@ -282,7 +283,21 @@ export function AfriShopChatbotWidget() {
       const wait = Math.max(0, targetDelay - elapsed);
       await new Promise(r => setTimeout(r, wait));
 
-      setMessages(m => [...m, { id: crypto.randomUUID(), role: 'assistant', content: answer, ts: Date.now(), escalate, product_card, product_cards }]);
+      if (payment_plan?.has_plan) {
+        trackPaymentCta({
+          cta_type: 'plan_explained',
+          channel: 'chatbot',
+          actor_role: user?.id ? 'customer' : 'guest',
+          conversation_id: conversationId ?? data?.conversation_id ?? null,
+          product_id: product?.id ?? null,
+          product_title: payment_plan.product_title,
+          product_url: payment_plan.order_url,
+          amount_usd: payment_plan.total_usd,
+          session_id: getSessionId(),
+        });
+      }
+
+      setMessages(m => [...m, { id: crypto.randomUUID(), role: 'assistant', content: answer, ts: Date.now(), escalate, product_card, product_cards, payment_plan }]);
     } catch (e) {
       const elapsed = Date.now() - startedAt;
       await new Promise(r => setTimeout(r, Math.max(0, 1200 - elapsed)));

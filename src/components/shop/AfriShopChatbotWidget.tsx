@@ -438,6 +438,78 @@ export function AfriShopChatbotWidget() {
                         </div>
                       </div>
                     ))}
+                    {m.role === 'assistant' && m.payment_plan?.has_plan && (
+                      <div className="mt-2 rounded-xl overflow-hidden bg-[#111b21] border border-[#25D366]/40 shadow-lg">
+                        <div className="px-3 py-2 bg-gradient-to-r from-[#25D366]/20 to-transparent border-b border-[#25D366]/30">
+                          <div className="text-xs font-bold text-[#25D366] uppercase tracking-wide">
+                            Plan de paiement 30 / 70
+                          </div>
+                          {m.payment_plan.product_title && (
+                            <div className="text-[11px] text-white/70 line-clamp-1 mt-0.5">
+                              {m.payment_plan.product_title}
+                            </div>
+                          )}
+                        </div>
+                        <div className="p-3 grid grid-cols-2 gap-2 text-center text-white">
+                          <div className="rounded-lg bg-white/5 border border-white/10 p-2">
+                            <div className="text-[10px] uppercase text-white/60">Acompte 30%</div>
+                            <div className="text-base font-bold text-[#25D366]">
+                              {m.payment_plan.deposit_usd != null ? `${m.payment_plan.deposit_usd} USD` : '30%'}
+                            </div>
+                            <div className="text-[10px] text-white/50">aujourd'hui</div>
+                          </div>
+                          <div className="rounded-lg bg-white/5 border border-white/10 p-2">
+                            <div className="text-[10px] uppercase text-white/60">Solde 70%</div>
+                            <div className="text-base font-bold text-white">
+                              {m.payment_plan.balance_usd != null ? `${m.payment_plan.balance_usd} USD` : '70%'}
+                            </div>
+                            <div className="text-[10px] text-white/50">à la livraison</div>
+                          </div>
+                        </div>
+                        <div className="p-3 pt-0 space-y-2">
+                          {m.payment_plan.order_url && (
+                            <a
+                              href={m.payment_plan.order_url}
+                              onClick={() => trackPaymentCta({
+                                cta_type: 'deposit_30',
+                                channel: 'chatbot',
+                                actor_role: user?.id ? 'customer' : 'guest',
+                                conversation_id: conversationId,
+                                product_id: product?.id ?? null,
+                                product_title: m.payment_plan!.product_title,
+                                product_url: m.payment_plan!.order_url,
+                                amount_usd: m.payment_plan!.deposit_usd,
+                                session_id: getSessionId(),
+                                metadata: { plan: '30_70', step: 'deposit' },
+                              })}
+                              className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline"
+                            >
+                              Payer 30% maintenant →
+                            </a>
+                          )}
+                          {m.payment_plan.order_url && (
+                            <a
+                              href={m.payment_plan.order_url}
+                              onClick={() => trackPaymentCta({
+                                cta_type: 'full_100',
+                                channel: 'chatbot',
+                                actor_role: user?.id ? 'customer' : 'guest',
+                                conversation_id: conversationId,
+                                product_id: product?.id ?? null,
+                                product_title: m.payment_plan!.product_title,
+                                product_url: m.payment_plan!.order_url,
+                                amount_usd: m.payment_plan!.total_usd,
+                                session_id: getSessionId(),
+                                metadata: { plan: 'full', step: 'full' },
+                              })}
+                              className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 transition text-white text-sm font-semibold no-underline border border-white/15"
+                            >
+                              Payer 100% en ligne
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     <div className={cn('text-[10px] mt-0.5 flex items-center gap-0.5 justify-end', m.role === 'user' ? 'text-white/60' : 'text-white/40')}>
                       <span>{formatTime(m.ts)}</span>
                       {m.role === 'user' && <CheckCheck className="w-3 h-3" />}

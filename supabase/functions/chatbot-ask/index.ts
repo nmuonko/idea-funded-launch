@@ -507,7 +507,7 @@ ${buildKbBlock(faqRows, kbaRows)}
 Catalogue AfriShop (produits réels, prix tout-inclus en USD — utilise ces prix si le client demande un prix):
 ${catalogBlock}
 
-Contexte produit:
+Contexte produit (le client REGARDE ce produit en ce moment — ne lui demande JAMAIS "pour quel produit ?" si ce bloc est rempli):
 ${buildProductBlock(product)}
 
 Langue de réponse: ${lang === "en" ? "English" : "Français"}
@@ -684,6 +684,23 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       answer = lang === "en"
         ? `Here is your secure payment link:\n${fullLink}\nClick to complete your order.`
         : `Voici votre lien de paiement sécurisé :\n${fullLink}\nCliquez pour finaliser votre commande.`;
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
+    // DETERMINISTIC availability override: if a product is in context and user asks about availability,
+    // confirm directly instead of asking which product.
+    const availabilityRe = /(disponib|confirmer\s+la\s+dispo|en\s+stock|stock|available|availability|in\s+stock)/i;
+    if (product?.title && availabilityRe.test(message)) {
+      const origin = req.headers.get("origin") || "";
+      const fullLink = product.link
+        ? (product.link.startsWith("http") ? product.link : `${origin}${product.link}`)
+        : "";
+      const priceTxt = product.price_usd != null ? ` à ${product.price_usd} USD (tout inclus)` : "";
+      const priceTxtEn = product.price_usd != null ? ` at ${product.price_usd} USD (all included)` : "";
+      answer = lang === "en"
+        ? `Yes, the ${product.title} is available${priceTxtEn}.${fullLink ? `\n[Order now](${fullLink})` : ""}`
+        : `Oui, le ${product.title} est disponible${priceTxt}.${fullLink ? `\n[Commander maintenant](${fullLink})` : ""}`;
       needsEscalation = false;
       escalationReason = "";
     }

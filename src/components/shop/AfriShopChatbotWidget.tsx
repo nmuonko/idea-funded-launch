@@ -21,6 +21,18 @@ interface ProductCard {
   cta_label?: string;
 }
 
+interface PaymentPlan {
+  has_plan: boolean;
+  deposit_pct: number;
+  balance_pct: number;
+  deposit_usd: number | null;
+  balance_usd: number | null;
+  total_usd: number | null;
+  product_title: string | null;
+  product_url: string | null;
+  order_url: string | null;
+}
+
 interface ChatMsg {
   id: string;
   role: 'user' | 'assistant';
@@ -29,6 +41,27 @@ interface ChatMsg {
   escalate?: boolean;
   product_card?: ProductCard | null;
   product_cards?: ProductCard[];
+  payment_plan?: PaymentPlan | null;
+}
+
+async function trackPaymentCta(payload: {
+  cta_type: 'deposit_30' | 'full_100' | 'plan_explained' | 'payment_link' | 'order_now' | 'contact_agent';
+  channel?: 'chatbot' | 'admin_portal' | 'checkout' | 'shop';
+  actor_role?: 'customer' | 'admin' | 'guest';
+  conversation_id?: string | null;
+  product_id?: string | null;
+  product_title?: string | null;
+  product_url?: string | null;
+  amount_usd?: number | null;
+  session_id?: string | null;
+  metadata?: Record<string, unknown>;
+}) {
+  try {
+    await supabase.functions.invoke('track-payment-cta', { body: payload });
+  } catch (e) {
+    // never block CTA on tracking failure
+    console.warn('track-payment-cta failed', e);
+  }
 }
 
 const QUICK_REPLIES = [

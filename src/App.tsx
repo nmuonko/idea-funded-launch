@@ -409,6 +409,11 @@ const App = () => {
                     <AdminChatbotConversations />
                   </AdminRouteGuard>
                 } />
+                <Route path="payment-escalations" element={
+                  <AdminRouteGuard requiredPermission="can_view_tickets">
+                    <PaymentEscalations />
+                  </AdminRouteGuard>
+                } />
               </Route>
 
               {/* ===== Marketing hub (tabs) ===== */}

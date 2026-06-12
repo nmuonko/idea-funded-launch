@@ -65,7 +65,7 @@ Modèle:
 - Dès le paiement confirmé, AfriShop lance la commande USA → RDC.
 - Délai de livraison: 2 à 4 semaines selon la ville et le moment de l'achat, la plupart arrivent en 10 jours ouvrés (ne JAMAIS donner de date exacte).
 - Prix affichés en USD; total aussi affiché en CDF au checkout.
-- Paiement: 100% en ligne avant expédition, OU plan 30% maintenant + 70% à la livraison avant retrait — disponible pour TOUS les clients, sans condition. NE JAMAIS dire "pas de paiement à la livraison" ni "selon éligibilité".
+- Paiement: 100% en ligne avant expédition, OU plan **30% maintenant + 70% à la livraison** avant retrait — disponible pour TOUS les clients, sans condition. C'est aussi la réponse aux demandes de réduction/remise: pas de rabais (prix déjà tout compris), mais paiement échelonné 30/70 possible. NE JAMAIS dire "pas de paiement à la livraison" ni "selon éligibilité".
 - Produits interdits: livres, contenu numérique, abonnements, articles adultes/NSFW.
 - Parrainage: 10% commission via mobile money après seuil de 5 USD.
 - Véhicules: marges variables. Si données précises manquantes, escalader.
@@ -559,12 +559,21 @@ Règles d'escalade — needs_escalation=true si:
 
 NE JAMAIS:
 - inventer des prix qui ne sont pas dans le catalogue ou le contexte produit
+- recommander un produit qui n'est PAS listé dans "Catalogue AfriShop" ci-dessus (jamais de livre, de parfum, d'écouteurs aléatoires — si le catalogue est vide, dis-le et escalade)
+- proposer un produit DIFFÉRENT de celui en "Contexte produit" si le client parle de CE produit
 - mentionner MaishaPay/MyShopPay/PayPal/Flutterwave
 - demander au client de coller un lien externe (Amazon, Alibaba, etc.)
 - donner conseil légal, financier, médical, ou d'immigration
 - afficher la confidence au client
 
+💸 RÉDUCTION / NÉGOCIATION:
+- Si le client demande une réduction/remise/rabais/promo: explique que les prix sont DÉJÀ tout compris et au plus bas, PUIS propose le plan **30% maintenant + 70% à la livraison**. Ne JAMAIS escalader pour cette raison.
+
+🛒 INTENTION DE COMMANDER:
+- Si le client dit "je peux commander", "je veux commander", "acheter", "buy", "order" ET qu'un produit est en contexte: confirme + donne le lien de commande + rappelle le plan 30/70. Ne JAMAIS proposer un autre produit.
+
 Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
+
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -675,6 +684,51 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       }
     }
 
+    // DETERMINISTIC: order intent + product in context → return product card with CTA (never recommend a different product).
+    const orderIntentRe = /(je\s+peux\s+commander|je\s+veux\s+commander|comment\s+commander|commander|order(?:\s+(?:now|please|svp))?|i\s+want\s+to\s+(?:buy|order)|je\s+(?:veux|voudrais)\s+(?:acheter|prendre|payer)|acheter\s+maintenant|buy\s+now)/i;
+    if (!productCard && product?.title && orderIntentRe.test(message)) {
+      const origin = req.headers.get("origin") || "";
+      const fullLink = product.link
+        ? (product.link.startsWith("http") ? product.link : `${origin}${product.link}`)
+        : "";
+      const priceTxt = product.price_usd != null ? ` (${product.price_usd} USD, tout compris)` : "";
+      const priceTxtEn = product.price_usd != null ? ` (${product.price_usd} USD, all included)` : "";
+      answer = lang === "en"
+        ? `Absolutely — you can order the **${product.title}**${priceTxtEn} right now. Two options: pay 100% online, or **30% deposit now + 70% on delivery**.${fullLink ? `\n[Order now](${fullLink})` : ""}`
+        : `Bien sûr — vous pouvez commander le **${product.title}**${priceTxt} dès maintenant. Deux options : paiement 100% en ligne, ou **30% d'acompte maintenant + 70% à la livraison**.${fullLink ? `\n[Commander maintenant](${fullLink})` : ""}`;
+      productCard = {
+        title: product.title,
+        price_usd: product.price_usd ?? null,
+        image_url: product.image || null,
+        images: [],
+        capacity: null,
+        color: null,
+        condition: null,
+        product_url: product.link || "",
+        cta_label: lang === "en" ? "Order now" : "Commander maintenant",
+      };
+      productCards = [productCard];
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
+    // DETERMINISTIC: discount / réduction / negotiation → explain 30/70 payment plan instead of recommending other products.
+    const discountRe = /(r[ée]duction|remise|rabais|discount|promo(?:tion)?|moins\s+cher|baisser\s+le\s+prix|negoci|n[ée]gocier|prix\s+(?:plus\s+)?bas|cheaper|deal|coupon)/i;
+    if (discountRe.test(message)) {
+      const origin = req.headers.get("origin") || "";
+      const ctxLink = product?.link
+        ? (product.link.startsWith("http") ? product.link : `${origin}${product.link}`)
+        : "";
+      const ctaFr = ctxLink ? `\n[Commander maintenant](${ctxLink})` : "";
+      const ctaEn = ctxLink ? `\n[Order now](${ctxLink})` : "";
+      answer = lang === "en"
+        ? `Our prices are already **all-inclusive** (product + delivery to DRC + taxes + fees) — we keep them as low as possible, so there's no extra discount.\n\nTo make it easier, you can pay in **2 installments**: **30% deposit now + 70% on delivery** before pickup.${ctaEn}`
+        : `Nos prix sont déjà **tout compris** (produit + livraison RDC + taxes + frais) — nous les gardons au plus bas, il n'y a donc pas de réduction supplémentaire.\n\nPour faciliter l'achat, vous pouvez payer en **2 fois** : **30% d'acompte maintenant + 70% à la livraison** avant retrait.${ctaFr}`;
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
+    // DETERMINISTIC: product recommendation from catalog (only when we have REAL matches).
     if (!productCard && catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message) || asksForMoreOptions)) {
 
       const selectedMatches = asksForMoreOptions ? catalogMatches.filter(p => p.price_usd != null).slice(0, 3) : [];
@@ -704,6 +758,21 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
         escalationReason = "";
       }
     }
+
+    // ANTI-HALLUCINATION: if the AI answer looks like it's recommending a product
+    // ("Voici une excellente option / Here's a great match") but we have NO real
+    // catalog match AND no product in context, suppress the recommendation and escalate.
+    // This prevents Sophie from suggesting random books/perfume/accessories.
+    const recommendationPhraseRe = /(voici\s+une\s+excellente\s+option|here'?s?\s+a\s+great\s+(?:match|option)|je\s+vous\s+recommande|i\s+recommend)/i;
+    if (!productCard && recommendationPhraseRe.test(answer) && catalogMatches.length === 0) {
+      answer = lang === "en"
+        ? `I don't have that exact product in our active catalog right now. Let me connect you with our team for a personalized quote.`
+        : `Je n'ai pas ce produit exact dans notre catalogue actif pour le moment. Je vous mets en contact avec notre équipe pour un devis personnalisé.`;
+      needsEscalation = true;
+      escalationReason = escalationReason || "PRODUCT_NOT_IN_CATALOG";
+      productCards = [];
+    }
+
 
 
     // DETERMINISTIC payment-link override: if user asks how to pay and we have a product link,

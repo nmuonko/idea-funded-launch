@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Flame, Zap, MessageCircle, Mail, Home, Search, TrendingUp, Sparkles, X, Eye } from 'lucide-react';
+import { Loader2, Flame, Zap, MessageCircle, Mail, Home, Search, TrendingUp, Sparkles, X, MousePointerClick } from 'lucide-react';
 
 import { motion, useReducedMotion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -245,17 +245,22 @@ export default function HotProducts() {
     fetchProducts();
   }, []);
 
-  // Fetch aggregated view counts per hot product
+  // Fetch real click counts per hot product (click + buy_now events only — not page views)
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const { data, error } = await (supabase as any).rpc('get_hot_product_view_counts');
+        const { data, error } = await (supabase as any)
+          .from('hot_product_clicks')
+          .select('provider, provider_product_id, event_type')
+          .in('event_type', ['click', 'buy_now'])
+          .limit(50000);
         if (error || !data || cancelled) return;
         const map: Record<string, number> = {};
-        for (const row of data as Array<{ provider: string; provider_product_id: string; views: number }>) {
+        for (const row of data as Array<{ provider: string; provider_product_id: string }>) {
           if (!row.provider_product_id) continue;
-          map[`${row.provider}:${row.provider_product_id}`] = Number(row.views) || 0;
+          const k = `${row.provider}:${row.provider_product_id}`;
+          map[k] = (map[k] || 0) + 1;
         }
         setViewCounts(map);
       } catch {
@@ -266,23 +271,22 @@ export default function HotProducts() {
   }, []);
 
   const trackClick = (product: HotProduct, eventType: 'view' | 'click' | 'buy_now') => {
-    // Optimistically increment local view counter on any user-initiated click
+    // Optimistically increment local click counter only for real clicks
     if (eventType === 'click' || eventType === 'buy_now') {
       const k = `${product.provider}:${product.provider_product_id}`;
       setViewCounts((prev) => ({ ...prev, [k]: (prev[k] || 0) + 1 }));
     }
-    // Persist as a 'view' for clicks so the aggregated count reflects engagement
-    const persistedType = eventType === 'click' ? 'view' : eventType;
     supabase.from('hot_product_clicks' as any).insert({
       provider_product_id: product.provider_product_id,
       provider: product.provider,
-      event_type: persistedType,
+      event_type: eventType,
       source: 'web',
       referrer_code: refCode || null,
       session_id: sessionStorage.getItem('hp_session') || (() => { const s = crypto.randomUUID(); sessionStorage.setItem('hp_session', s); return s; })(),
       user_id: session?.user?.id || null,
     }).then(() => {});
   };
+
 
   useEffect(() => {
     if (products.length === 0) return;
@@ -499,14 +503,16 @@ export default function HotProducts() {
                         </p>
                         {(() => {
                           const v = viewCounts[`${product.provider}:${product.provider_product_id}`] || 0;
+                          if (v <= 0) return null;
                           const display = v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${v}`;
                           return (
-                            <span className="inline-flex items-center gap-0.5 text-neutral-400 text-[10px] font-medium">
-                              <Eye className="w-3 h-3" aria-hidden="true" />
+                            <span className="inline-flex items-center gap-0.5 text-neutral-400 text-[10px] font-medium" title={`${v} click${v === 1 ? '' : 's'}`}>
+                              <MousePointerClick className="w-3 h-3" aria-hidden="true" />
                               {display}
                             </span>
                           );
                         })()}
+
                       </div>
 
                       <div className="mt-auto flex flex-col gap-1.5 pt-2">

@@ -503,14 +503,16 @@ export default function HotProducts() {
                         </p>
                         {(() => {
                           const v = viewCounts[`${product.provider}:${product.provider_product_id}`] || 0;
+                          if (v <= 0) return null;
                           const display = v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${v}`;
                           return (
-                            <span className="inline-flex items-center gap-0.5 text-neutral-400 text-[10px] font-medium">
-                              <Eye className="w-3 h-3" aria-hidden="true" />
+                            <span className="inline-flex items-center gap-0.5 text-neutral-400 text-[10px] font-medium" title={`${v} click${v === 1 ? '' : 's'}`}>
+                              <MousePointerClick className="w-3 h-3" aria-hidden="true" />
                               {display}
                             </span>
                           );
                         })()}
+
                       </div>
 
                       <div className="mt-auto flex flex-col gap-1.5 pt-2">

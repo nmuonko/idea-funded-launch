@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Flame, Zap, MessageCircle, Mail, Home, Search, TrendingUp, Sparkles, X, Eye } from 'lucide-react';
+import { Loader2, Flame, Zap, MessageCircle, Mail, Home, Search, TrendingUp, Sparkles, X, MousePointerClick } from 'lucide-react';
 
 import { motion, useReducedMotion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';

@@ -719,6 +719,12 @@ async function handlePawaPay(req: Request, supabase: any): Promise<Response> {
     provider_transaction_id: payload.correspondentIds?.operatorId || payload.depositId,
     paid_at: result.status === 'succeeded' ? (payload.respondedByPayer || new Date().toISOString()) : undefined,
     raw_events: [...(payment.raw_events || []), payload],
+    failure_code: result.status === 'failed'
+      ? (payload.failureReason?.failureCode || 'pawapay_failed')
+      : undefined,
+    failure_reason: result.status === 'failed'
+      ? (payload.failureReason?.failureMessage || 'Mobile money payment failed')
+      : undefined,
   });
 
   if (updated && result.status === 'succeeded') {

@@ -124,10 +124,15 @@ Deno.serve(async (req) => {
     await uploadList(images, "img", uploadedUrls);
     await uploadList(rawImages, "raw", uploadedRawUrls);
 
+    const ALLOWED_VIDEO_MIMES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
     let videoUrl: string | null = null;
     if (typeof body.video === "string" && body.video.startsWith("data:")) {
       const decoded = decodeDataUrl(body.video);
-      if (decoded && decoded.bytes.length <= 50 * 1024 * 1024) {
+      if (
+        decoded &&
+        ALLOWED_VIDEO_MIMES.has(decoded.mime) &&
+        decoded.bytes.length <= 50 * 1024 * 1024
+      ) {
         const path = `pending/${uploadId}/video.${extFor(decoded.mime)}`;
         const { error } = await supa.storage
           .from("dubai-uploads")

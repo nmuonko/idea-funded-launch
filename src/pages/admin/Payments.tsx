@@ -25,6 +25,8 @@ interface Payment {
   status: string;
   provider_ref: string | null;
   last_error: string | null;
+  failure_code: string | null;
+  failure_reason: string | null;
   expires_at: string | null;
   created_at: string;
   updated_at: string;

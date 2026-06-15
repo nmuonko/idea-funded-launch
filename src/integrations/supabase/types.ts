@@ -4594,6 +4594,8 @@ export type Database = {
           created_at: string | null
           currency: string
           customer_phone: string | null
+          failure_code: string | null
+          failure_reason: string | null
           id: string
           kind: string
           order_id: string
@@ -4614,6 +4616,8 @@ export type Database = {
           created_at?: string | null
           currency: string
           customer_phone?: string | null
+          failure_code?: string | null
+          failure_reason?: string | null
           id?: string
           kind?: string
           order_id: string
@@ -4634,6 +4638,8 @@ export type Database = {
           created_at?: string | null
           currency?: string
           customer_phone?: string | null
+          failure_code?: string | null
+          failure_reason?: string | null
           id?: string
           kind?: string
           order_id?: string

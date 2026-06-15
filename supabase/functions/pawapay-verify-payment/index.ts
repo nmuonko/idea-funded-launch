@@ -130,6 +130,8 @@ serve(async (req) => {
             await updatePaymentStatus(adminClient, payment.id, verifyResult.status, {
               provider_transaction_id: verifyResult.provider_transaction_id,
               paid_at: verifyResult.paid_at,
+              failure_code: verifyResult.status === 'failed' ? verifyResult.failure_code : undefined,
+              failure_reason: verifyResult.status === 'failed' ? (verifyResult.failure_reason || verifyResult.error) : undefined,
             });
 
             // Update order if succeeded

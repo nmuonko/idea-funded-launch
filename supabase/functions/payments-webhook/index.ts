@@ -373,6 +373,9 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
     if (newStatus === 'succeeded') {
       updateData.paid_at = new Date().toISOString();
       updateData.provider_transaction_id = session.payment_intent || sessionId;
+    } else if (newStatus === 'failed') {
+      updateData.failure_code = 'checkout_expired';
+      updateData.failure_reason = 'Stripe Checkout session expired before payment';
     }
 
     const { error: updateError } = await supabase
@@ -549,6 +552,10 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
     if (internalStatus === 'succeeded') {
       updateData.paid_at = new Date().toISOString();
       updateData.provider_transaction_id = result.payment_intent_id;
+    } else if (internalStatus === 'failed') {
+      const lpe = (event as any)?.data?.object?.last_payment_error || {};
+      updateData.failure_code = lpe.decline_code || lpe.code || 'stripe_failed';
+      updateData.failure_reason = lpe.message || 'Stripe payment failed';
     }
 
     const { error: updateError } = await supabase
@@ -712,6 +719,12 @@ async function handlePawaPay(req: Request, supabase: any): Promise<Response> {
     provider_transaction_id: payload.correspondentIds?.operatorId || payload.depositId,
     paid_at: result.status === 'succeeded' ? (payload.respondedByPayer || new Date().toISOString()) : undefined,
     raw_events: [...(payment.raw_events || []), payload],
+    failure_code: result.status === 'failed'
+      ? (payload.failureReason?.failureCode || 'pawapay_failed')
+      : undefined,
+    failure_reason: result.status === 'failed'
+      ? (payload.failureReason?.failureMessage || 'Mobile money payment failed')
+      : undefined,
   });
 
   if (updated && result.status === 'succeeded') {

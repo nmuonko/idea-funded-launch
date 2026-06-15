@@ -107,14 +107,20 @@ Deno.serve(async (req) => {
 
       const newStatus = result.status; // 'succeeded' | 'failed'
 
+      const updatePayload: any = {
+        status: newStatus,
+        provider_transaction_id: result.provider_transaction_id ?? null,
+        paid_at: result.paid_at ?? null,
+        updated_at: new Date().toISOString(),
+      };
+      if (newStatus === "failed") {
+        updatePayload.failure_code = result.failure_code ?? null;
+        updatePayload.failure_reason = result.failure_reason ?? result.error ?? null;
+      }
+
       const { error: updErr } = await admin
         .from("payments")
-        .update({
-          status: newStatus,
-          provider_transaction_id: result.provider_transaction_id ?? null,
-          paid_at: result.paid_at ?? null,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq("id", p.id);
 
       if (updErr) {

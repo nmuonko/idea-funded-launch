@@ -726,15 +726,23 @@ export async function verifyDeposit(
     }
 
     if (decision === 'FAILED') {
+      const failureCode = deposit.failureReason?.failureCode
+        || deposit.rejectionReason?.rejectionCode
+        || String(deposit.status || 'FAILED');
+      const failureMessage = deposit.failureReason?.failureMessage
+        || deposit.rejectionReason?.rejectionMessage
+        || `pawaPay status: ${deposit.status}`;
       console.log('[pawaPay] Payment FAILED:', {
         depositId,
-        failureCode: deposit.failureReason?.failureCode,
-        failureMessage: deposit.failureReason?.failureMessage,
+        failureCode,
+        failureMessage,
       });
       return {
         success: true,
         status: 'failed',
-        error: deposit.failureReason?.failureMessage || 'Payment failed',
+        error: failureMessage,
+        failure_code: failureCode,
+        failure_reason: failureMessage,
       };
     }
 

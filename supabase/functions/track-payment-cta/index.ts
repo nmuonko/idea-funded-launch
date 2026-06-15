@@ -42,15 +42,26 @@ Deno.serve(async (req) => {
       });
     }
     const channel = ALLOWED_CHANNEL.has(body.channel) ? body.channel : "chatbot";
-    const actorRole = ALLOWED_ROLE.has(body.actor_role) ? body.actor_role : "customer";
 
-    // Resolve user from Authorization header
+    // Resolve user from Authorization header and derive actor_role server-side.
+    // Never trust client-provided actor_role — it would let anon users forge admin CTA events.
     let userId: string | null = null;
     const auth = req.headers.get("authorization") || "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     if (token) {
       const { data } = await supabase.auth.getUser(token);
       userId = data?.user?.id ?? null;
+    }
+
+    let actorRole: "guest" | "customer" | "admin" = userId ? "customer" : "guest";
+    if (userId) {
+      const { data: roleRow } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .eq("role", "admin")
+        .maybeSingle();
+      if (roleRow) actorRole = "admin";
     }
 
     const ua = req.headers.get("user-agent") || null;

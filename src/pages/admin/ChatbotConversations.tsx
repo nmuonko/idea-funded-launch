@@ -112,6 +112,49 @@ export default function ChatbotConversations() {
         <p className="text-sm text-muted-foreground">Historique de toutes les conversations entre les clients et Sophie.</p>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={escalationFilter} onValueChange={(v) => setEscalationFilter(v as any)}>
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="Escalade" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toutes les conversations</SelectItem>
+            <SelectItem value="escalated">Escaladées uniquement</SelectItem>
+            <SelectItem value="not_escalated">Non escaladées</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="justify-start text-left font-normal w-[180px]">
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {fromDate ? format(fromDate, 'PPP') : <span className="text-muted-foreground">Du</span>}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar mode="single" selected={fromDate} onSelect={setFromDate} initialFocus className="p-3 pointer-events-auto" />
+          </PopoverContent>
+        </Popover>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="justify-start text-left font-normal w-[180px]">
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {toDate ? format(toDate, 'PPP') : <span className="text-muted-foreground">Au</span>}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar mode="single" selected={toDate} onSelect={setToDate} initialFocus className="p-3 pointer-events-auto" />
+          </PopoverContent>
+        </Popover>
+
+        {(fromDate || toDate || escalationFilter !== 'all') && (
+          <Button variant="ghost" size="sm" onClick={() => { setFromDate(undefined); setToDate(undefined); setEscalationFilter('all'); }}>
+            <X className="w-4 h-4 mr-1" /> Réinitialiser
+          </Button>
+        )}
+      </div>
+
       <div className="grid md:grid-cols-[360px,1fr] gap-4 h-[calc(100vh-180px)]">
         <Card className="overflow-hidden flex flex-col">
           <div className="px-4 py-2 border-b text-xs font-semibold text-muted-foreground">

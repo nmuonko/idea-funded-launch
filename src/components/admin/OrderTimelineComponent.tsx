@@ -160,7 +160,10 @@ export function OrderTimelineComponent({ orderId }: OrderTimelineProps) {
               ? 'User reached this step'
               : f.error_message || `Status: ${f.status}`,
           status: f.status,
-          metadata: f.metadata && Object.keys(f.metadata).length ? f.metadata : undefined,
+          metadata:
+            f.metadata && typeof f.metadata === 'object' && !Array.isArray(f.metadata)
+              ? (f.metadata as Record<string, any>)
+              : undefined,
         });
       });
 

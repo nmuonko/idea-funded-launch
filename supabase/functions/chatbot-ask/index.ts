@@ -32,8 +32,8 @@ const SENSITIVE_PATTERNS = [
   { re: /\bmot\s*de\s*passe\s*[:=]?\s*\S+/gi, replace: "[PASSWORD_REDACTED]" },
 ];
 
-const WHATSAPP_ESCALATION_FR = "Je préfère vous mettre en contact avec notre équipe afin de vous donner une réponse exacte.";
-const WHATSAPP_ESCALATION_EN = "I'd prefer to connect you with our team so we can give you an accurate answer.";
+const WHATSAPP_ESCALATION_FR = "Je n'ai pas la réponse exacte à votre question. Contactez notre équipe sur WhatsApp pour une réponse immédiate 👇";
+const WHATSAPP_ESCALATION_EN = "I don't have the exact answer to your question. Tap the button below to reach our team on WhatsApp for an instant reply 👇";
 
 function sanitizeInput(text: string): string {
   let out = text;

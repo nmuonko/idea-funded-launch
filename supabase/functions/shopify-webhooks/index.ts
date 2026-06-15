@@ -187,8 +187,12 @@ Deno.serve(async (req) => {
   const hmac = req.headers.get("x-shopify-hmac-sha256");
   const rawBody = await req.text();
 
+  if (!SHOPIFY_API_SECRET) {
+    console.error("[shopify-webhooks] SHOPIFY_API_SECRET_KEY not configured; rejecting request");
+    return new Response("server misconfigured", { status: 503, headers: corsHeaders });
+  }
   const hmacValid = await verifyHmac(rawBody, hmac);
-  if (SHOPIFY_API_SECRET && !hmacValid) {
+  if (!hmacValid) {
     console.warn("[shopify-webhooks] invalid HMAC", { topic, shop });
     return new Response("invalid hmac", { status: 401, headers: corsHeaders });
   }

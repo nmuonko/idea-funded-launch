@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, MessageCircle, User, Bot, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Loader2, MessageCircle, User, Bot, AlertTriangle, ExternalLink, CalendarIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
 
 // Renders message content with markdown links [text](url) as inline buttons
 function renderAssistantContent(text: string) {
@@ -59,19 +63,31 @@ export default function ChatbotConversations() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
+  const [escalationFilter, setEscalationFilter] = useState<'all' | 'escalated' | 'not_escalated'>('all');
+  const [fromDate, setFromDate] = useState<Date | undefined>();
+  const [toDate, setToDate] = useState<Date | undefined>();
 
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const { data } = await supabase
+      let query = supabase
         .from('chatbot_conversations')
         .select('*')
         .order('last_message_at', { ascending: false })
-        .limit(200);
+        .limit(500);
+      if (escalationFilter === 'escalated') query = query.eq('escalated', true);
+      else if (escalationFilter === 'not_escalated') query = query.eq('escalated', false);
+      if (fromDate) query = query.gte('last_message_at', new Date(fromDate.setHours(0, 0, 0, 0)).toISOString());
+      if (toDate) {
+        const end = new Date(toDate);
+        end.setHours(23, 59, 59, 999);
+        query = query.lte('last_message_at', end.toISOString());
+      }
+      const { data } = await query;
       setConversations((data || []) as Conversation[]);
       setLoading(false);
     })();
-  }, []);
+  }, [escalationFilter, fromDate, toDate]);
 
   useEffect(() => {
     if (!selected) return;
@@ -94,6 +110,49 @@ export default function ChatbotConversations() {
           <MessageCircle className="w-6 h-6" /> Sophie — Conversations Chatbot
         </h1>
         <p className="text-sm text-muted-foreground">Historique de toutes les conversations entre les clients et Sophie.</p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={escalationFilter} onValueChange={(v) => setEscalationFilter(v as any)}>
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="Escalade" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toutes les conversations</SelectItem>
+            <SelectItem value="escalated">Escaladées uniquement</SelectItem>
+            <SelectItem value="not_escalated">Non escaladées</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="justify-start text-left font-normal w-[180px]">
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {fromDate ? format(fromDate, 'PPP') : <span className="text-muted-foreground">Du</span>}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar mode="single" selected={fromDate} onSelect={setFromDate} initialFocus className="p-3 pointer-events-auto" />
+          </PopoverContent>
+        </Popover>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="justify-start text-left font-normal w-[180px]">
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {toDate ? format(toDate, 'PPP') : <span className="text-muted-foreground">Au</span>}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar mode="single" selected={toDate} onSelect={setToDate} initialFocus className="p-3 pointer-events-auto" />
+          </PopoverContent>
+        </Popover>
+
+        {(fromDate || toDate || escalationFilter !== 'all') && (
+          <Button variant="ghost" size="sm" onClick={() => { setFromDate(undefined); setToDate(undefined); setEscalationFilter('all'); }}>
+            <X className="w-4 h-4 mr-1" /> Réinitialiser
+          </Button>
+        )}
       </div>
 
       <div className="grid md:grid-cols-[360px,1fr] gap-4 h-[calc(100vh-180px)]">

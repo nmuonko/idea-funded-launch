@@ -399,10 +399,16 @@ export default function AdminPayments() {
                         <span className="font-mono">{selectedPayment.provider_ref}</span>
                       </div>
                     )}
-                    {selectedPayment.last_error && (
+                    {selectedPayment.failure_code && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Last Error:</span>
-                        <span className="text-destructive">{selectedPayment.last_error}</span>
+                        <span className="text-muted-foreground">Failure Code:</span>
+                        <span className="font-mono text-destructive">{selectedPayment.failure_code}</span>
+                      </div>
+                    )}
+                    {selectedPayment.failure_reason && (
+                      <div className="flex justify-between gap-3">
+                        <span className="text-muted-foreground shrink-0">Failure Reason:</span>
+                        <span className="text-destructive text-right">{selectedPayment.failure_reason}</span>
                       </div>
                     )}
                   </div>

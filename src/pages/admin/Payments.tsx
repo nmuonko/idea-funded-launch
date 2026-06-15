@@ -88,6 +88,8 @@ export default function AdminPayments() {
           provider_deposit_id,
           provider_transaction_id,
           paid_at,
+          failure_code,
+          failure_reason,
           created_at,
           updated_at,
           orders(
@@ -113,7 +115,7 @@ export default function AdminPayments() {
       if (error) throw error;
 
       // Normalize each row to the Payment shape used by the rest of the page.
-      const normalized = (data || []).map((row: any) => ({
+      const normalized: Payment[] = (data || []).map((row: any) => ({
         id: row.id,
         order_id: row.order_id,
         provider: row.provider_key,
@@ -122,7 +124,9 @@ export default function AdminPayments() {
         // Treat Stripe's "succeeded" as "paid" for UI consistency.
         status: row.status === 'succeeded' ? 'paid' : row.status,
         provider_ref: row.reference || row.provider_transaction_id || row.provider_deposit_id || null,
-        last_error: null,
+        last_error: row.failure_reason || null,
+        failure_code: row.failure_code || null,
+        failure_reason: row.failure_reason || null,
         expires_at: null,
         created_at: row.created_at,
         updated_at: row.updated_at || row.paid_at || row.created_at,

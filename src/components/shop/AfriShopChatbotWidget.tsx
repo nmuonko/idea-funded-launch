@@ -519,10 +519,10 @@ export function AfriShopChatbotWidget() {
                         href={getWhatsAppUrl(user?.email)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#25D366] hover:bg-[#1da851] text-white text-xs font-semibold"
+                        className="mt-2 inline-flex items-center justify-center gap-1.5 w-full px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline"
                       >
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        Contacter un agent sur WhatsApp
+                        <MessageCircle className="w-4 h-4" />
+                        Contacter un agent sur WhatsApp ({SUPPORT_WHATSAPP_DISPLAY})
                       </a>
                     )}
                     {m.role === 'assistant' && !m.escalate && (() => {

@@ -373,6 +373,9 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
     if (newStatus === 'succeeded') {
       updateData.paid_at = new Date().toISOString();
       updateData.provider_transaction_id = session.payment_intent || sessionId;
+    } else if (newStatus === 'failed') {
+      updateData.failure_code = 'checkout_expired';
+      updateData.failure_reason = 'Stripe Checkout session expired before payment';
     }
 
     const { error: updateError } = await supabase

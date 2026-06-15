@@ -266,7 +266,7 @@ export function AfriShopChatbotWidget() {
       });
       if (error) throw error;
       if (data?.conversation_id && !conversationId) setConversationId(data.conversation_id);
-      const answer = data?.answer || "Je préfère vous mettre en contact avec notre équipe afin de vous donner une réponse exacte.";
+      const answer = data?.answer || "Je n'ai pas la réponse exacte à votre question. Contactez notre équipe sur WhatsApp pour une réponse immédiate 👇";
       const escalate = !!data?.needs_escalation;
       const product_card: ProductCard | null = data?.product_card ?? null;
       const product_cards: ProductCard[] = Array.isArray(data?.product_cards)
@@ -303,7 +303,7 @@ export function AfriShopChatbotWidget() {
       await new Promise(r => setTimeout(r, Math.max(0, 1200 - elapsed)));
       setMessages(m => [...m, {
         id: crypto.randomUUID(), role: 'assistant', ts: Date.now(), escalate: true,
-        content: "Je préfère vous mettre en contact avec notre équipe afin de vous donner une réponse exacte.",
+        content: "Je n'ai pas la réponse exacte à votre question. Contactez notre équipe sur WhatsApp pour une réponse immédiate 👇",
       }]);
     } finally {
       setSending(false);
@@ -519,10 +519,10 @@ export function AfriShopChatbotWidget() {
                         href={getWhatsAppUrl(user?.email)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#25D366] hover:bg-[#1da851] text-white text-xs font-semibold"
+                        className="mt-2 inline-flex items-center justify-center gap-1.5 w-full px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline"
                       >
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        Contacter un agent sur WhatsApp
+                        <MessageCircle className="w-4 h-4" />
+                        Contacter un agent sur WhatsApp ({SUPPORT_WHATSAPP_DISPLAY})
                       </a>
                     )}
                     {m.role === 'assistant' && !m.escalate && (() => {

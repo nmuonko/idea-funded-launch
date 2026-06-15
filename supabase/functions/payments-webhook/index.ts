@@ -552,6 +552,10 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
     if (internalStatus === 'succeeded') {
       updateData.paid_at = new Date().toISOString();
       updateData.provider_transaction_id = result.payment_intent_id;
+    } else if (internalStatus === 'failed') {
+      const lpe = (event as any)?.data?.object?.last_payment_error || {};
+      updateData.failure_code = lpe.decline_code || lpe.code || 'stripe_failed';
+      updateData.failure_reason = lpe.message || 'Stripe payment failed';
     }
 
     const { error: updateError } = await supabase

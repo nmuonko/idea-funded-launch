@@ -63,19 +63,31 @@ export default function ChatbotConversations() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
+  const [escalationFilter, setEscalationFilter] = useState<'all' | 'escalated' | 'not_escalated'>('all');
+  const [fromDate, setFromDate] = useState<Date | undefined>();
+  const [toDate, setToDate] = useState<Date | undefined>();
 
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const { data } = await supabase
+      let query = supabase
         .from('chatbot_conversations')
         .select('*')
         .order('last_message_at', { ascending: false })
-        .limit(200);
+        .limit(500);
+      if (escalationFilter === 'escalated') query = query.eq('escalated', true);
+      else if (escalationFilter === 'not_escalated') query = query.eq('escalated', false);
+      if (fromDate) query = query.gte('last_message_at', new Date(fromDate.setHours(0, 0, 0, 0)).toISOString());
+      if (toDate) {
+        const end = new Date(toDate);
+        end.setHours(23, 59, 59, 999);
+        query = query.lte('last_message_at', end.toISOString());
+      }
+      const { data } = await query;
       setConversations((data || []) as Conversation[]);
       setLoading(false);
     })();
-  }, []);
+  }, [escalationFilter, fromDate, toDate]);
 
   useEffect(() => {
     if (!selected) return;

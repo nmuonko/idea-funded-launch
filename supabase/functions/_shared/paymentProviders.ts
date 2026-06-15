@@ -397,6 +397,8 @@ export async function updatePaymentStatus(
     provider_transaction_id?: string;
     paid_at?: string;
     raw_events?: any[];
+    failure_code?: string;
+    failure_reason?: string;
   }
 ): Promise<boolean> {
   const updateData: any = {
@@ -412,6 +414,12 @@ export async function updatePaymentStatus(
   }
   if (extras?.raw_events) {
     updateData.raw_events = extras.raw_events;
+  }
+  if (extras?.failure_code) {
+    updateData.failure_code = extras.failure_code;
+  }
+  if (extras?.failure_reason) {
+    updateData.failure_reason = extras.failure_reason;
   }
 
   const { error } = await supabase

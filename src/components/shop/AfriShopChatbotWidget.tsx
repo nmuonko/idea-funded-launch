@@ -303,7 +303,7 @@ export function AfriShopChatbotWidget() {
       await new Promise(r => setTimeout(r, Math.max(0, 1200 - elapsed)));
       setMessages(m => [...m, {
         id: crypto.randomUUID(), role: 'assistant', ts: Date.now(), escalate: true,
-        content: "Je préfère vous mettre en contact avec notre équipe afin de vous donner une réponse exacte.",
+        content: "Je n'ai pas la réponse exacte à votre question. Contactez notre équipe sur WhatsApp pour une réponse immédiate 👇",
       }]);
     } finally {
       setSending(false);

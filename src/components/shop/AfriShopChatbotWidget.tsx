@@ -266,7 +266,7 @@ export function AfriShopChatbotWidget() {
       });
       if (error) throw error;
       if (data?.conversation_id && !conversationId) setConversationId(data.conversation_id);
-      const answer = data?.answer || "Je préfère vous mettre en contact avec notre équipe afin de vous donner une réponse exacte.";
+      const answer = data?.answer || "Je n'ai pas la réponse exacte à votre question. Contactez notre équipe sur WhatsApp pour une réponse immédiate 👇";
       const escalate = !!data?.needs_escalation;
       const product_card: ProductCard | null = data?.product_card ?? null;
       const product_cards: ProductCard[] = Array.isArray(data?.product_cards)

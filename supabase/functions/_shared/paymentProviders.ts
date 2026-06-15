@@ -71,6 +71,8 @@ export interface VerifyPaymentResult {
   provider_transaction_id?: string;
   paid_at?: string;
   error?: string;
+  failure_code?: string;
+  failure_reason?: string;
 }
 
 export interface CallbackResult {

@@ -992,6 +992,40 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       })
       .eq("id", convId);
 
+    // Notify admins by email on every new escalation (fire-and-forget).
+    if (needsEscalation) {
+      try {
+        const recentTurns = [...history.slice(-6), { role: "user", content: message }]
+          .map(h => `<p><strong>${h.role === "assistant" ? "Sophie" : "Client"}:</strong> ${String(h.content).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "amp;" } as any)[c] || c).slice(0, 500)}</p>`)
+          .join("");
+        const html = `
+          <h2>Nouvelle escalade chatbot Sophie</h2>
+          <p><strong>Raison:</strong> ${escalationReason || "UNKNOWN"}</p>
+          <p><strong>Langue:</strong> ${lang}</p>
+          <p><strong>Conversation:</strong> ${convId}</p>
+          ${product?.title ? `<p><strong>Produit en contexte:</strong> ${product.title}</p>` : ""}
+          <hr/>
+          <h3>Derniers messages</h3>
+          ${recentTurns}
+          <hr/>
+          <p><a href="https://afrishop-usa.com/admin/chatbot-conversations?id=${convId}">Ouvrir la conversation</a></p>
+        `;
+        await supabase.functions.invoke("send-admin-payment-notification", { body: { __raw_email: { subject: `[Sophie] Escalade: ${escalationReason || "UNKNOWN"}`, html } } }).catch(() => null);
+        // Direct send via email-service as the reliable path
+        await supabase.functions.invoke("email-service", {
+          body: {
+            to: "nkadimisha@afrishop-usa.com",
+            subject: `[Sophie] Escalade: ${escalationReason || "UNKNOWN"}`,
+            html,
+            category: "admin_notification",
+          },
+        }).catch(() => null);
+      } catch (e) {
+        console.error("[chatbot-ask] admin escalation email failed", e);
+      }
+    }
+
+
     // NEVER return confidence to client
     return new Response(JSON.stringify({
       conversation_id: convId,

@@ -244,10 +244,23 @@ export function OrderTimelineComponent({ orderId }: OrderTimelineProps) {
 
       // ---------- Build "where did they stop?" summary ----------
       const attemptCount = attempts?.length || 0;
+      const paymentRows = payments || [];
+      const ctaCount = ctas?.length || 0;
+      const paymentFunnelSteps = (funnel || []).filter((f) =>
+        ['payment_method_selected', 'payment_initiated', 'otp_requested', 'otp_submitted', 'payment_submitted', 'payment_confirmed', 'payment_failed', 'payment_cancelled'].includes(f.step) ||
+        f.step?.startsWith('payment'),
+      );
       const anySuccess =
-        (payments || []).some((p) => p.status === 'succeeded' || p.paid_at) ||
+        paymentRows.some((p) => p.status === 'succeeded' || p.paid_at) ||
         (attempts || []).some((a) => a.status === 'paid') ||
         !!order?.payment_verified_at;
+
+      // Anything that proves the customer DID try to pay (not just reached checkout)
+      const initiated =
+        attemptCount > 0 ||
+        paymentRows.length > 0 ||
+        paymentFunnelSteps.length > 0 ||
+        ctaCount > 0;
 
       // Last meaningful step
       const ordered = [...timeline].sort(
@@ -258,25 +271,37 @@ export function OrderTimelineComponent({ orderId }: OrderTimelineProps) {
       let diagnosis = '';
       if (anySuccess) {
         diagnosis = '✅ Payment was confirmed for this order.';
-      } else if (attemptCount === 0 && !funnel?.some((f) => f.step?.startsWith('payment'))) {
+      } else if (!initiated) {
         diagnosis =
-          '🟡 Customer never initiated payment. They reached checkout but did not submit any payment.';
+          '🟡 No payment activity recorded. Customer reached checkout but no payment attempt, CTA click, or provider call was logged.';
       } else {
         const lastAttempt = (attempts || []).sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
         )[0];
+        const lastPayment = paymentRows.sort(
+          (a, b) => new Date(b.created_at || b.updated_at).getTime() - new Date(a.created_at || a.updated_at).getTime(),
+        )[0];
         if (lastAttempt?.status === 'expired') {
-          diagnosis = `⏰ Last payment attempt expired (${lastAttempt.provider || ''}). Customer left the page before completing.`;
+          diagnosis = `⏰ Customer initiated payment but the attempt expired on ${lastAttempt.provider || 'provider'} before completion.`;
         } else if (lastAttempt?.status === 'cancelled') {
-          diagnosis = `🚫 Customer cancelled the payment on ${lastAttempt.provider || 'provider'}.`;
-        } else if (lastAttempt?.status === 'failed') {
-          diagnosis = `❌ Last payment attempt failed${lastAttempt.last_error ? `: ${lastAttempt.last_error}` : ''}.`;
-        } else if (lastAttempt?.status === 'pending' || lastAttempt?.status === 'processing') {
-          diagnosis = `⌛ Payment attempt is still ${lastAttempt.status} on ${lastAttempt.provider || 'provider'} — likely abandoned mid-flow.`;
+          diagnosis = `🚫 Customer initiated payment then cancelled on ${lastAttempt.provider || 'provider'}.`;
+        } else if (lastAttempt?.status === 'failed' || lastPayment?.status === 'failed') {
+          const err = lastAttempt?.last_error || lastPayment?.failure_reason;
+          diagnosis = `❌ Customer initiated payment but it failed${err ? `: ${err}` : ''}.`;
+        } else if (
+          lastAttempt?.status === 'pending' ||
+          lastAttempt?.status === 'processing' ||
+          lastPayment?.status === 'pending' ||
+          lastPayment?.status === 'processing'
+        ) {
+          diagnosis = `⌛ Customer initiated payment on ${lastAttempt?.provider || lastPayment?.provider_key || 'provider'} but did not complete it (still ${lastAttempt?.status || lastPayment?.status} — likely abandoned mid-flow).`;
+        } else if (ctaCount > 0 && attemptCount === 0 && paymentRows.length === 0) {
+          diagnosis = '🟡 Customer clicked the pay CTA but never reached the provider to submit a payment.';
         } else {
-          diagnosis = '🟡 Customer started checkout but never completed payment.';
+          diagnosis = '🟡 Customer initiated payment but never completed it.';
         }
       }
+
 
       setSummary({
         lastStep: last?.title || 'No activity recorded',

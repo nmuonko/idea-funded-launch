@@ -997,7 +997,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     if (needsEscalation) {
       try {
         const recentTurns = [...history.slice(-6), { role: "user", content: message }]
-          .map(h => `<p><strong>${h.role === "assistant" ? "Sophie" : "Client"}:</strong> ${String(h.content).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "amp;" } as any)[c] || c).slice(0, 500)}</p>`)
+          .map(h => `<p><strong>${h.role === "assistant" ? "Sophie" : "Client"}:</strong> ${String(h.content).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" } as any)[c] || c).slice(0, 500)}</p>`)
           .join("");
         const html = `
           <h2>Nouvelle escalade chatbot Sophie</h2>

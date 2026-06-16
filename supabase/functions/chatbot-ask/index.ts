@@ -2,6 +2,7 @@
 // RAG over faq_kb + knowledge_base_articles + AfriShop business context.
 // Returns: { answer, classification, needs_escalation, escalation_reason, confidence, conversation_id }
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { sendEmail, ADMIN_EMAIL } from "../_shared/email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -163,7 +164,7 @@ function normalizeProductQuery(text: string) {
 }
 
 // Phone accessory / spare-part filter — must NEVER be returned when user asks for a phone.
-const PHONE_ACCESSORY_RE = /\b(accessor(?:y|ies)|case|cover|sleeve|skin|pouch|wallet|holster|screen\s*protector|tempered\s*glass|protector|charging\s*port|dock|mic\s*flex|flex\s*cable|replacement|spare\s*parts?|battery\s*replacement|battery\s*pack|camera\s*lens(?:\s*replacement)?|lcd|digitizer|cable|cord|charger|adapter|repair|housing|back\s*glass|back\s*cover|motherboard|logic\s*board|holder|mount|magsafe|strap|stand|tripod|earbuds?\s*case|grip|popsocket|car\s*mount|sim\s*tray|button|speaker\s*replacement|frame|bezel|oem\s+part)\b/i;
+const PHONE_ACCESSORY_RE = /\b(accessor(?:y|ies|e|es)|case|cover|sleeve|skin|pouch|wallet|holster|screen\s*protector|tempered\s*glass|protector|charging\s*port|dock|mic\s*flex|flex\s*cable|replacement|spare\s*parts?|battery\s*replacement|battery\s*pack|camera\s*lens(?:\s*replacement)?|lcd|digitizer|cable|cord|charger|adapter|repair|housing|back\s*glass|back\s*cover|motherboard|logic\s*board|holder|mount|magsafe|strap|stand|tripod|earbuds?\s*case|grip|popsocket|car\s*mount|sim\s*tray|button|speaker\s*replacement|frame|bezel|oem\s+part|[ée]tui|housse|coque|portefeuille|protection|chargeur|c[âa]ble|[ée]couteurs?|sangle|support|brassard|verre\s*tremp[ée]|film\s*protecteur)\b/i;
 
 // Phone brand / family tokens used to detect a phone request.
 const PHONE_BRAND_TOKENS = ["iphone","galaxy","pixel","motorola","moto","oneplus","xiaomi","redmi","huawei","oppo","vivo","nokia","sony\u00a0xperia","xperia"];
@@ -875,6 +876,53 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       escalationReason = "";
     }
 
+    // DETERMINISTIC "is it new / sealed / in carton" → YES, our products are new.
+    const cartonRe = /(c['e]?est\s+(?:en\s+)?carton|en\s+carton|carton\s+scell|scell[ée]e?s?|tout\s+neuf|brand\s+new|new\s+in\s+box|\bnib\b|sealed|is\s+(?:it|this)\s+(?:brand\s+)?new|est[- ]?(?:ce|il|elle)\s+neu(?:f|ve))/i;
+    if (cartonRe.test(message) && !needsEscalation) {
+      const focusTitle = product?.title || productCard?.title || (catalogMatches[0]?.display_name) || (lang === "en" ? "this product" : "ce produit");
+      answer = lang === "en"
+        ? `Yes — our ${focusTitle} ships brand new, sealed in its original box from the USA. ✅`
+        : `Oui — notre ${focusTitle} est livré neuf, scellé dans son emballage d'origine depuis les USA. ✅`;
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
+    // DETERMINISTIC delivery-time complaint ("c'est trop", "trop long", "too long")
+    // Explain WHY (USA → DRC import) instead of escalating.
+    const deliveryComplaintRe = /(c['e]?est\s+trop|trop\s+long|trop\s+longtemps|trop\s+lent|too\s+long|too\s+slow|that'?s\s+too\s+long|c['e]?est\s+long|delai\s+trop|d[ée]lai\s+trop|long\s+d[ée]lai)/i;
+    const recentAssistantContext = history
+      .filter(h => h.role === "assistant")
+      .slice(-2)
+      .map(h => String(h.content).toLowerCase())
+      .join(" ");
+    const recentlyDiscussedDelivery = /(livraison|deliver|semaines?|weeks?|2\s*[àa]\s*4|2-4|kinshasa)/i.test(recentAssistantContext);
+    if (deliveryComplaintRe.test(message) && recentlyDiscussedDelivery) {
+      answer = lang === "en"
+        ? `I understand. The 2–4 weeks covers the full USA → DRC journey (purchase in the USA, export, international shipping, customs in Kinshasa, then last-mile delivery). Most orders actually arrive in about 10 business days. To make it easier on your wallet, you can also pay **30% now + 70% on delivery**. Want me to help you place the order?`
+        : `Je comprends. Les 2 à 4 semaines couvrent tout le trajet USA → RDC (achat aux USA, export, transport international, douane à Kinshasa, puis livraison locale). La plupart des commandes arrivent en réalité en ~10 jours ouvrés. Pour vous faciliter l'achat, vous pouvez aussi payer **30% maintenant + 70% à la livraison**. Voulez-vous que je vous aide à passer commande ?`;
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
+    // DETERMINISTIC brand-rejection: if user says "non" and rejects a brand we previously offered,
+    // re-acknowledge their original ask instead of pushing the same wrong brand.
+    const rejectionRe = /\b(non|no|nope|pas\s+(?:de\s+)?[çc]a|pas\s+ce|je\s+ne\s+plus\s+besoin|plus\s+besoin|not\s+(?:that|this)|i\s+don'?t\s+want)\b/i;
+    if (rejectionRe.test(message) && !productCard) {
+      const userHistText = history.filter(h => h.role !== "assistant").map(h => String(h.content)).join(" ").toLowerCase();
+      const allText = `${userHistText} ${message}`.toLowerCase();
+      // Pull the originally-requested brand from earlier user turns
+      const originalBrandMatch = userHistText.match(/\b(pixel(?:\s+pro)?(?:\s+\d+)?|iphone(?:\s+\d+)?(?:\s+pro(?:\s+max)?)?|galaxy\s+\w+|macbook|ipad|airpods|motorola|oneplus|xiaomi|huawei)\b/i);
+      const originalBrand = originalBrandMatch?.[1] || null;
+      // Find which brand the user is now rejecting (mentioned in current message or recent assistant turn)
+      const rejectedBrandsInMsg = (message.match(/\b(samsung|galaxy|iphone|apple|pixel|google|motorola|oneplus|xiaomi|huawei)\b/gi) || []).map(s => s.toLowerCase());
+      if (originalBrand && rejectedBrandsInMsg.length > 0 && !rejectedBrandsInMsg.some(b => originalBrand.toLowerCase().includes(b))) {
+        answer = lang === "en"
+          ? `Got it — you don't want ${rejectedBrandsInMsg[0]}. You originally asked for **${originalBrand}**. Could you confirm the exact model you'd like (e.g. capacity, color)? I'll look it up for you.`
+          : `Compris — vous ne voulez pas de ${rejectedBrandsInMsg[0]}. Vous cherchiez initialement un **${originalBrand}**. Pouvez-vous confirmer le modèle exact (capacité, couleur) ? Je vous le cherche tout de suite.`;
+        needsEscalation = false;
+        escalationReason = "";
+      }
+    }
 
     if (needsEscalation || !answer) {
       answer = fallbackAnswer;
@@ -944,6 +992,36 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
         escalation_reason: needsEscalation ? escalationReason : null,
       })
       .eq("id", convId);
+
+    // Notify admins by email on every new escalation (fire-and-forget).
+    if (needsEscalation) {
+      try {
+        const recentTurns = [...history.slice(-6), { role: "user", content: message }]
+          .map(h => `<p><strong>${h.role === "assistant" ? "Sophie" : "Client"}:</strong> ${String(h.content).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" } as any)[c] || c).slice(0, 500)}</p>`)
+          .join("");
+        const html = `
+          <h2>Nouvelle escalade chatbot Sophie</h2>
+          <p><strong>Raison:</strong> ${escalationReason || "UNKNOWN"}</p>
+          <p><strong>Langue:</strong> ${lang}</p>
+          <p><strong>Conversation:</strong> ${convId}</p>
+          ${product?.title ? `<p><strong>Produit en contexte:</strong> ${product.title}</p>` : ""}
+          <hr/>
+          <h3>Derniers messages</h3>
+          ${recentTurns}
+          <hr/>
+          <p><a href="https://afrishop-usa.com/admin/chatbot-conversations?id=${convId}">Ouvrir la conversation</a></p>
+        `;
+        await sendEmail({
+          to: ADMIN_EMAIL,
+          subject: `[Sophie] Escalade: ${escalationReason || "UNKNOWN"}`,
+          html,
+          category: "admin_notification",
+        });
+      } catch (e) {
+        console.error("[chatbot-ask] admin escalation email failed", e);
+      }
+    }
+
 
     // NEVER return confidence to client
     return new Response(JSON.stringify({

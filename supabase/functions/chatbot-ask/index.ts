@@ -1011,16 +1011,12 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
           <hr/>
           <p><a href="https://afrishop-usa.com/admin/chatbot-conversations?id=${convId}">Ouvrir la conversation</a></p>
         `;
-        await supabase.functions.invoke("send-admin-payment-notification", { body: { __raw_email: { subject: `[Sophie] Escalade: ${escalationReason || "UNKNOWN"}`, html } } }).catch(() => null);
-        // Direct send via email-service as the reliable path
-        await supabase.functions.invoke("email-service", {
-          body: {
-            to: "nkadimisha@afrishop-usa.com",
-            subject: `[Sophie] Escalade: ${escalationReason || "UNKNOWN"}`,
-            html,
-            category: "admin_notification",
-          },
-        }).catch(() => null);
+        await sendEmail({
+          to: ADMIN_EMAIL,
+          subject: `[Sophie] Escalade: ${escalationReason || "UNKNOWN"}`,
+          html,
+          category: "admin_notification",
+        });
       } catch (e) {
         console.error("[chatbot-ask] admin escalation email failed", e);
       }

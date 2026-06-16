@@ -2,6 +2,7 @@
 // RAG over faq_kb + knowledge_base_articles + AfriShop business context.
 // Returns: { answer, classification, needs_escalation, escalation_reason, confidence, conversation_id }
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { sendEmail, ADMIN_EMAIL } from "../_shared/email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

@@ -163,7 +163,7 @@ function normalizeProductQuery(text: string) {
 }
 
 // Phone accessory / spare-part filter — must NEVER be returned when user asks for a phone.
-const PHONE_ACCESSORY_RE = /\b(accessor(?:y|ies)|case|cover|sleeve|skin|pouch|wallet|holster|screen\s*protector|tempered\s*glass|protector|charging\s*port|dock|mic\s*flex|flex\s*cable|replacement|spare\s*parts?|battery\s*replacement|battery\s*pack|camera\s*lens(?:\s*replacement)?|lcd|digitizer|cable|cord|charger|adapter|repair|housing|back\s*glass|back\s*cover|motherboard|logic\s*board|holder|mount|magsafe|strap|stand|tripod|earbuds?\s*case|grip|popsocket|car\s*mount|sim\s*tray|button|speaker\s*replacement|frame|bezel|oem\s+part)\b/i;
+const PHONE_ACCESSORY_RE = /\b(accessor(?:y|ies|e|es)|case|cover|sleeve|skin|pouch|wallet|holster|screen\s*protector|tempered\s*glass|protector|charging\s*port|dock|mic\s*flex|flex\s*cable|replacement|spare\s*parts?|battery\s*replacement|battery\s*pack|camera\s*lens(?:\s*replacement)?|lcd|digitizer|cable|cord|charger|adapter|repair|housing|back\s*glass|back\s*cover|motherboard|logic\s*board|holder|mount|magsafe|strap|stand|tripod|earbuds?\s*case|grip|popsocket|car\s*mount|sim\s*tray|button|speaker\s*replacement|frame|bezel|oem\s+part|[ée]tui|housse|coque|portefeuille|protection|chargeur|c[âa]ble|[ée]couteurs?|sangle|support|brassard|verre\s*tremp[ée]|film\s*protecteur)\b/i;
 
 // Phone brand / family tokens used to detect a phone request.
 const PHONE_BRAND_TOKENS = ["iphone","galaxy","pixel","motorola","moto","oneplus","xiaomi","redmi","huawei","oppo","vivo","nokia","sony\u00a0xperia","xperia"];

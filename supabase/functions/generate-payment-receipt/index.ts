@@ -135,6 +135,7 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
         <p><strong>Nom :</strong> ${escapeHtml(profile?.full_name || profile?.name || 'Client')}</p>
         <p><strong>Email :</strong> ${escapeHtml(userEmail)}</p>
         ${profile?.phone ? `<p><strong>Téléphone :</strong> ${escapeHtml(profile.phone)}</p>` : ''}
+        <p><strong>Support :</strong> nkadimisha@afrishop-usa.com</p>
       </div>
     </div>
 

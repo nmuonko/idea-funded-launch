@@ -272,9 +272,29 @@ serve(async (req) => {
     // Get customer profile (for the order owner, not the requesting user)
     const { data: profile } = await supabase
       .from('profiles')
-      .select('full_name, name, phone')
+      .select('full_name, name, phone, email')
       .eq('user_id', order.user_id)
       .maybeSingle();
+
+    // Resolve the BUYER's email (order owner), not the admin viewing the receipt.
+    // Priority: profiles.email → auth.users.email (via service role) → requester email as last resort.
+    let buyerEmail: string = profile?.email || '';
+    if (!buyerEmail && order.user_id) {
+      try {
+        const adminClient = createClient(
+          Deno.env.get('SUPABASE_URL') ?? '',
+          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+        );
+        const { data: authUser } = await adminClient.auth.admin.getUserById(order.user_id);
+        buyerEmail = authUser?.user?.email || '';
+      } catch (e) {
+        console.error('[generate-payment-receipt] auth lookup failed:', (e as any)?.message);
+      }
+    }
+    // Only fall back to the requester's email when the requester is the order owner.
+    if (!buyerEmail && user.id === order.user_id) {
+      buyerEmail = user.email || '';
+    }
 
     // Check if JSON response requested
     const url = new URL(req.url);
@@ -292,7 +312,7 @@ serve(async (req) => {
           paid_at: order.payment_verified_at || order.updated_at,
           customer: {
             name: profile?.full_name || profile?.name || 'Customer',
-            email: user.email,
+            email: buyerEmail,
             phone: profile?.phone,
           },
           items: items?.map(item => ({
@@ -314,7 +334,8 @@ serve(async (req) => {
     }
 
     // Generate HTML receipt
-    const html = generateReceiptHTML(order, items || [], profile, user.email || '');
+    const html = generateReceiptHTML(order, items || [], profile, buyerEmail);
+
 
     return new Response(html, {
       status: 200,

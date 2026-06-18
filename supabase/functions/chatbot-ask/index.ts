@@ -715,23 +715,29 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     const sentiment = String(classification.sentiment || "").toLowerCase();
 
     // Hard guardrails on top of AI decision — only escalate when we truly need a human.
-    // Off-topic and low-confidence are handled with a polite redirect/clarification, not escalation.
+    // HUMAN_REQUESTED: do NOT auto-escalate on first ask — Sophie should try to help first.
+    // We only auto-escalate when the customer has already received a Sophie answer earlier in
+    // the conversation AND now insists on a human (assistant turn count >= 2).
+    const assistantTurnsSoFar = history.filter(h => h.role === "assistant").length;
+    const humanRequestedInsist =
+      classification.intent === "HUMAN_REQUESTED" && assistantTurnsSoFar >= 2;
+
     let needsEscalation =
       !!parsed.needs_escalation ||
       confidence < 0.45 ||
       sentiment === "angry" ||
-      classification.intent === "HUMAN_REQUESTED" ||
-      classification.intent === "PAYMENT_FAILED" ||
-      classification.category === "RETURNS_REFUNDS";
+      humanRequestedInsist ||
+      classification.intent === "PAYMENT_FAILED";
 
     let escalationReason = parsed.escalation_reason || "";
     if (needsEscalation && !escalationReason) {
       escalationReason = sentiment === "angry" ? "ANGRY_CUSTOMER"
-        : classification.intent === "HUMAN_REQUESTED" ? "HUMAN_REQUESTED"
+        : humanRequestedInsist ? "HUMAN_REQUESTED"
         : classification.category === "OFF_TOPIC" ? "OFF_TOPIC"
         : confidence < 0.70 ? "RAG_NO_ANSWER"
         : "UNKNOWN_QUESTION";
     }
+
 
     let answer: string = String(parsed.answer || "").trim();
 

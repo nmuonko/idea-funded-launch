@@ -843,7 +843,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
 
 
     // DETERMINISTIC: product recommendation from catalog (only when we have REAL matches).
-    if (!productCard && catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message) || asksForMoreOptions)) {
+    if (!discountAnswered && !productCard && catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message) || asksForMoreOptions)) {
 
       const selectedMatches = asksForMoreOptions ? catalogMatches.filter(p => p.price_usd != null).slice(0, 3) : [];
       const best = asksForMoreOptions ? selectedMatches[0] : pickBestMatch(catalogMatches, { wantsNew });

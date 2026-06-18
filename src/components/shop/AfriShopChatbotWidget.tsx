@@ -80,9 +80,19 @@ function isCheckoutUrl(url: string) {
   return /\/checkout|\/hot-product|\/payment|\/pay/i.test(url);
 }
 
+function isWhatsAppUrl(url: string) {
+  return /wa\.me|whatsapp\.com|api\.whatsapp/i.test(url);
+}
+
+function defaultLabelFor(url: string) {
+  if (isWhatsAppUrl(url)) return 'Ouvrir WhatsApp';
+  if (isCheckoutUrl(url)) return 'Payer maintenant';
+  return 'Ouvrir le lien';
+}
+
+// Render every URL — markdown link or bare — as a green accessible CTA button.
+// No bare URLs and no blue underline links are ever emitted.
 function renderMessageContent(text: string) {
-  // Supports markdown-style links [label](url) AND bare URLs.
-  // We tokenize the string into plain segments, markdown links, and bare URLs.
   const pattern = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s)]+)/g;
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -92,32 +102,23 @@ function renderMessageContent(text: string) {
     if (m.index > lastIndex) {
       nodes.push(<span key={key++}>{text.slice(lastIndex, m.index)}</span>);
     }
-    const label = m[1];
-    const href = m[2] || m[3];
-    const isCommanderCta = label && /commander|order\s*now|payer(?:\s*maintenant)?|buy\s*now|pay\s*now|finaliser|complete(?:\s*order)?/i.test(label);
-    const isBareCheckout = !label && isCheckoutUrl(href);
+    const rawHref = m[2] || m[3];
+    const href = rawHref.replace(/[.,;:!?]+$/, '');
+    const label = (m[1] && m[1].trim()) || defaultLabelFor(href);
+    const ariaLabel = isWhatsAppUrl(href)
+      ? `${label} (ouvre WhatsApp dans un nouvel onglet)`
+      : `${label} (ouvre dans un nouvel onglet)`;
     nodes.push(
-      isCommanderCta || isBareCheckout ? (
-        <a
-          key={key++}
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="my-2 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline w-full"
-        >
-          {label || "Payer maintenant"} →
-        </a>
-      ) : (
-        <a
-          key={key++}
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline text-[#53bdeb] break-all font-medium"
-        >
-          {label || href}
-        </a>
-      )
+      <a
+        key={key++}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={ariaLabel}
+        className="my-2 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#202C33]"
+      >
+        {label} →
+      </a>
     );
     lastIndex = m.index + m[0].length;
   }

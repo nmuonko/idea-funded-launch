@@ -887,6 +887,17 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       escalationReason = "";
     }
 
+    // DETERMINISTIC delivery-time question ("délai de livraison", "combien de temps", "how long", "delivery time")
+    const deliveryQuestionRe = /(d[ée]lai(?:s)?\s+(?:de\s+)?livraison|temps\s+de\s+livraison|combien\s+de\s+temps|quand\s+(?:vais|je)|when\s+(?:will|do)|how\s+long|delivery\s+time|shipping\s+time|^\s*livraison\s*\??\s*$|^\s*delivery\s*\??\s*$)/i;
+    if (deliveryQuestionRe.test(message) && !needsEscalation) {
+      answer = lang === "en"
+        ? `Delivery takes **2 to 4 weeks** for the full USA → DRC journey, but most orders arrive in about **10 business days**. You'll get email/WhatsApp updates at each step. Want to place an order? You can also pay **30% now + 70% on delivery**.`
+        : `La livraison prend **2 à 4 semaines** pour tout le trajet USA → RDC, mais la plupart des commandes arrivent en environ **10 jours ouvrés**. Vous recevrez des notifications email/WhatsApp à chaque étape. Voulez-vous commander ? Vous pouvez aussi payer **30% maintenant + 70% à la livraison**.`;
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
+
     // DETERMINISTIC delivery-time complaint ("c'est trop", "trop long", "too long")
     // Explain WHY (USA → DRC import) instead of escalating.
     const deliveryComplaintRe = /(c['e]?est\s+trop|trop\s+long|trop\s+longtemps|trop\s+lent|too\s+long|too\s+slow|that'?s\s+too\s+long|c['e]?est\s+long|delai\s+trop|d[ée]lai\s+trop|long\s+d[ée]lai)/i;

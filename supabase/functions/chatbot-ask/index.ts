@@ -1148,6 +1148,68 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       escalationReason = "";
     }
 
+    // DETERMINISTIC: short affirmative follow-up ("exactement", "oui", "ok", "vas-y", "yes", "sure", "go ahead"…)
+    // After Sophie has already offered something (order, 30/70 plan, payment link), a one-word
+    // confirmation must NOT trigger the fallback. Treat it as "yes, proceed" and re-send the
+    // checkout link / payment options for the product in context.
+    const trimmedMsg = message.trim().toLowerCase();
+    const affirmativeRe = /^(exactement|exact|oui+|ouais|ouep|yep|yes+|sure|ok+|okay|d['’]?accord|daccord|parfait|c['’]?est\s+(?:ça|ca|bon)|tr[èe]s\s+bien|vas[- ]?y|allez[- ]?y|go(?:\s+ahead)?|let['’]?s\s+go|i\s+do|please|s['’]il\s+(?:vous|te)\s+pla[îi]t|stp|svp|noki|ee+|iyo)[\s.!?…]*$/i;
+    const lastAssistant = [...history].reverse().find(h => h.role === "assistant")?.content || "";
+    const priorOfferRe = /(30%|30 ?%|70%|70 ?%|voulez[- ]vous\s+commander|want\s+to\s+order|payer\s+maintenant|pay\s+now|lien\s+de\s+paiement|payment\s+link|commander\s+maintenant|order\s+now|paiement|plan|acompte|deposit)/i;
+    if (affirmativeRe.test(trimmedMsg) && priorOfferRe.test(lastAssistant) && trimmedMsg.length <= 30) {
+      const origin = req.headers.get("origin") || "";
+      const ctxLink = product?.link
+        ? (product.link.startsWith("http") ? product.link : `${origin}${product.link}`)
+        : "";
+      const priceNum = typeof product?.price_usd === "number" ? product.price_usd : null;
+      const deposit = priceNum != null ? Math.ceil(priceNum * 0.3) : null;
+      const balance = priceNum != null ? Math.ceil(priceNum * 0.7) : null;
+      const planFr = deposit != null ? ` (${deposit} USD aujourd'hui, ${balance} USD à la livraison)` : "";
+      const planEn = deposit != null ? ` (${deposit} USD today, ${balance} USD on delivery)` : "";
+      if (ctxLink) {
+        answer = lang === "en"
+          ? `Perfect 👍 You can pay 100% online, or choose **30% now + 70% on delivery**${planEn}.\n[Pay now](${ctxLink})`
+          : lang === "ln"
+          ? `Malamu 👍 Okoki kofuta 100% online, to **30% sik'oyo + 70% na livraison**${planFr}.\n[Futa sik'oyo](${ctxLink})`
+          : `Parfait 👍 Vous pouvez payer 100% en ligne, ou choisir **30% maintenant + 70% à la livraison**${planFr}.\n[Payer maintenant](${ctxLink})`;
+        if (deposit != null) {
+          paymentPlan = {
+            has_plan: true, deposit_pct: 30, balance_pct: 70,
+            deposit_usd: deposit, balance_usd: balance, total_usd: priceNum,
+            product_title: product?.title || null, product_url: ctxLink, order_url: ctxLink,
+          };
+        }
+      } else {
+        answer = lang === "en"
+          ? `Great 👍 Tell me which product you'd like to order and I'll send the secure payment link right away.`
+          : `Parfait 👍 Dites-moi quel produit vous souhaitez commander et je vous envoie le lien de paiement sécurisé tout de suite.`;
+      }
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
+    // DETERMINISTIC: payment method "not connected / not working / down" — propose alternatives
+    // Examples: "il n'est pas connecté", "mobile money ne marche pas", "ça ne fonctionne pas",
+    // "the payment doesn't work", "card declined", "it's down".
+    const paymentBrokenRe = /(n[' ]?est\s+pas\s+connect[ée]|pas\s+connect[ée]|ne\s+(?:marche|fonctionne)\s+pas|marche\s+pas|fonctionne\s+pas|ne\s+passe\s+pas|[ée]chou[ée]|[ée]chec|refus[ée]e?|d[ée]clin[ée]e?|bloqu[ée]e?|not\s+working|doesn['’]?t\s+work|isn['’]?t\s+working|won['’]?t\s+work|declined|failed|down|offline|hors\s+service)/i;
+    const paymentCtxRe = /(mobile\s+money|m-?pesa|airtel|orange\s+money|afrimoney|maishapay|carte|card|visa|mastercard|paiement|payment|pay)/i;
+    const recentPaymentCtx = paymentCtxRe.test(lastAssistant) || paymentCtxRe.test(history.slice(-4).map(h => h.content).join(" ")) || paymentCtxRe.test(message);
+    if (paymentBrokenRe.test(message) && recentPaymentCtx) {
+      const origin = req.headers.get("origin") || "";
+      const ctxLink = product?.link
+        ? (product.link.startsWith("http") ? product.link : `${origin}${product.link}`)
+        : "";
+      const linkFr = ctxLink ? `\n[Payer maintenant](${ctxLink})` : "";
+      const linkEn = ctxLink ? `\n[Pay now](${ctxLink})` : "";
+      answer = lang === "en"
+        ? `No worries — if Mobile Money isn't going through, you have two alternatives:\n• Pay by **bank card (Visa/Mastercard)** on the checkout page\n• Or choose **30% now + 70% cash on delivery** so you only pay a small deposit online${linkEn}`
+        : lang === "ln"
+        ? `Tokomi malamu — soki Mobile Money ezali kosala te, ozali na ba options mibale:\n• Futa na **carte bancaire (Visa/Mastercard)** na checkout\n• To pona **30% sik'oyo + 70% cash na livraison** — okofuta moke seulement online${linkFr}`
+        : `Pas de souci — si Mobile Money ne passe pas, vous avez deux solutions :\n• Payer par **carte bancaire (Visa/Mastercard)** sur la page de paiement\n• Ou choisir **30% maintenant + 70% cash à la livraison** — vous ne payez qu'un petit acompte en ligne${linkFr}`;
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
     if (needsEscalation || !answer) {
       answer = fallbackAnswer;
     }

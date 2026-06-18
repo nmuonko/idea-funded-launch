@@ -580,8 +580,10 @@ export function AfriShopChatbotWidget() {
                   {QUICK_REPLIES.map(q => (
                     <button
                       key={q}
+                      type="button"
                       onClick={() => send(q)}
-                      className="text-xs px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-white/90 border border-white/10"
+                      aria-label={`Envoyer la suggestion : ${q}`}
+                      className="text-xs px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-white/90 border border-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366]/70"
                     >
                       {q}
                     </button>

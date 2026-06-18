@@ -12,7 +12,25 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY")!;
+const OPENAI_MODEL = Deno.env.get("OPENAI_CHATBOT_MODEL") || "gpt-4o-mini";
+
+// --- Additional guardrails ---
+const MAX_INPUT_CHARS = 2000;
+const MAX_HISTORY_TURNS = 12;
+const PROMPT_INJECTION_PATTERNS: RegExp[] = [
+  /ignore (all|previous|above) (instructions|prompts|rules)/i,
+  /disregard (the )?(system|previous) (prompt|instructions)/i,
+  /you are now (a|an) /i,
+  /act as (a |an )?(dan|jailbreak|developer mode)/i,
+  /reveal (your )?(system )?prompt/i,
+  /print (your )?(system )?prompt/i,
+  /\bsystem prompt\b/i,
+  /\bjailbreak\b/i,
+];
+function looksLikeInjection(text: string): boolean {
+  return PROMPT_INJECTION_PATTERNS.some((re) => re.test(text));
+}
 
 // --- Guardrail constants ---
 const FORBIDDEN_PAYMENT_TERMS: { re: RegExp; replace: string }[] = [

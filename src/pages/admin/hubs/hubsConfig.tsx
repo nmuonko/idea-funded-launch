@@ -18,6 +18,8 @@ export const getSupportTabs = (lang: string): AdminHubTab[] => [
   { to: '/admin/support-contact', icon: MessageSquare, label: lang === 'fr' ? 'Contact Support' : 'Support Contact', permission: 'can_view_tickets' },
   { to: '/admin/chat-routing', icon: BarChart3, label: lang === 'fr' ? 'Routage Chat' : 'Chat Routing', permission: 'can_view_ticket_analytics' },
   { to: '/admin/chatbot-conversations', icon: MessageSquare, label: lang === 'fr' ? 'Conversations Sophie' : 'Sophie Conversations', permission: 'can_view_tickets' },
+  { to: '/admin/sophie-analytics', icon: BarChart3, label: lang === 'fr' ? 'Sophie Analytics' : 'Sophie Analytics', permission: 'can_view_ticket_analytics' },
+  { to: '/admin/sophie-faqs', icon: Brain, label: lang === 'fr' ? 'Sophie FAQs' : 'Sophie FAQs', permission: 'can_view_tickets' },
   { to: '/admin/payment-escalations', icon: AlertTriangle, label: lang === 'fr' ? 'Escalades Paiement' : 'Payment Escalations', permission: 'can_view_tickets' },
 ];
 

@@ -74,6 +74,8 @@ const DubaiUpload = lazy(() => import("./pages/DubaiUpload"));
 const AdminInternationalProducts = lazy(() => import("./pages/admin/InternationalProducts"));
 const AdminTelegramImport = lazy(() => import("./pages/admin/TelegramImport"));
 const AdminChatbotConversations = lazy(() => import("./pages/admin/ChatbotConversations"));
+const SophieAnalytics = lazy(() => import("./pages/admin/SophieAnalytics"));
+const SophieFAQs = lazy(() => import("./pages/admin/SophieFAQs"));
 const PaymentEscalations = lazy(() => import("./pages/admin/PaymentEscalations"));
 const AdminCountryShippingRates = lazy(() => import("./pages/admin/CountryShippingRates"));
 const FinanceHub = lazy(() => import("./pages/admin/hubs").then(m => ({ default: m.FinanceHub })));
@@ -409,6 +411,16 @@ const App = () => {
                 <Route path="chatbot-conversations" element={
                   <AdminRouteGuard requiredPermission="can_view_tickets">
                     <AdminChatbotConversations />
+                  </AdminRouteGuard>
+                } />
+                <Route path="sophie-analytics" element={
+                  <AdminRouteGuard requiredPermission="can_view_ticket_analytics">
+                    <SophieAnalytics />
+                  </AdminRouteGuard>
+                } />
+                <Route path="sophie-faqs" element={
+                  <AdminRouteGuard requiredPermission="can_view_tickets">
+                    <SophieFAQs />
                   </AdminRouteGuard>
                 } />
                 <Route path="payment-escalations" element={

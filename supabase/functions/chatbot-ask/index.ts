@@ -66,14 +66,16 @@ function scrubPaymentTerms(text: string): string {
   return out;
 }
 
-function detectLanguage(text: string, fallback: string): "fr" | "en" {
+function detectLanguage(text: string, fallback: string): "fr" | "en" | "ln" {
   const t = text.toLowerCase();
+  // Lingala signals (Kinshasa urban Lingala)
+  if (/\b(mbote|nasengi|nalingi|natomeli|nayebi|nakoki|ndenge nini|nini|boni|po na nini|likambo|biloko|ndako|nasala|naza|toza|tozo|maloba|ngonga|sika)\b/.test(t)) return "ln";
   // Strong French signals
   if (/[àâçéèêëîïôûùüÿœæ]/.test(t)) return "fr";
   if (/\b(le|la|les|je|vous|bonjour|merci|combien|comment|où|quand|pourquoi|livraison|paiement|commande)\b/.test(t)) return "fr";
   // English signals
   if (/\b(the|how|what|when|where|why|hello|hi|payment|delivery|order|please|thanks)\b/.test(t)) return "en";
-  return fallback === "en" ? "en" : "fr";
+  return (fallback === "en" ? "en" : fallback === "ln" ? "ln" : "fr");
 }
 
 const BUSINESS_CONTEXT_FR = `
@@ -305,13 +307,35 @@ function buildInternalProductUrl(
 
 async function fetchKb(supabase: any, language: string) {
   const [faq, kba] = await Promise.all([
-    supabase.from("faq_kb").select("question,answer").eq("is_active", true).eq("language", language)
+    supabase.from("faq_kb").select("id,question,answer,tags,trigger_phrases").eq("is_active", true).eq("language", language)
       .order("priority", { ascending: false }).limit(25),
-    supabase.from("knowledge_base_articles").select("title,content").eq("is_published", true).limit(15),
+    supabase.from("knowledge_base_articles").select("title,content").eq("published", true).limit(15),
   ]);
-  const faqRows = (faq.data || []) as { question: string; answer: string }[];
+  const faqRows = (faq.data || []) as { id: string; question: string; answer: string; tags?: string[]; trigger_phrases?: string[] }[];
   const kbaRows = (kba.data || []) as { title: string; content: string }[];
   return { faqRows, kbaRows };
+}
+
+// Score how strongly the user message matches each FAQ row via trigger_phrases / tags / question tokens.
+// Returns list of { id, score } and the top hit count.
+function scoreFaqHits(message: string, faqRows: { id: string; question: string; tags?: string[]; trigger_phrases?: string[] }[]) {
+  const m = message.toLowerCase();
+  const hits: { id: string; score: number }[] = [];
+  for (const row of faqRows) {
+    let score = 0;
+    for (const p of row.trigger_phrases || []) {
+      if (p && m.includes(String(p).toLowerCase())) score += 3;
+    }
+    for (const t of row.tags || []) {
+      if (t && m.includes(String(t).toLowerCase())) score += 1;
+    }
+    // Also count question keyword overlap
+    const qWords = String(row.question || "").toLowerCase().split(/\W+/).filter((w) => w.length > 4);
+    for (const w of qWords) if (m.includes(w)) score += 1;
+    if (score > 0) hits.push({ id: row.id, score });
+  }
+  hits.sort((a, b) => b.score - a.score);
+  return hits;
 }
 
 function buildKbBlock(faq: { question: string; answer: string }[], kba: { title: string; content: string }[]) {
@@ -372,7 +396,12 @@ Deno.serve(async (req) => {
       conversation_id: convId, role: "user", content: message,
     });
 
-    const { faqRows, kbaRows } = await fetchKb(supabase, lang === "en" ? "en" : "fr");
+    const kbLang = lang === "en" ? "en" : lang === "ln" ? "ln" : "fr";
+    const { faqRows, kbaRows } = await fetchKb(supabase, kbLang);
+    // Compute RAG hits for telemetry: how many FAQ rows actually match this question
+    const ragScored = scoreFaqHits(message, faqRows);
+    const ragHits = ragScored.length;
+    const ragTopIds = ragScored.slice(0, 3).map((h) => h.id);
 
     // Product price lookup: if user mentions a product, search the catalogue and hot products.
     let catalogMatches: CatalogMatch[] = [];
@@ -781,7 +810,9 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     // DETERMINISTIC: discount / réduction / negotiation → explain 30/70 payment plan instead of recommending other products.
     const discountRe = /(r[ée]duction|remise|rabais|discount|promo(?:tion)?|moins\s+cher|baisser\s+le\s+prix|negoci|n[ée]gocier|prix\s+(?:plus\s+)?bas|cheaper|deal|coupon|pas\s+de\s+r[ée]duction|il\s+y\s+a\s+pas|y\s+a\s+pas\s+de\s+r[ée]duc)/i;
     const planQuestionRe = /(paiement\s+en\s+plusieurs|en\s+plusieurs\s+fois|installment|in\s+installments?|deposit|acompte|payer\s+en\s+2|payer\s+en\s+deux|30\s*%|70\s*%|plan\s+de\s+paiement|payment\s+plan)/i;
+    let discountAnswered = false;
     if (discountRe.test(message) || planQuestionRe.test(message)) {
+      discountAnswered = true;
       const origin = req.headers.get("origin") || "";
       const ctxLink = product?.link
         ? (product.link.startsWith("http") ? product.link : `${origin}${product.link}`)
@@ -812,7 +843,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
 
 
     // DETERMINISTIC: product recommendation from catalog (only when we have REAL matches).
-    if (!productCard && catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message) || asksForMoreOptions)) {
+    if (!discountAnswered && !productCard && catalogMatches.length > 0 && (priceQuestionRe.test(message) || productIntentRe.test(message) || asksForMoreOptions)) {
 
       const selectedMatches = asksForMoreOptions ? catalogMatches.filter(p => p.price_usd != null).slice(0, 3) : [];
       const best = asksForMoreOptions ? selectedMatches[0] : pickBestMatch(catalogMatches, { wantsNew });
@@ -942,7 +973,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
 
     // DETERMINISTIC "is it new / sealed / in carton" → YES, our products are new.
     const cartonRe = /(c['e]?est\s+(?:en\s+)?carton|en\s+carton|carton\s+scell|scell[ée]e?s?|tout\s+neuf|brand\s+new|new\s+in\s+box|\bnib\b|sealed|is\s+(?:it|this)\s+(?:brand\s+)?new|est[- ]?(?:ce|il|elle)\s+neu(?:f|ve))/i;
-    if (cartonRe.test(message) && !needsEscalation) {
+    if (cartonRe.test(message)) {
       const focusTitle = product?.title || productCard?.title || (catalogMatches[0]?.display_name) || (lang === "en" ? "this product" : "ce produit");
       answer = lang === "en"
         ? `Yes — our ${focusTitle} ships brand new, sealed in its original box from the USA. ✅`
@@ -953,7 +984,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
 
     // DETERMINISTIC delivery-time question ("délai de livraison", "combien de temps", "how long", "delivery time")
     const deliveryQuestionRe = /(d[ée]lai(?:s)?\s+(?:de\s+)?livraison|temps\s+de\s+livraison|combien\s+de\s+temps|quand\s+(?:vais|je)|when\s+(?:will|do)|how\s+long|delivery\s+time|shipping\s+time|^\s*livraison\s*\??\s*$|^\s*delivery\s*\??\s*$)/i;
-    if (deliveryQuestionRe.test(message) && !needsEscalation) {
+    if (deliveryQuestionRe.test(message)) {
       answer = lang === "en"
         ? `Delivery takes **2 to 4 weeks** for the full USA → DRC journey, but most orders arrive in about **10 business days**. You'll get email/WhatsApp updates at each step. Want to place an order? You can also pay **30% now + 70% on delivery**.`
         : `La livraison prend **2 à 4 semaines** pour tout le trajet USA → RDC, mais la plupart des commandes arrivent en environ **10 jours ouvrés**. Vous recevrez des notifications email/WhatsApp à chaque étape. Voulez-vous commander ? Vous pouvez aussi payer **30% maintenant + 70% à la livraison**.`;
@@ -971,7 +1002,8 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       .map(h => String(h.content).toLowerCase())
       .join(" ");
     const recentlyDiscussedDelivery = /(livraison|deliver|semaines?|weeks?|2\s*[àa]\s*4|2-4|kinshasa)/i.test(recentAssistantContext);
-    if (deliveryComplaintRe.test(message) && recentlyDiscussedDelivery) {
+    const mentionsDelivery = /(livraison|delivery|deliver|shipping|d[ée]lai|expéd|expedi)/i.test(message);
+    if (deliveryComplaintRe.test(message) && (recentlyDiscussedDelivery || mentionsDelivery)) {
       answer = lang === "en"
         ? `I understand. The 2–4 weeks covers the full USA → DRC journey (purchase in the USA, export, international shipping, customs in Kinshasa, then last-mile delivery). Most orders actually arrive in about 10 business days. To make it easier on your wallet, you can also pay **30% now + 70% on delivery**. Want me to help you place the order?`
         : `Je comprends. Les 2 à 4 semaines couvrent tout le trajet USA → RDC (achat aux USA, export, transport international, douane à Kinshasa, puis livraison locale). La plupart des commandes arrivent en réalité en ~10 jours ouvrés. Pour vous faciliter l'achat, vous pouvez aussi payer **30% maintenant + 70% à la livraison**. Voulez-vous que je vous aide à passer commande ?`;
@@ -1017,6 +1049,10 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       missing_faq_topic: classification.missing_faq_topic || null,
       suggested_business_action: classification.suggested_business_action || null,
       resolved: !needsEscalation,
+      // Telemetry for Sophie analytics dashboard
+      rag_hits: ragHits,
+      rag_top_faq_ids: ragTopIds,
+      lang: kbLang,
     };
 
     const { data: insertedMsg } = await supabase.from("chatbot_messages").insert({

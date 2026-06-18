@@ -151,7 +151,21 @@ export default function CategoryResultsPage() {
     };
     if (cursor) params.cursor = cursor;
 
-    const data = await cachedCatalogFetch<CategoryResponse>('catalog-category', params);
+    let data: CategoryResponse | null = null;
+    try {
+      data = await cachedCatalogFetch<CategoryResponse>('catalog-category', params);
+    } catch (err: any) {
+      // Edge function cold-start or 503 → fall back to direct DB query
+      const msg = String(err?.message || err);
+      if (msg.includes('503') || msg.includes('LOAD_FUNCTION_ERROR') || msg.includes('Service Unavailable')) {
+        console.warn('[CategoryPage] catalog-category unavailable, falling back to DB', msg);
+        const fallback = await fetchCategoryFromDb(categoryKey, 0);
+        exhaustedRef.current = fallback.length < 200;
+        cursorRef.current = null;
+        return fallback;
+      }
+      throw err;
+    }
 
     // Store cursor for next request
     cursorRef.current = data?.nextCursor || null;

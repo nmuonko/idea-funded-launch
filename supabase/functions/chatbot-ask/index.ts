@@ -814,7 +814,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     }
 
     // DETERMINISTIC: discount / réduction / negotiation → explain 30/70 payment plan instead of recommending other products.
-    const discountRe = /(r[ée]duction|remise|rabais|discount|promo(?:tion)?|moins\s+cher|baisser\s+le\s+prix|negoci|n[ée]gocier|prix\s+(?:plus\s+)?bas|cheaper|deal|coupon|pas\s+de\s+r[ée]duction|il\s+y\s+a\s+pas|y\s+a\s+pas\s+de\s+r[ée]duc)/i;
+    const discountRe = /(r[ée]duction|remise|rabais|discount|promo(?:tion)?|moins\s+cher|baisser\s+le\s+prix|negoci|n[ée]gocier|prix\s+(?:plus\s+)?bas|cheaper|deal|coupon|pas\s+de\s+r[ée]duction|il\s+y\s+a\s+pas|y\s+a\s+pas\s+de\s+r[ée]duc|ya\s+pas\s+de\s+r[ée]duc|y['’]?a\s+pas\s+de\s+r[ée]duc|pas\s+moyen|aucune?\s+r[ée]duction|aucun\s+rabais)/i;
     const planQuestionRe = /(paiement\s+en\s+plusieurs|en\s+plusieurs\s+fois|installment|in\s+installments?|deposit|acompte|payer\s+en\s+2|payer\s+en\s+deux|30\s*%|70\s*%|plan\s+de\s+paiement|payment\s+plan)/i;
     let discountAnswered = false;
     if (discountRe.test(message) || planQuestionRe.test(message)) {

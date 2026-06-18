@@ -98,3 +98,31 @@ Deno.test("Sophie answers warranty question directly (EN)", async () => {
   assertEquals(status, 200);
   expectDirectAnswer("warranty EN", body);
 });
+
+// ── URL/button rendering regression ─────────────────────────────────────────
+// Every URL Sophie emits MUST be wrapped in markdown `[label](url)` so the
+// client renders it as a green button. A bare URL would render as a blue
+// underline link (or be unclickable), which the team has rejected.
+function assertNoBareUrls(label: string, answer: string) {
+  // Strip all valid markdown link payloads `[label](url)` then look for any
+  // residual http(s) URL — that would be a bare link.
+  const stripped = String(answer || "").replace(/\[[^\]]+\]\(https?:\/\/[^)\s]+\)/g, "");
+  const bare = stripped.match(/https?:\/\/\S+/);
+  assert(!bare, `${label}: response contains bare URL "${bare?.[0]}" — must be wrapped as [label](url) button`);
+}
+
+const URL_PROBES: Array<{ label: string; message: string; lang?: string }> = [
+  { label: "checkout link FR",  message: "Donnez-moi le lien pour payer maintenant" },
+  { label: "checkout link EN",  message: "Send me the checkout link please", lang: "en" },
+  { label: "whatsapp escalate", message: "Je veux parler à un agent humain tout de suite, c'est urgent" },
+  { label: "policy/help link",  message: "Où est votre politique de remboursement ?" },
+  { label: "track order link",  message: "How can I track my order?", lang: "en" },
+];
+
+for (const probe of URL_PROBES) {
+  Deno.test(`No bare URLs in chatbot reply — ${probe.label}`, async () => {
+    const { status, body } = await ask(probe.message, probe.lang || "fr");
+    assertEquals(status, 200);
+    assertNoBareUrls(probe.label, body.answer || "");
+  });
+}

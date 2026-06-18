@@ -66,12 +66,42 @@ function scrubPaymentTerms(text: string): string {
   return out;
 }
 
+function labelForUrl(url: string, lang: "fr" | "en" | "ln"): string {
+  const u = url.toLowerCase();
+  if (/wa\.me|whatsapp/.test(u)) {
+    return lang === "en" ? "Open WhatsApp" : lang === "ln" ? "Fungola WhatsApp" : "Ouvrir WhatsApp";
+  }
+  if (/\/checkout|hot-product|\/payment|\/pay/.test(u)) {
+    return lang === "en" ? "Pay now" : lang === "ln" ? "Futa sik'oyo" : "Payer maintenant";
+  }
+  if (/\/track|\/order/.test(u)) {
+    return lang === "en" ? "View order" : lang === "ln" ? "Tala commande" : "Voir la commande";
+  }
+  return lang === "en" ? "Open link" : lang === "ln" ? "Fungola lien" : "Ouvrir le lien";
+}
+
+// Wrap EVERY bare URL in markdown so the client renders it as a green button.
+// Markdown links already present (`[label](url)`) are left untouched.
 function buttonizeUrls(text: string, lang: "fr" | "en" | "ln"): string {
-  const label = lang === "en" ? "Pay now" : "Payer maintenant";
-  return text.replace(
-    /(^|\n)(https?:\/\/[^\s)]+(?:\/checkout|hot-product|payment|pay)[^\s)]*)/gi,
-    (_m, prefix: string, url: string) => `${prefix}[${label}](${url})`
-  );
+  // Tokenize: skip ranges already inside [..](..) markdown
+  const out: string[] = [];
+  const re = /\[[^\]]+\]\(https?:\/\/[^)\s]+\)|https?:\/\/[^\s)]+/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    out.push(text.slice(last, m.index));
+    const token = m[0];
+    if (token.startsWith("[")) {
+      out.push(token); // already a markdown link
+    } else {
+      const url = token.replace(/[.,;:!?]+$/, "");
+      const trailing = token.slice(url.length);
+      out.push(`[${labelForUrl(url, lang)}](${url})${trailing}`);
+    }
+    last = m.index + token.length;
+  }
+  out.push(text.slice(last));
+  return out.join("");
 }
 
 function detectLanguage(text: string, fallback: string): "fr" | "en" | "ln" {

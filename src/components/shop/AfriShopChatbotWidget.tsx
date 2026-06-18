@@ -436,7 +436,8 @@ export function AfriShopChatbotWidget() {
                           {card.product_url && (
                             <a
                               href={card.product_url}
-                              className="mt-1 w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline"
+                              aria-label={`${card.cta_label || 'Commander maintenant'} — ${card.title}`}
+                              className="mt-1 w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#111b21]"
                             >
                               {card.cta_label || 'Commander maintenant'} →
                             </a>

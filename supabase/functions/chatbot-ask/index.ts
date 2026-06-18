@@ -971,7 +971,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
 
     // DETERMINISTIC "is it new / sealed / in carton" → YES, our products are new.
     const cartonRe = /(c['e]?est\s+(?:en\s+)?carton|en\s+carton|carton\s+scell|scell[ée]e?s?|tout\s+neuf|brand\s+new|new\s+in\s+box|\bnib\b|sealed|is\s+(?:it|this)\s+(?:brand\s+)?new|est[- ]?(?:ce|il|elle)\s+neu(?:f|ve))/i;
-    if (cartonRe.test(message) && !needsEscalation) {
+    if (cartonRe.test(message)) {
       const focusTitle = product?.title || productCard?.title || (catalogMatches[0]?.display_name) || (lang === "en" ? "this product" : "ce produit");
       answer = lang === "en"
         ? `Yes — our ${focusTitle} ships brand new, sealed in its original box from the USA. ✅`

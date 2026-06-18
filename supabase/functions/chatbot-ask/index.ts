@@ -1125,6 +1125,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
 
     // Strip any leaked confidence mentions
     answer = answer.replace(/confidence[^.]*\./gi, "").replace(/\*\*/g, "").trim();
+    answer = buttonizeUrls(answer, lang);
 
     // Persist business-safe metadata only
     const safeClassification = {

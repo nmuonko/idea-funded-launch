@@ -80,9 +80,19 @@ function isCheckoutUrl(url: string) {
   return /\/checkout|\/hot-product|\/payment|\/pay/i.test(url);
 }
 
+function isWhatsAppUrl(url: string) {
+  return /wa\.me|whatsapp\.com|api\.whatsapp/i.test(url);
+}
+
+function defaultLabelFor(url: string) {
+  if (isWhatsAppUrl(url)) return 'Ouvrir WhatsApp';
+  if (isCheckoutUrl(url)) return 'Payer maintenant';
+  return 'Ouvrir le lien';
+}
+
+// Render every URL — markdown link or bare — as a green accessible CTA button.
+// No bare URLs and no blue underline links are ever emitted.
 function renderMessageContent(text: string) {
-  // Supports markdown-style links [label](url) AND bare URLs.
-  // We tokenize the string into plain segments, markdown links, and bare URLs.
   const pattern = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s)]+)/g;
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -92,32 +102,23 @@ function renderMessageContent(text: string) {
     if (m.index > lastIndex) {
       nodes.push(<span key={key++}>{text.slice(lastIndex, m.index)}</span>);
     }
-    const label = m[1];
-    const href = m[2] || m[3];
-    const isCommanderCta = label && /commander|order\s*now|payer(?:\s*maintenant)?|buy\s*now|pay\s*now|finaliser|complete(?:\s*order)?/i.test(label);
-    const isBareCheckout = !label && isCheckoutUrl(href);
+    const rawHref = m[2] || m[3];
+    const href = rawHref.replace(/[.,;:!?]+$/, '');
+    const label = (m[1] && m[1].trim()) || defaultLabelFor(href);
+    const ariaLabel = isWhatsAppUrl(href)
+      ? `${label} (ouvre WhatsApp dans un nouvel onglet)`
+      : `${label} (ouvre dans un nouvel onglet)`;
     nodes.push(
-      isCommanderCta || isBareCheckout ? (
-        <a
-          key={key++}
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="my-2 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline w-full"
-        >
-          {label || "Payer maintenant"} →
-        </a>
-      ) : (
-        <a
-          key={key++}
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline text-[#53bdeb] break-all font-medium"
-        >
-          {label || href}
-        </a>
-      )
+      <a
+        key={key++}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={ariaLabel}
+        className="my-2 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#202C33]"
+      >
+        {label} →
+      </a>
     );
     lastIndex = m.index + m[0].length;
   }
@@ -342,7 +343,7 @@ export function AfriShopChatbotWidget() {
             >
             {/* Header — WhatsApp green, app-page style on mobile */}
             <div className="flex items-center gap-2 px-2 sm:px-3 py-2.5 bg-[#075E54] text-white">
-              <button onClick={close} aria-label="Retour" className="sm:hidden p-2 -ml-1 rounded-full hover:bg-white/10">
+              <button type="button" onClick={close} aria-label="Retour" className="sm:hidden p-2 -ml-1 rounded-full hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80">
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <img src={sophieProfile} alt="Sophie" className="h-10 w-10 rounded-full object-cover border border-white/20" />
@@ -352,7 +353,7 @@ export function AfriShopChatbotWidget() {
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400"></span> en ligne
                 </div>
               </div>
-              <button onClick={close} aria-label="Fermer" className="hidden sm:inline-flex p-2 rounded-full hover:bg-white/10">
+              <button type="button" onClick={close} aria-label="Fermer le chat" className="hidden sm:inline-flex p-2 rounded-full hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -435,7 +436,8 @@ export function AfriShopChatbotWidget() {
                           {card.product_url && (
                             <a
                               href={card.product_url}
-                              className="mt-1 w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline"
+                              aria-label={`${card.cta_label || 'Commander maintenant'} — ${card.title}`}
+                              className="mt-1 w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#111b21]"
                             >
                               {card.cta_label || 'Commander maintenant'} →
                             </a>
@@ -487,7 +489,8 @@ export function AfriShopChatbotWidget() {
                                 session_id: getSessionId(),
                                 metadata: { plan: '30_70', step: 'deposit' },
                               })}
-                              className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline"
+                              aria-label="Payer 30% maintenant et démarrer la commande"
+                              className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#111b21]"
                             >
                               Payer 30% maintenant →
                             </a>
@@ -507,7 +510,8 @@ export function AfriShopChatbotWidget() {
                                 session_id: getSessionId(),
                                 metadata: { plan: 'full', step: 'full' },
                               })}
-                              className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 transition text-white text-sm font-semibold no-underline border border-white/15"
+                              aria-label="Payer 100% en ligne"
+                              className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 transition text-white text-sm font-semibold no-underline border border-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#111b21]"
                             >
                               Payer 100% en ligne
                             </a>
@@ -524,7 +528,8 @@ export function AfriShopChatbotWidget() {
                         href={getWhatsAppUrl(user?.email)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="mt-2 inline-flex items-center justify-center gap-1.5 w-full px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline"
+                        aria-label={`Contacter un agent sur WhatsApp ${SUPPORT_WHATSAPP_DISPLAY} (ouvre WhatsApp dans un nouvel onglet)`}
+                        className="mt-2 inline-flex items-center justify-center gap-1.5 w-full px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#202C33]"
                       >
                         <MessageCircle className="w-4 h-4" />
                         Contacter un agent sur WhatsApp ({SUPPORT_WHATSAPP_DISPLAY})
@@ -545,7 +550,8 @@ export function AfriShopChatbotWidget() {
                           href={getWhatsAppUrl(user?.email)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="mt-2 inline-flex items-center justify-center gap-1.5 w-full px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline"
+                          aria-label={`Ouvrir WhatsApp ${SUPPORT_WHATSAPP_DISPLAY} (ouvre dans un nouvel onglet)`}
+                          className="mt-2 inline-flex items-center justify-center gap-1.5 w-full px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#202C33]"
                         >
                           <MessageCircle className="w-4 h-4" />
                           Ouvrir WhatsApp ({SUPPORT_WHATSAPP_DISPLAY})
@@ -574,8 +580,10 @@ export function AfriShopChatbotWidget() {
                   {QUICK_REPLIES.map(q => (
                     <button
                       key={q}
+                      type="button"
                       onClick={() => send(q)}
-                      className="text-xs px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-white/90 border border-white/10"
+                      aria-label={`Envoyer la suggestion : ${q}`}
+                      className="text-xs px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-white/90 border border-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366]/70"
                     >
                       {q}
                     </button>
@@ -603,7 +611,7 @@ export function AfriShopChatbotWidget() {
                 type="submit"
                 disabled={!input.trim() || sending}
                 aria-label="Envoyer"
-                className="shrink-0 h-10 w-10 rounded-full bg-[#25D366] hover:bg-[#1da851] disabled:opacity-50 text-white flex items-center justify-center"
+                className="shrink-0 h-10 w-10 rounded-full bg-[#25D366] hover:bg-[#1da851] disabled:opacity-50 text-white flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1f2c33]"
               >
                 {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
               </button>

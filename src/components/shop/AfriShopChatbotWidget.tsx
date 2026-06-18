@@ -353,7 +353,7 @@ export function AfriShopChatbotWidget() {
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400"></span> en ligne
                 </div>
               </div>
-              <button onClick={close} aria-label="Fermer" className="hidden sm:inline-flex p-2 rounded-full hover:bg-white/10">
+              <button type="button" onClick={close} aria-label="Fermer le chat" className="hidden sm:inline-flex p-2 rounded-full hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80">
                 <X className="w-5 h-5" />
               </button>
             </div>

@@ -715,23 +715,29 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     const sentiment = String(classification.sentiment || "").toLowerCase();
 
     // Hard guardrails on top of AI decision — only escalate when we truly need a human.
-    // Off-topic and low-confidence are handled with a polite redirect/clarification, not escalation.
+    // HUMAN_REQUESTED: do NOT auto-escalate on first ask — Sophie should try to help first.
+    // We only auto-escalate when the customer has already received a Sophie answer earlier in
+    // the conversation AND now insists on a human (assistant turn count >= 2).
+    const assistantTurnsSoFar = history.filter(h => h.role === "assistant").length;
+    const humanRequestedInsist =
+      classification.intent === "HUMAN_REQUESTED" && assistantTurnsSoFar >= 2;
+
     let needsEscalation =
       !!parsed.needs_escalation ||
       confidence < 0.45 ||
       sentiment === "angry" ||
-      classification.intent === "HUMAN_REQUESTED" ||
-      classification.intent === "PAYMENT_FAILED" ||
-      classification.category === "RETURNS_REFUNDS";
+      humanRequestedInsist ||
+      classification.intent === "PAYMENT_FAILED";
 
     let escalationReason = parsed.escalation_reason || "";
     if (needsEscalation && !escalationReason) {
       escalationReason = sentiment === "angry" ? "ANGRY_CUSTOMER"
-        : classification.intent === "HUMAN_REQUESTED" ? "HUMAN_REQUESTED"
+        : humanRequestedInsist ? "HUMAN_REQUESTED"
         : classification.category === "OFF_TOPIC" ? "OFF_TOPIC"
         : confidence < 0.70 ? "RAG_NO_ANSWER"
         : "UNKNOWN_QUESTION";
     }
+
 
     let answer: string = String(parsed.answer || "").trim();
 
@@ -808,7 +814,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
     }
 
     // DETERMINISTIC: discount / réduction / negotiation → explain 30/70 payment plan instead of recommending other products.
-    const discountRe = /(r[ée]duction|remise|rabais|discount|promo(?:tion)?|moins\s+cher|baisser\s+le\s+prix|negoci|n[ée]gocier|prix\s+(?:plus\s+)?bas|cheaper|deal|coupon|pas\s+de\s+r[ée]duction|il\s+y\s+a\s+pas|y\s+a\s+pas\s+de\s+r[ée]duc)/i;
+    const discountRe = /(r[ée]duction|remise|rabais|discount|promo(?:tion)?|moins\s+cher|baisser\s+le\s+prix|negoci|n[ée]gocier|prix\s+(?:plus\s+)?bas|cheaper|deal|coupon|pas\s+de\s+r[ée]duction|il\s+y\s+a\s+pas|y\s+a\s+pas\s+de\s+r[ée]duc|ya\s+pas\s+de\s+r[ée]duc|y['’]?a\s+pas\s+de\s+r[ée]duc|pas\s+moyen|aucune?\s+r[ée]duction|aucun\s+rabais)/i;
     const planQuestionRe = /(paiement\s+en\s+plusieurs|en\s+plusieurs\s+fois|installment|in\s+installments?|deposit|acompte|payer\s+en\s+2|payer\s+en\s+deux|30\s*%|70\s*%|plan\s+de\s+paiement|payment\s+plan)/i;
     let discountAnswered = false;
     if (discountRe.test(message) || planQuestionRe.test(message)) {
@@ -1031,9 +1037,83 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       }
     }
 
+    // DETERMINISTIC: customer asks for a human/agent BEFORE describing their issue.
+    // Don't escalate yet — invite them to share the question first.
+    const humanAskRe = /(parler\s+(?:à|a)\s+(?:un\s+)?(?:humain|agent|vrai\s+agent|quelqu['’]un)|vrai\s+agent|un\s+humain|agent\s+svp|service\s+client|talk\s+to\s+(?:a\s+)?(?:human|real\s+agent|agent|someone)|speak\s+to\s+(?:a\s+)?(?:human|agent|someone)|human\s+agent|real\s+person|customer\s+service)/i;
+    if (humanAskRe.test(message) && !humanRequestedInsist) {
+      answer = lang === "en"
+        ? `I'm Sophie, the AfriShop assistant — I can help with most questions directly (prices, delivery, 30/70 payment plan, products, order status). Tell me what you need and if I really can't help, I'll connect you with the team right away. 🙂`
+        : `Je suis Sophie, l'assistante AfriShop — je peux répondre à la plupart des questions directement (prix, livraison, plan 30/70, produits, suivi). Dites-moi ce qu'il vous faut et si je ne peux vraiment pas vous aider, je vous mets aussitôt en contact avec l'équipe. 🙂`;
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
+    // DETERMINISTIC: pickup location / agency question
+    const pickupRe = /(quelle?\s+agence|sur\s+quelle\s+agence|o[uù]\s+(?:le\s+)?r[ée]cup[ée]rer|o[uù]\s+(?:le\s+)?retirer|point\s+de\s+retrait|le\s+retrouver|le\s+r[ée]cup[ée]rer\s+(?:o[uù]|pr[ée]cis[ée]ment)|pickup\s+(?:point|location)|which\s+agency|where\s+(?:do\s+i\s+)?pick\s*up)/i;
+    const cityRe = /\b(mbujimayi|mbuji[- ]?mayi|lubumbashi|goma|bukavu|matadi|kisangani|kananga|kolwezi|likasi|kindu|uvira|boma|bunia)\b/i;
+    if (pickupRe.test(message) || (cityRe.test(message) && /(retir|r[ée]cup|pickup|livr|deliver)/i.test(message))) {
+      answer = lang === "en"
+        ? `We deliver directly to your address in Kinshasa. Outside Kinshasa (Lubumbashi, Mbujimayi, Goma, Bukavu, Matadi, Kisangani…), we use a trusted local transport partner — once your parcel reaches DRC, our team calls you to confirm the nearest pickup point. 📦`
+        : `Nous livrons directement à votre adresse à Kinshasa. Hors Kinshasa (Lubumbashi, Mbujimayi, Goma, Bukavu, Matadi, Kisangani…), nous travaillons avec un partenaire de transport local — dès que votre colis arrive en RDC, notre équipe vous appelle pour confirmer le point de retrait le plus proche. 📦`;
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
+    // DETERMINISTIC: wrong item received policy
+    const wrongItemRe = /(pas\s+le\s+(?:m[êe]me|bon)|n[' ]est\s+pas\s+le\s+(?:m[êe]me|bon)|article\s+(?:diff[ée]rent|mauvais)|mauvais\s+article|wrong\s+(?:item|product)|not\s+(?:the\s+)?(?:same|right)\s+(?:item|product|one)|not\s+what\s+i\s+ordered|reçois\s+pas\s+(?:le|la|ce))/i;
+    if (wrongItemRe.test(message)) {
+      answer = lang === "en"
+        ? `If the delivered item doesn't match your order, send us a photo within 48h — we cover the exchange or a full refund. It's on us, not on you. ✅`
+        : `Si l'article reçu ne correspond pas à votre commande, envoyez-nous une photo dans les 48h — nous prenons en charge l'échange ou le remboursement complet. C'est notre responsabilité, pas la vôtre. ✅`;
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
+    // DETERMINISTIC: cash-only payment preference
+    const cashRe = /(en\s+esp[èe]ces?|pay(?:er)?\s+(?:en\s+)?cash|pr[ée]f[èe]re\s+(?:en\s+)?(?:esp[èe]ce|cash|liquide)|cash\s+only|liquide|sans\s+carte|pas\s+de\s+mobile\s+money|no\s+card|prefer\s+cash)/i;
+    if (cashRe.test(message)) {
+      const origin = req.headers.get("origin") || "";
+      const ctxLink = product?.link
+        ? (product.link.startsWith("http") ? product.link : `${origin}${product.link}`)
+        : "";
+      const priceNum = typeof product?.price_usd === "number" ? product.price_usd : null;
+      const deposit = priceNum != null ? Math.ceil(priceNum * 0.3) : null;
+      const balance = priceNum != null ? Math.ceil(priceNum * 0.7) : null;
+      const depTxtFr = deposit != null ? ` (~${deposit} USD aujourd'hui, ${balance} USD cash à la livraison)` : "";
+      const depTxtEn = deposit != null ? ` (~${deposit} USD today, ${balance} USD cash on delivery)` : "";
+      answer = lang === "en"
+        ? `Payment starts online via Mobile Money or bank card. To make it easier, you can also pay **30% now + 70% on delivery** — the 70% balance can be paid in cash to the courier${depTxtEn}. 👍`
+        : `Le paiement démarre en ligne par Mobile Money ou carte bancaire. Pour faciliter, vous pouvez aussi payer **30% maintenant + 70% à la livraison** — le solde de 70% peut être réglé en cash au livreur${depTxtFr}. 👍`;
+      paymentPlan = {
+        has_plan: true,
+        deposit_pct: 30,
+        balance_pct: 70,
+        deposit_usd: deposit,
+        balance_usd: balance,
+        total_usd: priceNum,
+        product_title: product?.title || null,
+        product_url: ctxLink || null,
+        order_url: ctxLink || null,
+      };
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
+    // DETERMINISTIC: product image request
+    const imageRe = /(envoie[- ]?moi\s+(?:les\s+)?(?:images?|photos?)|envoyez\s+(?:les\s+)?(?:images?|photos?)|m['’]?\s*envoyer\s+(?:les\s+)?(?:images?|photos?)|images?\s+du\s+produit|photos?\s+du\s+produit|send\s+(?:me\s+)?(?:more\s+)?(?:pictures?|photos?|images?)|show\s+(?:me\s+)?(?:pictures?|photos?))/i;
+    if (imageRe.test(message)) {
+      const focus = product?.title || productCard?.title || (catalogMatches[0]?.display_name);
+      answer = lang === "en"
+        ? `All product photos are right on the product page${focus ? ` for the **${focus}**` : ""} — tap the product in the app/site to see every image in full size. 📸`
+        : `Toutes les photos du produit sont sur la page produit${focus ? ` du **${focus}**` : ""} — cliquez sur le produit dans l'app/site pour les voir en grand. 📸`;
+      needsEscalation = false;
+      escalationReason = "";
+    }
+
     if (needsEscalation || !answer) {
       answer = fallbackAnswer;
     }
+
 
     // Strip any leaked confidence mentions
     answer = answer.replace(/confidence[^.]*\./gi, "").replace(/\*\*/g, "").trim();

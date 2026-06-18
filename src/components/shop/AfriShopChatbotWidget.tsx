@@ -343,7 +343,7 @@ export function AfriShopChatbotWidget() {
             >
             {/* Header — WhatsApp green, app-page style on mobile */}
             <div className="flex items-center gap-2 px-2 sm:px-3 py-2.5 bg-[#075E54] text-white">
-              <button onClick={close} aria-label="Retour" className="sm:hidden p-2 -ml-1 rounded-full hover:bg-white/10">
+              <button type="button" onClick={close} aria-label="Retour" className="sm:hidden p-2 -ml-1 rounded-full hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80">
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <img src={sophieProfile} alt="Sophie" className="h-10 w-10 rounded-full object-cover border border-white/20" />

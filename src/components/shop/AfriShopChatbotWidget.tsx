@@ -550,7 +550,8 @@ export function AfriShopChatbotWidget() {
                           href={getWhatsAppUrl(user?.email)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="mt-2 inline-flex items-center justify-center gap-1.5 w-full px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline"
+                          aria-label={`Ouvrir WhatsApp ${SUPPORT_WHATSAPP_DISPLAY} (ouvre dans un nouvel onglet)`}
+                          className="mt-2 inline-flex items-center justify-center gap-1.5 w-full px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#202C33]"
                         >
                           <MessageCircle className="w-4 h-4" />
                           Ouvrir WhatsApp ({SUPPORT_WHATSAPP_DISPLAY})

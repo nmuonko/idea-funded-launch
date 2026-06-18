@@ -611,7 +611,7 @@ export function AfriShopChatbotWidget() {
                 type="submit"
                 disabled={!input.trim() || sending}
                 aria-label="Envoyer"
-                className="shrink-0 h-10 w-10 rounded-full bg-[#25D366] hover:bg-[#1da851] disabled:opacity-50 text-white flex items-center justify-center"
+                className="shrink-0 h-10 w-10 rounded-full bg-[#25D366] hover:bg-[#1da851] disabled:opacity-50 text-white flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1f2c33]"
               >
                 {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
               </button>

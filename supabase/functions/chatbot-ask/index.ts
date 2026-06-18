@@ -66,6 +66,14 @@ function scrubPaymentTerms(text: string): string {
   return out;
 }
 
+function buttonizeUrls(text: string, lang: "fr" | "en" | "ln"): string {
+  const label = lang === "en" ? "Pay now" : "Payer maintenant";
+  return text.replace(
+    /(^|\n)(https?:\/\/[^\s)]+(?:\/checkout|hot-product|payment|pay)[^\s)]*)/gi,
+    (_m, prefix: string, url: string) => `${prefix}[${label}](${url})`
+  );
+}
+
 function detectLanguage(text: string, fallback: string): "fr" | "en" | "ln" {
   const t = text.toLowerCase();
   // Lingala signals (Kinshasa urban Lingala)
@@ -582,9 +590,9 @@ Règles de confiance:
 - confidence < 0.45 → needs_escalation=true
 
 💳 LIEN DE PAIEMENT (CRITIQUE):
-- Si l'utilisateur demande COMMENT PAYER, où payer, le lien, "je veux payer", "payer maintenant" (intent HOW_TO_PAY) ET qu'un produit est en contexte avec un "Lien:", tu DOIS inclure ce lien EXACT dans la réponse sur sa propre ligne.
-- Format FR: "Voici votre lien de paiement sécurisé :\n<LIEN>\nCliquez pour finaliser votre commande."
-- Format EN: "Here is your secure payment link:\n<LIEN>\nClick to complete your order."
+- Si l'utilisateur demande COMMENT PAYER, où payer, le lien, "je veux payer", "payer maintenant" (intent HOW_TO_PAY) ET qu'un produit est en contexte avec un "Lien:", tu DOIS inclure ce lien EXACT dans la réponse.
+- Format FR: "Voici votre lien de paiement sécurisé 👇\n[Payer maintenant](<LIEN>)\nCliquez pour finaliser votre commande."
+- Format EN: "Here is your secure payment link 👇\n[Pay now](<LIEN>)\nClick to complete your order."
 - N'invente JAMAIS de lien. Si aucun "Lien:" n'est fourni, explique simplement les étapes de paiement sans lien.
 
 Règles d'escalade — needs_escalation=true si:
@@ -902,8 +910,8 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       const origin = req.headers.get("origin") || "";
       const fullLink = product.link.startsWith("http") ? product.link : `${origin}${product.link}`;
       answer = lang === "en"
-        ? `Here is your secure payment link:\n${fullLink}\nClick to complete your order.`
-        : `Voici votre lien de paiement sécurisé :\n${fullLink}\nCliquez pour finaliser votre commande.`;
+        ? `Here is your secure payment link 👇\n[Pay now](${fullLink})\nClick to complete your order.`
+        : `Voici votre lien de paiement sécurisé 👇\n[Payer maintenant](${fullLink})\nCliquez pour finaliser votre commande.`;
       needsEscalation = false;
       escalationReason = "";
     }
@@ -1117,6 +1125,7 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
 
     // Strip any leaked confidence mentions
     answer = answer.replace(/confidence[^.]*\./gi, "").replace(/\*\*/g, "").trim();
+    answer = buttonizeUrls(answer, lang);
 
     // Persist business-safe metadata only
     const safeClassification = {

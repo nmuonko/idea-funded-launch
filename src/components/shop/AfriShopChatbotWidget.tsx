@@ -76,6 +76,10 @@ function formatTime(ts: number) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+function isCheckoutUrl(url: string) {
+  return /\/checkout|\/hot-product|\/payment|\/pay/i.test(url);
+}
+
 function renderMessageContent(text: string) {
   // Supports markdown-style links [label](url) AND bare URLs.
   // We tokenize the string into plain segments, markdown links, and bare URLs.
@@ -90,9 +94,10 @@ function renderMessageContent(text: string) {
     }
     const label = m[1];
     const href = m[2] || m[3];
-    const isCommanderCta = label && /commander|order\s*now|payer|buy\s*now/i.test(label);
+    const isCommanderCta = label && /commander|order\s*now|payer(?:\s*maintenant)?|buy\s*now|pay\s*now|finaliser|complete(?:\s*order)?/i.test(label);
+    const isBareCheckout = !label && isCheckoutUrl(href);
     nodes.push(
-      isCommanderCta ? (
+      isCommanderCta || isBareCheckout ? (
         <a
           key={key++}
           href={href}
@@ -100,7 +105,7 @@ function renderMessageContent(text: string) {
           rel="noopener noreferrer"
           className="my-2 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline w-full"
         >
-          {label} →
+          {label || "Payer maintenant"} →
         </a>
       ) : (
         <a

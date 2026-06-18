@@ -336,11 +336,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
     const body = await req.json();
-    const rawMessage: string = String(body.message ?? "").slice(0, 2000).trim();
+    const rawMessage: string = String(body.message ?? "").slice(0, MAX_INPUT_CHARS).trim();
     const sessionId: string = String(body.session_id ?? crypto.randomUUID());
     const conversationId: string | null = body.conversation_id ?? null;
     const product: ProductContext | undefined = body.product || undefined;
-    const history: { role: string; content: string }[] = Array.isArray(body.history) ? body.history.slice(-10) : [];
+    const history: { role: string; content: string }[] = Array.isArray(body.history) ? body.history.slice(-MAX_HISTORY_TURNS) : [];
     const userId: string | null = body.user_id ?? null;
     const requestedLang = (body.language || "fr").toLowerCase();
 

@@ -66,6 +66,14 @@ function scrubPaymentTerms(text: string): string {
   return out;
 }
 
+function buttonizeUrls(text: string, lang: "fr" | "en" | "ln"): string {
+  const label = lang === "en" ? "Pay now" : "Payer maintenant";
+  return text.replace(
+    /(^|\n)(https?:\/\/[^\s)]+(?:\/checkout|hot-product|payment|pay)[^\s)]*)/gi,
+    (_m, prefix: string, url: string) => `${prefix}[${label}](${url})`
+  );
+}
+
 function detectLanguage(text: string, fallback: string): "fr" | "en" | "ln" {
   const t = text.toLowerCase();
   // Lingala signals (Kinshasa urban Lingala)

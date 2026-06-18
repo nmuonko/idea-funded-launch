@@ -910,8 +910,8 @@ Si needs_escalation=true, "answer" doit être exactement: "${fallbackAnswer}"`;
       const origin = req.headers.get("origin") || "";
       const fullLink = product.link.startsWith("http") ? product.link : `${origin}${product.link}`;
       answer = lang === "en"
-        ? `Here is your secure payment link:\n${fullLink}\nClick to complete your order.`
-        : `Voici votre lien de paiement sécurisé :\n${fullLink}\nCliquez pour finaliser votre commande.`;
+        ? `Here is your secure payment link 👇\n[Pay now](${fullLink})\nClick to complete your order.`
+        : `Voici votre lien de paiement sécurisé 👇\n[Payer maintenant](${fullLink})\nCliquez pour finaliser votre commande.`;
       needsEscalation = false;
       escalationReason = "";
     }

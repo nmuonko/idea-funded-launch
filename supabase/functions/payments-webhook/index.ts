@@ -715,9 +715,18 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
         createReferralCommission(supabase, payment.order_id, paidOrder2.user_id, paidOrder2.total_amount || 0, 'stripe-webhook').catch(() => {});
       }
     } else if (internalStatus === 'failed' && payment.order_id) {
-      // Notify admins about failed payment
+      // Notify admins about failed payment with rich Stripe failure details
       const failDetails2 = await getOrderDetailsForNotification(supabase, payment.order_id);
-      notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'Stripe', failDetails2).catch(() => {});
+      const lpe = (event as any)?.data?.object?.last_payment_error || {};
+      const card = lpe?.payment_method?.card || (event as any)?.data?.object?.charges?.data?.[0]?.payment_method_details?.card || {};
+      const failureInfo: FailureDetails = {
+        failureCode: lpe.code || updateData.failure_code,
+        declineCode: lpe.decline_code,
+        failureReason: lpe.message || updateData.failure_reason,
+        cardBrand: card.brand ? (card.brand.charAt(0).toUpperCase() + card.brand.slice(1)) : undefined,
+        cardLast4: card.last4,
+      };
+      notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'Stripe', failDetails2, failureInfo).catch(() => {});
     }
   }
 

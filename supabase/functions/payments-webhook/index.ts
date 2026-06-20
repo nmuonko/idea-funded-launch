@@ -529,7 +529,10 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       // Notify admins about failed/cancelled payment
       if (payment.order_id) {
         const failDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
-        notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'Stripe Checkout', failDetails).catch(() => {});
+        const failureInfo = isExpired
+          ? { failureCode: 'checkout_expired', failureReason: 'Stripe Checkout session expired before payment' }
+          : { failureCode: updateData.failure_code, failureReason: updateData.failure_reason };
+        notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'Stripe Checkout', failDetails, failureInfo).catch(() => {});
       }
     }
 

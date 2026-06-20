@@ -871,9 +871,13 @@ async function handlePawaPay(req: Request, supabase: any): Promise<Response> {
     const pawapayDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
     notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'succeeded', 'PawaPay (Mobile Money)', pawapayDetails).catch(() => {});
   } else if (result.status === 'failed' && payment?.order_id) {
-    // Notify admins about failed PawaPay payment
+    // Notify admins about failed PawaPay payment with reason
     const pawapayFailDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
-    notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'PawaPay (Mobile Money)', pawapayFailDetails).catch(() => {});
+    const failureInfo: FailureDetails = {
+      failureCode: payload.failureReason?.failureCode || 'pawapay_failed',
+      failureReason: payload.failureReason?.failureMessage || 'Mobile money payment failed',
+    };
+    notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'PawaPay (Mobile Money)', pawapayFailDetails, failureInfo).catch(() => {});
   }
 
   return new Response(

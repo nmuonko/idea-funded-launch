@@ -34,15 +34,59 @@ import {
  * Notify all admins via email about a payment event (success or failure).
  * Mirrors the support-service notifyAllAdminsNewMessage pattern.
  */
+function humanizeFailure(code?: string, declineCode?: string, rawMessage?: string): string {
+  const c = (declineCode || code || '').toLowerCase();
+  switch (c) {
+    case 'insufficient_funds':
+      return 'Card had insufficient funds — ask the customer to top up or use another card.';
+    case 'expired_card':
+      return 'Card expired — ask the customer for a new card.';
+    case 'incorrect_cvc':
+    case 'invalid_cvc':
+      return 'Wrong CVC — ask the customer to re-enter card details.';
+    case 'incorrect_number':
+    case 'invalid_number':
+      return 'Wrong card number — ask the customer to re-enter card details.';
+    case 'do_not_honor':
+    case 'generic_decline':
+    case 'transaction_not_allowed':
+      return 'Issuer blocked the charge — customer should contact their bank or try another card.';
+    case 'lost_card':
+    case 'stolen_card':
+    case 'pickup_card':
+      return 'Card reported lost/stolen by issuer — do NOT retry; ask for a different card.';
+    case 'card_declined':
+      return 'Issuer declined — customer should contact their bank or try another card.';
+    case 'authentication_required':
+      return '3-D Secure authentication required — ask customer to complete the bank verification step.';
+    case 'processing_error':
+      return 'Temporary processor error — ask customer to retry in a few minutes.';
+    case 'checkout_expired':
+      return 'Customer left the Stripe Checkout page open too long — ask them to start checkout again.';
+    case 'pawapay_failed':
+      return 'Mobile money payment failed — ask customer to confirm the PIN prompt or try another number.';
+    default:
+      return rawMessage || 'Payment was declined. Open the order to see provider details.';
+  }
+}
+
+interface FailureDetails {
+  failureCode?: string;
+  declineCode?: string;
+  failureReason?: string;
+  cardBrand?: string;
+  cardLast4?: string;
+}
+
 async function notifyAllAdminsPaymentEvent(
   supabase: any,
   orderId: string,
   status: 'succeeded' | 'failed' | 'cancelled',
   provider: string,
-  extra: { customerName?: string; customerEmail?: string; amount?: number; currency?: string } = {}
+  extra: { customerName?: string; customerEmail?: string; amount?: number; currency?: string } = {},
+  failure: FailureDetails = {}
 ): Promise<void> {
   try {
-    // Get all admin user IDs from user_roles
     const { data: adminRoles } = await supabase
       .from('user_roles')
       .select('user_id')
@@ -75,11 +119,30 @@ async function notifyAllAdminsPaymentEvent(
     const statusLabel = isSuccess ? '✅ Payment Successful' : '❌ Payment Failed';
     const statusColor = isSuccess ? '#16a34a' : '#dc2626';
     const urgency = isSuccess ? '' : ' — URGENT';
-    const subject = `[AfriShop] ${statusLabel} — Order ${orderId.slice(0, 8)}${urgency}`;
+
+    const humanHint = isSuccess
+      ? ''
+      : humanizeFailure(failure.failureCode, failure.declineCode, failure.failureReason);
+    const shortReason = !isSuccess
+      ? (humanHint.split('—')[0].trim() || 'Payment declined')
+      : '';
+    const subject = `[AfriShop] ${statusLabel} — Order ${orderId.slice(0, 8)}${shortReason ? ` — ${shortReason}` : ''}${urgency}`;
 
     const customerName = extra.customerName || 'Unknown';
     const customerEmail = extra.customerEmail || 'N/A';
     const amountStr = extra.amount ? `$${extra.amount.toFixed(2)} ${extra.currency || 'USD'}` : 'N/A';
+
+    const cardLine = failure.cardLast4
+      ? `<p style="margin:0 0 8px;"><strong>Card:</strong> ${failure.cardBrand || 'Card'} •••• ${failure.cardLast4}</p>`
+      : '';
+
+    const failureBlock = !isSuccess ? `
+            <div style="background:#fef2f2;border:1px solid #fecaca;padding:16px;border-radius:8px;margin:16px 0;">
+              <p style="margin:0 0 8px;font-weight:bold;color:#b91c1c;">Why it failed</p>
+              <p style="margin:0 0 8px;">${humanHint}</p>
+              ${failure.failureReason ? `<p style="margin:0 0 8px;font-size:13px;color:#555;"><strong>Provider message:</strong> ${failure.failureReason}</p>` : ''}
+              ${(failure.failureCode || failure.declineCode) ? `<p style="margin:0;font-size:12px;color:#666;"><strong>Code:</strong> ${failure.failureCode || ''}${failure.declineCode ? ` / ${failure.declineCode}` : ''}</p>` : ''}
+            </div>` : '';
 
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -97,9 +160,11 @@ async function notifyAllAdminsPaymentEvent(
               <p style="margin:0 0 8px;"><strong>Email:</strong> ${customerEmail}</p>
               <p style="margin:0 0 8px;"><strong>Amount:</strong> ${amountStr}</p>
               <p style="margin:0 0 8px;"><strong>Provider:</strong> ${provider}</p>
+              ${cardLine}
               <p style="margin:0;"><strong>Status:</strong> <span style="color:${statusColor};font-weight:bold;">${status.toUpperCase()}</span></p>
             </div>
-            <p style="margin:16px 0 8px;font-size:14px;color:#666;">${isSuccess ? 'A new payment has been received. Please log in to review and process the order.' : 'A payment has failed. Please log in to check the details and contact the customer if needed.'}</p>
+            ${failureBlock}
+            <p style="margin:16px 0 8px;font-size:14px;color:#666;">${isSuccess ? 'A new payment has been received. Please log in to review and process the order.' : 'Use the reason above to decide whether to contact the customer or wait for a retry.'}</p>
             <p><a href="${frontendUrl}/admin/orders" style="background:${statusColor};color:white;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;">Open Admin Orders</a></p>
           </div>
         `,
@@ -464,7 +529,10 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       // Notify admins about failed/cancelled payment
       if (payment.order_id) {
         const failDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
-        notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'Stripe Checkout', failDetails).catch(() => {});
+        const failureInfo = isExpired
+          ? { failureCode: 'checkout_expired', failureReason: 'Stripe Checkout session expired before payment' }
+          : { failureCode: updateData.failure_code, failureReason: updateData.failure_reason };
+        notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'Stripe Checkout', failDetails, failureInfo).catch(() => {});
       }
     }
 
@@ -647,9 +715,18 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
         createReferralCommission(supabase, payment.order_id, paidOrder2.user_id, paidOrder2.total_amount || 0, 'stripe-webhook').catch(() => {});
       }
     } else if (internalStatus === 'failed' && payment.order_id) {
-      // Notify admins about failed payment
+      // Notify admins about failed payment with rich Stripe failure details
       const failDetails2 = await getOrderDetailsForNotification(supabase, payment.order_id);
-      notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'Stripe', failDetails2).catch(() => {});
+      const lpe = (event as any)?.data?.object?.last_payment_error || {};
+      const card = lpe?.payment_method?.card || (event as any)?.data?.object?.charges?.data?.[0]?.payment_method_details?.card || {};
+      const failureInfo: FailureDetails = {
+        failureCode: lpe.code || updateData.failure_code,
+        declineCode: lpe.decline_code,
+        failureReason: lpe.message || updateData.failure_reason,
+        cardBrand: card.brand ? (card.brand.charAt(0).toUpperCase() + card.brand.slice(1)) : undefined,
+        cardLast4: card.last4,
+      };
+      notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'Stripe', failDetails2, failureInfo).catch(() => {});
     }
   }
 
@@ -794,9 +871,13 @@ async function handlePawaPay(req: Request, supabase: any): Promise<Response> {
     const pawapayDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
     notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'succeeded', 'PawaPay (Mobile Money)', pawapayDetails).catch(() => {});
   } else if (result.status === 'failed' && payment?.order_id) {
-    // Notify admins about failed PawaPay payment
+    // Notify admins about failed PawaPay payment with reason
     const pawapayFailDetails = await getOrderDetailsForNotification(supabase, payment.order_id);
-    notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'PawaPay (Mobile Money)', pawapayFailDetails).catch(() => {});
+    const failureInfo: FailureDetails = {
+      failureCode: payload.failureReason?.failureCode || 'pawapay_failed',
+      failureReason: payload.failureReason?.failureMessage || 'Mobile money payment failed',
+    };
+    notifyAllAdminsPaymentEvent(supabase, payment.order_id, 'failed', 'PawaPay (Mobile Money)', pawapayFailDetails, failureInfo).catch(() => {});
   }
 
   return new Response(

@@ -1052,21 +1052,7 @@ export default function Checkout() {
                   </RadioGroup>
                 </motion.div>
 
-                {/* Payment Plan (30% deposit / pay in full) */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.15 }}
-                >
-                  <PaymentPlanSelector
-                    value={paymentPlan}
-                    onChange={setPaymentPlan}
-                    totalUsd={effectiveCheckoutTotal}
-                    language={language}
-                    eligible={depositEligible}
-                    ineligibleReason={depositIneligibleReason}
-                  />
-                </motion.div>
+
 
               </div>
 

@@ -847,6 +847,22 @@ export default function Checkout() {
             <div className="grid lg:grid-cols-3 gap-8">
               {/* Left Column - Forms */}
               <div className="lg:col-span-2 space-y-8">
+                {/* Payment Plan (30% deposit / pay in full) — shown first so mobile users see it without scrolling past the address form */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.05 }}
+                >
+                  <PaymentPlanSelector
+                    value={paymentPlan}
+                    onChange={setPaymentPlan}
+                    totalUsd={effectiveCheckoutTotal}
+                    language={language}
+                    eligible={depositEligible}
+                    ineligibleReason={depositIneligibleReason}
+                  />
+                </motion.div>
+
                 {/* Shipping Address */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
@@ -1036,21 +1052,7 @@ export default function Checkout() {
                   </RadioGroup>
                 </motion.div>
 
-                {/* Payment Plan (30% deposit / pay in full) */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.15 }}
-                >
-                  <PaymentPlanSelector
-                    value={paymentPlan}
-                    onChange={setPaymentPlan}
-                    totalUsd={effectiveCheckoutTotal}
-                    language={language}
-                    eligible={depositEligible}
-                    ineligibleReason={depositIneligibleReason}
-                  />
-                </motion.div>
+
 
               </div>
 

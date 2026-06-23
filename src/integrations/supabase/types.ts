@@ -4553,6 +4553,39 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_secrets: {
+        Row: {
+          client_secret: string
+          created_at: string
+          payment_id: string
+        }
+        Insert: {
+          client_secret: string
+          created_at?: string
+          payment_id: string
+        }
+        Update: {
+          client_secret?: string
+          created_at?: string
+          payment_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_secrets_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: true
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_secrets_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: true
+            referencedRelation: "safe_user_payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_settings: {
         Row: {
           bank_transfer_enabled: boolean
@@ -4589,7 +4622,6 @@ export type Database = {
       payments: {
         Row: {
           amount: number
-          client_secret: string | null
           country: string | null
           created_at: string | null
           currency: string
@@ -4611,7 +4643,6 @@ export type Database = {
         }
         Insert: {
           amount: number
-          client_secret?: string | null
           country?: string | null
           created_at?: string | null
           currency: string
@@ -4633,7 +4664,6 @@ export type Database = {
         }
         Update: {
           amount?: number
-          client_secret?: string | null
           country?: string | null
           created_at?: string | null
           currency?: string

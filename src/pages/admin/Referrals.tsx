@@ -146,6 +146,8 @@ export default function AdminReferrals() {
             signup_count: signupStats.total,
             signups_web: signupStats.web,
             signups_mobile: signupStats.mobile,
+            add_to_cart_count: cartMap.get(r.ref_code) || 0,
+            payment_initiated_count: initMap.get(r.ref_code) || 0,
           });
         }
         setReferrers(enriched);

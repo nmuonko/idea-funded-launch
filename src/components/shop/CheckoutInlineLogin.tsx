@@ -193,6 +193,23 @@ export function CheckoutInlineLogin({ language, shop, cartItems = [] }: Checkout
               </p>
             </div>
 
+            {/* Payment plan — show prominently on mobile before the form so
+                buyers see the 30% deposit option without scrolling. */}
+            {mode === 'guest' && cartItems.length > 0 && (
+              <div className="mb-5">
+                <PaymentPlanSelector
+                  value={paymentPlan}
+                  onChange={setPaymentPlan}
+                  totalUsd={cartTotal}
+                  language={language}
+                  eligible={planEligible}
+                  ineligibleReason={!planEligible
+                    ? (isFr ? 'Disponible à partir de 100$.' : 'Available on orders of $100 or more.')
+                    : undefined}
+                />
+              </div>
+            )}
+
         {mode === 'guest' ? (
           <form onSubmit={handleGuestCheckout} className="space-y-3">
             <div>

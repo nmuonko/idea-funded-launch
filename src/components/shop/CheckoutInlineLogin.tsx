@@ -44,6 +44,23 @@ export function CheckoutInlineLogin({ language, shop, cartItems = [] }: Checkout
 
   const isFr = language === 'fr';
 
+  // Payment plan (30% deposit / pay in full) — shown prominently on mobile so
+  // shoppers know they can pay only 30% now before filling out the form.
+  const cartTotal = cartItems.reduce(
+    (sum, i) => sum + (i.isFixedPrice ? i.priceUsd : (i.itemTotalUsd || i.priceUsd)) * i.quantity,
+    0
+  );
+  const planEligible = cartTotal >= 100;
+  const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(() => {
+    if (typeof window === 'undefined') return 'deposit';
+    const stored = window.sessionStorage.getItem('afri.paymentPlan');
+    return (stored === 'full' || stored === 'deposit') ? stored : 'deposit';
+  });
+  useEffect(() => {
+    try { window.sessionStorage.setItem('afri.paymentPlan', paymentPlan); } catch {}
+  }, [paymentPlan]);
+
+
   const handleGuestCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);

@@ -27,6 +27,8 @@ interface Referrer {
   signup_count?: number;
   signups_web?: number;
   signups_mobile?: number;
+  add_to_cart_count?: number;
+  payment_initiated_count?: number;
 }
 
 interface Commission {
@@ -96,13 +98,20 @@ export default function AdminReferrals() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      // Load click counts per ref_code
-      const { data: clickEvents } = await supabase
+      // Load funnel event counts per ref_code (clicks + cart + payment_initiated)
+      const { data: funnelEvents } = await supabase
         .from('referral_events')
-        .select('ref_code')
-        .eq('event_type', 'click');
+        .select('ref_code, event_type')
+        .in('event_type', ['click', 'add_to_cart', 'payment_initiated']);
       const clickMap = new Map<string, number>();
-      clickEvents?.forEach(e => clickMap.set(e.ref_code, (clickMap.get(e.ref_code) || 0) + 1));
+      const cartMap = new Map<string, number>();
+      const initMap = new Map<string, number>();
+      funnelEvents?.forEach(e => {
+        const code = e.ref_code as string;
+        if (e.event_type === 'click') clickMap.set(code, (clickMap.get(code) || 0) + 1);
+        else if (e.event_type === 'add_to_cart') cartMap.set(code, (cartMap.get(code) || 0) + 1);
+        else if (e.event_type === 'payment_initiated') initMap.set(code, (initMap.get(code) || 0) + 1);
+      });
 
       // Load signup counts per ref_code from profiles (with platform)
       const { data: signupProfiles } = await supabase

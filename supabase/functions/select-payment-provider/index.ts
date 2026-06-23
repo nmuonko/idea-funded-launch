@@ -333,14 +333,25 @@ serve(async (req) => {
 
       // Return existing Stripe attempt
       if (provider === 'stripe' && existingAttempt.provider_ref) {
-        // Fetch the payment record for client_secret
+        // Look up the payment row, then fetch client_secret from the
+        // service-role-only payment_secrets table.
         const { data: paymentRecord } = await supabase
           .from('payments')
-          .select('client_secret')
+          .select('id')
           .eq('provider_deposit_id', existingAttempt.provider_ref)
           .maybeSingle();
 
-        if (paymentRecord?.client_secret) {
+        let clientSecret: string | null = null;
+        if (paymentRecord?.id) {
+          const { data: secretRow } = await supabase
+            .from('payment_secrets')
+            .select('client_secret')
+            .eq('payment_id', paymentRecord.id)
+            .maybeSingle();
+          clientSecret = secretRow?.client_secret ?? null;
+        }
+
+        if (clientSecret) {
           return jsonResponse({
             success: true,
             idempotent: true,
@@ -348,7 +359,7 @@ serve(async (req) => {
             payment_attempt_id: existingAttempt.id,
             order_id: orderId,
             checkout_session_id,
-            clientSecret: paymentRecord.client_secret,
+            clientSecret,
             status: 'initiated',
             message: 'Card payment already initiated.',
             message_fr: 'Paiement par carte déjà initié.',

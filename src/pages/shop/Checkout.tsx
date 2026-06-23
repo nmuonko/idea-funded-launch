@@ -18,6 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { trackInitiateCheckout } from '@/lib/tiktokPixel';
+import { trackReferralFunnelEvent } from '@/lib/referralTracking';
 import { trackMetaInitiateCheckout } from '@/lib/metaPixel';
 import { sanitizeCartImage } from '@/lib/imageValidation';
 import { cleanProductText } from '@/lib/cleanProductText';
@@ -437,6 +438,14 @@ export default function Checkout() {
           body: { action: 'create', ...(selectedCartItemIds.length > 0 ? { cart_item_ids: selectedCartItemIds } : {}) },
         }
       );
+
+      // Referral funnel: payment_initiated (fire-and-forget, no-op without ref code).
+      trackReferralFunnelEvent('payment_initiated', {
+        item_count: selectedCartItemIds.length,
+        total_usd: checkoutTotal,
+        payment_method: paymentMethod,
+        plan: paymentPlan,
+      });
 
       console.log('[WEB_CHECKOUT] Order response:', { orderData, orderError });
 

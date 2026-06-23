@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Loader2, ShoppingBag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ShopHeader } from '@/components/shop/ShopHeader';
+import { PaymentPlanSelector, type PaymentPlan } from '@/components/shop/PaymentPlanSelector';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/formatCurrency';
 import { cleanProductText } from '@/lib/cleanProductText';

@@ -71,6 +71,16 @@ const QUICK_REPLIES = [
   'Frais de livraison',
 ];
 
+// Restricted mode (hot-products): only these preloaded prompts are allowed.
+const RESTRICTED_QUICK_REPLIES = [
+  'Confirmer la disponibilité de ce produit',
+  'Comment payer ?',
+  'Délai de livraison',
+  'Frais de livraison',
+  'Payer 30% maintenant et 70% à la livraison',
+  'Programme Partage & Gains (parrainage)',
+];
+
 function formatTime(ts: number) {
   const d = new Date(ts);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -150,7 +160,7 @@ function loadStoredMessages(productId?: string | null): ChatMsg[] {
 }
 
 export function AfriShopChatbotWidget() {
-  const { isOpen, product, open, close } = useAfriShopChatbot();
+  const { isOpen, product, restricted, open, close } = useAfriShopChatbot();
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMsg[]>(() => loadStoredMessages(product?.id));
   const [input, setInput] = useState('');

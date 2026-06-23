@@ -369,7 +369,6 @@ export async function createPaymentRecord(
       customer_phone: params.customer_phone || null,
       country: params.country || 'COD',
       provider_deposit_id: params.provider_deposit_id || null,
-      client_secret: params.client_secret || null,
       raw_request: params.raw_request || null,
       status: params.status || 'pending',
       kind: params.kind || 'full',
@@ -382,7 +381,37 @@ export async function createPaymentRecord(
     return null;
   }
 
+  // Stripe client_secret is sensitive — store it in the service-role-only
+  // payment_secrets table instead of on payments.
+  if (data?.id && params.client_secret) {
+    const { error: secretError } = await supabase
+      .from('payment_secrets')
+      .upsert({ payment_id: data.id, client_secret: params.client_secret });
+    if (secretError) {
+      console.error('[PaymentRouter] Failed to store payment secret:', secretError.message);
+    }
+  }
+
   return data;
+}
+
+/**
+ * Store/refresh a Stripe client_secret for an existing payment record.
+ * Kept out of the payments table so authenticated order owners cannot read it.
+ */
+export async function storePaymentSecret(
+  supabase: SupabaseClient,
+  paymentId: string,
+  clientSecret: string
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('payment_secrets')
+    .upsert({ payment_id: paymentId, client_secret: clientSecret });
+  if (error) {
+    console.error('[PaymentRouter] Failed to upsert payment secret:', error.message);
+    return false;
+  }
+  return true;
 }
 
 

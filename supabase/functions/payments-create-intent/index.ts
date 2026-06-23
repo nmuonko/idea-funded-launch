@@ -695,11 +695,15 @@ Deno.serve(async (req) => {
         .from('payments')
         .update({
           provider_deposit_id: stripeResult.provider_deposit_id,
-          client_secret: stripeResult.client_secret,
           status: 'pending',
           raw_request: stripeResult.raw_request,
         })
         .eq('id', paymentRecord.id);
+
+      // Persist client_secret in the service-role-only payment_secrets table.
+      await supabaseAdmin
+        .from('payment_secrets')
+        .upsert({ payment_id: paymentRecord.id, client_secret: stripeResult.client_secret });
 
       // Update order status
       await supabaseAdmin

@@ -71,6 +71,16 @@ const QUICK_REPLIES = [
   'Frais de livraison',
 ];
 
+// Restricted mode (hot-products): only these preloaded prompts are allowed.
+const RESTRICTED_QUICK_REPLIES = [
+  'Confirmer la disponibilité de ce produit',
+  'Comment payer ?',
+  'Délai de livraison',
+  'Frais de livraison',
+  'Payer 30% maintenant et 70% à la livraison',
+  'Programme Partage & Gains (parrainage)',
+];
+
 function formatTime(ts: number) {
   const d = new Date(ts);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -150,7 +160,7 @@ function loadStoredMessages(productId?: string | null): ChatMsg[] {
 }
 
 export function AfriShopChatbotWidget() {
-  const { isOpen, product, open, close } = useAfriShopChatbot();
+  const { isOpen, product, restricted, open, close } = useAfriShopChatbot();
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMsg[]>(() => loadStoredMessages(product?.id));
   const [input, setInput] = useState('');
@@ -575,7 +585,7 @@ export function AfriShopChatbotWidget() {
                 </div>
               )}
 
-              {messages.length <= 1 && !sending && (
+              {!restricted && messages.length <= 1 && !sending && (
                 <div className="pt-2 flex flex-wrap gap-1.5">
                   {QUICK_REPLIES.map(q => (
                     <button
@@ -592,30 +602,65 @@ export function AfriShopChatbotWidget() {
               )}
             </div>
 
-            {/* Input */}
-            <form
-              onSubmit={(e) => { e.preventDefault(); send(input); }}
-              className="flex items-center gap-2 px-2 py-2 bg-[#1f2c33] border-t border-white/5"
-            >
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Écrivez un message…"
-                className="flex-1 min-w-0 bg-[#2a3942] text-white text-base sm:text-sm placeholder:text-white/40 rounded-full px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#25D366]/40"
-                disabled={sending}
-                enterKeyHint="send"
-                inputMode="text"
-                autoComplete="off"
-              />
-              <button
-                type="submit"
-                disabled={!input.trim() || sending}
-                aria-label="Envoyer"
-                className="shrink-0 h-10 w-10 rounded-full bg-[#25D366] hover:bg-[#1da851] disabled:opacity-50 text-white flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1f2c33]"
-              >
-                {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-              </button>
-            </form>
+            {restricted ? (
+              /* Restricted composer: only preloaded quick replies + live-agent WhatsApp button */
+              <div className="px-2.5 py-2.5 bg-[#1f2c33] border-t border-white/5 space-y-2">
+                <div className="text-[10px] uppercase tracking-wide text-white/40 px-1">
+                  Choisissez une question
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {RESTRICTED_QUICK_REPLIES.map(q => (
+                    <button
+                      key={q}
+                      type="button"
+                      onClick={() => send(q)}
+                      disabled={sending}
+                      aria-label={`Envoyer : ${q}`}
+                      className="text-[12px] px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/95 border border-white/10 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366]/70"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+                <a
+                  href={getWhatsAppUrl(user?.email)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Parler à un agent maintenant sur WhatsApp ${SUPPORT_WHATSAPP_DISPLAY}`}
+                  className="mt-1 inline-flex items-center justify-center gap-1.5 w-full px-4 py-3 rounded-xl bg-[#25D366] hover:bg-[#1da851] active:scale-[0.98] transition text-white text-sm font-bold shadow-md shadow-[#25D366]/30 no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1f2c33]"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  Parler à un agent maintenant
+                </a>
+              </div>
+            ) : (
+              <>
+                {/* Input */}
+                <form
+                  onSubmit={(e) => { e.preventDefault(); send(input); }}
+                  className="flex items-center gap-2 px-2 py-2 bg-[#1f2c33] border-t border-white/5"
+                >
+                  <input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder="Écrivez un message…"
+                    className="flex-1 min-w-0 bg-[#2a3942] text-white text-base sm:text-sm placeholder:text-white/40 rounded-full px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#25D366]/40"
+                    disabled={sending}
+                    enterKeyHint="send"
+                    inputMode="text"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!input.trim() || sending}
+                    aria-label="Envoyer"
+                    className="shrink-0 h-10 w-10 rounded-full bg-[#25D366] hover:bg-[#1da851] disabled:opacity-50 text-white flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1f2c33]"
+                  >
+                    {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                  </button>
+                </form>
+              </>
+            )}
             <div className="hidden sm:block text-[10px] text-center text-white/30 py-1 bg-[#1f2c33]">AfriShop AI · escalade humaine: {SUPPORT_WHATSAPP_DISPLAY}</div>
             </motion.div>
           </>

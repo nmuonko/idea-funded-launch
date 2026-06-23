@@ -547,7 +547,7 @@ export default function HotProducts() {
                               image: productImage,
                               link: payLink,
                               category: isDubai ? 'dubai' : 'hot_product',
-                            });
+                            }, { restricted: true });
                           }}
                           aria-label={`${t.whatsapp} — ${cleanTitle}`}
                           title={t.whatsapp}

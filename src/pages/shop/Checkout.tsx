@@ -179,7 +179,16 @@ export default function Checkout() {
   const [loading, setLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState('mobile_money');
-  const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>('full');
+  const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(() => {
+    if (typeof window === 'undefined') return 'deposit';
+    const stored = window.sessionStorage.getItem('afri.paymentPlan');
+    return (stored === 'full' || stored === 'deposit') ? stored : 'deposit';
+  });
+
+  // Persist plan choice so it survives the guest-checkout signup flow
+  useEffect(() => {
+    try { window.sessionStorage.setItem('afri.paymentPlan', paymentPlan); } catch {}
+  }, [paymentPlan]);
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   const [showTermsDialog, setShowTermsDialog] = useState(false);

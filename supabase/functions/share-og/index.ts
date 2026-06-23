@@ -109,7 +109,7 @@ serve(async (req) => {
 
   const galleryImages: string[] = product.gallery_images || [];
   const ogImage = normalizePreviewImage(galleryImages[0] || product.image_url || "");
-  const sharePageUrl = `${frontendUrl}/share/hp/${product.id}`;
+  const sharePageUrl = `${frontendUrl}/hot-products`;
   const ua = req.headers.get("user-agent") || "";
   const shouldServePreviewHtml = isBot(ua) && !isBrowserNavigation(req);
 

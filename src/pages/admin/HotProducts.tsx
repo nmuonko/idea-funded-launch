@@ -198,8 +198,8 @@ function getSharePreviewDescription(link: Pick<GeneratedLink, 'description_fr' |
   return `Prix: $${Math.ceil(link.total_price_usd)} · Livraison en RDC incluse`;
 }
 
-function getShareUrl(id: string): string {
-  return `https://afrishop-usa.com/share/hp/${id}`;
+function getShareUrl(_id: string): string {
+  return `https://afrishop-usa.com/hot-products`;
 }
 
 async function syncSharePreviewPages(ids?: string[]): Promise<boolean> {

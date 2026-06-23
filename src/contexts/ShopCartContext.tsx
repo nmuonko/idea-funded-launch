@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 import { useAuth } from '@/contexts/AuthContext';
+import { trackReferralFunnelEvent } from '@/lib/referralTracking';
 
 export interface FeeSettings {
   markupPercent: number;
@@ -603,6 +604,14 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         );
       }
       return [...prev, newItem];
+    });
+
+    // Referral funnel tracking — fire-and-forget, only logs if a ref code is stored.
+    trackReferralFunnelEvent('add_to_cart', {
+      product_id: item.productId,
+      title: item.title,
+      price_usd: item.priceUsd,
+      quantity: item.quantity,
     });
 
     // International products (intl_*) use telegram/non-retailer URLs that fail

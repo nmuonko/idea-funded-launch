@@ -27,6 +27,8 @@ interface Referrer {
   signup_count?: number;
   signups_web?: number;
   signups_mobile?: number;
+  add_to_cart_count?: number;
+  payment_initiated_count?: number;
 }
 
 interface Commission {
@@ -96,13 +98,20 @@ export default function AdminReferrals() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      // Load click counts per ref_code
-      const { data: clickEvents } = await supabase
+      // Load funnel event counts per ref_code (clicks + cart + payment_initiated)
+      const { data: funnelEvents } = await supabase
         .from('referral_events')
-        .select('ref_code')
-        .eq('event_type', 'click');
+        .select('ref_code, event_type')
+        .in('event_type', ['click', 'add_to_cart', 'payment_initiated']);
       const clickMap = new Map<string, number>();
-      clickEvents?.forEach(e => clickMap.set(e.ref_code, (clickMap.get(e.ref_code) || 0) + 1));
+      const cartMap = new Map<string, number>();
+      const initMap = new Map<string, number>();
+      funnelEvents?.forEach(e => {
+        const code = e.ref_code as string;
+        if (e.event_type === 'click') clickMap.set(code, (clickMap.get(code) || 0) + 1);
+        else if (e.event_type === 'add_to_cart') cartMap.set(code, (cartMap.get(code) || 0) + 1);
+        else if (e.event_type === 'payment_initiated') initMap.set(code, (initMap.get(code) || 0) + 1);
+      });
 
       // Load signup counts per ref_code from profiles (with platform)
       const { data: signupProfiles } = await supabase
@@ -137,6 +146,8 @@ export default function AdminReferrals() {
             signup_count: signupStats.total,
             signups_web: signupStats.web,
             signups_mobile: signupStats.mobile,
+            add_to_cart_count: cartMap.get(r.ref_code) || 0,
+            payment_initiated_count: initMap.get(r.ref_code) || 0,
           });
         }
         setReferrers(enriched);
@@ -442,10 +453,13 @@ export default function AdminReferrals() {
                       <TableHead>{isFr ? 'Nom' : 'Name'}</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Code</TableHead>
-                      <TableHead>{isFr ? 'Clics' : 'Clicks'}</TableHead>
+                      <TableHead title={isFr ? 'Visites du lien' : 'Link visits'}>{isFr ? 'Clics' : 'Clicks'}</TableHead>
                       <TableHead>{isFr ? 'Inscrits' : 'Signups'}</TableHead>
                       <TableHead>{isFr ? 'Web / App' : 'Web / App'}</TableHead>
-                      <TableHead>{isFr ? 'Achats' : 'Purchases'}</TableHead>
+                      <TableHead title={isFr ? 'Ajouts au panier' : 'Add to cart events'}>{isFr ? 'Panier' : 'Cart'}</TableHead>
+                      <TableHead title={isFr ? 'Paiement initié' : 'Payment initiated'}>{isFr ? 'Pmt init.' : 'Pmt init.'}</TableHead>
+                      <TableHead title={isFr ? 'Achats complétés' : 'Completed purchases'}>{isFr ? 'Achats' : 'Purchases'}</TableHead>
+                      <TableHead title={isFr ? 'Clics → Achats' : 'Clicks → Purchases'}>{isFr ? 'Conv.' : 'Conv.'}</TableHead>
                       <TableHead>{isFr ? 'Commission' : 'Commission'}</TableHead>
                       <TableHead>{isFr ? 'En attente' : 'Pending'}</TableHead>
                       <TableHead>Status</TableHead>
@@ -453,19 +467,26 @@ export default function AdminReferrals() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {referrers.map(r => (
+                    {referrers.map(r => {
+                      const clicks = r.click_count || 0;
+                      const purchases = r.purchase_count || 0;
+                      const convPct = clicks > 0 ? ((purchases / clicks) * 100).toFixed(1) : '—';
+                      return (
                       <TableRow key={r.id}>
                         <TableCell className="font-medium">{r.full_name}</TableCell>
                         <TableCell className="text-sm">{r.email}</TableCell>
                         <TableCell><code className="text-xs">{r.ref_code}</code></TableCell>
-                        <TableCell className="font-bold">{r.click_count || 0}</TableCell>
+                        <TableCell className="font-bold">{clicks}</TableCell>
                         <TableCell className="font-bold">{r.signup_count || 0}</TableCell>
                         <TableCell className="text-xs">
                           <span title="Web">🌐 {r.signups_web || 0}</span>
                           {' / '}
                           <span title="Mobile App">📱 {r.signups_mobile || 0}</span>
                         </TableCell>
-                        <TableCell className="font-bold">{r.purchase_count || 0}</TableCell>
+                        <TableCell className="font-bold text-blue-600">{r.add_to_cart_count || 0}</TableCell>
+                        <TableCell className="font-bold text-amber-600">{r.payment_initiated_count || 0}</TableCell>
+                        <TableCell className="font-bold">{purchases}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{clicks > 0 ? `${convPct}%` : '—'}</TableCell>
                         <TableCell className="font-bold text-green-600">${(r.total_commission || 0).toFixed(2)}</TableCell>
                         <TableCell className="font-bold text-yellow-600">${(r.pending_commission || 0).toFixed(2)}</TableCell>
                         <TableCell>
@@ -489,7 +510,8 @@ export default function AdminReferrals() {
                           )}
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}

@@ -310,7 +310,7 @@ export default function HomeRecipes() {
 
   const updateSeedField = async (seedId: string, field: string, value: unknown) => {
     try {
-      await supabase.from("home_recipe_seeds").update({ [field]: value }).eq("id", seedId);
+      await (supabase.from("home_recipe_seeds") as any).update({ [field]: value }).eq("id", seedId);
       setSeeds(prev => prev.map(s => s.id === seedId ? { ...s, [field]: value } : s));
       invalidateCacheAfterSeedChange();
     } catch {

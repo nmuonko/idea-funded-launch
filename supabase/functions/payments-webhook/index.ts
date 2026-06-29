@@ -58,7 +58,9 @@ function humanizeFailure(code?: string, declineCode?: string, rawMessage?: strin
     case 'card_declined':
       return 'Issuer declined — customer should contact their bank or try another card.';
     case 'authentication_required':
-      return '3-D Secure authentication required — ask customer to complete the bank verification step.';
+    case 'payment_intent_authentication_failure':
+    case 'authentication_failure':
+      return 'Bank authentication failed (3-D Secure) — ask customer to complete the SMS/banking-app verification, or try another card.';
     case 'processing_error':
       return 'Temporary processor error — ask customer to retry in a few minutes.';
     case 'checkout_expired':

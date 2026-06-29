@@ -154,7 +154,7 @@ const handler = async (req: Request): Promise<Response> => {
   const cronKey = req.headers.get("x-cron-secret");
   const authHeader = req.headers.get("authorization");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  let authorized = cronKey === CRON_SECRET;
+  let authorized = !!CRON_SECRET && cronKey === CRON_SECRET;
   if (!authorized && authHeader) {
     authorized = authHeader === `Bearer ${serviceKey}`;
   }

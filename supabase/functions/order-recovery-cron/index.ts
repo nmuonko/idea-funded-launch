@@ -7,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
 };
 
-const CRON_SECRET = "afrishop-internal-cron-2026";
+const CRON_SECRET = Deno.env.get("CRON_SECRET") || "";
 const MAX_EMAILS_PER_RUN = 20;
 const THROTTLE_MS = 600;
 
@@ -154,7 +154,7 @@ const handler = async (req: Request): Promise<Response> => {
   const cronKey = req.headers.get("x-cron-secret");
   const authHeader = req.headers.get("authorization");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  let authorized = cronKey === CRON_SECRET;
+  let authorized = !!CRON_SECRET && cronKey === CRON_SECRET;
   if (!authorized && authHeader) {
     authorized = authHeader === `Bearer ${serviceKey}`;
   }

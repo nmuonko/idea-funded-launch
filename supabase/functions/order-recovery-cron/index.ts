@@ -7,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
 };
 
-const CRON_SECRET = "afrishop-internal-cron-2026";
+const CRON_SECRET = Deno.env.get("CRON_SECRET") || "";
 const MAX_EMAILS_PER_RUN = 20;
 const THROTTLE_MS = 600;
 

@@ -75,9 +75,10 @@ export function buildWorkerHeaders(): Record<string, string> {
 export function buildCronHeaders(): Record<string, string> {
   // Include the remote project's anon key so the Supabase gateway accepts the request
   const remoteAnonKey = Deno.env.get("REMOTE_ANON_KEY") || "";
+  const cronSecret = Deno.env.get("CRON_SECRET") || "";
   return {
     "Content-Type": "application/json",
-    "x-internal-cron-key": "afrishop-internal-cron-2026",
+    ...(cronSecret ? { "x-internal-cron-key": cronSecret } : {}),
     ...(remoteAnonKey ? {
       "apikey": remoteAnonKey,
       "Authorization": `Bearer ${remoteAnonKey}`,

@@ -420,13 +420,11 @@ async function upsertListings(supabase: any, provider: string, listings: CarList
 async function authenticateRequest(req: Request): Promise<{ authorized: boolean; error?: string }> {
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   const envCronSecret = Deno.env.get("CRON_SECRET") || "";
-  const fallbackCronSecret = "afrishop-internal-cron-2026";
-
   const providedCron = req.headers.get("x-cron-secret");
   const providedInternalCron = req.headers.get("x-internal-cron-key");
 
-  if (providedCron && (providedCron === envCronSecret || providedCron === fallbackCronSecret)) return { authorized: true };
-  if (providedInternalCron && (providedInternalCron === envCronSecret || providedInternalCron === fallbackCronSecret)) return { authorized: true };
+  if (envCronSecret && providedCron && providedCron === envCronSecret) return { authorized: true };
+  if (envCronSecret && providedInternalCron && providedInternalCron === envCronSecret) return { authorized: true };
 
   const authHeader = req.headers.get("Authorization");
   if (authHeader?.startsWith("Bearer ") && serviceRoleKey) {

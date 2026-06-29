@@ -28,10 +28,13 @@ serve(async (req) => {
   }
 
   // Auth: require internal cron key or service_role
-  const cronKey = req.headers.get("x-internal-cron-key");
+  const cronKey = req.headers.get("x-internal-cron-key") ?? "";
   const authHeader = req.headers.get("authorization") ?? "";
-  const isServiceRole = authHeader.includes("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9") && authHeader.includes("service_role");
-  if (cronKey !== "afrishop-internal-cron-2026" && !isServiceRole) {
+  const envCronSecret = Deno.env.get("CRON_SECRET") ?? "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const isCron = !!envCronSecret && cronKey === envCronSecret;
+  const isServiceRole = !!serviceKey && authHeader === `Bearer ${serviceKey}`;
+  if (!isCron && !isServiceRole) {
     return json({ ok: false, error: "unauthorized" }, 401);
   }
 

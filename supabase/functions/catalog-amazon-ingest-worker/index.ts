@@ -304,13 +304,10 @@ const AMAZON_CONGO_SEEDS: Array<{ query: string; category_key: string; priority:
 
 function verifyCronAuth(req: Request): boolean {
   const cronSecret = Deno.env.get("CRON_SECRET") || "";
-  const internalKey = "afrishop-internal-cron-2026";
   const headerSecret = req.headers.get("x-cron-secret") || req.headers.get("x-internal-cron-key") || "";
-  
-  if (!headerSecret) return false;
-  if (cronSecret && headerSecret === cronSecret) return true;
-  if (headerSecret === internalKey) return true;
-  return false;
+
+  if (!headerSecret || !cronSecret) return false;
+  return headerSecret === cronSecret;
 }
 
 // ─── BUDGET CHECK ─────────────────────────────────────────────────────────────

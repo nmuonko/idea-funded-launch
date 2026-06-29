@@ -103,9 +103,9 @@ const handler = async (req: Request): Promise<Response> => {
     // Auth: accept internal cron key or service_role
     const cronKey = req.headers.get("x-internal-cron-key");
     const authHeader = req.headers.get("authorization");
-    const validCronKey = "afrishop-internal-cron-2026";
+    const validCronKey = Deno.env.get("CRON_SECRET") || "";
 
-    let isAuthorized = cronKey === validCronKey;
+    let isAuthorized = !!validCronKey && cronKey === validCronKey;
 
     if (!isAuthorized && authHeader) {
       // Check for service_role

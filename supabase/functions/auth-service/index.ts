@@ -793,7 +793,8 @@ serve(async (req) => {
       const cronSecret = req.headers.get('x-cron-secret') || '';
       const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
       const isService = bearer && serviceKey && bearer === serviceKey;
-      const isCron = cronSecret && cronSecret === 'afrishop-internal-cron-2026';
+      const envCronSecret = Deno.env.get('CRON_SECRET') || '';
+      const isCron = !!cronSecret && !!envCronSecret && cronSecret === envCronSecret;
       if (!isService && !isCron) {
         console.warn(`[auth-service] UNAUTHORIZED service-only action attempt: ${action}`);
         return jsonRes({ ok: false, error: 'Unauthorized' }, 401);

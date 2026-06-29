@@ -282,11 +282,12 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
           // Route to remote target via import endpoint
           const importUrl = `${targetUrl}/catalog-data-sync`;
           console.log(`[EBAY_FETCH] Routing ${toUpsert.length} items to Live: ${importUrl}`);
+          const cronSecret = Deno.env.get("CRON_SECRET") || "";
           fetch(importUrl, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "x-internal-cron-key": "afrishop-internal-cron-2026",
+              ...(cronSecret ? { "x-internal-cron-key": cronSecret } : {}),
             },
             body: JSON.stringify({ mode: "import", items: toUpsert }),
           }).catch(e => console.error("[EBAY_FETCH] Remote upsert error:", e));

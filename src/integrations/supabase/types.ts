@@ -7806,6 +7806,7 @@ export type Database = {
       dmetaphone: { Args: { "": string }; Returns: string }
       dmetaphone_alt: { Args: { "": string }; Returns: string }
       each: { Args: { hs: unknown }; Returns: Record<string, unknown>[] }
+      email_queue_dispatch: { Args: never; Returns: undefined }
       enqueue_all_seeds_ebay: { Args: { p_limit?: number }; Returns: Json }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }

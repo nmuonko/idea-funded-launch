@@ -664,8 +664,31 @@ serve(async (req) => {
       }
 
       try {
-        const stripeProvider = await getActiveProvider(supabase, 'COD', 'CARD');
-        
+        // Try the standard router first, but fall back to a direct lookup so
+        // a transient mismatch (e.g. provider list returning empty due to a
+        // brief DB hiccup, or ordering picking a non-CARD provider) does not
+        // block the customer from paying by card.
+        let stripeProvider = await getActiveProvider(supabase, 'COD', 'CARD');
+
+        if (!stripeProvider || stripeProvider.provider_key !== 'stripe' || !stripeProvider.is_enabled) {
+          console.warn('[PAYMENT_FLOW] STRIPE_ROUTER_MISS_FALLBACK_LOOKUP', {
+            returned_key: stripeProvider?.provider_key ?? null,
+            is_enabled: stripeProvider?.is_enabled ?? null,
+          });
+          const { data: directStripe, error: directErr } = await supabase
+            .from('payment_providers')
+            .select('*')
+            .eq('provider_key', 'stripe')
+            .eq('is_enabled', true)
+            .maybeSingle();
+          if (directErr) {
+            console.error('[PAYMENT_FLOW] STRIPE_DIRECT_LOOKUP_ERROR', directErr.message);
+          }
+          if (directStripe) {
+            stripeProvider = directStripe;
+          }
+        }
+
         if (!stripeProvider || stripeProvider.provider_key !== 'stripe' || !stripeProvider.is_enabled) {
           console.error('[PAYMENT_FLOW] STRIPE_NOT_AVAILABLE');
           return jsonResponse({

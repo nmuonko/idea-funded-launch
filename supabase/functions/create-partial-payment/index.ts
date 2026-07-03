@@ -254,11 +254,22 @@ Deno.serve(async (req) => {
         return json({ success: false, requestId, error: stripeResult.error || "Stripe failed", error_code: "STRIPE_ERROR" }, 200);
       }
 
+      // NOTE: payments.client_secret column was removed for security. Persist
+      // the Stripe client_secret in the service-role-only payment_secrets
+      // table instead. Keep other non-sensitive fields on payments.
       await supabase.from("payments").update({
         provider_deposit_id: stripeResult.provider_deposit_id,
-        client_secret: stripeResult.client_secret,
         raw_request: stripeResult.raw_request,
       }).eq("id", paymentRecord.id);
+
+      if (stripeResult.client_secret) {
+        const { error: secretErr } = await supabase
+          .from("payment_secrets")
+          .upsert({ payment_id: paymentRecord.id, client_secret: stripeResult.client_secret });
+        if (secretErr) {
+          console.error("[create-partial-payment] Failed to persist client_secret", secretErr.message);
+        }
+      }
 
       return json({
         success: true, requestId,

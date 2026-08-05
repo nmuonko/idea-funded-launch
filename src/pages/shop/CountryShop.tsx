@@ -235,15 +235,32 @@ export default function CountryShop() {
       <div className="pt-16 md:pt-20" />
 
       <div className="px-4 max-w-6xl mx-auto">
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-2">
           <Button variant="ghost" size="icon" onClick={() => navigate('/')} aria-label="Back">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <h1 className="text-xl md:text-2xl font-bold text-foreground flex items-center gap-2">
-            <span className="text-2xl">{meta?.flag_emoji}</span>
+            <span className="text-2xl">{flag}</span>
             <span>{isFr ? `Produits de ${title}` : `Products from ${title}`}</span>
           </h1>
         </div>
+
+        <div className="flex items-center gap-2 mb-4 pl-1 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-green-400 bg-green-500/10 border border-green-500/20 rounded-full px-2.5 py-1">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400" />
+            </span>
+            {isFr ? 'Mise à jour en direct' : 'Live updates'}
+          </span>
+          {!loading && (
+            <span className="text-[11px] text-muted-foreground">
+              {computedProducts.length} {isFr ? 'articles' : 'items'}
+              {newCount > 0 && ` · ${newCount} ${isFr ? 'nouveaux' : 'new'}`}
+            </span>
+          )}
+        </div>
+
 
         {loading ? (
           <div className="flex items-center justify-center py-20">

@@ -144,16 +144,57 @@ export default function CountryShop() {
     return () => { cancelled = true; };
   }, [key, navigate]);
 
+  // ===== Realtime: instantly reflect items published from the Telegram importer =====
+  useEffect(() => {
+    if (key === 'china' || key === 'usa' || !ALLOWED.has(key)) return;
+
+    const upsert = (row: IntlProduct) => {
+      setProducts((prev) => {
+        const rest = prev.filter((p) => p.id !== row.id);
+        if (row.is_active === false) return rest;
+        const next = [row, ...rest];
+        return next.sort((a, b) => {
+          const sa = a.sort_order ?? 999999;
+          const sb = b.sort_order ?? 999999;
+          if (sa !== sb) return sa - sb;
+          return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+        });
+      });
+    };
+
+    const channel = supabase
+      .channel(`intl-products-${key}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'international_products', filter: `country=eq.${key}` },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as IntlProduct | null;
+          if (!row?.id) return;
+          if (payload.eventType === 'DELETE') {
+            setProducts((prev) => prev.filter((p) => p.id !== row.id));
+            return;
+          }
+          upsert(row);
+        },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [key]);
+
   const computedProducts = useMemo(() => {
-    if (!meta) return [];
+    const ratePerKg = Number(meta?.rate_per_kg_usd ?? 0);
     const markupRate = globalMarkupPercent > 1 ? globalMarkupPercent / 100 : globalMarkupPercent;
+    const now = Date.now();
     return products.map((p) => {
       const markup = p.base_price_usd * markupRate;
-      const shipping = p.est_weight_kg * Number(meta.rate_per_kg_usd);
+      const shipping = (Number(p.est_weight_kg) || 0) * ratePerKg;
       const total = Math.ceil(p.base_price_usd + markup + shipping);
-      return { ...p, totalUsd: total };
+      const isNew = p.created_at ? now - new Date(p.created_at).getTime() < 48 * 3600 * 1000 : false;
+      return { ...p, totalUsd: total, isNew };
     });
   }, [products, meta, globalMarkupPercent]);
+
 
   const title = meta ? (isFr ? meta.label_fr : meta.label_en) : '';
 

@@ -133,6 +133,42 @@ async function verifyWebhookSignature(
   }
 }
 
+// SECURITY: verify that a provider-confirmed successful payment exists for the
+// order before any status can be finalized as PAID. Prevents clients from
+// self-declaring a successful payment.
+const SUCCESS_TOKENS = ['succeeded', 'success', 'successful', 'paid', 'completed', 'complete', 'captured', 'confirmed', 'approved'];
+
+async function restSelect(url: string, key: string, path: string): Promise<any[]> {
+  try {
+    const res = await fetch(`${url}/rest/v1/${path}`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) return [];
+    const rows = await res.json();
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
+function isSuccessStatus(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  return SUCCESS_TOKENS.includes(value.trim().toLowerCase());
+}
+
+async function hasProviderConfirmedSuccess(url: string, key: string, orderId: string): Promise<boolean> {
+  const [payments, attempts, maisha] = await Promise.all([
+    restSelect(url, key, `payments?order_id=eq.${orderId}&select=status,provider_key&limit=50`),
+    restSelect(url, key, `payment_attempts?order_id=eq.${orderId}&select=status,provider_key&limit=50`),
+    restSelect(url, key, `maisha_payments?order_id=eq.${orderId}&select=status,maishapay_status&limit=50`),
+  ]);
+
+  if (payments.some((r) => isSuccessStatus(r?.status))) return true;
+  if (attempts.some((r) => isSuccessStatus(r?.status))) return true;
+  if (maisha.some((r) => isSuccessStatus(r?.status) || isSuccessStatus(r?.maishapay_status))) return true;
+  return false;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });

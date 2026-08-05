@@ -30,7 +30,11 @@ interface IntlProduct {
   est_weight_kg: number;
   description: string | null;
   measurements?: string | null;
+  created_at?: string;
+  sort_order?: number | null;
+  is_active?: boolean;
 }
+
 
 function mapChinaCatalogItem(row: any): IntlProduct | null {
   const candidates = collectProductImageCandidates(row.image_url, row.images, row.imageUrl, row.imageUrls);
@@ -76,11 +80,12 @@ export default function CountryShop() {
       navigate('/', { replace: true });
       return;
     }
-    // China & Turkey are not live yet — show coming soon page
-    if (key === 'china' || key === 'turkey') {
+    // China is not live yet — show coming soon page. Turkey is LIVE (Telegram imports).
+    if (key === 'china') {
       navigate(`/shop/${key}/coming-soon`, { replace: true });
       return;
     }
+
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -139,18 +144,67 @@ export default function CountryShop() {
     return () => { cancelled = true; };
   }, [key, navigate]);
 
+  // ===== Realtime: instantly reflect items published from the Telegram importer =====
+  useEffect(() => {
+    if (key === 'china' || key === 'usa' || !ALLOWED.has(key)) return;
+
+    const upsert = (row: IntlProduct) => {
+      setProducts((prev) => {
+        const rest = prev.filter((p) => p.id !== row.id);
+        if (row.is_active === false) return rest;
+        const next = [row, ...rest];
+        return next.sort((a, b) => {
+          const sa = a.sort_order ?? 999999;
+          const sb = b.sort_order ?? 999999;
+          if (sa !== sb) return sa - sb;
+          return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+        });
+      });
+    };
+
+    const channel = supabase
+      .channel(`intl-products-${key}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'international_products', filter: `country=eq.${key}` },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as IntlProduct | null;
+          if (!row?.id) return;
+          if (payload.eventType === 'DELETE') {
+            setProducts((prev) => prev.filter((p) => p.id !== row.id));
+            return;
+          }
+          upsert(row);
+        },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [key]);
+
   const computedProducts = useMemo(() => {
-    if (!meta) return [];
+    const ratePerKg = Number(meta?.rate_per_kg_usd ?? 0);
     const markupRate = globalMarkupPercent > 1 ? globalMarkupPercent / 100 : globalMarkupPercent;
+    const now = Date.now();
     return products.map((p) => {
       const markup = p.base_price_usd * markupRate;
-      const shipping = p.est_weight_kg * Number(meta.rate_per_kg_usd);
+      const shipping = (Number(p.est_weight_kg) || 0) * ratePerKg;
       const total = Math.ceil(p.base_price_usd + markup + shipping);
-      return { ...p, totalUsd: total };
+      const isNew = p.created_at ? now - new Date(p.created_at).getTime() < 48 * 3600 * 1000 : false;
+      return { ...p, totalUsd: total, isNew };
     });
   }, [products, meta, globalMarkupPercent]);
 
-  const title = meta ? (isFr ? meta.label_fr : meta.label_en) : '';
+
+  const FALLBACK_LABELS: Record<string, { en: string; fr: string; flag: string }> = {
+    turkey: { en: 'Turkey', fr: 'Turquie', flag: '🇹🇷' },
+    china: { en: 'China', fr: 'Chine', flag: '🇨🇳' },
+  };
+  const fallback = FALLBACK_LABELS[key];
+  const title = meta ? (isFr ? meta.label_fr : meta.label_en) : (fallback ? (isFr ? fallback.fr : fallback.en) : key);
+  const flag = meta?.flag_emoji || fallback?.flag || '🌍';
+  const newCount = computedProducts.filter((p) => p.isNew).length;
+
 
   const handleAdd = async (p: IntlProduct & { totalUsd: number }, buyNow: boolean) => {
     setAdding(p.id);
@@ -181,15 +235,32 @@ export default function CountryShop() {
       <div className="pt-16 md:pt-20" />
 
       <div className="px-4 max-w-6xl mx-auto">
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-2">
           <Button variant="ghost" size="icon" onClick={() => navigate('/')} aria-label="Back">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <h1 className="text-xl md:text-2xl font-bold text-foreground flex items-center gap-2">
-            <span className="text-2xl">{meta?.flag_emoji}</span>
+            <span className="text-2xl">{flag}</span>
             <span>{isFr ? `Produits de ${title}` : `Products from ${title}`}</span>
           </h1>
         </div>
+
+        <div className="flex items-center gap-2 mb-4 pl-1 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-green-400 bg-green-500/10 border border-green-500/20 rounded-full px-2.5 py-1">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400" />
+            </span>
+            {isFr ? 'Mise à jour en direct' : 'Live updates'}
+          </span>
+          {!loading && (
+            <span className="text-[11px] text-muted-foreground">
+              {computedProducts.length} {isFr ? 'articles' : 'items'}
+              {newCount > 0 && ` · ${newCount} ${isFr ? 'nouveaux' : 'new'}`}
+            </span>
+          )}
+        </div>
+
 
         {loading ? (
           <div className="flex items-center justify-center py-20">
@@ -233,6 +304,12 @@ export default function CountryShop() {
                         />
                       ))}
                     </div>
+                    {p.isNew && (
+                      <div className="absolute top-1.5 left-1.5 bg-green-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full shadow">
+                        {isFr ? 'NOUVEAU' : 'NEW'}
+                      </div>
+                    )}
+
                     {gallery.length > 1 && (
                       <div className="absolute bottom-1.5 right-1.5 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded-full">
                         {gallery.length} 📷

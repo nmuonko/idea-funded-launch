@@ -403,7 +403,27 @@ Deno.serve(async (req) => {
     const conversationId: string | null = body.conversation_id ?? null;
     const product: ProductContext | undefined = body.product || undefined;
     const history: { role: string; content: string }[] = Array.isArray(body.history) ? body.history.slice(-MAX_HISTORY_TURNS) : [];
-    const userId: string | null = body.user_id ?? null;
+    // SECURITY: never trust body.user_id. Derive the identity from the verified
+    // Authorization bearer token; anonymous callers get a null user_id.
+    let userId: string | null = null;
+    {
+      const authHeader = req.headers.get("Authorization") || req.headers.get("authorization") || "";
+      const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+      if (token && token !== anonKey) {
+        try {
+          const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+            headers: { Authorization: `Bearer ${token}`, apikey: anonKey },
+          });
+          if (userRes.ok) {
+            const u = await userRes.json();
+            if (u?.id) userId = u.id as string;
+          }
+        } catch (_e) {
+          userId = null;
+        }
+      }
+    }
     const requestedLang = (body.language || "fr").toLowerCase();
 
     if (!rawMessage) {

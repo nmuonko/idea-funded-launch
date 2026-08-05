@@ -12,7 +12,7 @@ const COUNTRY_META: Record<string, { en: string; fr: string; flag: string }> = {
 
 // Countries that are now LIVE (backed by Shopify or other real catalogs)
 // and should bypass the "coming soon" page entirely.
-const LIVE_COUNTRIES = new Set<string>([]);
+const LIVE_COUNTRIES = new Set<string>(['turkey']);
 
 export default function CountryComingSoon() {
   const navigate = useNavigate();

@@ -196,7 +196,15 @@ export default function CountryShop() {
   }, [products, meta, globalMarkupPercent]);
 
 
-  const title = meta ? (isFr ? meta.label_fr : meta.label_en) : '';
+  const FALLBACK_LABELS: Record<string, { en: string; fr: string; flag: string }> = {
+    turkey: { en: 'Turkey', fr: 'Turquie', flag: '🇹🇷' },
+    china: { en: 'China', fr: 'Chine', flag: '🇨🇳' },
+  };
+  const fallback = FALLBACK_LABELS[key];
+  const title = meta ? (isFr ? meta.label_fr : meta.label_en) : (fallback ? (isFr ? fallback.fr : fallback.en) : key);
+  const flag = meta?.flag_emoji || fallback?.flag || '🌍';
+  const newCount = computedProducts.filter((p) => p.isNew).length;
+
 
   const handleAdd = async (p: IntlProduct & { totalUsd: number }, buyNow: boolean) => {
     setAdding(p.id);

@@ -669,7 +669,8 @@ async function handleCreateReferrer(payload: any): Promise<Response> {
 
   if (error) {
     console.error('[create_referrer] Insert error:', error);
-    return jsonRes({ ok: false, message: error.message }, 500);
+    // Do not leak raw database error details to unauthenticated callers.
+    return jsonRes({ ok: false, message: 'Failed to create referrer. Please try again.' }, 500);
   }
 
   console.log(`[create_referrer] Created referrer ${data.id} with code ${data.ref_code}`);

@@ -133,6 +133,42 @@ async function verifyWebhookSignature(
   }
 }
 
+// SECURITY: verify that a provider-confirmed successful payment exists for the
+// order before any status can be finalized as PAID. Prevents clients from
+// self-declaring a successful payment.
+const SUCCESS_TOKENS = ['succeeded', 'success', 'successful', 'paid', 'completed', 'complete', 'captured', 'confirmed', 'approved'];
+
+async function restSelect(url: string, key: string, path: string): Promise<any[]> {
+  try {
+    const res = await fetch(`${url}/rest/v1/${path}`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) return [];
+    const rows = await res.json();
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
+function isSuccessStatus(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  return SUCCESS_TOKENS.includes(value.trim().toLowerCase());
+}
+
+async function hasProviderConfirmedSuccess(url: string, key: string, orderId: string): Promise<boolean> {
+  const [payments, attempts, maisha] = await Promise.all([
+    restSelect(url, key, `payments?order_id=eq.${orderId}&select=status,provider_key&limit=50`),
+    restSelect(url, key, `payment_attempts?order_id=eq.${orderId}&select=status,provider_key&limit=50`),
+    restSelect(url, key, `maisha_payments?order_id=eq.${orderId}&select=status,maishapay_status&limit=50`),
+  ]);
+
+  if (payments.some((r) => isSuccessStatus(r?.status))) return true;
+  if (attempts.some((r) => isSuccessStatus(r?.status))) return true;
+  if (maisha.some((r) => isSuccessStatus(r?.status) || isSuccessStatus(r?.maishapay_status))) return true;
+  return false;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -251,10 +287,30 @@ serve(async (req) => {
       );
     }
 
-    // Normalize status using provider-specific logic (pawaPay or generic)
+    // Normalize the client-supplied status, but NEVER trust it on its own.
     const pawaStatus = normalizeProviderStatus('pawapay', String(status));
-    const normalizedStatus = pawaStatus === 'succeeded' ? 'paid' : pawaStatus;
-    console.log('[verify-payment] Status:', { raw: status, normalized: normalizedStatus });
+    const clientClaimsPaid = (pawaStatus === 'succeeded' ? 'paid' : pawaStatus) === 'paid';
+
+    // SECURITY: a payment may only be finalized when a provider-confirmed
+    // success record exists server-side for this order. The client-supplied
+    // `status` field is treated purely as a hint.
+    let providerConfirmed = false;
+    if (clientClaimsPaid) {
+      providerConfirmed = await hasProviderConfirmedSuccess(supabaseUrl, supabaseServiceKey, orderId);
+      if (!providerConfirmed) {
+        console.warn('[verify-payment] Rejected: no provider-confirmed success record', { orderId, traceId });
+        await logAudit(supabase, {
+          traceId,
+          eventType: 'VERIFY_PAYMENT_REJECTED_UNCONFIRMED',
+          userId: order.user_id,
+          orderId,
+          payload: { rawStatus: String(status), authMethod },
+        });
+      }
+    }
+
+    const normalizedStatus = providerConfirmed ? 'paid' : (clientClaimsPaid ? 'pending' : (pawaStatus === 'succeeded' ? 'paid' : pawaStatus));
+    console.log('[verify-payment] Status:', { raw: status, normalized: normalizedStatus, providerConfirmed });
 
     // Log to audit
     await logAudit(supabase, {
@@ -262,7 +318,7 @@ serve(async (req) => {
       eventType: 'VERIFY_PAYMENT_REQUEST',
       userId: order.user_id,
       orderId,
-      payload: { normalizedStatus, authMethod },
+      payload: { normalizedStatus, authMethod, providerConfirmed },
     });
 
     // ============================================

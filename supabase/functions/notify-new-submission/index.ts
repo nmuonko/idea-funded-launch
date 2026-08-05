@@ -24,6 +24,23 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
+    // SECURITY: internal-only endpoint. Require the cron secret or the
+    // service-role key before doing any DB work or sending admin emails.
+    const cronSecret = Deno.env.get('CRON_SECRET') ?? '';
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const providedCron = req.headers.get('x-cron-secret') ?? '';
+    const bearer = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+    const authorized =
+      (!!cronSecret && providedCron === cronSecret) ||
+      (!!serviceRoleKey && bearer === serviceRoleKey);
+
+    if (!authorized) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { submissionId }: NotificationRequest = await req.json();
 
     if (!submissionId) {
@@ -172,7 +189,7 @@ const handler = async (req: Request): Promise<Response> => {
   } catch (error: any) {
     console.error('[Notification] Error:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: 'Internal server error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

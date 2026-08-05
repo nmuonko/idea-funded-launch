@@ -251,10 +251,30 @@ serve(async (req) => {
       );
     }
 
-    // Normalize status using provider-specific logic (pawaPay or generic)
+    // Normalize the client-supplied status, but NEVER trust it on its own.
     const pawaStatus = normalizeProviderStatus('pawapay', String(status));
-    const normalizedStatus = pawaStatus === 'succeeded' ? 'paid' : pawaStatus;
-    console.log('[verify-payment] Status:', { raw: status, normalized: normalizedStatus });
+    const clientClaimsPaid = (pawaStatus === 'succeeded' ? 'paid' : pawaStatus) === 'paid';
+
+    // SECURITY: a payment may only be finalized when a provider-confirmed
+    // success record exists server-side for this order. The client-supplied
+    // `status` field is treated purely as a hint.
+    let providerConfirmed = false;
+    if (clientClaimsPaid) {
+      providerConfirmed = await hasProviderConfirmedSuccess(supabaseUrl, supabaseServiceKey, orderId);
+      if (!providerConfirmed) {
+        console.warn('[verify-payment] Rejected: no provider-confirmed success record', { orderId, traceId });
+        await logAudit(supabase, {
+          traceId,
+          eventType: 'VERIFY_PAYMENT_REJECTED_UNCONFIRMED',
+          userId: order.user_id,
+          orderId,
+          payload: { rawStatus: String(status), authMethod },
+        });
+      }
+    }
+
+    const normalizedStatus = providerConfirmed ? 'paid' : (clientClaimsPaid ? 'pending' : (pawaStatus === 'succeeded' ? 'paid' : pawaStatus));
+    console.log('[verify-payment] Status:', { raw: status, normalized: normalizedStatus, providerConfirmed });
 
     // Log to audit
     await logAudit(supabase, {
@@ -262,7 +282,7 @@ serve(async (req) => {
       eventType: 'VERIFY_PAYMENT_REQUEST',
       userId: order.user_id,
       orderId,
-      payload: { normalizedStatus, authMethod },
+      payload: { normalizedStatus, authMethod, providerConfirmed },
     });
 
     // ============================================

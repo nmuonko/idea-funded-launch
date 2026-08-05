@@ -304,6 +304,12 @@ export default function CountryShop() {
                         />
                       ))}
                     </div>
+                    {p.isNew && (
+                      <div className="absolute top-1.5 left-1.5 bg-green-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full shadow">
+                        {isFr ? 'NOUVEAU' : 'NEW'}
+                      </div>
+                    )}
+
                     {gallery.length > 1 && (
                       <div className="absolute bottom-1.5 right-1.5 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded-full">
                         {gallery.length} 📷

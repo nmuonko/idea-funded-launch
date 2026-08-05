@@ -30,7 +30,11 @@ interface IntlProduct {
   est_weight_kg: number;
   description: string | null;
   measurements?: string | null;
+  created_at?: string;
+  sort_order?: number | null;
+  is_active?: boolean;
 }
+
 
 function mapChinaCatalogItem(row: any): IntlProduct | null {
   const candidates = collectProductImageCandidates(row.image_url, row.images, row.imageUrl, row.imageUrls);

@@ -21,20 +21,55 @@ type Draft = {
   image_url: string;
   caption: string | null;
   suggested_title: string | null;
+  suggested_price_usd: number | string | null;
   detected_category: string | null;
   forwarded_from_chat_username: string | null;
 };
 
 const SYSTEM = `You are a product cataloguer for an online store selling Turkish/international fashion in DR Congo.
 Look at the photo and return STRICT JSON only:
-{"title":"<max 70 chars, English, e.g. 'Men Slim Fit Wool Blazer - Navy'>","description":"<1-2 short English sentences about material, style and fit. No prices, no emojis, no phone numbers, no shop names.>","sizes":["<likely size labels, e.g. 46,48,50 for suits or S,M,L,XL for casual>"],"weight_kg":<estimated shipping weight number>}
-Rules: English only. Never mention any price or currency. Never invent brand names. If the item is unclear, describe it generically.`;
+{"title":"<max 70 chars, English, e.g. 'Men Slim Fit Wool Blazer - Navy'>","description":"<1-2 short English sentences about material, style and fit. No prices, no emojis, no phone numbers, no shop names.>","sizes":["<likely size labels, e.g. 46,48,50 for suits or S,M,L,XL for casual>"],"weight_kg":<estimated shipping weight number>,"price":<number or null>,"currency":"<USD|TRY|EUR or null>"}
+Price rules: if a price is printed/written on the photo or given in the seller notes, return that exact number in "price" and its currency in "currency" (Turkish Lira = TRY, symbols ₺ or TL; $ = USD; € = EUR). If no price is visible anywhere, return "price": null. Never guess or invent a price.
+Other rules: title and description in English only. The description must never mention a price or currency. Never invent brand names. If the item is unclear, describe it generically.`;
+
+// Parse a price out of a Telegram caption, e.g. "45$", "$45", "1200 TL", "₺1.250", "40 usd"
+function parseCaptionPrice(caption: string | null): { price: number; currency: string } | null {
+  if (!caption) return null;
+  const text = caption.replace(/\s+/g, ' ');
+  const patterns: Array<{ re: RegExp; currency: string }> = [
+    { re: /(?:\$|usd\s*)\s*([0-9]+(?:[.,][0-9]{1,2})?)/i, currency: 'USD' },
+    { re: /([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:\$|usd|dollars?)/i, currency: 'USD' },
+    { re: /(?:₺|tl\s*|try\s*)\s*([0-9]+(?:[.,][0-9]{1,3})?)/i, currency: 'TRY' },
+    { re: /([0-9]+(?:[.,][0-9]{1,3})?)\s*(?:₺|tl\b|try\b|lira)/i, currency: 'TRY' },
+    { re: /(?:€|eur\s*)\s*([0-9]+(?:[.,][0-9]{1,2})?)/i, currency: 'EUR' },
+    { re: /([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:€|eur\b|euros?)/i, currency: 'EUR' },
+  ];
+  for (const { re, currency } of patterns) {
+    const m = text.match(re);
+    if (m) {
+      const n = Number(m[1].replace(',', '.'));
+      if (Number.isFinite(n) && n > 0) return { price: n, currency };
+    }
+  }
+  return null;
+}
+
+// Normalize any detected price to USD.
+function toUsd(price: number, currency: string | null, tryRate: number, eurRate: number): number | null {
+  if (!Number.isFinite(price) || price <= 0) return null;
+  const c = (currency ?? 'USD').toUpperCase();
+  const usd = c === 'TRY' ? price / tryRate : c === 'EUR' ? price * eurRate : price;
+  if (!Number.isFinite(usd) || usd <= 0 || usd > 100000) return null;
+  return Math.round(usd * 100) / 100;
+}
 
 async function describe(apiKey: string, d: Draft): Promise<{
   title: string;
   description: string;
   sizes: string[];
   weight_kg: number | null;
+  price: number | null;
+  currency: string | null;
 } | null> {
   const hint = [d.suggested_title, d.caption, d.detected_category].filter(Boolean).join(' | ').slice(0, 400);
   try {
@@ -48,7 +83,7 @@ async function describe(apiKey: string, d: Draft): Promise<{
           {
             role: 'user',
             content: [
-              { type: 'text', text: hint ? `Seller notes (may be Turkish/French): ${hint}` : 'Catalogue this product photo.' },
+              { type: 'text', text: hint ? `Seller notes (may be Turkish/French): ${hint}` : 'Catalogue this product photo. Read any price printed on the image.' },
               { type: 'image_url', image_url: { url: d.image_url } },
             ],
           },
@@ -71,12 +106,15 @@ async function describe(apiKey: string, d: Draft): Promise<{
       description: String(parsed.description ?? '').trim().slice(0, 600),
       sizes: Array.isArray(parsed.sizes) ? parsed.sizes.map((s: unknown) => String(s).trim()).filter(Boolean).slice(0, 20) : [],
       weight_kg: Number.isFinite(Number(parsed.weight_kg)) ? Number(parsed.weight_kg) : null,
+      price: Number.isFinite(Number(parsed.price)) && Number(parsed.price) > 0 ? Number(parsed.price) : null,
+      currency: typeof parsed.currency === 'string' ? parsed.currency : null,
     };
   } catch (e) {
     console.error('AI describe error', e);
     return null;
   }
 }
+
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });

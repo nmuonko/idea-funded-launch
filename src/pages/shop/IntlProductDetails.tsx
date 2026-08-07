@@ -192,7 +192,15 @@ export default function IntlProductDetails() {
       if (settingsRes.data?.markup_percent != null) {
         setGlobalMarkupPercent(Number(settingsRes.data.markup_percent));
       }
-      if (prodRes.data) setProduct(prodRes.data as IntlProduct);
+      if (prodRes.data) {
+        const raw = prodRes.data as any;
+        setProduct({
+          ...raw,
+          title: cleanIntlTitle(raw.title),
+          description: cleanIntlText(raw.description) || null,
+          measurements: raw.measurements ? cleanIntlText(raw.measurements) || null : null,
+        } as IntlProduct);
+      }
       setLoading(false);
     })();
     return () => { cancelled = true; };

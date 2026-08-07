@@ -276,17 +276,17 @@ export default function CountryShop() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3">
             {computedProducts.map((p) => {
-              const cdf = p.totalUsd * (exchangeRate || 0);
               const isAdding = adding === p.id;
+
               const gallery = (Array.isArray(p.images) && p.images.length > 0)
                 ? p.images
                 : [p.image_url];
               return (
-                <div key={p.id} className="rounded-2xl border border-border/40 bg-card overflow-hidden flex flex-col">
+                <div key={p.id} className="rounded-xl border border-border/40 bg-card overflow-hidden flex flex-col">
                   <div
-                    className="relative aspect-square bg-muted overflow-hidden cursor-pointer"
+                    className="relative aspect-[4/5] bg-muted overflow-hidden cursor-pointer"
                     onClick={() => navigate(`/shop/${key}/product/${p.id}`)}
                   >
                     <div
@@ -305,31 +305,29 @@ export default function CountryShop() {
                       ))}
                     </div>
                     {p.isNew && (
-                      <div className="absolute top-1.5 left-1.5 bg-green-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full shadow">
+                      <div className="absolute top-1.5 left-1.5 bg-green-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow">
                         {isFr ? 'NOUVEAU' : 'NEW'}
                       </div>
                     )}
 
                     {gallery.length > 1 && (
-                      <div className="absolute bottom-1.5 right-1.5 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                      <div className="absolute bottom-1.5 right-1.5 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded-full">
                         {gallery.length} 📷
                       </div>
                     )}
                   </div>
-                  <div className="p-3 flex flex-col gap-2 flex-1">
+                  <div className="p-2 flex flex-col gap-1.5 flex-1">
                     <p
-                      className="text-sm font-medium text-foreground line-clamp-2 min-h-[2.5rem] cursor-pointer hover:text-primary"
+                      className="text-xs font-medium text-foreground line-clamp-2 min-h-[2rem] cursor-pointer hover:text-primary"
                       onClick={() => navigate(`/shop/${key}/product/${p.id}`)}
                     >{p.title}</p>
                     <div className="mt-auto">
-                      <div className="text-base font-bold text-primary">${p.totalUsd}</div>
-                      {exchangeRate > 0 && (
-                        <div className="text-xs text-muted-foreground">≈ {Math.round(cdf).toLocaleString()} CDF</div>
-                      )}
+                      <div className="text-sm font-bold text-primary">${p.totalUsd}</div>
                       <p className="text-[10px] text-green-500 mt-0.5">
                         {isFr ? 'Livraison incluse' : 'Shipping included'}
                       </p>
                     </div>
+
                     <div className="flex gap-2 mt-1">
                       <Button
                         size="sm"

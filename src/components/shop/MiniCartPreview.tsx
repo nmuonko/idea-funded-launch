@@ -104,9 +104,6 @@ export function MiniCartPreview() {
                     return (
                       <>
                         <span className="text-white font-bold">${cartTotal.toFixed(2)}</span>
-                        <span className="text-white/50 text-xs block">
-                          ≈ CDF {(cartTotal * exchangeRate).toLocaleString()}
-                        </span>
                       </>
                     );
                   })()}

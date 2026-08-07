@@ -242,9 +242,6 @@ export function ProductCard({ product, className, compact = false, coverImage = 
                   )}>
                     ${displayPrice.toFixed(0)}
                   </span>
-                  <span className={cn("text-black/50 mt-1", compact ? "text-[10px]" : "text-[11px]")}>
-                    ≈ CDF {(displayPrice * exchangeRate).toLocaleString()}
-                  </span>
                 </>
               );
             })()}

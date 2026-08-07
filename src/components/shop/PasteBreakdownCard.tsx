@@ -111,9 +111,6 @@ export function PasteBreakdownCard({
               <span className="text-foreground">Total</span>
               <div className="text-right">
                 <div className="text-primary">{totalUsd != null ? `$${totalUsd.toFixed(2)}` : '…'}</div>
-                <div className="text-xs text-muted-foreground font-normal">
-                  ≈ {Math.round(totalCdf).toLocaleString()} CDF
-                </div>
               </div>
             </div>
           </div>

@@ -10,6 +10,16 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { toast } from 'sonner';
 import { collectProductImageCandidates, pickBestImage } from '@/lib/imageValidation';
+import { cleanIntlText, cleanIntlTitle } from '@/lib/intlProductText';
+
+function sanitizeIntlProduct<T extends { title?: string | null; description?: string | null; measurements?: string | null }>(row: T): T {
+  return {
+    ...row,
+    title: cleanIntlTitle(row.title),
+    description: cleanIntlText(row.description) || null,
+    measurements: row.measurements ? cleanIntlText(row.measurements) || null : row.measurements ?? null,
+  };
+}
 
 interface CountryMeta {
   country: string;

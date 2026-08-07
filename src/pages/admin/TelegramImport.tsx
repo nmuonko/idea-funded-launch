@@ -201,6 +201,51 @@ export default function TelegramImport() {
     }
   };
 
+  // ===== Bulk AI publish: one product per selected photo, AI-generated title/description =====
+  const [bulkPrice, setBulkPrice] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0, ok: 0, failed: 0 });
+
+  const selectAll = () => setSelected(new Set(drafts.map((d) => d.id)));
+
+  const handleBulkAiPublish = async () => {
+    const price = parseFloat(bulkPrice);
+    const ids = selected.size > 0 ? Array.from(selected) : drafts.map((d) => d.id);
+    if (ids.length === 0) return toast.error(t('No images to publish', 'Aucune image à publier'));
+    if (!isFinite(price) || price <= 0) return toast.error(t('Enter a valid price first', 'Entrez un prix valide'));
+
+    setBulkBusy(true);
+    setBulkProgress({ done: 0, total: ids.length, ok: 0, failed: 0 });
+    let ok = 0;
+    let failed = 0;
+    try {
+      for (let i = 0; i < ids.length; i += 6) {
+        const chunk = ids.slice(i, i + 6);
+        try {
+          const { data, error } = await supabase.functions.invoke('telegram-drafts-ai-publish', {
+            body: { draftIds: chunk, price, country: form.country || DEFAULT_COUNTRY, weightKg: parseFloat(form.weight) || 0.7 },
+          });
+          if (error) throw error;
+          ok += Number(data?.published ?? 0);
+          failed += Number(data?.failed ?? 0);
+        } catch {
+          failed += chunk.length;
+        }
+        setBulkProgress({ done: Math.min(i + 6, ids.length), total: ids.length, ok, failed });
+        setDrafts((ds) => ds.filter((d) => !chunk.includes(d.id)));
+        setSelected((s) => {
+          const next = new Set(s);
+          chunk.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
+      toast.success(t(`Published ${ok} product(s)${failed ? `, ${failed} failed` : ''}`, `${ok} produit(s) publié(s)${failed ? `, ${failed} échec(s)` : ''}`));
+    } finally {
+      setBulkBusy(false);
+      await load();
+    }
+  };
+
   const handleRejectSelected = async () => {
     if (selected.size === 0) return;
     setBusy(true);
@@ -220,6 +265,7 @@ export default function TelegramImport() {
       setBusy(false);
     }
   };
+
 
   return (
     <div className="space-y-6 p-4 md:p-6">

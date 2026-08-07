@@ -56,9 +56,9 @@ function mapChinaCatalogItem(row: any): IntlProduct | null {
 
 const ALLOWED = new Set(['china', 'turkey', 'usa']);
 
-export default function CountryShop() {
+export default function CountryShop({ forcedCountry }: { forcedCountry?: string } = {}) {
   const { country = '' } = useParams<{ country: string }>();
-  const key = country.toLowerCase();
+  const key = (forcedCountry || country).toLowerCase();
   const navigate = useNavigate();
   const { language } = useLanguage();
   const { addItem, exchangeRate } = useShopCart();

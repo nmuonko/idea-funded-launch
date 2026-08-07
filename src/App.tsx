@@ -247,6 +247,9 @@ const App = () => {
             <Route path="/shop/:country/coming-soon" element={<CountryComingSoon />} />
             <Route path="/shop/:country/product/:id" element={<IntlProductDetails />} />
             <Route path="/shop/:country" element={<CountryShop />} />
+            {/* Standalone Turkey page */}
+            <Route path="/turkey" element={<CountryShop forcedCountry="turkey" />} />
+            <Route path="/shop/turkey" element={<Navigate to="/turkey" replace />} />
             
             <Route path="/admin-login" element={<Index />} />
             <Route path="/auth" element={<Auth />} />

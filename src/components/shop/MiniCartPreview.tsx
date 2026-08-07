@@ -63,7 +63,7 @@ export function MiniCartPreview() {
             {/* Header */}
             <div className="p-4 border-b border-white/10">
               <h3 className="text-white font-semibold">
-                {shop.yourCart || 'Your Cart'} ({itemCount} {itemCount === 1 ? 'item' : 'items'})
+                {shop.yourCart || 'Your Cart'}
               </h3>
             </div>
 

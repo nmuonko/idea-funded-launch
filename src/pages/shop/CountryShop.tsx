@@ -15,7 +15,6 @@ interface CountryMeta {
   country: string;
   label_en: string;
   label_fr: string;
-  flag_emoji: string;
   rate_per_kg_usd: number;
 }
 

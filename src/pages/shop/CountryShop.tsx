@@ -277,8 +277,8 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
                 : [p.image_url];
               return (
                 <div key={p.id} className="rounded-xl border border-border/40 bg-card/80 shadow-lg shadow-black/20 overflow-hidden flex flex-col transition-transform hover:-translate-y-0.5">
-                  <div
-                    className="relative aspect-[4/5] bg-white/[0.06] overflow-hidden cursor-pointer"
+                    <div
+                    className="relative aspect-[3/4] bg-white/[0.06] overflow-hidden cursor-pointer"
                     onClick={() => navigate(`/shop/${key}/product/${p.id}`)}
                   >
                     <div
@@ -291,7 +291,7 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
                           src={src}
                           alt={`${p.title} ${i + 1}`}
                           loading="lazy"
-                          className="w-full h-full object-contain p-2 flex-shrink-0 snap-center"
+                          className="w-full h-full object-contain p-1 flex-shrink-0 snap-center"
                           onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.3'; }}
                         />
                       ))}

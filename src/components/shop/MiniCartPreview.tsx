@@ -89,7 +89,7 @@ export function MiniCartPreview() {
               ))}
               {remainingCount > 0 && (
                 <p className="text-sm text-white/50 text-center">
-                  +{remainingCount} more {remainingCount === 1 ? 'item' : 'items'}
+                  +{remainingCount}
                 </p>
               )}
             </div>

@@ -158,7 +158,8 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
   useEffect(() => {
     if (key === 'china' || key === 'usa' || !ALLOWED.has(key)) return;
 
-    const upsert = (row: IntlProduct) => {
+    const upsert = (raw: IntlProduct) => {
+      const row = sanitizeIntlProduct(raw);
       setProducts((prev) => {
         const rest = prev.filter((p) => p.id !== row.id);
         if (row.is_active === false) return rest;

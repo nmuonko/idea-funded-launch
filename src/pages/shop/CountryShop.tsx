@@ -317,38 +317,41 @@ export default function CountryShop() {
                     )}
                   </div>
 
-                  <div className="p-2 flex flex-col gap-1.5 flex-1">
+                  <div className="p-1.5 flex flex-col gap-1 flex-1">
                     <p
-                      className="text-xs font-medium text-foreground line-clamp-2 min-h-[2rem] cursor-pointer hover:text-primary"
+                      className="text-[11px] leading-tight font-medium text-foreground line-clamp-2 min-h-[1.9rem] cursor-pointer hover:text-primary"
                       onClick={() => navigate(`/shop/${key}/product/${p.id}`)}
                     >{p.title}</p>
                     <div className="mt-auto">
-                      <div className="text-sm font-bold text-primary">${p.totalUsd}</div>
-                      <p className="text-[10px] text-green-500 mt-0.5">
+                      <div className="text-[13px] font-bold text-primary">${p.totalUsd}</div>
+                      <p className="text-[9px] text-green-500">
                         {isFr ? 'Livraison incluse' : 'Shipping included'}
                       </p>
                     </div>
 
-                    <div className="flex gap-2 mt-1">
+                    <div className="flex gap-1 mt-0.5">
                       <Button
                         size="sm"
                         variant="outline"
-                        className="flex-1 px-2"
+                        className="h-7 w-7 p-0 shrink-0"
                         disabled={isAdding}
                         onClick={() => handleAdd(p, false)}
+                        aria-label={isFr ? 'Ajouter au panier' : 'Add to cart'}
                       >
-                        <ShoppingCart className="h-3.5 w-3.5" />
+                        <ShoppingCart className="h-3 w-3" />
                       </Button>
                       <Button
                         size="sm"
-                        className="flex-1 px-2 bg-primary hover:bg-primary/90"
+                        className="flex-1 h-7 px-1 text-[11px] bg-primary hover:bg-primary/90"
                         disabled={isAdding}
                         onClick={() => navigate(`/shop/${key}/product/${p.id}`)}
                       >
-                        <Zap className="h-3.5 w-3.5 mr-1" />
+                        <Zap className="h-3 w-3 mr-0.5" />
                         {isFr ? 'Voir' : 'View'}
                       </Button>
                     </div>
+                  </div>
+
                   </div>
                 </div>
               );

@@ -276,7 +276,7 @@ export default function CountryShop() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3">
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-1.5 md:gap-2.5">
             {computedProducts.map((p) => {
               const isAdding = adding === p.id;
 
@@ -284,9 +284,9 @@ export default function CountryShop() {
                 ? p.images
                 : [p.image_url];
               return (
-                <div key={p.id} className="rounded-xl border border-border/40 bg-card overflow-hidden flex flex-col">
+                <div key={p.id} className="rounded-lg border border-border/40 bg-card overflow-hidden flex flex-col">
                   <div
-                    className="relative aspect-[4/5] bg-muted overflow-hidden cursor-pointer"
+                    className="relative aspect-square bg-white/[0.04] overflow-hidden cursor-pointer"
                     onClick={() => navigate(`/shop/${key}/product/${p.id}`)}
                   >
                     <div
@@ -299,23 +299,24 @@ export default function CountryShop() {
                           src={src}
                           alt={`${p.title} ${i + 1}`}
                           loading="lazy"
-                          className="w-full h-full object-cover flex-shrink-0 snap-center"
+                          className="w-full h-full object-contain p-1 flex-shrink-0 snap-center"
                           onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.3'; }}
                         />
                       ))}
                     </div>
                     {p.isNew && (
-                      <div className="absolute top-1.5 left-1.5 bg-green-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow">
+                      <div className="absolute top-1 left-1 bg-green-500 text-black text-[8px] font-bold px-1.5 py-0.5 rounded-full shadow">
                         {isFr ? 'NOUVEAU' : 'NEW'}
                       </div>
                     )}
 
                     {gallery.length > 1 && (
-                      <div className="absolute bottom-1.5 right-1.5 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded-full">
-                        {gallery.length} 📷
+                      <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[8px] px-1.5 py-0.5 rounded-full">
+                        {gallery.length}
                       </div>
                     )}
                   </div>
+
                   <div className="p-2 flex flex-col gap-1.5 flex-1">
                     <p
                       className="text-xs font-medium text-foreground line-clamp-2 min-h-[2rem] cursor-pointer hover:text-primary"

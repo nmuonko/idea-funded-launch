@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, RefreshCw, Send, Trash2, CheckCircle2, MessageCircle, Layers, X } from 'lucide-react';
+import { Loader2, RefreshCw, Send, Trash2, CheckCircle2, MessageCircle, Layers, X, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Draft {
@@ -201,6 +201,51 @@ export default function TelegramImport() {
     }
   };
 
+  // ===== Bulk AI publish: one product per selected photo, AI-generated title/description =====
+  const [bulkPrice, setBulkPrice] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0, ok: 0, failed: 0 });
+
+  const selectAll = () => setSelected(new Set(drafts.map((d) => d.id)));
+
+  const handleBulkAiPublish = async () => {
+    const price = parseFloat(bulkPrice);
+    const ids = selected.size > 0 ? Array.from(selected) : drafts.map((d) => d.id);
+    if (ids.length === 0) return toast.error(t('No images to publish', 'Aucune image à publier'));
+    if (!isFinite(price) || price <= 0) return toast.error(t('Enter a valid price first', 'Entrez un prix valide'));
+
+    setBulkBusy(true);
+    setBulkProgress({ done: 0, total: ids.length, ok: 0, failed: 0 });
+    let ok = 0;
+    let failed = 0;
+    try {
+      for (let i = 0; i < ids.length; i += 6) {
+        const chunk = ids.slice(i, i + 6);
+        try {
+          const { data, error } = await supabase.functions.invoke('telegram-drafts-ai-publish', {
+            body: { draftIds: chunk, price, country: form.country || DEFAULT_COUNTRY, weightKg: parseFloat(form.weight) || 0.7 },
+          });
+          if (error) throw error;
+          ok += Number(data?.published ?? 0);
+          failed += Number(data?.failed ?? 0);
+        } catch {
+          failed += chunk.length;
+        }
+        setBulkProgress({ done: Math.min(i + 6, ids.length), total: ids.length, ok, failed });
+        setDrafts((ds) => ds.filter((d) => !chunk.includes(d.id)));
+        setSelected((s) => {
+          const next = new Set(s);
+          chunk.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
+      toast.success(t(`Published ${ok} product(s)${failed ? `, ${failed} failed` : ''}`, `${ok} produit(s) publié(s)${failed ? `, ${failed} échec(s)` : ''}`));
+    } finally {
+      setBulkBusy(false);
+      await load();
+    }
+  };
+
   const handleRejectSelected = async () => {
     if (selected.size === 0) return;
     setBusy(true);
@@ -220,6 +265,7 @@ export default function TelegramImport() {
       setBusy(false);
     }
   };
+
 
   return (
     <div className="space-y-6 p-4 md:p-6">
@@ -256,6 +302,50 @@ export default function TelegramImport() {
         </CardContent>
       </Card>
 
+      {/* Bulk AI publish */}
+      <Card className="border-primary/40">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Sparkles className="h-4 w-4 text-primary" />
+            {t('Bulk publish with AI', 'Publication en masse avec IA')}
+          </CardTitle>
+          <CardDescription>
+            {t(
+              'Publishes one product per photo. AI writes an English title, description and likely sizes from the image. Price applies to all — you can edit it later.',
+              'Publie un produit par photo. L\'IA rédige le titre, la description et les tailles probables. Le prix s\'applique à tous — modifiable ensuite.',
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-32">
+              <Label className="text-xs">{t('Price (USD)', 'Prix (USD)')}</Label>
+              <Input type="number" step="0.01" min="0" value={bulkPrice} onChange={(e) => setBulkPrice(e.target.value)} placeholder="45" />
+            </div>
+            <Button variant="outline" onClick={selectAll} disabled={bulkBusy || drafts.length === 0}>
+              {t(`Select all (${drafts.length})`, `Tout sélectionner (${drafts.length})`)}
+            </Button>
+            <Button variant="ghost" onClick={clearSelection} disabled={bulkBusy || selected.size === 0}>
+              {t('Clear', 'Effacer')}
+            </Button>
+            <Button onClick={handleBulkAiPublish} disabled={bulkBusy || drafts.length === 0}>
+              {bulkBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
+              {selected.size > 0
+                ? t(`Publish ${selected.size} selected`, `Publier ${selected.size} sélectionné(s)`)
+                : t(`Publish all ${drafts.length}`, `Publier les ${drafts.length}`)}
+            </Button>
+          </div>
+          {bulkBusy && (
+            <p className="text-xs text-muted-foreground">
+              {t(
+                `Processing ${bulkProgress.done}/${bulkProgress.total} — ${bulkProgress.ok} published, ${bulkProgress.failed} failed`,
+                `Traitement ${bulkProgress.done}/${bulkProgress.total} — ${bulkProgress.ok} publiés, ${bulkProgress.failed} échecs`,
+              )}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       <div className={`grid gap-6 ${selectedDrafts.length > 0 ? 'lg:grid-cols-[1fr_420px]' : 'grid-cols-1'}`}>
         <Card className="order-1 lg:order-1">
           <CardHeader>
@@ -267,6 +357,7 @@ export default function TelegramImport() {
               {t('Click images that belong to the same product to group them', 'Cliquez sur les images du même produit pour les grouper')}
             </CardDescription>
           </CardHeader>
+
           <CardContent>
             {loading ? (
               <div className="flex items-center justify-center py-12">

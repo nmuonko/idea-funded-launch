@@ -8187,6 +8187,7 @@ export type Database = {
         }
         Returns: Json
       }
+      publish_priced_telegram_drafts: { Args: never; Returns: Json }
       read_email_batch: {
         Args: { batch_size: number; queue_name: string; vt: number }
         Returns: {

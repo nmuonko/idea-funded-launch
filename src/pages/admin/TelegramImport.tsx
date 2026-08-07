@@ -332,17 +332,18 @@ export default function TelegramImport() {
           </CardTitle>
           <CardDescription>
             {t(
-              'Publishes one product per photo. AI writes an English title, description and likely sizes from the image. Price applies to all — you can edit it later.',
-              'Publie un produit par photo. L\'IA rédige le titre, la description et les tailles probables. Le prix s\'applique à tous — modifiable ensuite.',
+              'Publishes one product per photo. AI writes an English title, description, likely sizes and imports the supplier price printed on the photo or caption (TL/€ converted to USD). The fallback price below is used only when no price can be read.',
+              'Publie un produit par photo. L\'IA rédige le titre, la description, les tailles et importe le prix fournisseur inscrit sur la photo ou la légende (TL/€ convertis en USD). Le prix de secours ci-dessous ne sert que si aucun prix n\'est lisible.',
             )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-end gap-3">
-            <div className="w-32">
-              <Label className="text-xs">{t('Price (USD)', 'Prix (USD)')}</Label>
-              <Input type="number" step="0.01" min="0" value={bulkPrice} onChange={(e) => setBulkPrice(e.target.value)} placeholder="45" />
+            <div className="w-40">
+              <Label className="text-xs">{t('Fallback price (USD)', 'Prix de secours (USD)')}</Label>
+              <Input type="number" step="0.01" min="0" value={bulkPrice} onChange={(e) => setBulkPrice(e.target.value)} placeholder={t('optional', 'optionnel')} />
             </div>
+
             <Button variant="outline" onClick={selectAll} disabled={bulkBusy || drafts.length === 0}>
               {t(`Select all (${drafts.length})`, `Tout sélectionner (${drafts.length})`)}
             </Button>

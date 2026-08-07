@@ -227,11 +227,12 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
   };
 
   return (
-    <div className="min-h-screen bg-[#0f1115] pb-safe-nav">
+    <div className="min-h-screen flex flex-col bg-gradient-to-b from-[#1a1f2b] via-[#161a24] to-[#12151d] pb-safe-nav">
       <ShopHeader />
       <div className="pt-16 md:pt-20" />
 
-      <div className="px-4 max-w-6xl mx-auto">
+      <div className="flex-1 px-3 md:px-4 max-w-6xl mx-auto w-full pb-8">
+
         <div className="flex items-center gap-2 mb-3">
           <Button variant="ghost" size="icon" onClick={() => navigate('/')} aria-label="Back">
             <ArrowLeft className="h-5 w-5" />

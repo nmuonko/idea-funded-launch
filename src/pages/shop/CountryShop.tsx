@@ -221,7 +221,7 @@ export default function CountryShop() {
         requiresManualQuote: false,
       });
       toast.success(isFr ? 'Ajouté au panier' : 'Added to cart');
-      if (buyNow) navigate('/cart');
+      if (buyNow) navigate('/checkout');
     } catch (e) {
       toast.error(isFr ? 'Erreur lors de l\'ajout' : 'Failed to add to cart');
     } finally {

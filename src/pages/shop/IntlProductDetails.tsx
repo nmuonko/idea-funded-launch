@@ -307,9 +307,6 @@ export default function IntlProductDetails() {
             {/* Gallery */}
             <div>
               <div className="relative aspect-square bg-card rounded-2xl overflow-hidden border border-border/40">
-                <span className="absolute top-3 left-3 z-10 bg-orange-500 text-white text-xs font-semibold px-2.5 py-1 rounded">
-                  {meta?.flag_emoji} {countryLabel}
-                </span>
                 <img
                   src={gallery[activeImg]}
                   alt={product.title}

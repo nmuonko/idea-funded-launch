@@ -15,7 +15,6 @@ interface CountryMeta {
   country: string;
   label_en: string;
   label_fr: string;
-  flag_emoji: string;
   rate_per_kg_usd: number;
 }
 
@@ -196,13 +195,12 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
   }, [products, meta, globalMarkupPercent]);
 
 
-  const FALLBACK_LABELS: Record<string, { en: string; fr: string; flag: string }> = {
-    turkey: { en: 'Turkey', fr: 'Turquie', flag: '🇹🇷' },
-    china: { en: 'China', fr: 'Chine', flag: '🇨🇳' },
+  const FALLBACK_LABELS: Record<string, { en: string; fr: string }> = {
+    turkey: { en: 'Turkey', fr: 'Turquie' },
+    china: { en: 'China', fr: 'Chine' },
   };
   const fallback = FALLBACK_LABELS[key];
   const title = meta ? (isFr ? meta.label_fr : meta.label_en) : (fallback ? (isFr ? fallback.fr : fallback.en) : key);
-  const flag = meta?.flag_emoji || fallback?.flag || '🌍';
   const newCount = computedProducts.filter((p) => p.isNew).length;
 
 
@@ -240,8 +238,7 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <h1 className="text-lg md:text-2xl font-bold text-foreground flex items-center gap-2 leading-tight">
-            <span className="text-xl md:text-2xl">{flag}</span>
-            <span>{isFr ? `Produits de ${title}` : `Products from ${title}`}</span>
+            <span>{title}</span>
           </h1>
           {!loading && newCount > 0 && (
             <span className="ml-auto inline-flex items-center gap-1.5 text-[10px] font-semibold text-green-400 bg-green-500/10 border border-green-500/20 rounded-full px-2 py-0.5">

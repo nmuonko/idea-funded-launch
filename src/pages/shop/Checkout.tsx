@@ -237,6 +237,16 @@ export default function Checkout() {
     ? sharedHotProduct.total_price_usd
     : (checkoutItems.length > 0 ? checkoutTotal : (sharedHotProduct?.total_price_usd ?? 0));
 
+  // Turkey (Telegram) items are card-only: force Stripe and hide mobile money.
+  const turkeyOnlyCheckout = effectiveCheckoutItems.length > 0
+    && effectiveCheckoutItems.every((i: any) => String(i?.provider || '').toLowerCase() === 'intl_turkey');
+
+  useEffect(() => {
+    if (turkeyOnlyCheckout) setPaymentMethod('card');
+  }, [turkeyOnlyCheckout]);
+
+
+
   // Deposit plan eligibility: total >= $100 AND no vehicle items.
   // Hot products are never vehicles. Cart vehicle check uses ShopCartContext flag.
   const isFr = language === 'fr';

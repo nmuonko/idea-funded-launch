@@ -12,6 +12,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { toast } from 'sonner';
 import { collectProductImageCandidates, pickBestImage } from '@/lib/imageValidation';
+import { cleanIntlText, cleanIntlTitle } from '@/lib/intlProductText';
 import { trackMetaViewContent, trackMetaAddToCart } from '@/lib/metaPixel';
 
 interface CountryMeta {

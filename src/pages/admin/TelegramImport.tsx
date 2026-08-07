@@ -212,34 +212,55 @@ export default function TelegramImport() {
     const price = parseFloat(bulkPrice);
     const ids = selected.size > 0 ? Array.from(selected) : drafts.map((d) => d.id);
     if (ids.length === 0) return toast.error(t('No images to publish', 'Aucune image à publier'));
-    if (!isFinite(price) || price <= 0) return toast.error(t('Enter a valid price first', 'Entrez un prix valide'));
 
     setBulkBusy(true);
     setBulkProgress({ done: 0, total: ids.length, ok: 0, failed: 0 });
     let ok = 0;
     let failed = 0;
+    let noPrice = 0;
     try {
       for (let i = 0; i < ids.length; i += 6) {
         const chunk = ids.slice(i, i + 6);
+        let publishedIds: string[] = chunk;
         try {
           const { data, error } = await supabase.functions.invoke('telegram-drafts-ai-publish', {
-            body: { draftIds: chunk, price, country: form.country || DEFAULT_COUNTRY, weightKg: parseFloat(form.weight) || 0.7 },
+            body: {
+              draftIds: chunk,
+              // Optional: only used when no price is found on the photo/caption
+              ...(isFinite(price) && price > 0 ? { price } : {}),
+              country: form.country || DEFAULT_COUNTRY,
+              weightKg: parseFloat(form.weight) || 0.7,
+            },
           });
           if (error) throw error;
           ok += Number(data?.published ?? 0);
           failed += Number(data?.failed ?? 0);
+          const rows: Array<{ id: string; ok: boolean; error?: string }> = Array.isArray(data?.results) ? data.results : [];
+          noPrice += rows.filter((r) => !r.ok && /price/i.test(r.error ?? '')).length;
+          // Keep the drafts that failed visible so they can be retried/priced manually
+          if (rows.length > 0) publishedIds = rows.filter((r) => r.ok).map((r) => r.id);
         } catch {
           failed += chunk.length;
+          publishedIds = [];
         }
         setBulkProgress({ done: Math.min(i + 6, ids.length), total: ids.length, ok, failed });
-        setDrafts((ds) => ds.filter((d) => !chunk.includes(d.id)));
+        setDrafts((ds) => ds.filter((d) => !publishedIds.includes(d.id)));
         setSelected((s) => {
           const next = new Set(s);
           chunk.forEach((id) => next.delete(id));
           return next;
         });
       }
+      if (noPrice > 0) {
+        toast.warning(
+          t(
+            `${noPrice} photo(s) had no readable price — set a fallback price and retry those.`,
+            `${noPrice} photo(s) sans prix lisible — définissez un prix de secours puis réessayez.`,
+          ),
+        );
+      }
       toast.success(t(`Published ${ok} product(s)${failed ? `, ${failed} failed` : ''}`, `${ok} produit(s) publié(s)${failed ? `, ${failed} échec(s)` : ''}`));
+
     } finally {
       setBulkBusy(false);
       await load();
@@ -311,17 +332,18 @@ export default function TelegramImport() {
           </CardTitle>
           <CardDescription>
             {t(
-              'Publishes one product per photo. AI writes an English title, description and likely sizes from the image. Price applies to all — you can edit it later.',
-              'Publie un produit par photo. L\'IA rédige le titre, la description et les tailles probables. Le prix s\'applique à tous — modifiable ensuite.',
+              'Publishes one product per photo. AI writes an English title, description, likely sizes and imports the supplier price printed on the photo or caption (TL/€ converted to USD). The fallback price below is used only when no price can be read.',
+              'Publie un produit par photo. L\'IA rédige le titre, la description, les tailles et importe le prix fournisseur inscrit sur la photo ou la légende (TL/€ convertis en USD). Le prix de secours ci-dessous ne sert que si aucun prix n\'est lisible.',
             )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-end gap-3">
-            <div className="w-32">
-              <Label className="text-xs">{t('Price (USD)', 'Prix (USD)')}</Label>
-              <Input type="number" step="0.01" min="0" value={bulkPrice} onChange={(e) => setBulkPrice(e.target.value)} placeholder="45" />
+            <div className="w-40">
+              <Label className="text-xs">{t('Fallback price (USD)', 'Prix de secours (USD)')}</Label>
+              <Input type="number" step="0.01" min="0" value={bulkPrice} onChange={(e) => setBulkPrice(e.target.value)} placeholder={t('optional', 'optionnel')} />
             </div>
+
             <Button variant="outline" onClick={selectAll} disabled={bulkBusy || drafts.length === 0}>
               {t(`Select all (${drafts.length})`, `Tout sélectionner (${drafts.length})`)}
             </Button>

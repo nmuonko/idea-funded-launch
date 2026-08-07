@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from "react";
+import { lazy, Suspense } from "react";
 import { GlobalErrorBoundary } from "@/components/GlobalErrorBoundary";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -23,7 +23,6 @@ import { RouteSEO } from "@/components/RouteSEO";
 import { AdminRouteGuard } from "@/components/admin/AdminRouteGuard";
 import { LanguagePreferenceModal } from "@/components/LanguagePreferenceModal";
 import { SupabaseConfigGuard } from "@/components/SupabaseConfigGuard";
-import SplashScreen from "@/components/SplashScreen";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import AuthCallback from "./pages/AuthCallback";
@@ -158,17 +157,9 @@ const queryClient = new QueryClient({
 });
 
 const App = () => {
-  // Skip splash for public pages - only show for admin routes
-  const [showSplash, setShowSplash] = useState(() => {
-    const path = window.location.pathname;
-    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/get', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account', '/about', '/payouts', '/contact', '/browse', '/cart', '/checkout', '/saved', '/my-orders', '/account', '/search', '/product', '/shop-auth', '/onboarding', '/payment-pending', '/card-payment', '/payment-success-shop', '/paste-link', '/hot-products', '/share', '/bundle', '/turkey'];
-    return !publicPaths.some(p => path === p || path.startsWith('/payment') || path.startsWith('/browse') || path.startsWith('/product') || path.startsWith('/search') || path.startsWith('/cart') || path.startsWith('/checkout') || path.startsWith('/saved') || path.startsWith('/my-orders') || path.startsWith('/account') || path.startsWith('/shop') || path.startsWith('/get') || path.startsWith('/paste-link') || path.startsWith('/hot-products') || path.startsWith('/share') || path.startsWith('/bundle') || path.startsWith('/turkey'));
-  });
-
   return (
     <GlobalErrorBoundary>
     <SupabaseConfigGuard>
-      {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
       <QueryClientProvider client={queryClient}>
         <LanguageProvider>
           <AuthProvider>

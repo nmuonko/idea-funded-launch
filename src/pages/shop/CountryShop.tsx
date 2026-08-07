@@ -195,13 +195,12 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
   }, [products, meta, globalMarkupPercent]);
 
 
-  const FALLBACK_LABELS: Record<string, { en: string; fr: string; flag: string }> = {
-    turkey: { en: 'Turkey', fr: 'Turquie', flag: '🇹🇷' },
-    china: { en: 'China', fr: 'Chine', flag: '🇨🇳' },
+  const FALLBACK_LABELS: Record<string, { en: string; fr: string }> = {
+    turkey: { en: 'Turkey', fr: 'Turquie' },
+    china: { en: 'China', fr: 'Chine' },
   };
   const fallback = FALLBACK_LABELS[key];
   const title = meta ? (isFr ? meta.label_fr : meta.label_en) : (fallback ? (isFr ? fallback.fr : fallback.en) : key);
-  const flag = meta?.flag_emoji || fallback?.flag || '🌍';
   const newCount = computedProducts.filter((p) => p.isNew).length;
 
 

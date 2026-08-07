@@ -237,6 +237,16 @@ export default function Checkout() {
     ? sharedHotProduct.total_price_usd
     : (checkoutItems.length > 0 ? checkoutTotal : (sharedHotProduct?.total_price_usd ?? 0));
 
+  // Turkey (Telegram) items are card-only: force Stripe and hide mobile money.
+  const turkeyOnlyCheckout = effectiveCheckoutItems.length > 0
+    && effectiveCheckoutItems.every((i: any) => String(i?.provider || '').toLowerCase() === 'intl_turkey');
+
+  useEffect(() => {
+    if (turkeyOnlyCheckout) setPaymentMethod('card');
+  }, [turkeyOnlyCheckout]);
+
+
+
   // Deposit plan eligibility: total >= $100 AND no vehicle items.
   // Hot products are never vehicles. Cart vehicle check uses ShopCartContext flag.
   const isFr = language === 'fr';
@@ -1048,14 +1058,16 @@ export default function Checkout() {
                   
                   <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod}>
                     <div className="space-y-3">
-                      <label className="flex items-center gap-4 p-4 rounded-xl border border-white/10 cursor-pointer hover:bg-white/5 transition-colors">
-                        <RadioGroupItem value="mobile_money" id="mobile_money" className="border-white/40" />
-                        <Smartphone className="h-5 w-5 text-white/70" />
-                        <div className="flex-1">
-                          <p className="text-white font-medium">{shop.mobileMoney || 'Mobile Money'}</p>
-                          <p className="text-sm text-white/50">M-Pesa, Airtel Money, Orange Money</p>
-                        </div>
-                      </label>
+                      {!turkeyOnlyCheckout && (
+                        <label className="flex items-center gap-4 p-4 rounded-xl border border-white/10 cursor-pointer hover:bg-white/5 transition-colors">
+                          <RadioGroupItem value="mobile_money" id="mobile_money" className="border-white/40" />
+                          <Smartphone className="h-5 w-5 text-white/70" />
+                          <div className="flex-1">
+                            <p className="text-white font-medium">{shop.mobileMoney || 'Mobile Money'}</p>
+                            <p className="text-sm text-white/50">M-Pesa, Airtel Money, Orange Money</p>
+                          </div>
+                        </label>
+                      )}
 
                       <label className="flex items-center gap-4 p-4 rounded-xl border border-white/10 cursor-pointer hover:bg-white/5 transition-colors">
                         <RadioGroupItem value="card" id="card" className="border-white/40" />

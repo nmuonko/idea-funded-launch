@@ -227,11 +227,12 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
   };
 
   return (
-    <div className="min-h-screen bg-[#0f1115] pb-safe-nav">
+    <div className="min-h-screen flex flex-col bg-gradient-to-b from-[#1a1f2b] via-[#161a24] to-[#12151d] pb-safe-nav">
       <ShopHeader />
       <div className="pt-16 md:pt-20" />
 
-      <div className="px-4 max-w-6xl mx-auto">
+      <div className="flex-1 px-3 md:px-4 max-w-6xl mx-auto w-full pb-8">
+
         <div className="flex items-center gap-2 mb-3">
           <Button variant="ghost" size="icon" onClick={() => navigate('/')} aria-label="Back">
             <ArrowLeft className="h-5 w-5" />
@@ -267,7 +268,7 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-1.5 md:gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4">
             {computedProducts.map((p) => {
               const isAdding = adding === p.id;
 
@@ -275,9 +276,9 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
                 ? p.images
                 : [p.image_url];
               return (
-                <div key={p.id} className="rounded-lg border border-border/40 bg-card overflow-hidden flex flex-col">
+                <div key={p.id} className="rounded-xl border border-border/40 bg-card/80 shadow-lg shadow-black/20 overflow-hidden flex flex-col transition-transform hover:-translate-y-0.5">
                   <div
-                    className="relative aspect-square bg-white/[0.04] overflow-hidden cursor-pointer"
+                    className="relative aspect-[4/5] bg-white/[0.06] overflow-hidden cursor-pointer"
                     onClick={() => navigate(`/shop/${key}/product/${p.id}`)}
                   >
                     <div
@@ -290,7 +291,7 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
                           src={src}
                           alt={`${p.title} ${i + 1}`}
                           loading="lazy"
-                          className="w-full h-full object-contain p-1 flex-shrink-0 snap-center"
+                          className="w-full h-full object-contain p-2 flex-shrink-0 snap-center"
                           onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.3'; }}
                         />
                       ))}
@@ -303,14 +304,14 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
 
                   </div>
 
-                  <div className="p-1.5 flex flex-col gap-1 flex-1">
+                  <div className="p-2.5 flex flex-col gap-1.5 flex-1">
                     <p
-                      className="text-[11px] leading-tight font-medium text-foreground line-clamp-2 min-h-[1.9rem] cursor-pointer hover:text-primary"
+                      className="text-[13px] leading-snug font-medium text-foreground line-clamp-2 min-h-[2.4rem] cursor-pointer hover:text-primary"
                       onClick={() => navigate(`/shop/${key}/product/${p.id}`)}
                     >{p.title}</p>
                     <div className="mt-auto">
-                      <div className="text-[13px] font-bold text-primary">${p.totalUsd}</div>
-                      <p className="text-[9px] text-green-500">
+                      <div className="text-base md:text-lg font-bold text-primary">${p.totalUsd}</div>
+                      <p className="text-[10px] text-green-500">
                         {isFr ? 'Livraison incluse' : 'Shipping included'}
                       </p>
                     </div>
@@ -318,7 +319,7 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
                     <div className="mt-0.5">
                       <Button
                         size="sm"
-                        className="w-full h-7 px-1 text-[11px] bg-primary hover:bg-primary/90"
+                        className="w-full h-9 px-2 text-[13px] font-semibold bg-primary hover:bg-primary/90"
                         disabled={isAdding}
                         onClick={() => handleAdd(p, true)}
                       >
@@ -326,7 +327,7 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
                           <Loader2 className="h-3 w-3 animate-spin" />
                         ) : (
                           <>
-                            <Zap className="h-3 w-3 mr-0.5" />
+                            <Zap className="h-3.5 w-3.5 mr-1" />
                             {isFr ? 'Payer' : 'Pay now'}
                           </>
                         )}

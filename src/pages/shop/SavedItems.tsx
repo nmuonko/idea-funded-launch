@@ -103,9 +103,6 @@ export default function SavedItems() {
                       <span className="text-lg font-bold text-white">
                         ${item.priceUsd.toFixed(2)}
                       </span>
-                      <span className="text-xs text-white/50 block">
-                        ≈ CDF {(item.priceUsd * exchangeRate).toLocaleString()}
-                      </span>
                     </div>
 
                     {/* Actions */}

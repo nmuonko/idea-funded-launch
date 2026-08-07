@@ -67,7 +67,29 @@ function mapChinaCatalogItem(row: any): IntlProduct | null {
   };
 }
 
-const ALLOWED = new Set(['china', 'turkey']);
+const TURKEY_MEN_TO_US: Record<string, string> = {
+  '44': '34 / XS', '46': '36 / S', '48': '38 / M', '50': '40 / L', '52': '42 / XL', '54': '44 / 2XL', '56': '46 / 3XL', '58': '48 / 4XL', '60': '50 / 5XL',
+};
+
+const TURKEY_WOMEN_TO_US: Record<string, string> = {
+  '34': '2 / XS', '36': '4 / S', '38': '6 / S', '40': '8 / M', '42': '10 / M', '44': '12 / L', '46': '14 / L', '48': '16 / XL', '50': '18 / XL', '52': '20 / 2XL', '54': '22 / 3XL', '56': '24 / 4XL', '58': '26 / 5XL',
+};
+
+function inferGenderFromText(title?: string | null, description?: string | null): 'men' | 'women' | 'unisex' {
+  const text = `${title || ''} ${description || ''}`.toLowerCase();
+  const men = ['men', 'mens', 'men\'s', 'homme', 'hommes', 'male', 'garçon', 'boys'];
+  const women = ['women', 'womens', 'women\'s', 'femme', 'femmes', 'female', 'lady', 'ladies', 'filles', 'girls'];
+  if (women.some((w) => text.includes(w))) return 'women';
+  if (men.some((m) => text.includes(m))) return 'men';
+  return 'unisex';
+}
+
+function getTurkeyToUS(size: string, gender: 'men' | 'women' | 'unisex'): string | null {
+  const clean = size.trim();
+  const map = gender === 'women' ? TURKEY_WOMEN_TO_US : TURKEY_MEN_TO_US;
+  return map[clean] || null;
+}
+
 
 export default function IntlProductDetails() {
   const { country = '', id = '' } = useParams<{ country: string; id: string }>();

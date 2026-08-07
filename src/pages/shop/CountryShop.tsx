@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Loader2, ShoppingCart, Zap } from 'lucide-react';
+import { ArrowLeft, Loader2, Zap } from 'lucide-react';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { ShopFooter } from '@/components/shop/ShopFooter';
@@ -221,7 +221,7 @@ export default function CountryShop() {
         requiresManualQuote: false,
       });
       toast.success(isFr ? 'Ajouté au panier' : 'Added to cart');
-      if (buyNow) navigate('/cart');
+      if (buyNow) navigate('/checkout');
     } catch (e) {
       toast.error(isFr ? 'Erreur lors de l\'ajout' : 'Failed to add to cart');
     } finally {
@@ -305,11 +305,6 @@ export default function CountryShop() {
                       </div>
                     )}
 
-                    {gallery.length > 1 && (
-                      <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[8px] px-1.5 py-0.5 rounded-full">
-                        {gallery.length}
-                      </div>
-                    )}
                   </div>
 
                   <div className="p-1.5 flex flex-col gap-1 flex-1">
@@ -324,25 +319,21 @@ export default function CountryShop() {
                       </p>
                     </div>
 
-                    <div className="flex gap-1 mt-0.5">
+                    <div className="mt-0.5">
                       <Button
                         size="sm"
-                        variant="outline"
-                        className="h-7 w-7 p-0 shrink-0"
+                        className="w-full h-7 px-1 text-[11px] bg-primary hover:bg-primary/90"
                         disabled={isAdding}
-                        onClick={() => handleAdd(p, false)}
-                        aria-label={isFr ? 'Ajouter au panier' : 'Add to cart'}
+                        onClick={() => handleAdd(p, true)}
                       >
-                        <ShoppingCart className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="flex-1 h-7 px-1 text-[11px] bg-primary hover:bg-primary/90"
-                        disabled={isAdding}
-                        onClick={() => navigate(`/shop/${key}/product/${p.id}`)}
-                      >
-                        <Zap className="h-3 w-3 mr-0.5" />
-                        {isFr ? 'Voir' : 'View'}
+                        {isAdding ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <>
+                            <Zap className="h-3 w-3 mr-0.5" />
+                            {isFr ? 'Payer' : 'Pay now'}
+                          </>
+                        )}
                       </Button>
                     </div>
                   </div>

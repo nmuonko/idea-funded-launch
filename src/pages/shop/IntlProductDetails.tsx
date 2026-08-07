@@ -12,6 +12,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { toast } from 'sonner';
 import { collectProductImageCandidates, pickBestImage } from '@/lib/imageValidation';
+import { cleanIntlText, cleanIntlTitle } from '@/lib/intlProductText';
 import { trackMetaViewContent, trackMetaAddToCart } from '@/lib/metaPixel';
 
 interface CountryMeta {
@@ -192,7 +193,15 @@ export default function IntlProductDetails() {
       if (settingsRes.data?.markup_percent != null) {
         setGlobalMarkupPercent(Number(settingsRes.data.markup_percent));
       }
-      if (prodRes.data) setProduct(prodRes.data as IntlProduct);
+      if (prodRes.data) {
+        const raw = prodRes.data as any;
+        setProduct({
+          ...raw,
+          title: cleanIntlTitle(raw.title),
+          description: cleanIntlText(raw.description) || null,
+          measurements: raw.measurements ? cleanIntlText(raw.measurements) || null : null,
+        } as IntlProduct);
+      }
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -298,9 +307,6 @@ export default function IntlProductDetails() {
             {/* Gallery */}
             <div>
               <div className="relative aspect-square bg-card rounded-2xl overflow-hidden border border-border/40">
-                <span className="absolute top-3 left-3 z-10 bg-orange-500 text-white text-xs font-semibold px-2.5 py-1 rounded">
-                  {meta?.flag_emoji} {countryLabel}
-                </span>
                 <img
                   src={gallery[activeImg]}
                   alt={product.title}

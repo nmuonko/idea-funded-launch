@@ -10,6 +10,16 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { toast } from 'sonner';
 import { collectProductImageCandidates, pickBestImage } from '@/lib/imageValidation';
+import { cleanIntlText, cleanIntlTitle } from '@/lib/intlProductText';
+
+function sanitizeIntlProduct<T extends { title?: string | null; description?: string | null; measurements?: string | null }>(row: T): T {
+  return {
+    ...row,
+    title: cleanIntlTitle(row.title),
+    description: cleanIntlText(row.description) || null,
+    measurements: row.measurements ? cleanIntlText(row.measurements) || null : row.measurements ?? null,
+  };
+}
 
 interface CountryMeta {
   country: string;
@@ -136,7 +146,9 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
         const m = (settingsRes.data as any).markup_percent;
         if (m != null) setGlobalMarkupPercent(Number(m));
       }
-      if (Array.isArray(productsRes.data)) setProducts(productsRes.data as IntlProduct[]);
+      if (Array.isArray(productsRes.data)) {
+        setProducts((productsRes.data as IntlProduct[]).map(sanitizeIntlProduct));
+      }
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -146,7 +158,8 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
   useEffect(() => {
     if (key === 'china' || key === 'usa' || !ALLOWED.has(key)) return;
 
-    const upsert = (row: IntlProduct) => {
+    const upsert = (raw: IntlProduct) => {
+      const row = sanitizeIntlProduct(raw);
       setProducts((prev) => {
         const rest = prev.filter((p) => p.id !== row.id);
         if (row.is_active === false) return rest;

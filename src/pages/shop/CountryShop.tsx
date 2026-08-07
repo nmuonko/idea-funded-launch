@@ -121,7 +121,6 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
             })
         : (supabase.from('international_products' as any)
             .select('*')
-            .eq('country', key)
             .eq('is_active', true)
             .order('sort_order', { ascending: true })
             .order('created_at', { ascending: false })) as any;
@@ -165,7 +164,7 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
       .channel(`intl-products-${key}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'international_products', filter: `country=eq.${key}` },
+        { event: '*', schema: 'public', table: 'international_products' },
         (payload) => {
           const row = (payload.new ?? payload.old) as IntlProduct | null;
           if (!row?.id) return;

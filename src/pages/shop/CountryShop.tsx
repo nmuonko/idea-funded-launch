@@ -164,7 +164,7 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
       .channel(`intl-products-${key}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'international_products', filter: `country=eq.${key}` },
+        { event: '*', schema: 'public', table: 'international_products' },
         (payload) => {
           const row = (payload.new ?? payload.old) as IntlProduct | null;
           if (!row?.id) return;

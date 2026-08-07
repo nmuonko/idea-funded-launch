@@ -259,14 +259,8 @@ export default function TelegramImport() {
           ),
         );
       }
-
-        setSelected((s) => {
-          const next = new Set(s);
-          chunk.forEach((id) => next.delete(id));
-          return next;
-        });
-      }
       toast.success(t(`Published ${ok} product(s)${failed ? `, ${failed} failed` : ''}`, `${ok} produit(s) publié(s)${failed ? `, ${failed} échec(s)` : ''}`));
+
     } finally {
       setBulkBusy(false);
       await load();

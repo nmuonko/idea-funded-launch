@@ -42,12 +42,20 @@ async function loadProfitStats(): Promise<ProfitByStatus[]> {
   // Fetch markup fees per bucket in parallel
   const fetchMarkup = async (ids: string[]) => {
     if (!ids.length) return { markup: 0, serviceFee: 0 };
-    const { data } = await supabase.from('order_items').select('markup_fee_usd, order_id').in('order_id', ids);
-    const markup = (data || []).reduce((s, i) => s + Number(i.markup_fee_usd || 0), 0);
-    const matchedOrders = orders.filter(o => ids.includes(o.id));
+    let markup = 0;
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data } = await supabase
+        .from('order_items')
+        .select('markup_fee_usd, order_id')
+        .in('order_id', ids.slice(i, i + 100));
+      markup += (data || []).reduce((s, it) => s + Number(it.markup_fee_usd || 0), 0);
+    }
+    const idSet = new Set(ids);
+    const matchedOrders = orders.filter(o => idSet.has(o.id));
     const serviceFee = matchedOrders.reduce((s, o) => s + Number(o.service_fee_usd || 0), 0);
     return { markup, serviceFee };
   };
+
 
   const [paid, pending, cancelled] = await Promise.all([
     fetchMarkup(paidIds),

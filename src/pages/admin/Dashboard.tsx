@@ -65,22 +65,25 @@ async function loadDashboardStats(dateRange: DateRange): Promise<DashboardStats>
   const paidOrderIds = periodOrders.filter(o => o.payment_verified_at).map(o => o.id);
   const prevPaidOrderIds = previousOrders.filter(o => o.payment_verified_at).map(o => o.id);
 
-  // Fetch markup fees for both periods in parallel
-  const [currentItemsRes, prevItemsRes] = await Promise.all([
-    paidOrderIds.length > 0
-      ? supabase.from('order_items').select('markup_fee_usd').in('order_id', paidOrderIds)
-      : Promise.resolve({ data: [], error: null }),
-    prevPaidOrderIds.length > 0
-      ? supabase.from('order_items').select('markup_fee_usd').in('order_id', prevPaidOrderIds)
-      : Promise.resolve({ data: [], error: null }),
+  // Fetch markup fees in chunks (long id lists overflow the request URL -> 400)
+  const sumMarkup = async (ids: string[]) => {
+    let total = 0;
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      const { data } = await supabase
+        .from('order_items')
+        .select('markup_fee_usd')
+        .in('order_id', chunk);
+      total += (data || []).reduce((sum, item) => sum + Number(item.markup_fee_usd || 0), 0);
+    }
+    return total;
+  };
+
+  const [totalMarkupProfit, prevMarkupProfit] = await Promise.all([
+    sumMarkup(paidOrderIds),
+    sumMarkup(prevPaidOrderIds),
   ]);
 
-  const totalMarkupProfit = (currentItemsRes.data || []).reduce(
-    (sum, item) => sum + Number(item.markup_fee_usd || 0), 0
-  );
-  const prevMarkupProfit = (prevItemsRes.data || []).reduce(
-    (sum, item) => sum + Number(item.markup_fee_usd || 0), 0
-  );
 
   const totalOrders = periodOrders.filter(o => o.status !== 'DRAFT').length;
   const paidOrders = paidOrderIds.length;

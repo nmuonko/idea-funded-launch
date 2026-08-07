@@ -136,7 +136,9 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
         const m = (settingsRes.data as any).markup_percent;
         if (m != null) setGlobalMarkupPercent(Number(m));
       }
-      if (Array.isArray(productsRes.data)) setProducts(productsRes.data as IntlProduct[]);
+      if (Array.isArray(productsRes.data)) {
+        setProducts((productsRes.data as IntlProduct[]).map(sanitizeIntlProduct));
+      }
       setLoading(false);
     })();
     return () => { cancelled = true; };

@@ -305,11 +305,6 @@ export default function CountryShop() {
                       </div>
                     )}
 
-                    {gallery.length > 1 && (
-                      <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[8px] px-1.5 py-0.5 rounded-full">
-                        {gallery.length}
-                      </div>
-                    )}
                   </div>
 
                   <div className="p-1.5 flex flex-col gap-1 flex-1">

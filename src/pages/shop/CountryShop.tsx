@@ -276,10 +276,10 @@ export default function CountryShop() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3">
             {computedProducts.map((p) => {
-              const cdf = p.totalUsd * (exchangeRate || 0);
               const isAdding = adding === p.id;
+
               const gallery = (Array.isArray(p.images) && p.images.length > 0)
                 ? p.images
                 : [p.image_url];

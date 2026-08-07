@@ -351,9 +351,8 @@ export default function CountryShop() {
                       </Button>
                     </div>
                   </div>
-
-                  </div>
                 </div>
+
               );
             })}
           </div>

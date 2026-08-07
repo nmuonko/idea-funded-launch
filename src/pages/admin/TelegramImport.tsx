@@ -212,27 +212,54 @@ export default function TelegramImport() {
     const price = parseFloat(bulkPrice);
     const ids = selected.size > 0 ? Array.from(selected) : drafts.map((d) => d.id);
     if (ids.length === 0) return toast.error(t('No images to publish', 'Aucune image à publier'));
-    if (!isFinite(price) || price <= 0) return toast.error(t('Enter a valid price first', 'Entrez un prix valide'));
 
     setBulkBusy(true);
     setBulkProgress({ done: 0, total: ids.length, ok: 0, failed: 0 });
     let ok = 0;
     let failed = 0;
+    let noPrice = 0;
     try {
       for (let i = 0; i < ids.length; i += 6) {
         const chunk = ids.slice(i, i + 6);
+        let publishedIds: string[] = chunk;
         try {
           const { data, error } = await supabase.functions.invoke('telegram-drafts-ai-publish', {
-            body: { draftIds: chunk, price, country: form.country || DEFAULT_COUNTRY, weightKg: parseFloat(form.weight) || 0.7 },
+            body: {
+              draftIds: chunk,
+              // Optional: only used when no price is found on the photo/caption
+              ...(isFinite(price) && price > 0 ? { price } : {}),
+              country: form.country || DEFAULT_COUNTRY,
+              weightKg: parseFloat(form.weight) || 0.7,
+            },
           });
           if (error) throw error;
           ok += Number(data?.published ?? 0);
           failed += Number(data?.failed ?? 0);
+          const rows: Array<{ id: string; ok: boolean; error?: string }> = Array.isArray(data?.results) ? data.results : [];
+          noPrice += rows.filter((r) => !r.ok && /price/i.test(r.error ?? '')).length;
+          // Keep the drafts that failed visible so they can be retried/priced manually
+          if (rows.length > 0) publishedIds = rows.filter((r) => r.ok).map((r) => r.id);
         } catch {
           failed += chunk.length;
+          publishedIds = [];
         }
         setBulkProgress({ done: Math.min(i + 6, ids.length), total: ids.length, ok, failed });
-        setDrafts((ds) => ds.filter((d) => !chunk.includes(d.id)));
+        setDrafts((ds) => ds.filter((d) => !publishedIds.includes(d.id)));
+        setSelected((s) => {
+          const next = new Set(s);
+          chunk.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
+      if (noPrice > 0) {
+        toast.warning(
+          t(
+            `${noPrice} photo(s) had no readable price — set a fallback price and retry those.`,
+            `${noPrice} photo(s) sans prix lisible — définissez un prix de secours puis réessayez.`,
+          ),
+        );
+      }
+
         setSelected((s) => {
           const next = new Set(s);
           chunk.forEach((id) => next.delete(id));

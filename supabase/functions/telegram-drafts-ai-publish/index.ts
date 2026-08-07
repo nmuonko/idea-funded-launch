@@ -147,25 +147,53 @@ Deno.serve(async (req) => {
       ? body.draftIds.filter((x: unknown) => typeof x === 'string').slice(0, 12)
       : [];
     const price = Number(body?.price);
+    const hasFallbackPrice = Number.isFinite(price) && price > 0;
     const country = typeof body?.country === 'string' && body.country.trim() ? body.country.trim() : 'turkey';
     const fallbackWeight = Number.isFinite(Number(body?.weightKg)) && Number(body.weightKg) > 0 ? Number(body.weightKg) : 0.7;
+    // FX used only to normalize a supplier price detected in TRY/EUR into USD.
+    const tryRate = Number.isFinite(Number(body?.tryPerUsd)) && Number(body.tryPerUsd) > 1 ? Number(body.tryPerUsd) : 41;
+    const eurRate = Number.isFinite(Number(body?.usdPerEur)) && Number(body.usdPerEur) > 0 ? Number(body.usdPerEur) : 1.08;
     if (draftIds.length === 0) return json({ error: 'draftIds required (max 12 per call)' }, 400);
-    if (!Number.isFinite(price) || price <= 0) return json({ error: 'A valid price is required' }, 400);
 
     const { data: drafts, error: dErr } = await admin
       .from('telegram_import_drafts')
-      .select('id, image_url, caption, suggested_title, detected_category, forwarded_from_chat_username')
+      .select('id, image_url, caption, suggested_title, suggested_price_usd, detected_category, forwarded_from_chat_username')
       .in('id', draftIds)
       .eq('status', 'pending');
     if (dErr) return json({ error: dErr.message }, 500);
 
-    const results: Array<{ id: string; ok: boolean; title?: string; error?: string }> = [];
+    const results: Array<{ id: string; ok: boolean; title?: string; price?: number; priceSource?: string; error?: string }> = [];
 
     for (const d of (drafts ?? []) as Draft[]) {
       const ai = await describe(LOVABLE_API_KEY, d);
       const title = ai?.title ?? d.suggested_title ?? 'Fashion item';
       const weight = ai?.weight_kg && ai.weight_kg > 0 ? Math.min(ai.weight_kg, 15) : fallbackWeight;
       const sourceUrl = d.forwarded_from_chat_username ? `https://t.me/${d.forwarded_from_chat_username}` : 'https://t.me/';
+
+      // ---- Price: draft value > caption text > price read from the photo > fallback ----
+      const draftPrice = Number(d.suggested_price_usd);
+      const captionPrice = parseCaptionPrice(d.caption);
+      let finalPrice: number | null = null;
+      let priceSource = 'none';
+      if (Number.isFinite(draftPrice) && draftPrice > 0) {
+        finalPrice = Math.round(draftPrice * 100) / 100;
+        priceSource = 'draft';
+      } else if (captionPrice) {
+        finalPrice = toUsd(captionPrice.price, captionPrice.currency, tryRate, eurRate);
+        priceSource = `caption_${captionPrice.currency}`;
+      }
+      if (!finalPrice && ai?.price) {
+        finalPrice = toUsd(ai.price, ai.currency, tryRate, eurRate);
+        if (finalPrice) priceSource = `image_${(ai.currency ?? 'USD').toUpperCase()}`;
+      }
+      if (!finalPrice && hasFallbackPrice) {
+        finalPrice = price;
+        priceSource = 'fallback';
+      }
+      if (!finalPrice) {
+        results.push({ id: d.id, ok: false, error: 'No price found on the photo or caption — set a fallback price' });
+        continue;
+      }
 
       const { data: prod, error: pErr } = await admin
         .from('international_products')
@@ -175,7 +203,7 @@ Deno.serve(async (req) => {
           image_url: d.image_url,
           images: [d.image_url],
           product_url: sourceUrl,
-          base_price_usd: price,
+          base_price_usd: finalPrice,
           est_weight_kg: weight,
           description: ai?.description || null,
           available_sizes: ai?.sizes ?? [],
@@ -198,13 +226,14 @@ Deno.serve(async (req) => {
           published_product_id: prod.id,
           suggested_country: country,
           suggested_title: title,
-          suggested_price_usd: price,
+          suggested_price_usd: finalPrice,
           suggested_weight_kg: weight,
         })
         .eq('id', d.id);
 
-      results.push({ id: d.id, ok: true, title });
+      results.push({ id: d.id, ok: true, title, price: finalPrice, priceSource });
     }
+
 
     return json({
       published: results.filter((r) => r.ok).length,

@@ -84,11 +84,8 @@ function inferGenderFromText(title?: string | null, description?: string | null)
   return 'unisex';
 }
 
-function getTurkeyToUS(size: string, gender: 'men' | 'women' | 'unisex'): string | null {
-  const clean = size.trim();
-  const map = gender === 'women' ? TURKEY_WOMEN_TO_US : TURKEY_MEN_TO_US;
-  return map[clean] || null;
-}
+const ALLOWED = new Set(['china', 'turkey']);
+
 
 
 export default function IntlProductDetails() {

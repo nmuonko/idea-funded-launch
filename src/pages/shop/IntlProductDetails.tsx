@@ -86,6 +86,17 @@ function inferGenderFromText(title?: string | null, description?: string | null)
 
 const ALLOWED = new Set(['china', 'turkey']);
 
+function getTurkeyToUS(size: string, gender: 'men' | 'women' | 'unisex'): string | null {
+  const clean = size.trim();
+  if (gender === 'women') return TURKEY_WOMEN_TO_US[clean] || null;
+  if (gender === 'men') return TURKEY_MEN_TO_US[clean] || null;
+  const usMen = TURKEY_MEN_TO_US[clean];
+  const usWomen = TURKEY_WOMEN_TO_US[clean];
+  if (usMen && usWomen) return `${usMen} (men) / ${usWomen} (women)`;
+  return usMen || usWomen || null;
+}
+
+
 
 
 export default function IntlProductDetails() {

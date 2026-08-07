@@ -121,7 +121,6 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
             })
         : (supabase.from('international_products' as any)
             .select('*')
-            .eq('country', key)
             .eq('is_active', true)
             .order('sort_order', { ascending: true })
             .order('created_at', { ascending: false })) as any;

@@ -251,11 +251,11 @@ export default function CountryShop() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400" />
             </span>
-            {isFr ? 'Mise à jour en direct' : 'Live updates'}
+            {"\n"}
           </span>
           {!loading && (
             <span className="text-[11px] text-muted-foreground">
-              {computedProducts.length} {isFr ? 'articles' : 'items'}
+              {"\n"}
               {newCount > 0 && ` · ${newCount} ${isFr ? 'nouveaux' : 'new'}`}
             </span>
           )}

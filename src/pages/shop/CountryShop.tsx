@@ -319,25 +319,21 @@ export default function CountryShop() {
                       </p>
                     </div>
 
-                    <div className="flex gap-1 mt-0.5">
+                    <div className="mt-0.5">
                       <Button
                         size="sm"
-                        variant="outline"
-                        className="h-7 w-7 p-0 shrink-0"
+                        className="w-full h-7 px-1 text-[11px] bg-primary hover:bg-primary/90"
                         disabled={isAdding}
-                        onClick={() => handleAdd(p, false)}
-                        aria-label={isFr ? 'Ajouter au panier' : 'Add to cart'}
+                        onClick={() => handleAdd(p, true)}
                       >
-                        <ShoppingCart className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="flex-1 h-7 px-1 text-[11px] bg-primary hover:bg-primary/90"
-                        disabled={isAdding}
-                        onClick={() => navigate(`/shop/${key}/product/${p.id}`)}
-                      >
-                        <Zap className="h-3 w-3 mr-0.5" />
-                        {isFr ? 'Voir' : 'View'}
+                        {isAdding ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <>
+                            <Zap className="h-3 w-3 mr-0.5" />
+                            {isFr ? 'Payer' : 'Pay now'}
+                          </>
+                        )}
                       </Button>
                     </div>
                   </div>

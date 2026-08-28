@@ -200,7 +200,10 @@ export default function CountryShop({ forcedCountry }: { forcedCountry?: string 
     return products.map((p) => {
       const markup = p.base_price_usd * markupRate;
       const shipping = (Number(p.est_weight_kg) || 0) * ratePerKg;
-      const total = Math.ceil(p.base_price_usd + markup + shipping);
+      const total = (p as any).is_final_price
+        ? Math.ceil(Number(p.base_price_usd) || 0)
+        : Math.ceil(p.base_price_usd + markup + shipping);
+
       const isNew = p.created_at ? now - new Date(p.created_at).getTime() < 48 * 3600 * 1000 : false;
       return { ...p, totalUsd: total, isNew };
     });

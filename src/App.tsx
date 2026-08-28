@@ -70,6 +70,8 @@ const AdminReels = lazy(() => import("./pages/admin/Reels"));
 const AdminBundleLinks = lazy(() => import("./pages/admin/BundleLinks"));
 const AdminDubaiUploads = lazy(() => import("./pages/admin/DubaiUploads"));
 const DubaiUpload = lazy(() => import("./pages/DubaiUpload"));
+const TurkeyUpload = lazy(() => import("./pages/TurkeyUpload"));
+
 const AdminInternationalProducts = lazy(() => import("./pages/admin/InternationalProducts"));
 const AdminTelegramImport = lazy(() => import("./pages/admin/TelegramImport"));
 const AdminChatbotConversations = lazy(() => import("./pages/admin/ChatbotConversations"));
@@ -206,6 +208,8 @@ const App = () => {
             <Route path="/share/hp/:id" element={<HotProductShare />} />
             <Route path="/dubai-upload" element={<DubaiUpload />} />
             <Route path="/dubai" element={<DubaiUpload />} />
+            <Route path="/turkey-upload" element={<TurkeyUpload />} />
+
             <Route path="/bundle/:bundleId" element={<BundleShare />} />
             <Route path="/saved" element={<SavedItems />} />
             <Route path="/my-orders" element={

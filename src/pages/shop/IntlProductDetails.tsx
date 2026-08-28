@@ -209,12 +209,17 @@ export default function IntlProductDetails() {
 
   const totals = useMemo(() => {
     if (!product || !meta) return null;
+    // Items uploaded with a final customer price are shown exactly as entered.
+    if ((product as any).is_final_price) {
+      return { markup: 0, shipping: 0, total: Math.ceil(Number(product.base_price_usd) || 0) };
+    }
     const markupRate = globalMarkupPercent > 1 ? globalMarkupPercent / 100 : globalMarkupPercent;
     const markup = product.base_price_usd * markupRate;
     const shipping = product.est_weight_kg * Number(meta.rate_per_kg_usd);
     const total = Math.ceil(product.base_price_usd + markup + shipping);
     return { markup, shipping, total };
   }, [product, meta, globalMarkupPercent]);
+
 
   // Meta Pixel: ViewContent on product detail load
   useEffect(() => {

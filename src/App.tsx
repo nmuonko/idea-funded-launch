@@ -206,6 +206,8 @@ const App = () => {
             <Route path="/share/hp/:id" element={<HotProductShare />} />
             <Route path="/dubai-upload" element={<DubaiUpload />} />
             <Route path="/dubai" element={<DubaiUpload />} />
+            <Route path="/turkey-upload" element={<TurkeyUpload />} />
+
             <Route path="/bundle/:bundleId" element={<BundleShare />} />
             <Route path="/saved" element={<SavedItems />} />
             <Route path="/my-orders" element={

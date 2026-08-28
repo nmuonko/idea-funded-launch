@@ -3531,6 +3531,7 @@ export type Database = {
           image_url: string
           images: Json
           is_active: boolean
+          is_final_price: boolean
           measurements: string | null
           product_url: string
           sort_order: number
@@ -3549,6 +3550,7 @@ export type Database = {
           image_url: string
           images?: Json
           is_active?: boolean
+          is_final_price?: boolean
           measurements?: string | null
           product_url: string
           sort_order?: number
@@ -3567,6 +3569,7 @@ export type Database = {
           image_url?: string
           images?: Json
           is_active?: boolean
+          is_final_price?: boolean
           measurements?: string | null
           product_url?: string
           sort_order?: number

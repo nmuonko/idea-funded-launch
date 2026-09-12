@@ -15,7 +15,7 @@ const corsHeaders = {
 }
 
 // Configuration
-const SITE_NAME = "AfriShop"
+const SITE_NAME = "AfriShop USA"
 const SENDER_DOMAIN = "notify.afrishop-usa.com"
 const ROOT_DOMAIN = "afrishop-usa.com"
 const FROM_DOMAIN = "afrishop-usa.com"

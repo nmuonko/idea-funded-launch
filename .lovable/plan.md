@@ -1,40 +1,43 @@
-## What actually happened to Jérémie's payment
+# AI Clothing Importer + VIP Storefront
 
-Stripe declined the charge with **`card_declined` / "insufficient funds"** on Visa ending **1056** (Order `9b173bd0`, $849.01). Nothing is broken on our side — his card issuer rejected the charge because the account didn't have enough funds. He needs to retry with a different card or top up.
+Build an automated bulk clothing import, AI pricing, and publishing system with a dedicated public storefront at `/vip`, per the two uploaded specs.
 
-The admin email is generic because the failed-payment notifier (`notifyAllAdminsPaymentEvent` in `supabase/functions/payments-webhook/index.ts`) only receives amount/customer — it never pulls Stripe's `last_payment_error` (which we already save to `payments.failure_code` / `failure_reason`) into the email body.
+## Database (new tables, all with RLS + GRANTs)
 
-## Fix
+- `vip_categories` — name, name_fr, default_weight_kg, shipping_rate_per_kg, active flag. Seeded with the spec's pricing table (Pants 1kg/$30, Shirt 0.5/$30, Polo 0.5/$30, Jeans 2/$35, Suits 3/$40, Wedding Dress 10/$105, Formal Dress 3/$40, Italian Shoes = no rate → cannot publish until set).
+- `vip_settings` — singleton row: shipping_buffer_percent (default 10), profit_markup_percent (default 30), rounding rule. Super-admin editable only.
+- `vip_batches` — one row per upload batch: admin, category, shared purchase price, weight, rate, colors, sizes, status, timestamps.
+- `vip_products` — per image: batch_id, category_id, AI French name + description, image_url, full price breakdown (purchase_price, weight, rate, shipping_cost, buffer, profit, final_price, percentages applied — for audit), status (`draft` / `available` / `unavailable` / `hidden`), admin-confirmed colors/sizes, AI-suggested attributes kept separate, published_at.
+- `vip_product_variants` — size/color combinations with per-variant `available` flag, so one combo can be out of stock while another is purchasable.
+- Public read access only to `available`/`unavailable` published products and active categories; all writes admin-only; settings super-admin only.
 
-Make the admin "Payment Failed" email specific so we know exactly why without opening Stripe.
+## Edge functions (server-side, all prices calculated here)
 
-1. **Extend `notifyAllAdminsPaymentEvent`** (lines 36–113) to accept an optional `failure` block:
-   - `failureCode`, `failureReason`, `declineCode`, `cardBrand`, `cardLast4`, `humanHint`.
-2. **At both Stripe failure call-sites** (checkout-expired ~L463–469 and payment_intent.payment_failed ~L649–653):
-   - Read `event.data.object.last_payment_error` (`code`, `decline_code`, `message`, `payment_method.card.brand/last4`) for `payment_intent.payment_failed`.
-   - For `checkout.session.expired`, pass `failureCode: 'checkout_expired'` + a friendly reason.
-   - Map common decline codes to a one-line **What to tell the customer** hint:
-     - `insufficient_funds` → "Card had insufficient funds — ask customer to top up or use another card."
-     - `card_declined` (generic) → "Issuer declined — customer should contact their bank or try another card."
-     - `expired_card` → "Card expired — ask for a new card."
-     - `incorrect_cvc` / `incorrect_number` → "Wrong card details — ask customer to re-enter."
-     - `do_not_honor`, `generic_decline` → "Issuer blocked the charge — try another card."
-     - fallback → use raw Stripe message.
-3. **Render in the email** when `status === 'failed'`, replacing the current generic "A payment has failed…" line with a styled block:
-   - **Failure reason:** `<humanHint>`
-   - **Stripe code:** `<failureCode>` / `<declineCode>`
-   - **Stripe message:** `<failureReason>`
-   - **Card:** `<cardBrand> •••• <cardLast4>`
-   - Keep the red "Open Admin Orders" CTA button.
-4. **Subject line:** append the short reason, e.g. `[AfriShop] ❌ Payment Failed — Order 9b173bd0 — Insufficient funds`.
-5. Do the same enrichment for the pawaPay failed branch (already has `failureReason.failureMessage` at L726) so mobile-money failures are equally specific.
+- `vip-ai-process` — for each uploaded image: AI vision identifies the item, generates a professional French name + unique French description, suggests colors, OCRs visible text. Flags images that don't match the batch category for review. Detects unknown categories (returns a suggestion; never auto-creates). Computes final price server-side with decimal-safe math:
+  `final = purchase_price + (weight × rate) + 10% of shipping + 30% of purchase_price`, rounded to 2 dp, using the *current* settings percentages, stored with the product.
+- `vip-publish` — publish/unpublish/delete/status changes (single, bulk, whole batch), with server-side validation: no publishing without category, rate, and final price. Settings changes never retroactively change published prices.
+- Availability enforced server-side at order time: the VIP order path rejects unavailable products/variants.
 
-## Out of scope
-- No change to customer-facing emails or retry flow.
-- No DB migration — we already store `failure_code` / `failure_reason` on `payments`.
-- No edits to the Stripe integration itself.
+## Admin UI
+
+- **Operations → AI Clothing Importer** (`/admin/vip-importer`) — ChatGPT-style workspace, 6 steps: upload images → AI category recognition (with "Create New Category / Choose Existing / Skip" prompt when AI finds an unknown category — inline form: name, weight, rate/kg, status; duplicate-name check) → shared batch details (purchase price, category, weight, rate, colors, sizes, default availability) → AI processing with per-image progress + retry → review table (thumbnails, names, descriptions, full admin-only cost breakdown, inline editing, per-item overrides of price/category/weight/colors/sizes, regenerate description) → publish all or selected.
+- **VIP Products** (`/admin/vip-products`) — searchable/filterable table (category, status, price, date, batch) with image, full cost/profit breakdown, status, publish date, batch; stats cards (total, published, drafts, batches, est. profit/item, total est. inventory profit — clearly labeled as estimated, not realized); bulk status changes, mark sold out, replace image, edit price/description.
+- **VIP Pricing Settings** (`/admin/vip-pricing`) — edit buffer %, markup %, per-category weights/rates/names, activate/deactivate categories, add categories.
+- Color manager: searchable multi-select with the spec's bilingual preset list + custom colors; batch apply + per-product override. Size manager: presets for adult (XS–5XL), baby (Newborn–24m), kids (2T–16), shoes (US/UK/EU with system selector) + custom sizes; per-size availability.
+
+## Public storefront
+
+- `/vip` — premium mobile-first storefront in existing AfriShop branding: product grid with real uploaded photos, French names/descriptions, final USD price only (never purchase price, shipping, buffer, or profit), category filters, search, sorting, stock status ("Disponible" / "Rupture de stock").
+- `/vip/:id` — product detail: image viewer, color/size selection (unavailable variants disabled), "Acheter maintenant".
+- Purchase reuses the existing cart/order/checkout architecture at the locked final price. **No changes to Stripe, Mobile Money, webhooks, price-locking, or checkout calculation logic.** If wiring the buy button requires touching protected checkout code, I will stop and ask first.
+- `/vip` is standalone — not added to main navigation, homepage, or mobile feeds. Draft/hidden products never appear publicly.
+
+## Restrictions honored
+
+No changes to existing payment flows, live orders, published products, homepage categories, mobile feeds, or non-VIP import mechanisms. Existing Telegram/Turkey importer untouched.
 
 ## Verification
-- Trigger a test failure with Stripe test card `4000000000009995` (insufficient_funds) → admin email shows "Insufficient funds — Visa •••• 9995".
-- Trigger `4000000000000002` (generic decline) → shows "Issuer declined…".
-- Existing success email unchanged.
+
+- Unit-test the pricing formula against the spec example (Polo: $12 + $15 + $1.50 + $3.60 = $32.10).
+- End-to-end: create batch → AI process → review → publish → visible on `/vip` → unavailable variant cannot be purchased.
+- Confirm non-admins cannot reach admin pages or call VIP mutations.

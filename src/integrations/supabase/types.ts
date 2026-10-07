@@ -7513,6 +7513,253 @@ export type Database = {
         }
         Relationships: []
       }
+      vip_batches: {
+        Row: {
+          category_id: string | null
+          colors: Json
+          created_at: string
+          created_by: string
+          default_status: string
+          id: string
+          notes: string | null
+          purchase_price: number | null
+          rate_per_kg: number | null
+          sizes: Json
+          status: string
+          weight_kg: number | null
+        }
+        Insert: {
+          category_id?: string | null
+          colors?: Json
+          created_at?: string
+          created_by: string
+          default_status?: string
+          id?: string
+          notes?: string | null
+          purchase_price?: number | null
+          rate_per_kg?: number | null
+          sizes?: Json
+          status?: string
+          weight_kg?: number | null
+        }
+        Update: {
+          category_id?: string | null
+          colors?: Json
+          created_at?: string
+          created_by?: string
+          default_status?: string
+          id?: string
+          notes?: string | null
+          purchase_price?: number | null
+          rate_per_kg?: number | null
+          sizes?: Json
+          status?: string
+          weight_kg?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vip_batches_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "vip_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vip_categories: {
+        Row: {
+          created_at: string
+          default_weight_kg: number
+          id: string
+          is_active: boolean
+          name: string
+          name_fr: string | null
+          shipping_rate_per_kg: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          default_weight_kg?: number
+          id?: string
+          is_active?: boolean
+          name: string
+          name_fr?: string | null
+          shipping_rate_per_kg?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          default_weight_kg?: number
+          id?: string
+          is_active?: boolean
+          name?: string
+          name_fr?: string | null
+          shipping_rate_per_kg?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      vip_product_variants: {
+        Row: {
+          available: boolean
+          color: string | null
+          created_at: string
+          id: string
+          product_id: string
+          size: string | null
+        }
+        Insert: {
+          available?: boolean
+          color?: string | null
+          created_at?: string
+          id?: string
+          product_id: string
+          size?: string | null
+        }
+        Update: {
+          available?: boolean
+          color?: string | null
+          created_at?: string
+          id?: string
+          product_id?: string
+          size?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vip_product_variants_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "vip_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vip_products: {
+        Row: {
+          ai_suggested: Json
+          batch_id: string | null
+          buffer_pct_applied: number | null
+          category_id: string | null
+          colors: Json
+          created_at: string
+          description_fr: string | null
+          final_price: number | null
+          id: string
+          image_hash: string | null
+          image_url: string
+          markup_pct_applied: number | null
+          name_fr: string | null
+          needs_review: boolean
+          profit: number | null
+          published_at: string | null
+          purchase_price: number | null
+          rate_per_kg: number | null
+          review_reason: string | null
+          shipping_buffer: number | null
+          shipping_cost: number | null
+          sizes: Json
+          status: string
+          updated_at: string
+          weight_kg: number | null
+        }
+        Insert: {
+          ai_suggested?: Json
+          batch_id?: string | null
+          buffer_pct_applied?: number | null
+          category_id?: string | null
+          colors?: Json
+          created_at?: string
+          description_fr?: string | null
+          final_price?: number | null
+          id?: string
+          image_hash?: string | null
+          image_url: string
+          markup_pct_applied?: number | null
+          name_fr?: string | null
+          needs_review?: boolean
+          profit?: number | null
+          published_at?: string | null
+          purchase_price?: number | null
+          rate_per_kg?: number | null
+          review_reason?: string | null
+          shipping_buffer?: number | null
+          shipping_cost?: number | null
+          sizes?: Json
+          status?: string
+          updated_at?: string
+          weight_kg?: number | null
+        }
+        Update: {
+          ai_suggested?: Json
+          batch_id?: string | null
+          buffer_pct_applied?: number | null
+          category_id?: string | null
+          colors?: Json
+          created_at?: string
+          description_fr?: string | null
+          final_price?: number | null
+          id?: string
+          image_hash?: string | null
+          image_url?: string
+          markup_pct_applied?: number | null
+          name_fr?: string | null
+          needs_review?: boolean
+          profit?: number | null
+          published_at?: string | null
+          purchase_price?: number | null
+          rate_per_kg?: number | null
+          review_reason?: string | null
+          shipping_buffer?: number | null
+          shipping_cost?: number | null
+          sizes?: Json
+          status?: string
+          updated_at?: string
+          weight_kg?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vip_products_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "vip_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vip_products_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "vip_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vip_settings: {
+        Row: {
+          id: number
+          price_rounding: string
+          profit_markup_percent: number
+          shipping_buffer_percent: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          id?: number
+          price_rounding?: string
+          profit_markup_percent?: number
+          shipping_buffer_percent?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          id?: number
+          price_rounding?: string
+          profit_markup_percent?: number
+          shipping_buffer_percent?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       catalog_providers_public: {

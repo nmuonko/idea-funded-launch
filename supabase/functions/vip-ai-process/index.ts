@@ -134,7 +134,7 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return ok({ ok: false, error: "method_not_allowed" }, 405);
 
   try {
-    await requireAdmin(req);
+    const admin = await requireAdmin(req);
 
     const supa = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -187,7 +187,7 @@ Deno.serve(async (req) => {
     const { data: batch, error: batchErr } = await supa
       .from("vip_batches")
       .insert({
-        created_by: (await import("../_shared/securityGuards.ts")).then ? (undefined as never) : undefined,
+        created_by: admin.id === "service_role" ? null : admin.id,
         category_id: categoryId,
         purchase_price: purchasePrice,
         weight_kg: weightKg,

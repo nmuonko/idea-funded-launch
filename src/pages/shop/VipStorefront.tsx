@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Loader2, ArrowLeft } from 'lucide-react';
+import { Search, Loader2 } from 'lucide-react';
 
 interface VipProduct {
   id: string;
@@ -80,12 +80,6 @@ export default function VipStorefront() {
             <p className="text-sm text-vip-gold-soft/75 hidden sm:block">
               Collection exclusive — prix final, tout inclus
             </p>
-            <Link
-              to="/"
-              className="text-sm text-muted-foreground hover:text-vip-gold transition-colors inline-flex items-center gap-1"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" /> Boutique
-            </Link>
           </div>
         </div>
       </header>

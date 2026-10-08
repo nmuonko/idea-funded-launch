@@ -302,7 +302,7 @@ Deno.serve(async (req) => {
             const { data: nc } = await supa.from("vip_categories")
               .insert({ name, default_weight_kg: weight, shipping_rate_per_kg: rate, is_active: true })
               .select("*").single();
-            if (nc) { createdCat = nc as Cat; cat = createdCat; cats = [...cats, createdCat]; }
+            if (nc) { createdCat = nc as Cat; cat = createdCat; cats = [...cats, createdCat]; createdCatInfo = { name, weight, rate }; }
           }
         }
         const lowConf = grouped.needsReview;

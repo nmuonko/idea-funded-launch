@@ -488,6 +488,12 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
         lines.push(`${noCat.length} item(s) look like **${sug}**, which isn't one of your pricing categories yet. Would you like to add it?`);
         quick = [`Add category ${sug}`, ...cats.filter((c) => c.is_active).slice(0, 3).map((c) => `Use ${c.name}`), "Skip"];
       }
+    } else if (!state.shipping_model) {
+      lines.push("**Which shipping pricing should this import use?**");
+      quick = ["Normal per-kg rates", "Italy FedEx shipping"];
+    } else if (state.shipping_model === "italy_fedex" && (!state.total_weight_kg || !state.carrier)) {
+      lines.push("For the Italy shipment: what is the **total shipment weight** and which FedEx service — Express or Standard? (e.g. \"8 kg standard\")");
+      quick = ["5 kg express", "8 kg standard", "10 kg standard"];
     } else if (noPrice.length) {
       const c = cats.find((x) => x.id === noPrice[0].category_id);
       lines.push(`**How much did you pay for each ${c?.name ?? "item"}?**${noPrice.length !== active.length ? ` (${noPrice.length} still need a price)` : ""}`);

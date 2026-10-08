@@ -92,8 +92,28 @@ async function aiJson(apiKey: string, messages: unknown[]): Promise<any | null> 
   } catch (e) { console.error("[vip-importer-chat] AI error", e); return null; }
 }
 
+const CAT_KEYWORDS: [RegExp, RegExp][] = [
+  [/polo/i, /polo/i],
+  [/t-?shirt|tee\b|top\b|blouse|shirt|tank|sweater|hoodie/i, /shirt|polo/i],
+  [/jean|denim/i, /jean/i],
+  [/pant|trouser|chino|short|jogger/i, /pant/i],
+  [/suit|blazer|tuxedo/i, /suit/i],
+  [/wedding|bridal/i, /wedding/i],
+  [/dress|gown/i, /dress/i],
+  [/shoe|loafer|sneaker|boot|sandal/i, /shoe/i],
+];
+function guessCategory(cats: Cat[], text: string): Cat | undefined {
+  const active = cats.filter((c) => c.is_active);
+  for (const [kw, catRe] of CAT_KEYWORDS) {
+    if (!kw.test(text)) continue;
+    const c = active.find((x) => catRe.test(x.name));
+    if (c) return c;
+  }
+  return undefined;
+}
+
 const VISION_SYSTEM = (cats: Cat[]) => `You are a fashion product analyst for AfriShop's VIP store. Use AI vision to recognise WHAT the product is, and OCR only to read text printed in the image.
-Existing categories (match EXACTLY one name, or null if none fits): ${cats.map((c) => c.name).join(" | ")}
+Existing categories. ALWAYS pick the CLOSEST existing one by garment family (e.g. T-shirt/tee/top/blouse -> Shirt or Polo; trousers/chinos/shorts -> Pants; denim -> Jeans; blazer/suit -> Men's Suits; gown/dress -> Women's Formal Dress; shoes/loafers -> Italian Men's Shoes). Use null ONLY if nothing is remotely similar: ${cats.map((c) => c.name).join(" | ")}
 Return STRICT JSON only:
 {"item_type":"<specific type in English, e.g. Men's Polo Shirt, Baby Clothing, Sneakers, Handbag>",
  "category":"<exact existing category name or null>",
@@ -259,7 +279,8 @@ Deno.serve(async (req) => {
       const created: string[] = [];
       for (let i = 0; i < images.length; i++) {
         const ai = results[i];
-        const cat = ai?.category ? cats.find((c) => c.name.toLowerCase() === String(ai.category).toLowerCase()) : undefined;
+        let cat = ai?.category ? cats.find((c) => c.name.toLowerCase() === String(ai.category).toLowerCase()) : undefined;
+        if (!cat && ai) cat = guessCategory(cats, `${ai.item_type ?? ""} ${ai.suggested_category ?? ""}`);
         const lowConf = ai && Number(ai.confidence ?? 1) < 0.6;
         const colors = Array.isArray(ai?.colors) ? ai.colors.map((c: unknown) => String(c).slice(0, 40)).slice(0, 6) : [];
         const { data: p } = await supa.from("vip_products").insert({
@@ -489,9 +510,6 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
         lines.push(`${noCat.length} item(s) look like **${sug}**, which isn't one of your pricing categories yet. Would you like to add it?`);
         quick = [`Add category ${sug}`, ...cats.filter((c) => c.is_active).slice(0, 3).map((c) => `Use ${c.name}`), "Skip"];
       }
-    } else if (!state.shipping_model) {
-      lines.push("**Which shipping pricing should this import use?**");
-      quick = ["Normal per-kg rates", "Italy FedEx shipping"];
     } else if (state.shipping_model === "italy_fedex" && (!state.total_weight_kg || !state.carrier)) {
       lines.push("For the Italy shipment: what is the **total shipment weight** and which FedEx service — Express or Standard? (e.g. \"8 kg standard\")");
       quick = ["5 kg express", "8 kg standard", "10 kg standard"];

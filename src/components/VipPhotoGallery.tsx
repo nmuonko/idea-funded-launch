@@ -23,8 +23,8 @@ export function VipPhotoGallery({ photos, title, selectedColor }: { photos: VipP
   }, [selectedColor, api, photos]);
   const photo = photos[active] ?? photos[0];
   return <div className="min-w-0 space-y-3">
-    <Carousel setApi={setApi} opts={{ loop: photos.length > 1 }} aria-label="Product photo gallery">
-      <CarouselContent>
+    <Carousel setApi={setApi} opts={{ loop: photos.length > 1, watchDrag: true, dragThreshold: 5 }} aria-label="Product photo gallery">
+      <CarouselContent className="touch-pan-y select-none cursor-grab active:cursor-grabbing">
         {photos.map((p, index) => <CarouselItem key={`${p.url}-${index}`}>
           <div className="relative aspect-[3/4] overflow-hidden rounded-lg border border-vip-border bg-vip-surface-soft">
             <img src={p.url} alt={`${title} — ${index + 1}`} className="h-full w-full object-contain" draggable={false} />

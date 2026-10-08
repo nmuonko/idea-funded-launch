@@ -119,6 +119,8 @@ Return STRICT JSON only:
 {"item_type":"<specific type in English, e.g. Men's Polo Shirt, Baby Clothing, Sneakers, Handbag>",
  "category":"<exact existing category name or null>",
  "suggested_category":"<short new category name in English if category is null, else null>",
+ "new_category_weight_kg":<estimated weight of ONE item in kg, e.g. 0.3 for a handbag, 1.5 for a coat — only when category is null, else null>,
+ "new_category_rate_per_kg":<estimated fair shipping rate in USD per kg for this kind of item, 20-60 — only when category is null, else null>,
  "confidence":<0..1>,
  "colors":["<visible colors in English>"],
  "brand":"<brand only if clearly visible, else null>",

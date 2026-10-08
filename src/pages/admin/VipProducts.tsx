@@ -57,7 +57,7 @@ export default function VipProducts() {
       supabase.from('vip_products').select('*, vip_categories(name, name_fr)').is('gallery_product_id', null).order('created_at', { ascending: false }).limit(500),
       supabase.from('vip_categories').select('id, name, name_fr').order('name'),
     ]);
-    setProducts((prods as VipProduct[]) ?? []);
+    setProducts((prods as unknown as VipProduct[]) ?? []);
     setCategories(cats ?? []);
     setLoading(false);
   }, []);

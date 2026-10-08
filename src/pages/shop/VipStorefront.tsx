@@ -25,6 +25,8 @@ interface VipCategory {
 }
 
 export default function VipStorefront() {
+  const fr = vipPrefersFrench();
+  const text = (en: string, french: string) => (fr ? french : en);
   const [products, setProducts] = useState<VipProduct[]>([]);
   const [categories, setCategories] = useState<VipCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,6 +51,9 @@ export default function VipStorefront() {
       setLoading(false);
     })();
   }, []);
+
+  const categoryName = (c: VipCategory) =>
+    fr ? (c.name_fr || c.name) : (c.name || c.name_fr || '');
 
   const filtered = useMemo(() => {
     let list = products;
@@ -79,7 +84,7 @@ export default function VipStorefront() {
           </Link>
           <div className="flex items-center gap-4">
             <p className="text-sm text-vip-gold-soft/75 hidden sm:block">
-              Collection exclusive — prix final, tout inclus
+              {text('Exclusive collection — final price, all included', 'Collection exclusive — prix final, tout inclus')}
             </p>
           </div>
         </div>
@@ -90,22 +95,22 @@ export default function VipStorefront() {
         <div className="flex flex-wrap gap-2 items-center rounded-xl border border-vip-border/70 bg-vip-surface/60 p-3">
           <div className="relative flex-1 min-w-[180px] max-w-sm">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher un article…" className="pl-8" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={text('Search items…', 'Rechercher un article…')} className="pl-8" />
           </div>
           <Select value={categoryId} onValueChange={setCategoryId}>
-            <SelectTrigger className="w-[180px]"><SelectValue placeholder="Catégorie" /></SelectTrigger>
+            <SelectTrigger className="w-[180px]" aria-label={text('Category', 'Catégorie')}><SelectValue placeholder={text('Category', 'Catégorie')} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Toutes les catégories</SelectItem>
-              {categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name_fr || c.name}</SelectItem>)}
+              <SelectItem value="all">{text('All categories', 'Toutes les catégories')}</SelectItem>
+              {categories.map((c) => <SelectItem key={c.id} value={c.id}>{categoryName(c)}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={sort} onValueChange={setSort}>
-            <SelectTrigger className="w-[170px]"><SelectValue placeholder="Trier" /></SelectTrigger>
+            <SelectTrigger className="w-[170px]" aria-label={text('Sort by', 'Trier par')}><SelectValue placeholder={text('Sort by', 'Trier par')} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="newest">Nouveautés</SelectItem>
-              <SelectItem value="price_asc">Prix croissant</SelectItem>
-              <SelectItem value="price_desc">Prix décroissant</SelectItem>
-              <SelectItem value="name">Nom A-Z</SelectItem>
+              <SelectItem value="newest">{text('Newest', 'Nouveautés')}</SelectItem>
+              <SelectItem value="price_asc">{text('Price: low to high', 'Prix croissant')}</SelectItem>
+              <SelectItem value="price_desc">{text('Price: high to low', 'Prix décroissant')}</SelectItem>
+              <SelectItem value="name">{text('Name A-Z', 'Nom A-Z')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -115,9 +120,9 @@ export default function VipStorefront() {
           <div className="flex justify-center py-24"><Loader2 className="h-8 w-8 animate-spin text-vip-gold" /></div>
         ) : filtered.length === 0 ? (
           <div className="rounded-2xl border border-vip-border/70 bg-vip-surface/50 px-6 py-20 text-center">
-            <p className="text-lg font-semibold text-foreground">Aucun article pour le moment</p>
+            <p className="text-lg font-semibold text-foreground">{text('No items yet', 'Aucun article pour le moment')}</p>
             <p className="mt-2 text-sm text-vip-gold-soft/70">
-              Revenez bientôt — la collection VIP est mise à jour régulièrement.
+              {text('Check back soon — the VIP collection is updated regularly.', 'Revenez bientôt — la collection VIP est mise à jour régulièrement.')}
             </p>
           </div>
         ) : (
@@ -139,7 +144,7 @@ export default function VipStorefront() {
                     />
                     {soldOut && (
                       <span className="absolute top-2 left-2 bg-vip-gold/90 text-vip-gold-foreground text-[11px] font-semibold px-2 py-1 rounded-full">
-                        {vipPrefersFrench() ? 'Rupture de stock' : 'Sold out'}
+                        {text('Sold out', 'Rupture de stock')}
                       </span>
                     )}
                   </div>

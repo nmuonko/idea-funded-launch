@@ -96,7 +96,7 @@ export default function VipProductDetail() {
         productUrl: `https://afrishop-usa.com/vip/${product.id}`,
         isFixedPrice: true,
       });
-      navigate('/shop-cart');
+      navigate('/cart');
     } catch (e: any) {
       toast({ title: 'Erreur', description: e.message, variant: 'destructive' });
       setAdding(false);

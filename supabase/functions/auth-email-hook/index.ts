@@ -156,7 +156,7 @@ const handler = createAuthEmailHandler({
         }),
     },
     recovery: {
-      subject: 'Reset your password',
+      subject: 'Réinitialisez votre mot de passe',
       render: (data) =>
         React.createElement(RecoveryEmail, {
           siteName: SITE_NAME,

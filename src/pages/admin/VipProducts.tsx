@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { Search, Loader2, Trash2, EyeOff, Upload, Package, DollarSign, Layers, TrendingUp } from 'lucide-react';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { VipPhotoGallery, type VipPhoto } from '@/components/VipPhotoGallery';
 
 interface VipProduct {
   id: string;
@@ -16,6 +18,7 @@ interface VipProduct {
   name_fr: string | null;
   description_fr: string | null;
   image_url: string;
+  image_gallery?: VipPhoto[] | null;
   purchase_price: number | null;
   shipping_cost: number | null;
   shipping_buffer: number | null;
@@ -46,14 +49,15 @@ export default function VipProducts() {
   const [categories, setCategories] = useState<{ id: string; name: string; name_fr: string | null }[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [galleryProduct, setGalleryProduct] = useState<VipProduct | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     const [{ data: prods }, { data: cats }] = await Promise.all([
-      supabase.from('vip_products').select('*, vip_categories(name, name_fr)').order('created_at', { ascending: false }).limit(500),
+      supabase.from('vip_products').select('*, vip_categories(name, name_fr)').is('gallery_product_id', null).order('created_at', { ascending: false }).limit(500),
       supabase.from('vip_categories').select('id, name, name_fr').order('name'),
     ]);
-    setProducts((prods as VipProduct[]) ?? []);
+    setProducts((prods as unknown as VipProduct[]) ?? []);
     setCategories(cats ?? []);
     setLoading(false);
   }, []);
@@ -177,7 +181,9 @@ export default function VipProducts() {
                 }}
                 aria-label={`Select ${p.name_fr ?? 'product'}`}
               />
-              <img src={p.image_url} alt={p.name_fr ?? ''} className="w-14 h-14 rounded-md object-cover border" />
+              <Button variant="ghost" className="h-14 w-14 shrink-0 p-0 overflow-hidden rounded-md" aria-label={`View photos of ${p.name_fr ?? 'product'}`} onClick={() => setGalleryProduct(p)}>
+                <img src={p.image_url} alt={p.name_fr ?? ''} className="w-full h-full object-cover border" />
+              </Button>
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate">{p.name_fr ?? '(no name)'}</p>
                 <p className="text-xs text-muted-foreground truncate">
@@ -187,6 +193,11 @@ export default function VipProducts() {
                 <p className="text-xs text-muted-foreground">
                   Buy ${p.purchase_price?.toFixed(2) ?? '—'} + ship ${p.shipping_cost?.toFixed(2) ?? '—'} + buffer ${p.shipping_buffer?.toFixed(2) ?? '—'} + profit ${p.profit?.toFixed(2) ?? '—'}
                 </p>
+                {(p.image_gallery?.length ?? 0) > 1 && <div className="flex gap-1.5 overflow-x-auto mt-2 pb-1" aria-label="Gallery photos">
+                  {p.image_gallery?.map((photo, index) => <Button key={`${photo.url}-${index}`} variant="outline" className="h-12 w-9 shrink-0 p-0 overflow-hidden rounded-md" aria-label={`View gallery photo ${index + 1} of ${p.name_fr ?? 'product'}`} onClick={() => setGalleryProduct(p)}>
+                    <img src={photo.url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  </Button>)}
+                </div>}
               </div>
               <div className="text-right shrink-0">
                 <p className="font-semibold">${p.final_price?.toFixed(2) ?? '—'}</p>
@@ -203,6 +214,12 @@ export default function VipProducts() {
           ))}
         </div>
       )}
+      <Dialog open={!!galleryProduct} onOpenChange={(open) => { if (!open) setGalleryProduct(null); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
+          <DialogTitle>{galleryProduct?.name_fr ?? 'Product photos'}</DialogTitle>
+          {galleryProduct && <VipPhotoGallery photos={galleryProduct.image_gallery?.length ? galleryProduct.image_gallery : [{ url: galleryProduct.image_url }]} title={galleryProduct.name_fr ?? 'VIP'} />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

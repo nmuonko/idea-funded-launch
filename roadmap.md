@@ -1,4 +1,4 @@
 # VIP gallery and sizes
-- [ ] Add category-aware letter/numeric size equivalents without changing ordered sizes.
-- [ ] Combine photos from each upload into one product gallery.
-- [ ] Verify swipe, zoom, import grouping and size selection.
+- [x] Add category-aware letter/numeric size equivalents without changing ordered sizes.
+- [x] Combine photos from each upload into one product gallery.
+- [x] Verify swipe, zoom, import grouping and size selection.

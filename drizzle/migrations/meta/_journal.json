@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791419258125,
+      "tag": "0000_vip_chat_importer",
+      "breakpoints": true
+    }
+  ]
+}

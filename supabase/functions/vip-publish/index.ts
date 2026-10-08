@@ -85,6 +85,8 @@ Deno.serve(async (req) => {
         if (!id) return ok({ ok: false, error: "product_id_required" }, 400);
         const allowed: Record<string, unknown> = {};
         if (typeof body.name_fr === "string") allowed.name_fr = body.name_fr.trim().slice(0, 120);
+        if (typeof body.name_en === "string") allowed.name_en = body.name_en.trim().slice(0, 120);
+        if (typeof body.description_en === "string") allowed.description_en = body.description_en.trim().slice(0, 1000);
         if (typeof body.description_fr === "string") allowed.description_fr = body.description_fr.trim().slice(0, 1000);
         if (Array.isArray(body.colors)) allowed.colors = body.colors.map((c: unknown) => String(c).trim()).filter(Boolean).slice(0, 20);
         if (Array.isArray(body.sizes)) allowed.sizes = body.sizes.map((s: unknown) => String(s).trim()).filter(Boolean).slice(0, 30);

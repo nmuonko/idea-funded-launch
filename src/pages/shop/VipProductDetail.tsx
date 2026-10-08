@@ -1,3 +1,4 @@
+import { localizeVip } from '@/lib/vipLocale';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -44,7 +45,7 @@ export default function VipProductDetail() {
     (async () => {
       const { data: p } = await supabase
         .from('vip_products')
-        .select('id, name_fr, description_fr, image_url, final_price, status, colors, sizes, vip_categories(name, name_fr)')
+        .select('id, name_fr, description_fr, name_en, description_en, image_url, final_price, status, colors, sizes, vip_categories(name, name_fr)')
         .eq('id', id)
         .in('status', ['available', 'unavailable'])
         .maybeSingle();
@@ -53,7 +54,7 @@ export default function VipProductDetail() {
         setLoading(false);
         return;
       }
-      setProduct(p as VipProduct);
+      setProduct(localizeVip(p as VipProduct));
       const { data: v } = await supabase
         .from('vip_product_variants')
         .select('id, size, color, available')

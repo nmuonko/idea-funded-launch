@@ -11,6 +11,7 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors'
 import { createClient } from "@supabase/supabase-js";
 import { requireAdmin, guardErrorResponse } from "../_shared/securityGuards.ts";
+import { groupVipPhotos } from "../_shared/vipGallery.ts";
 
 const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MODEL = "google/gemini-3.7-flash";
@@ -203,7 +204,7 @@ Deno.serve(async (req) => {
     const loadProducts = async (): Promise<Prod[]> => {
       const { data } = await supa.from("vip_products")
         .select("id, category_id, name_en, name_fr, image_url, purchase_price, final_price, status, colors, sizes, ai_suggested, needs_review, review_reason, created_at, shipping_cost, shipping_buffer, profit, shipping_model")
-        .eq("thread_id", threadId).order("created_at").order("id");
+        .eq("thread_id", threadId).is("gallery_product_id", null).order("created_at").order("id");
       return (data ?? []) as Prod[];
     };
 
@@ -278,35 +279,38 @@ Deno.serve(async (req) => {
         while (cursor < images.length) { const i = cursor++; results[i] = apiKey ? await analyze(apiKey, images[i], cats) : null; }
       }));
       const created: string[] = [];
-      for (let i = 0; i < images.length; i++) {
-        const ai = results[i];
+      const grouped = groupVipPhotos(images, results);
+      {
+        const ai = grouped.primary;
         let cat = ai?.category ? cats.find((c) => c.name.toLowerCase() === String(ai.category).toLowerCase()) : undefined;
         if (!cat && ai) cat = guessCategory(cats, `${ai.item_type ?? ""} ${ai.suggested_category ?? ""}`);
-        const lowConf = ai && Number(ai.confidence ?? 1) < 0.6;
-        const colors = Array.isArray(ai?.colors) ? ai.colors.map((c: unknown) => String(c).slice(0, 40)).slice(0, 6) : [];
-        const { data: p } = await supa.from("vip_products").insert({
-          thread_id: threadId, category_id: cat?.id ?? null, image_url: images[i], status: "draft",
+        const lowConf = grouped.needsReview;
+        const colors = grouped.colors;
+        const { data: p, error: insertError } = await supa.from("vip_products").insert({
+          thread_id: threadId, category_id: cat?.id ?? null, image_url: images[0], image_gallery: grouped.gallery, status: "draft",
           name_en: ai?.name_en ? String(ai.name_en).slice(0, 120) : null,
           description_en: ai?.description_en ? String(ai.description_en).slice(0, 800) : null,
           name_fr: ai?.name_fr ? String(ai.name_fr).slice(0, 120) : null,
           description_fr: ai?.description_fr ? String(ai.description_fr).slice(0, 800) : null,
-          colors, sizes: ai?.size ? [String(ai.size).slice(0, 20)] : [],
+          colors, sizes: grouped.sizes,
           ai_suggested: ai ? { item_type: ai.item_type, suggested_category: ai.suggested_category, brand: ai.brand, visible_text: ai.visible_text, printed_price: ai.printed_price, confidence: ai.confidence } : {},
           needs_review: !ai || !cat || !!lowConf,
           review_reason: !ai ? "ai_failed" : !cat ? "unknown_category" : lowConf ? "low_confidence" : null,
         }).select("id").single();
+        if (insertError || !p) return ok({ ok: false, error: "Unable to save this product gallery. Please try again." }, 500);
         if (p) created.push(p.id);
       }
       createdIds = created;
       state.sizes_done = false; state.colors_done = false; state.kept_draft = false;
       const all = await loadProducts();
       const fresh = all.filter((p) => created.includes(p.id));
-      lines.push(`I analyzed ${images.length} photo${images.length > 1 ? "s" : ""}.`);
+      lines.push(`I analyzed ${images.length} photo${images.length > 1 ? "s" : ""} and combined them into one product gallery.`);
       const groups = new Map<string, Prod[]>();
       for (const p of fresh) { const k = p.category_id ?? "none"; groups.set(k, [...(groups.get(k) ?? []), p]); }
       for (const [k, ps] of groups) {
         if (k === "none") continue;
-        const c = cats.find((x) => x.id === k)!;
+        const c = cats.find((x) => x.id === k);
+        if (!c) continue;
         const type = String(ps[0].ai_suggested?.item_type ?? c.name);
         const review = ps.filter((p) => p.needs_review).length;
         lines.push(`**${ps.length === 1 ? "This looks like" : ps.length === images.length ? `All ${ps.length} appear to be` : `${ps.length} appear to be`} ${type}** → category **${c.name}** (${c.default_weight_kg} kg/item, ${c.shipping_rate_per_kg ? `$${c.shipping_rate_per_kg}/kg` : "no shipping rate yet"})${review ? ` — ${review} need a second look` : ""}.`);

@@ -1,4 +1,4 @@
-import { localizeVip } from '@/lib/vipLocale';
+import { localizeVip, vipPrefersFrench } from '@/lib/vipLocale';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -7,7 +7,7 @@ import { useShopCart } from '@/hooks/useShopCart';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Loader2, ShoppingBag, Check } from 'lucide-react';
 import { VipPhotoGallery, type VipPhoto } from '@/components/VipPhotoGallery';
-import { vipSizeLabel } from '@/lib/vipSizes';
+import { vipSizeLabel, type VipSizeDisplay } from '@/lib/vipSizes';
 
 interface VipProduct {
   id: string;
@@ -43,6 +43,11 @@ export default function VipProductDetail() {
   const [color, setColor] = useState<string | null>(null);
   const [size, setSize] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [sizeDisplay, setSizeDisplay] = useState<VipSizeDisplay>('letters');
+  const fr = vipPrefersFrench();
+  const text = (en: string, french: string) => fr ? french : en;
+  const category = product?.vip_categories?.name ?? '';
+  const convertibleSizes = product?.sizes.some((s) => vipSizeLabel(s, category, 'letters') !== vipSizeLabel(s, category, 'numbers'));
 
   useEffect(() => {
     (async () => {
@@ -105,7 +110,7 @@ export default function VipProductDetail() {
       });
       navigate('/cart');
     } catch (e: any) {
-      toast({ title: 'Erreur', description: e.message, variant: 'destructive' });
+      toast({ title: text('Error', 'Erreur'), description: e.message, variant: 'destructive' });
       setAdding(false);
     }
   };
@@ -117,18 +122,18 @@ export default function VipProductDetail() {
   if (notFound || !product) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4">
-        <p className="text-lg font-medium">Article introuvable</p>
-        <Button asChild variant="outline"><Link to="/vip">Retour à la collection VIP</Link></Button>
+        <p className="text-lg font-medium">{text('Product not found', 'Article introuvable')}</p>
+        <Button asChild variant="outline"><Link to="/vip">{text('Back to VIP collection', 'Retour à la collection VIP')}</Link></Button>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-amber-50/60 via-background to-background">
+    <div className="min-h-screen flex flex-col bg-gradient-vip">
       <header className="border-b bg-background/80 backdrop-blur sticky top-0 z-20">
         <div className="max-w-6xl mx-auto px-4 py-3">
           <Button variant="ghost" size="sm" onClick={() => navigate('/vip')}>
-            <ArrowLeft className="h-4 w-4 mr-1" /> Collection VIP
+            <ArrowLeft className="h-4 w-4 mr-1" /> {text('VIP collection', 'Collection VIP')}
           </Button>
         </div>
       </header>
@@ -139,16 +144,11 @@ export default function VipProductDetail() {
 
           <div className="space-y-5">
             <div>
-              {product.vip_categories && (
-                <p className="text-xs uppercase tracking-wide text-amber-700 dark:text-amber-500 font-medium">
-                  {product.vip_categories.name_fr || product.vip_categories.name}
-                </p>
-              )}
               <h1 className="text-2xl font-semibold leading-tight mt-1">{product.name_fr}</h1>
-              <p className="text-3xl font-bold text-amber-700 dark:text-amber-500 mt-2">
+              <p className="text-3xl font-bold text-vip-gold mt-2">
                 ${product.final_price?.toFixed(2)}
               </p>
-              <p className="text-xs text-muted-foreground">Prix final, tout inclus</p>
+              <p className="text-xs text-muted-foreground">{text('Final price, all included', 'Prix final, tout inclus')}</p>
             </div>
 
             {product.description_fr && (
@@ -157,7 +157,7 @@ export default function VipProductDetail() {
 
             {product.colors.length > 0 && (
               <div>
-                <p className="text-sm font-medium mb-2">Couleur {color && <span className="text-muted-foreground">— {color}</span>}</p>
+                <p className="text-sm font-medium mb-2">{text('Color', 'Couleur')} {color && <span className="text-muted-foreground">— {color}</span>}</p>
                 <div className="flex flex-wrap gap-1.5">
                   {product.colors.map((c) => {
                     const hasAvailable = !variants.length || variants.some((v) => v.available && (v.color === null || v.color === c));
@@ -180,7 +180,12 @@ export default function VipProductDetail() {
 
             {product.sizes.length > 0 && (
               <div>
-                <p className="text-sm font-medium mb-2">Taille {size && <span className="text-muted-foreground">— {vipSizeLabel(size, product.vip_categories?.name ?? '')}</span>}</p>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <p className="text-sm font-medium">{text('Size', 'Taille')}{convertibleSizes && <span className="text-muted-foreground"> · {sizeDisplay === 'letters' ? text('US letters', 'Lettres US') : text('Numbers', 'Numéros')}</span>}</p>
+                  {convertibleSizes && <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" aria-label={text('Switch size format', 'Changer le format des tailles')} aria-pressed={sizeDisplay === 'numbers'} onClick={() => setSizeDisplay(sizeDisplay === 'letters' ? 'numbers' : 'letters')}>
+                    {sizeDisplay === 'letters' ? text('Show numbers', 'Voir les numéros') : text('Show US letters', 'Voir les lettres US')}
+                  </Button>}
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {product.sizes.map((s) => {
                     const hasAvailable = !variants.length || variants.some(
@@ -195,29 +200,29 @@ export default function VipProductDetail() {
                           size === s ? 'bg-primary text-primary-foreground' : hasAvailable ? 'hover:bg-muted' : 'opacity-40 line-through cursor-not-allowed'
                         }`}
                       >
-                        {vipSizeLabel(s, product.vip_categories?.name ?? '')}
+                        {vipSizeLabel(s, category, sizeDisplay)}
                       </Button>
                     );
                   })}
                 </div>
-                {product.sizes.some((s) => vipSizeLabel(s, product.vip_categories?.name ?? '') !== s) && <p className="mt-2 text-xs text-muted-foreground">Équivalences approximatives · taille fournisseur conservée.</p>}
+                {convertibleSizes && <p className="mt-2 text-xs text-muted-foreground">{sizeDisplay === 'letters' ? text('Approximate US equivalents. Fit may vary.', 'Équivalences US approximatives. La coupe peut varier.') : text('European supplier sizes, not US numeric sizes.', 'Tailles européennes du fournisseur, pas les numéros US.')}</p>}
               </div>
             )}
 
             <div className="pt-2">
               {soldOut ? (
-                <Button size="lg" className="w-full" disabled>Rupture de stock</Button>
+                <Button size="lg" className="w-full" disabled>{text('Sold out', 'Rupture de stock')}</Button>
               ) : !selectionAvailable && !needsColor && !needsSize ? (
-                <Button size="lg" className="w-full" disabled>Cette combinaison est épuisée</Button>
+                <Button size="lg" className="w-full" disabled>{text('This combination is sold out', 'Cette combinaison est épuisée')}</Button>
               ) : (
                 <Button size="lg" className="w-full" onClick={buyNow} disabled={!canBuy || adding}>
                   {adding ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ShoppingBag className="h-4 w-4 mr-2" />}
-                  Acheter maintenant
+                  {text('Buy now', 'Acheter maintenant')}
                 </Button>
               )}
               {canBuy && (
-                <p className="text-xs text-green-600 flex items-center gap-1 mt-2">
-                  <Check className="h-3 w-3" /> Disponible
+                <p className="text-xs text-primary flex items-center gap-1 mt-2">
+                  <Check className="h-3 w-3" /> {text('Available', 'Disponible')}
                 </p>
               )}
             </div>

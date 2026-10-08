@@ -486,6 +486,11 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
     // ---------- Next question ----------
     const products = (await loadProducts()).filter((p) => p.status !== "hidden" || showIds.includes(p.id));
     const active = products.filter((p) => p.status !== "hidden");
+    for (const p of active.filter((x) => !x.category_id)) {
+      const g = guessCategory(cats, `${p.ai_suggested?.item_type ?? ""} ${p.ai_suggested?.suggested_category ?? ""} ${p.name_en ?? ""}`);
+      if (g) { await supa.from("vip_products").update({ category_id: g.id, needs_review: false, review_reason: null }).eq("id", p.id); p.category_id = g.id; }
+    }
+    state.pending_category = null;
     const noCat = active.filter((p) => !p.category_id);
     const noPrice = active.filter((p) => p.category_id && !p.purchase_price);
     const priced = active.filter((p) => p.final_price);

@@ -286,6 +286,24 @@ Deno.serve(async (req) => {
         const ai = grouped.primary;
         let cat = ai?.category ? cats.find((c) => c.name.toLowerCase() === String(ai.category).toLowerCase()) : undefined;
         if (!cat && ai) cat = guessCategory(cats, `${ai.item_type ?? ""} ${ai.suggested_category ?? ""}`);
+        let createdCat: Cat | null = null;
+        if (!cat && ai?.suggested_category) {
+          // No existing category fits — auto-create one from the AI's estimate.
+          const name = String(ai.suggested_category).trim().slice(0, 60);
+          const w = Number(ai.new_category_weight_kg);
+          const r = Number(ai.new_category_rate_per_kg);
+          const weight = w > 0 && w < 100 ? Math.round(w * 100) / 100 : 1;
+          const rate = r >= 5 && r <= 200 ? Math.round(r) : 30;
+          const existing = cats.find((x) => x.name.toLowerCase() === name.toLowerCase());
+          if (existing) {
+            cat = existing;
+          } else if (name) {
+            const { data: nc } = await supa.from("vip_categories")
+              .insert({ name, default_weight_kg: weight, shipping_rate_per_kg: rate, is_active: true })
+              .select("*").single();
+            if (nc) { createdCat = nc as Cat; cat = createdCat; cats = [...cats, createdCat]; }
+          }
+        }
         const lowConf = grouped.needsReview;
         const colors = grouped.colors;
         const { data: p, error: insertError } = await supa.from("vip_products").insert({

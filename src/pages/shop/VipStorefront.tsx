@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Loader2, ArrowLeft } from 'lucide-react';
+import { Search, Loader2 } from 'lucide-react';
 
 interface VipProduct {
   id: string;

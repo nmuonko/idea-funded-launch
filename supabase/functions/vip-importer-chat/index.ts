@@ -28,7 +28,13 @@ type Prod = {
 type State = {
   sizes_done?: boolean; colors_done?: boolean; markup_pct?: number; buffer_pct?: number;
   pending_category?: string | null; kept_draft?: boolean;
+  shipping_model?: "rate_per_kg" | "italy_fedex";
+  carrier?: "express" | "standard";
+  total_weight_kg?: number;
+  eur_usd_rate?: number;
 };
+
+type Bracket = { min_kg: number; max_kg: number; express_eur: number | null; standard_eur: number | null };
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 
@@ -38,6 +44,36 @@ export function computePrice(purchase: number, weightKg: number, rate: number, b
   const buffer = Math.round((shipping * bufferPct) / 100);
   const profit = Math.round((p * markupPct) / 100);
   return { shipping_cost: shipping / 100, shipping_buffer: buffer / 100, profit: profit / 100, final_price: (p + shipping + buffer + profit) / 100 };
+}
+
+// --- Italy FedEx weight-bracket shipping ---
+function findBracket(brackets: Bracket[], w: number): Bracket | null {
+  const s = [...brackets].sort((a, b) => a.min_kg - b.min_kg);
+  return s.find((b) => w >= b.min_kg && w <= b.max_kg)
+    ?? (w > 0 && s.length && w > s[s.length - 1].max_kg ? s[s.length - 1] : null);
+}
+
+// Largest-remainder split so per-item cents sum exactly to the total.
+function allocateCents(totalCents: number, weights: number[]): number[] {
+  const tw = weights.reduce((s, w) => s + w, 0);
+  if (!weights.length || tw <= 0) return weights.map(() => 0);
+  const raw = weights.map((w) => (w / tw) * totalCents);
+  const out = raw.map((r) => Math.floor(r));
+  let rem = totalCents - out.reduce((s, f) => s + f, 0);
+  for (const { i } of raw.map((r, i) => ({ i, f: r - Math.floor(r) })).sort((a, b) => b.f - a.f)) {
+    if (rem <= 0) break; out[i] += 1; rem -= 1;
+  }
+  return out;
+}
+
+async function fetchEurUsdRate(): Promise<number | null> {
+  try {
+    const res = await fetch("https://open.er-api.com/v6/latest/EUR");
+    if (!res.ok) return null;
+    const data = await res.json();
+    const rate = Number(data?.rates?.USD);
+    return rate > 0 ? rate : null;
+  } catch { return null; }
 }
 
 async function aiJson(apiKey: string, messages: unknown[]): Promise<any | null> {
@@ -96,6 +132,9 @@ Action shapes ("targets" is "all" or an array of product numbers; resolve phrase
 {"type":"start_category","name":"..."}                        admin wants to add a category but weight/rate not given yet
 {"type":"set_markup","percent":<number>}                      profit % for this import only
 {"type":"set_buffer","percent":<number>}                      shipping buffer % for this import only
+{"type":"set_shipping_method","method":"rate_per_kg|italy_fedex"}   "Italy", "FedEx", "Italy shipping" -> italy_fedex; "per kg", "normal" -> rate_per_kg
+{"type":"set_shipment","total_weight_kg":<number>,"carrier":"express|standard"}   total Italy shipment weight + FedEx service
+{"type":"set_eur_rate","rate":<number>}                         manual EUR->USD rate (e.g. 1.08)
 {"type":"delete","targets":...}
 {"type":"skip_uncategorized"}                                 admin says skip the items without category
 {"type":"set_title","targets":[n],"name_en":"..."}

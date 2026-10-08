@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ShopHeader } from '@/components/shop/ShopHeader';
-import { PaymentPlanSelector, type PaymentPlan } from '@/components/shop/PaymentPlanSelector';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/formatCurrency';
 import { cleanProductText } from '@/lib/cleanProductText';
@@ -44,21 +43,8 @@ export function CheckoutInlineLogin({ language, shop, cartItems = [] }: Checkout
 
   const isFr = language === 'fr';
 
-  // Payment plan (30% deposit / pay in full) — shown prominently on mobile so
-  // shoppers know they can pay only 30% now before filling out the form.
-  const cartTotal = cartItems.reduce(
-    (sum, i) => sum + (i.isFixedPrice ? i.priceUsd : (i.itemTotalUsd || i.priceUsd)) * i.quantity,
-    0
-  );
-  const planEligible = cartTotal >= 100;
-  const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(() => {
-    if (typeof window === 'undefined') return 'deposit';
-    const stored = window.sessionStorage.getItem('afri.paymentPlan');
-    return (stored === 'full' || stored === 'deposit') ? stored : 'deposit';
-  });
-  useEffect(() => {
-    try { window.sessionStorage.setItem('afri.paymentPlan', paymentPlan); } catch {}
-  }, [paymentPlan]);
+  // Partial payments are disabled — checkout is full payment only.
+
 
 
   const handleGuestCheckout = async (e: React.FormEvent) => {
@@ -193,22 +179,6 @@ export function CheckoutInlineLogin({ language, shop, cartItems = [] }: Checkout
               </p>
             </div>
 
-            {/* Payment plan — show prominently on mobile before the form so
-                buyers see the 30% deposit option without scrolling. */}
-            {mode === 'guest' && cartItems.length > 0 && (
-              <div className="mb-5">
-                <PaymentPlanSelector
-                  value={paymentPlan}
-                  onChange={setPaymentPlan}
-                  totalUsd={cartTotal}
-                  language={language}
-                  eligible={planEligible}
-                  ineligibleReason={!planEligible
-                    ? (isFr ? 'Disponible à partir de 100$.' : 'Available on orders of $100 or more.')
-                    : undefined}
-                />
-              </div>
-            )}
 
         {mode === 'guest' ? (
           <form onSubmit={handleGuestCheckout} className="space-y-3">

@@ -23,6 +23,7 @@ type Cat = { id: string; name: string; name_fr: string | null; default_weight_kg
 type Prod = {
   id: string; category_id: string | null; name_en: string | null; name_fr: string | null; image_url: string;
   purchase_price: number | null; final_price: number | null; status: string; colors: string[]; sizes: string[];
+  shipping_cost?: number | null; shipping_buffer?: number | null; profit?: number | null; shipping_model?: string;
   ai_suggested: Record<string, unknown>; needs_review: boolean; review_reason: string | null; created_at: string;
 };
 type State = {
@@ -181,7 +182,7 @@ Deno.serve(async (req) => {
 
     const loadProducts = async (): Promise<Prod[]> => {
       const { data } = await supa.from("vip_products")
-        .select("id, category_id, name_en, name_fr, image_url, purchase_price, final_price, status, colors, sizes, ai_suggested, needs_review, review_reason, created_at")
+        .select("id, category_id, name_en, name_fr, image_url, purchase_price, final_price, status, colors, sizes, ai_suggested, needs_review, review_reason, created_at, shipping_cost, shipping_buffer, profit, shipping_model")
         .eq("thread_id", threadId).order("created_at").order("id");
       return (data ?? []) as Prod[];
     };
@@ -471,10 +472,10 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
 
     if (showIds.length && priced.some((p) => showIds.includes(p.id)) && !images.length) {
       const sample = priced.find((p) => showIds.includes(p.id))!;
-      const c = cats.find((x) => x.id === sample.category_id);
-      if (c?.shipping_rate_per_kg && sample.purchase_price) {
-        const pr = computePrice(Number(sample.purchase_price), Number(c.default_weight_kg), Number(c.shipping_rate_per_kg), bufferPct(), markupPct());
-        if (display === "cards") lines.push(`Purchase ${money(Number(sample.purchase_price))} · Shipping ${money(pr.shipping_cost)} · Buffer ${money(pr.shipping_buffer)} · Profit ${money(pr.profit)}\n\n**Selling price: ${money(pr.final_price)}${showIds.length > 1 ? " each" : ""}**\n\nEnglish and French names and descriptions are ready.`);
+      if (sample.purchase_price && sample.final_price) {
+        const pr = { shipping_cost: Number(sample.shipping_cost ?? 0), shipping_buffer: Number(sample.shipping_buffer ?? 0), profit: Number(sample.profit ?? 0), final_price: Number(sample.final_price) };
+        const via = sample.shipping_model === "italy_fedex" ? " (Italy FedEx, allocated by weight)" : "";
+        if (display === "cards") lines.push(`Purchase ${money(Number(sample.purchase_price))} · Shipping ${money(pr.shipping_cost)}${via} · Buffer ${money(pr.shipping_buffer)} · Profit ${money(pr.profit)}\n\n**Selling price: ${money(pr.final_price)}${showIds.length > 1 ? " each" : ""}**\n\nEnglish and French names and descriptions are ready.`);
       }
     }
 

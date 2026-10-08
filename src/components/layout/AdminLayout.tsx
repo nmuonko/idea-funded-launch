@@ -12,7 +12,7 @@ import {
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, Home,
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
   Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe,
-  ChevronDown, Database, Store, Gift, Archive, Brain, MapPin, Flame, TrendingUp, Package, Send, Film, AlertTriangle
+  ChevronDown, Database, Store, Gift, Archive, Brain, MapPin, Flame, TrendingUp, Package, Send, Film, AlertTriangle, Sparkles
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AdminNotificationsBell } from '@/components/admin/AdminNotificationsBell';
@@ -73,6 +73,14 @@ export function AdminLayout() {
       title: language === 'fr' ? 'Marketing' : 'Marketing',
       items: [
         { to: '/admin/hot-products', icon: Flame, label: 'Marketing', permission: 'can_view_marketing' as const },
+      ]
+    },
+    {
+      title: 'VIP Store',
+      items: [
+        { to: '/admin/vip-importer', icon: Sparkles, label: language === 'fr' ? 'Importateur IA' : 'AI Importer', permission: 'can_view_marketing' as const },
+        { to: '/admin/vip-products', icon: Package, label: language === 'fr' ? 'Produits VIP' : 'VIP Products', permission: 'can_view_marketing' as const },
+        { to: '/admin/vip-pricing', icon: DollarSign, label: language === 'fr' ? 'Tarifs VIP' : 'VIP Pricing', permission: 'can_view_settings' as const },
       ]
     },
     {

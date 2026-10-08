@@ -7518,7 +7518,7 @@ export type Database = {
           category_id: string | null
           colors: Json
           created_at: string
-          created_by: string
+          created_by: string | null
           default_status: string
           id: string
           notes: string | null
@@ -7532,7 +7532,7 @@ export type Database = {
           category_id?: string | null
           colors?: Json
           created_at?: string
-          created_by: string
+          created_by?: string | null
           default_status?: string
           id?: string
           notes?: string | null
@@ -7546,7 +7546,7 @@ export type Database = {
           category_id?: string | null
           colors?: Json
           created_at?: string
-          created_by?: string
+          created_by?: string | null
           default_status?: string
           id?: string
           notes?: string | null

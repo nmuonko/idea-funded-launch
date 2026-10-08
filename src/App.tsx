@@ -85,6 +85,11 @@ const MarketingHub = lazy(() => import("./pages/admin/hubs").then(m => ({ defaul
 const InsightsHub = lazy(() => import("./pages/admin/hubs").then(m => ({ default: m.InsightsHub })));
 const SystemHub = lazy(() => import("./pages/admin/hubs").then(m => ({ default: m.SystemHub })));
 const CountryShop = lazy(() => import("./pages/shop/CountryShop"));
+const VipStorefront = lazy(() => import("./pages/shop/VipStorefront"));
+const VipProductDetail = lazy(() => import("./pages/shop/VipProductDetail"));
+const VipImporter = lazy(() => import("./pages/admin/VipImporter"));
+const VipProducts = lazy(() => import("./pages/admin/VipProducts"));
+const VipPricing = lazy(() => import("./pages/admin/VipPricing"));
 const CountryComingSoon = lazy(() => import("./pages/shop/CountryComingSoon"));
 const IntlProductDetails = lazy(() => import("./pages/shop/IntlProductDetails"));
 
@@ -245,6 +250,9 @@ const App = () => {
             {/* Standalone Turkey page */}
             <Route path="/turkey" element={<CountryShop forcedCountry="turkey" />} />
             <Route path="/shop/turkey" element={<Navigate to="/turkey" replace />} />
+            {/* VIP storefront */}
+            <Route path="/vip" element={<VipStorefront />} />
+            <Route path="/vip/:id" element={<VipProductDetail />} />
             
             <Route path="/admin-login" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
@@ -427,6 +435,23 @@ const App = () => {
                   </AdminRouteGuard>
                 } />
               </Route>
+
+              {/* ===== VIP Store ===== */}
+              <Route path="vip-importer" element={
+                <AdminRouteGuard requiredPermission="can_view_marketing">
+                  <VipImporter />
+                </AdminRouteGuard>
+              } />
+              <Route path="vip-products" element={
+                <AdminRouteGuard requiredPermission="can_view_marketing">
+                  <VipProducts />
+                </AdminRouteGuard>
+              } />
+              <Route path="vip-pricing" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <VipPricing />
+                </AdminRouteGuard>
+              } />
 
               {/* ===== Marketing hub (tabs) ===== */}
               <Route path="marketing" element={<Navigate to="/admin/hot-products" replace />} />

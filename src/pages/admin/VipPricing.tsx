@@ -111,6 +111,43 @@ export default function VipPricing() {
     }
   };
 
+  const saveBracket = async (b: Bracket) => {
+    const { error } = await supabase.from('vip_shipping_brackets').update({
+      min_kg: b.min_kg,
+      max_kg: b.max_kg,
+      express_eur: b.express_eur,
+      standard_eur: b.standard_eur,
+      is_active: b.is_active,
+      updated_at: new Date().toISOString(),
+    }).eq('id', b.id);
+    if (error) toast({ title: 'Save failed', description: error.message, variant: 'destructive' });
+    else toast({ title: `Bracket ${b.min_kg}–${b.max_kg} kg saved` });
+  };
+
+  const addBracket = async () => {
+    const min = Number(newBracket.min);
+    const max = Number(newBracket.max);
+    if (!(min >= 0) || !(max > min)) {
+      toast({ title: 'Enter a valid weight range (max must be greater than min)', variant: 'destructive' });
+      return;
+    }
+    const { error } = await supabase.from('vip_shipping_brackets').insert({
+      min_kg: min,
+      max_kg: max,
+      express_eur: Number(newBracket.express) > 0 ? Number(newBracket.express) : null,
+      standard_eur: Number(newBracket.standard) > 0 ? Number(newBracket.standard) : null,
+    });
+    if (error) toast({ title: 'Could not add bracket', description: error.message, variant: 'destructive' });
+    else {
+      toast({ title: 'Bracket added' });
+      setNewBracket({ min: '', max: '', express: '', standard: '' });
+      load();
+    }
+  };
+
+  const updateBracket = (id: string, patch: Partial<Bracket>) =>
+    setBrackets((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
 
   return (
@@ -133,6 +170,11 @@ export default function VipPricing() {
             <div>
               <Label>Profit markup (% of purchase price)</Label>
               <Input type="number" min="0" step="1" value={markupPct} onChange={(e) => setMarkupPct(e.target.value)} disabled={!isSuperAdmin} />
+            </div>
+            <div>
+              <Label>EUR → USD rate (Italy shipping)</Label>
+              <Input type="number" min="0" step="0.01" value={eurRate} placeholder="Auto" onChange={(e) => setEurRate(e.target.value)} disabled={!isSuperAdmin} />
+              <p className="text-xs text-muted-foreground mt-1">Leave empty to use the live rate at import time.</p>
             </div>
           </div>
           {!isSuperAdmin && <p className="text-xs text-muted-foreground">Only super admins can change these percentages.</p>}
@@ -167,6 +209,40 @@ export default function VipPricing() {
               <Input type="number" step="0.1" value={newCat.weight} onChange={(e) => setNewCat({ ...newCat, weight: e.target.value })} placeholder="kg" />
               <Input type="number" step="1" value={newCat.rate} onChange={(e) => setNewCat({ ...newCat, rate: e.target.value })} placeholder="$/kg" />
               <Button size="sm" onClick={addCategory} disabled={!newCat.name.trim()}><Plus className="h-3.5 w-3.5" /></Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Italy FedEx shipping brackets (EUR)</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Weight-bracket prices for shipments sourced through Italy. The importer picks the bracket from the total shipment weight,
+            converts EUR to USD, and splits the cost across items by weight. Leave a price empty when that service is not available.
+          </p>
+          <div className="grid grid-cols-[90px_90px_110px_110px_auto_auto] gap-2 items-center text-xs text-muted-foreground max-sm:grid-cols-2">
+            <span>Min kg</span><span>Max kg</span><span>Express €</span><span>Standard €</span><span>Active</span><span></span>
+          </div>
+          {brackets.map((b) => (
+            <div key={b.id} className="grid grid-cols-[90px_90px_110px_110px_auto_auto] gap-2 items-center max-sm:grid-cols-2">
+              <Input type="number" step="0.5" value={b.min_kg} onChange={(e) => updateBracket(b.id, { min_kg: Number(e.target.value) })} aria-label="Min kg" />
+              <Input type="number" step="0.5" value={b.max_kg} onChange={(e) => updateBracket(b.id, { max_kg: Number(e.target.value) })} aria-label="Max kg" />
+              <Input type="number" step="1" value={b.express_eur ?? ''} placeholder="—" onChange={(e) => updateBracket(b.id, { express_eur: e.target.value === '' ? null : Number(e.target.value) })} aria-label="Express EUR" />
+              <Input type="number" step="1" value={b.standard_eur ?? ''} placeholder="—" onChange={(e) => updateBracket(b.id, { standard_eur: e.target.value === '' ? null : Number(e.target.value) })} aria-label="Standard EUR" />
+              <Switch checked={b.is_active} onCheckedChange={(v) => updateBracket(b.id, { is_active: v })} aria-label="Active" />
+              <Button size="sm" variant="outline" onClick={() => saveBracket(b)}><Save className="h-3.5 w-3.5" /></Button>
+            </div>
+          ))}
+
+          <div className="border-t pt-4 mt-4">
+            <p className="text-sm font-medium mb-2">Add bracket</p>
+            <div className="grid grid-cols-[90px_90px_110px_110px_auto] gap-2 items-center max-sm:grid-cols-2">
+              <Input type="number" step="0.5" value={newBracket.min} onChange={(e) => setNewBracket({ ...newBracket, min: e.target.value })} placeholder="Min kg" />
+              <Input type="number" step="0.5" value={newBracket.max} onChange={(e) => setNewBracket({ ...newBracket, max: e.target.value })} placeholder="Max kg" />
+              <Input type="number" step="1" value={newBracket.express} onChange={(e) => setNewBracket({ ...newBracket, express: e.target.value })} placeholder="Express €" />
+              <Input type="number" step="1" value={newBracket.standard} onChange={(e) => setNewBracket({ ...newBracket, standard: e.target.value })} placeholder="Standard €" />
+              <Button size="sm" onClick={addBracket} disabled={!newBracket.min || !newBracket.max}><Plus className="h-3.5 w-3.5" /></Button>
             </div>
           </div>
         </CardContent>

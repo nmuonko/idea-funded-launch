@@ -175,7 +175,7 @@ Deno.serve(async (req) => {
 
     const { data: catRows } = await supa.from("vip_categories").select("*").order("name");
     let cats = (catRows ?? []) as Cat[];
-    const { data: settings } = await supa.from("vip_settings").select("shipping_buffer_percent, profit_markup_percent").eq("id", 1).maybeSingle();
+    const { data: settings } = await supa.from("vip_settings").select("shipping_buffer_percent, profit_markup_percent, eur_usd_rate").eq("id", 1).maybeSingle();
     const bufferPct = () => Number(state.buffer_pct ?? settings?.shipping_buffer_percent ?? 10);
     const markupPct = () => Number(state.markup_pct ?? settings?.profit_markup_percent ?? 30);
 
@@ -186,15 +186,58 @@ Deno.serve(async (req) => {
       return (data ?? []) as Prod[];
     };
 
+    // Italy FedEx: resolve the EUR->USD rate once per request (manual state > settings > live rate)
+    let cachedEurRate: number | null | undefined;
+    const eurRate = async (): Promise<number | null> => {
+      if (cachedEurRate !== undefined) return cachedEurRate;
+      const manual = Number(state.eur_usd_rate ?? settings?.eur_usd_rate);
+      cachedEurRate = manual > 0 ? manual : await fetchEurUsdRate();
+      return cachedEurRate;
+    };
+
     const reprice = async (ids: string[]) => {
       if (!ids.length) return;
       const { data } = await supa.from("vip_products").select("id, category_id, purchase_price").in("id", ids);
-      for (const p of data ?? []) {
+      const rows = (data ?? []).filter((p) => p.purchase_price);
+      if (!rows.length) return;
+
+      if (state.shipping_model === "italy_fedex") {
+        // Italy FedEx: bracket price for the TOTAL shipment, converted EUR->USD,
+        // allocated per item by weight. Per-kg category rates are not used.
+        if (!state.total_weight_kg || !state.carrier) return;
+        const { data: brRows } = await supa.from("vip_shipping_brackets").select("min_kg, max_kg, express_eur, standard_eur").eq("is_active", true);
+        const bracket = findBracket((brRows ?? []) as Bracket[], state.total_weight_kg);
+        const costEur = bracket ? (state.carrier === "express" ? bracket.express_eur : bracket.standard_eur) : null;
+        const rate = await eurRate();
+        if (costEur == null || !rate) return;
+        const weights = rows.map((p) => Number(cats.find((c) => c.id === p.category_id)?.default_weight_kg ?? 0));
+        const totalUsdCents = Math.round(costEur * 100 * rate);
+        const alloc = allocateCents(totalUsdCents, weights);
+        const allocEur = allocateCents(Math.round(costEur * 100), weights);
+        for (let i = 0; i < rows.length; i++) {
+          const p = rows[i];
+          const shippingUsd = alloc[i] / 100;
+          const buffer = Math.round((alloc[i] * bufferPct()) / 100);
+          const profit = Math.round((Math.round(Number(p.purchase_price) * 100) * markupPct()) / 100);
+          const finalCents = Math.round(Number(p.purchase_price) * 100) + alloc[i] + buffer + profit;
+          await supa.from("vip_products").update({
+            shipping_cost: shippingUsd, shipping_buffer: buffer / 100, profit: profit / 100, final_price: finalCents / 100,
+            weight_kg: weights[i], rate_per_kg: null,
+            shipping_model: "italy_fedex", carrier: `fedex_${state.carrier}`,
+            eur_usd_rate: rate, shipping_cost_eur: allocEur[i] / 100,
+            buffer_pct_applied: bufferPct(), markup_pct_applied: markupPct(), updated_at: new Date().toISOString(),
+          }).eq("id", p.id);
+        }
+        return;
+      }
+
+      for (const p of rows) {
         const cat = cats.find((c) => c.id === p.category_id);
-        if (!cat || !p.purchase_price || !cat.shipping_rate_per_kg) continue;
+        if (!cat || !cat.shipping_rate_per_kg) continue;
         const pr = computePrice(Number(p.purchase_price), Number(cat.default_weight_kg), Number(cat.shipping_rate_per_kg), bufferPct(), markupPct());
         await supa.from("vip_products").update({
           ...pr, weight_kg: cat.default_weight_kg, rate_per_kg: cat.shipping_rate_per_kg,
+          shipping_model: "rate_per_kg", carrier: null, eur_usd_rate: null, shipping_cost_eur: null,
           buffer_pct_applied: bufferPct(), markup_pct_applied: markupPct(), updated_at: new Date().toISOString(),
         }).eq("id", p.id);
       }

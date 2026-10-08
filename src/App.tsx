@@ -436,6 +436,23 @@ const App = () => {
                 } />
               </Route>
 
+              {/* ===== VIP Store ===== */}
+              <Route path="vip-importer" element={
+                <AdminRouteGuard requiredPermission="can_view_marketing">
+                  <VipImporter />
+                </AdminRouteGuard>
+              } />
+              <Route path="vip-products" element={
+                <AdminRouteGuard requiredPermission="can_view_marketing">
+                  <VipProducts />
+                </AdminRouteGuard>
+              } />
+              <Route path="vip-pricing" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <VipPricing />
+                </AdminRouteGuard>
+              } />
+
               {/* ===== Marketing hub (tabs) ===== */}
               <Route path="marketing" element={<Navigate to="/admin/hot-products" replace />} />
               <Route element={<MarketingHub />}>

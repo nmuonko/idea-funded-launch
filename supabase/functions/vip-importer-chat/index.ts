@@ -122,7 +122,7 @@ Return STRICT JSON only:
  "category":"<exact existing category name or null>",
  "suggested_category":"<short new category name in English if category is null, else null>",
  "new_category_weight_kg":<estimated weight of ONE item in kg, e.g. 0.3 for a handbag, 1.5 for a coat — only when category is null, else null>,
- "new_category_rate_per_kg":<estimated fair shipping rate in USD per kg for this kind of item, 20-60 — only when category is null, else null>,
+ "new_category_rate_per_kg":<estimated flat shipping price in USD for ONE item of this kind, 20-120 — only when category is null, else null>,
  "confidence":<0..1>,
  "colors":["<visible colors in English>"],
  "brand":"<brand only if clearly visible, else null>",
@@ -338,7 +338,7 @@ Deno.serve(async (req) => {
         const review = ps.filter((p) => p.needs_review).length;
         lines.push(`**${ps.length === 1 ? "This looks like" : ps.length === images.length ? `All ${ps.length} appear to be` : `${ps.length} appear to be`} ${type}** → category **${c.name}** (${c.default_weight_kg} kg/item, ${c.shipping_rate_per_kg ? `$${c.shipping_rate_per_kg} shipping/item` : "no shipping rate yet"})${review ? ` — ${review} need a second look` : ""}.`);
       }
-      if (createdCatInfo) lines.push(`This didn't fit any existing category, so I added **${createdCatInfo.name}** to your catalogue (${createdCatInfo.weight} kg/item, $${createdCatInfo.rate}/kg estimated). You can adjust these in VIP Pricing settings.`);
+      if (createdCatInfo) lines.push(`This didn't fit any existing category, so I added **${createdCatInfo.name}** to your catalogue (${createdCatInfo.weight} kg/item, $${createdCatInfo.rate} shipping/item estimated). You can adjust these in VIP Pricing settings.`);
       const printed = fresh.map((p) => p.ai_suggested?.printed_price).filter((x) => typeof x === "number");
       if (printed.length) lines.push(`I also read a printed price on ${printed.length} photo(s) — tell me if that is what you paid.`);
       showIds = fresh.map((p) => p.id);
@@ -434,7 +434,7 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
               if (!nc) break; c = nc as Cat; cats = [...cats, c];
             }
             state.pending_category = null;
-            lines.push(`Saved new category **${c.name}** (${w} kg/item, $${r}/kg). I'll recognise it in future uploads.`);
+            lines.push(`Saved new category **${c.name}** (${w} kg/item, $${r} shipping/item). I'll recognise it in future uploads.`);
             const match = products.filter((p) => !p.category_id && [p.ai_suggested?.suggested_category, p.ai_suggested?.item_type].some((s) => String(s ?? "").toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(String(s ?? "~").toLowerCase())));
             const t = (match.length ? match : products.filter((p) => !p.category_id)).map((p) => p.id);
             if (t.length) {
@@ -542,7 +542,7 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
     } else if (noCat.length) {
       const sug = String(noCat[0].ai_suggested?.suggested_category ?? noCat[0].ai_suggested?.item_type ?? "New category");
       if (state.pending_category) {
-        lines.push(`For **${state.pending_category}**: approximately how much does one item weigh, and what is the shipping price per kg? (e.g. "0.3 kg, $30/kg")`);
+        lines.push(`For **${state.pending_category}**: approximately how much does one item weigh, and what is the shipping price per item? (e.g. "0.5 kg, $30")`);
       } else {
         lines.push(`${noCat.length} item(s) look like **${sug}**, which isn't one of your pricing categories yet. Would you like to add it?`);
         quick = [`Add category ${sug}`, ...cats.filter((c) => c.is_active).slice(0, 3).map((c) => `Use ${c.name}`), "Skip"];

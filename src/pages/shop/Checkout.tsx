@@ -237,9 +237,10 @@ export default function Checkout() {
     ? sharedHotProduct.total_price_usd
     : (checkoutItems.length > 0 ? checkoutTotal : (sharedHotProduct?.total_price_usd ?? 0));
 
-  // Turkey (Telegram) items are card-only: force Stripe and hide mobile money.
+  // Turkey (Telegram) and VIP items are card-only: force Stripe and hide mobile money.
+  const CARD_ONLY_PROVIDERS = new Set(['intl_turkey', 'vip']);
   const turkeyOnlyCheckout = effectiveCheckoutItems.length > 0
-    && effectiveCheckoutItems.every((i: any) => String(i?.provider || '').toLowerCase() === 'intl_turkey');
+    && effectiveCheckoutItems.every((i: any) => CARD_ONLY_PROVIDERS.has(String(i?.provider || '').toLowerCase()));
 
   useEffect(() => {
     if (turkeyOnlyCheckout) setPaymentMethod('card');

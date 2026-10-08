@@ -76,6 +76,14 @@ export function AdminLayout() {
       ]
     },
     {
+      title: 'VIP Store',
+      items: [
+        { to: '/admin/vip-importer', icon: Sparkles, label: language === 'fr' ? 'Importateur IA' : 'AI Importer', permission: 'can_view_marketing' as const },
+        { to: '/admin/vip-products', icon: Package, label: language === 'fr' ? 'Produits VIP' : 'VIP Products', permission: 'can_view_marketing' as const },
+        { to: '/admin/vip-pricing', icon: DollarSign, label: language === 'fr' ? 'Tarifs VIP' : 'VIP Pricing', permission: 'can_view_settings' as const },
+      ]
+    },
+    {
       title: language === 'fr' ? 'Insights' : 'Insights',
       items: [
         { to: '/admin/analytics', icon: BarChart, label: 'Insights', permission: 'can_view_analytics' as const },

@@ -7599,6 +7599,71 @@ export type Database = {
         }
         Relationships: []
       }
+      vip_import_messages: {
+        Row: {
+          attachments: Json
+          blocks: Json
+          content: string
+          created_at: string
+          id: string
+          role: string
+          thread_id: string
+        }
+        Insert: {
+          attachments?: Json
+          blocks?: Json
+          content?: string
+          created_at?: string
+          id?: string
+          role: string
+          thread_id: string
+        }
+        Update: {
+          attachments?: Json
+          blocks?: Json
+          content?: string
+          created_at?: string
+          id?: string
+          role?: string
+          thread_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vip_import_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "vip_import_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vip_import_threads: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          state: Json
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          state?: Json
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          state?: Json
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       vip_product_variants: {
         Row: {
           available: boolean
@@ -7642,12 +7707,14 @@ export type Database = {
           category_id: string | null
           colors: Json
           created_at: string
+          description_en: string | null
           description_fr: string | null
           final_price: number | null
           id: string
           image_hash: string | null
           image_url: string
           markup_pct_applied: number | null
+          name_en: string | null
           name_fr: string | null
           needs_review: boolean
           profit: number | null
@@ -7659,6 +7726,7 @@ export type Database = {
           shipping_cost: number | null
           sizes: Json
           status: string
+          thread_id: string | null
           updated_at: string
           weight_kg: number | null
         }
@@ -7669,12 +7737,14 @@ export type Database = {
           category_id?: string | null
           colors?: Json
           created_at?: string
+          description_en?: string | null
           description_fr?: string | null
           final_price?: number | null
           id?: string
           image_hash?: string | null
           image_url: string
           markup_pct_applied?: number | null
+          name_en?: string | null
           name_fr?: string | null
           needs_review?: boolean
           profit?: number | null
@@ -7686,6 +7756,7 @@ export type Database = {
           shipping_cost?: number | null
           sizes?: Json
           status?: string
+          thread_id?: string | null
           updated_at?: string
           weight_kg?: number | null
         }
@@ -7696,12 +7767,14 @@ export type Database = {
           category_id?: string | null
           colors?: Json
           created_at?: string
+          description_en?: string | null
           description_fr?: string | null
           final_price?: number | null
           id?: string
           image_hash?: string | null
           image_url?: string
           markup_pct_applied?: number | null
+          name_en?: string | null
           name_fr?: string | null
           needs_review?: boolean
           profit?: number | null
@@ -7713,6 +7786,7 @@ export type Database = {
           shipping_cost?: number | null
           sizes?: Json
           status?: string
+          thread_id?: string | null
           updated_at?: string
           weight_kg?: number | null
         }
@@ -7729,6 +7803,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "vip_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vip_products_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "vip_import_threads"
             referencedColumns: ["id"]
           },
         ]

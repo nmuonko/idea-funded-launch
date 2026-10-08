@@ -119,6 +119,8 @@ Return STRICT JSON only:
 {"item_type":"<specific type in English, e.g. Men's Polo Shirt, Baby Clothing, Sneakers, Handbag>",
  "category":"<exact existing category name or null>",
  "suggested_category":"<short new category name in English if category is null, else null>",
+ "new_category_weight_kg":<estimated weight of ONE item in kg, e.g. 0.3 for a handbag, 1.5 for a coat — only when category is null, else null>,
+ "new_category_rate_per_kg":<estimated fair shipping rate in USD per kg for this kind of item, 20-60 — only when category is null, else null>,
  "confidence":<0..1>,
  "colors":["<visible colors in English>"],
  "brand":"<brand only if clearly visible, else null>",
@@ -280,10 +282,29 @@ Deno.serve(async (req) => {
       }));
       const created: string[] = [];
       const grouped = groupVipPhotos(images, results);
+      let createdCatInfo: { name: string; weight: number; rate: number } | null = null;
       {
         const ai = grouped.primary;
         let cat = ai?.category ? cats.find((c) => c.name.toLowerCase() === String(ai.category).toLowerCase()) : undefined;
         if (!cat && ai) cat = guessCategory(cats, `${ai.item_type ?? ""} ${ai.suggested_category ?? ""}`);
+        let createdCat: Cat | null = null;
+        if (!cat && ai?.suggested_category) {
+          // No existing category fits — auto-create one from the AI's estimate.
+          const name = String(ai.suggested_category).trim().slice(0, 60);
+          const w = Number(ai.new_category_weight_kg);
+          const r = Number(ai.new_category_rate_per_kg);
+          const weight = w > 0 && w < 100 ? Math.round(w * 100) / 100 : 1;
+          const rate = r >= 5 && r <= 200 ? Math.round(r) : 30;
+          const existing = cats.find((x) => x.name.toLowerCase() === name.toLowerCase());
+          if (existing) {
+            cat = existing;
+          } else if (name) {
+            const { data: nc } = await supa.from("vip_categories")
+              .insert({ name, default_weight_kg: weight, shipping_rate_per_kg: rate, is_active: true })
+              .select("*").single();
+            if (nc) { createdCat = nc as Cat; cat = createdCat; cats = [...cats, createdCat]; createdCatInfo = { name, weight, rate }; }
+          }
+        }
         const lowConf = grouped.needsReview;
         const colors = grouped.colors;
         const { data: p, error: insertError } = await supa.from("vip_products").insert({
@@ -315,6 +336,7 @@ Deno.serve(async (req) => {
         const review = ps.filter((p) => p.needs_review).length;
         lines.push(`**${ps.length === 1 ? "This looks like" : ps.length === images.length ? `All ${ps.length} appear to be` : `${ps.length} appear to be`} ${type}** → category **${c.name}** (${c.default_weight_kg} kg/item, ${c.shipping_rate_per_kg ? `$${c.shipping_rate_per_kg}/kg` : "no shipping rate yet"})${review ? ` — ${review} need a second look` : ""}.`);
       }
+      if (createdCatInfo) lines.push(`This didn't fit any existing category, so I added **${createdCatInfo.name}** to your catalogue (${createdCatInfo.weight} kg/item, $${createdCatInfo.rate}/kg estimated). You can adjust these in VIP Pricing settings.`);
       const printed = fresh.map((p) => p.ai_suggested?.printed_price).filter((x) => typeof x === "number");
       if (printed.length) lines.push(`I also read a printed price on ${printed.length} photo(s) — tell me if that is what you paid.`);
       showIds = fresh.map((p) => p.id);

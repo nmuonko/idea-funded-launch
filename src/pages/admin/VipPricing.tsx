@@ -18,6 +18,15 @@ interface Category {
   is_active: boolean;
 }
 
+interface Bracket {
+  id: string;
+  min_kg: number;
+  max_kg: number;
+  express_eur: number | null;
+  standard_eur: number | null;
+  is_active: boolean;
+}
+
 export default function VipPricing() {
   const { toast } = useToast();
   const { permissions } = useAdminPermissions();
@@ -25,22 +34,28 @@ export default function VipPricing() {
 
   const [bufferPct, setBufferPct] = useState('10');
   const [markupPct, setMarkupPct] = useState('30');
+  const [eurRate, setEurRate] = useState('');
   const [categories, setCategories] = useState<Category[]>([]);
+  const [brackets, setBrackets] = useState<Bracket[]>([]);
+  const [newBracket, setNewBracket] = useState({ min: '', max: '', express: '', standard: '' });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [newCat, setNewCat] = useState({ name: '', name_fr: '', weight: '0.5', rate: '30' });
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [{ data: settings }, { data: cats }] = await Promise.all([
+    const [{ data: settings }, { data: cats }, { data: brs }] = await Promise.all([
       supabase.from('vip_settings').select('*').eq('id', 1).maybeSingle(),
       supabase.from('vip_categories').select('*').order('name'),
+      supabase.from('vip_shipping_brackets').select('*').order('min_kg'),
     ]);
     if (settings) {
       setBufferPct(String(settings.shipping_buffer_percent));
       setMarkupPct(String(settings.profit_markup_percent));
+      setEurRate(settings.eur_usd_rate != null ? String(settings.eur_usd_rate) : '');
     }
     setCategories((cats as Category[]) ?? []);
+    setBrackets((brs as Bracket[]) ?? []);
     setLoading(false);
   }, []);
 
@@ -51,6 +66,7 @@ export default function VipPricing() {
     const { error } = await supabase.from('vip_settings').update({
       shipping_buffer_percent: Number(bufferPct) || 10,
       profit_markup_percent: Number(markupPct) || 30,
+      eur_usd_rate: Number(eurRate) > 0 ? Number(eurRate) : null,
       updated_at: new Date().toISOString(),
     }).eq('id', 1);
     setSaving(false);

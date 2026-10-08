@@ -15,6 +15,13 @@
       "when": 1791419999036,
       "tag": "0001_vip_italy_fedex_shipping",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791421734879,
+      "tag": "0002_vip_product_photo_galleries",
+      "breakpoints": true
     }
   ]
 }

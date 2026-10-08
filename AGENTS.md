@@ -1,1 +1,3 @@
 - VIP importer is a chat (vip_import_threads/messages + vip-importer-chat function); all pricing and actions run server-side — keeps prices authoritative.
+- VIP photo galleries represent one garment per upload message, not inventory units; legacy photo listings redirect to a retained parent to preserve existing links and orders.
+- VIP size equivalents are category-aware display labels only; variant matching and orders retain original supplier sizes to avoid fulfillment regressions.

@@ -1,4 +1,4 @@
-import { localizeVip } from '@/lib/vipLocale';
+import { localizeVip, vipPrefersFrench } from '@/lib/vipLocale';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -139,7 +139,7 @@ export default function VipStorefront() {
                     />
                     {soldOut && (
                       <span className="absolute top-2 left-2 bg-vip-gold/90 text-vip-gold-foreground text-[11px] font-semibold px-2 py-1 rounded-full">
-                        Rupture de stock
+                        {vipPrefersFrench() ? 'Rupture de stock' : 'Sold out'}
                       </span>
                     )}
                   </div>

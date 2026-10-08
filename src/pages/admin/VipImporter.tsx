@@ -23,6 +23,7 @@ interface Prod {
   final_price: number | null; purchase_price: number | null; shipping_cost: number | null;
   shipping_buffer: number | null; profit: number | null; status: string; colors: string[]; sizes: string[];
   needs_review: boolean;
+  gallery_product_id?: string | null;
 }
 interface Cat { id: string; name: string }
 
@@ -60,7 +61,7 @@ export default function VipImporter() {
     if (!id) { setMessages([]); setProducts({}); return; }
     const [{ data: m }, { data: p }] = await Promise.all([
       supabase.from('vip_import_messages').select('*').eq('thread_id', id).order('created_at'),
-      supabase.from('vip_products').select('id, name_en, name_fr, image_url, category_id, final_price, purchase_price, shipping_cost, shipping_buffer, profit, status, colors, sizes, needs_review').eq('thread_id', id),
+       supabase.from('vip_products').select('id, name_en, name_fr, image_url, category_id, final_price, purchase_price, shipping_cost, shipping_buffer, profit, status, colors, sizes, needs_review, gallery_product_id').eq('thread_id', id),
     ]);
     setMessages((m ?? []) as unknown as Msg[]);
     setProducts(Object.fromEntries(((p ?? []) as unknown as Prod[]).map((x) => [x.id, x])));
@@ -197,7 +198,7 @@ export default function VipImporter() {
           ) : (
             <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
               {messages.map((m) => {
-                const ids = (m.blocks?.product_ids ?? []).filter((id) => products[id]);
+                const ids = [...new Set((m.blocks?.product_ids ?? []).map((id) => products[id]?.gallery_product_id ?? id))].filter((id) => products[id]);
                 const grid = ids.length > 4 && !expanded.has(m.id);
                 return m.role === 'user' ? (
                   <div key={m.id} className="flex flex-col items-end gap-2">

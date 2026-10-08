@@ -336,6 +336,7 @@ Deno.serve(async (req) => {
         const review = ps.filter((p) => p.needs_review).length;
         lines.push(`**${ps.length === 1 ? "This looks like" : ps.length === images.length ? `All ${ps.length} appear to be` : `${ps.length} appear to be`} ${type}** → category **${c.name}** (${c.default_weight_kg} kg/item, ${c.shipping_rate_per_kg ? `$${c.shipping_rate_per_kg}/kg` : "no shipping rate yet"})${review ? ` — ${review} need a second look` : ""}.`);
       }
+      if (createdCatInfo) lines.push(`This didn't fit any existing category, so I added **${createdCatInfo.name}** to your catalogue (${createdCatInfo.weight} kg/item, $${createdCatInfo.rate}/kg estimated). You can adjust these in VIP Pricing settings.`);
       const printed = fresh.map((p) => p.ai_suggested?.printed_price).filter((x) => typeof x === "number");
       if (printed.length) lines.push(`I also read a printed price on ${printed.length} photo(s) — tell me if that is what you paid.`);
       showIds = fresh.map((p) => p.id);

@@ -282,6 +282,7 @@ Deno.serve(async (req) => {
       }));
       const created: string[] = [];
       const grouped = groupVipPhotos(images, results);
+      let createdCatInfo: { name: string; weight: number; rate: number } | null = null;
       {
         const ai = grouped.primary;
         let cat = ai?.category ? cats.find((c) => c.name.toLowerCase() === String(ai.category).toLowerCase()) : undefined;

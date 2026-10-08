@@ -6,7 +6,8 @@ import {
   verifyAndGetUser, 
   handleCors, 
   errorResponse, 
-  jsonResponse 
+  jsonResponse,
+  createAdminClient
 } from "../_shared/auth.ts";
 import { invalidateSettingsCache } from "../_shared/settings-cache.ts";
 import { invalidateCatalogSettingsCache } from "../_shared/catalogSettings.ts";
@@ -52,16 +53,19 @@ serve(async (req) => {
       'search_proxy_cache',
     ];
 
+    // Wipe with the service-role client: these cache tables are no longer
+    // writable through a visitor/admin session (RLS + grants are internal-only).
+    const admin = createAdminClient();
     const wipeResults: Record<string, string> = {};
     await Promise.all(
       cacheTables.map(async (t) => {
-        const { error } = await supabase
+        const { error } = await admin
           .from(t)
           .delete()
           .gte('created_at', '1900-01-01');
         if (error) {
           // Fallback for tables without created_at — match all by primary key
-          const { error: e2 } = await supabase.from(t).delete().not('id', 'is', null);
+          const { error: e2 } = await admin.from(t).delete().not('id', 'is', null);
           wipeResults[t] = e2 ? `error: ${e2.message}` : 'wiped';
         } else {
           wipeResults[t] = 'wiped';

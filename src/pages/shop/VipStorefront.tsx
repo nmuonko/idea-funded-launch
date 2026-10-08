@@ -3,8 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Loader2 } from 'lucide-react';
-import { ShopFooter } from '@/components/shop/ShopFooter';
+import { Search, Loader2, ArrowLeft } from 'lucide-react';
 
 interface VipProduct {
   id: string;
@@ -67,20 +66,32 @@ export default function VipStorefront() {
   }, [products, categoryId, search, sort]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-amber-50/60 via-background to-background">
+    <div className="min-h-screen flex flex-col bg-vip-surface-soft bg-gradient-vip">
       {/* Header */}
-      <header className="border-b bg-background/80 backdrop-blur sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link to="/vip" className="flex items-center gap-2">
-            <span className="text-xl font-bold tracking-tight">AfriShop <span className="text-amber-600">VIP</span></span>
+      <header className="sticky top-0 z-20 border-b border-vip-border/70 bg-background/70 backdrop-blur">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
+          <Link to="/vip" className="flex items-baseline gap-2">
+            <span className="text-xl font-bold tracking-tight text-foreground">
+              AfriShop <span className="text-vip-gold">VIP</span>
+            </span>
           </Link>
-          <p className="text-sm text-muted-foreground hidden sm:block">Collection exclusive — prix final, tout inclus</p>
+          <div className="flex items-center gap-4">
+            <p className="text-sm text-vip-gold-soft/75 hidden sm:block">
+              Collection exclusive — prix final, tout inclus
+            </p>
+            <Link
+              to="/"
+              className="text-sm text-muted-foreground hover:text-vip-gold transition-colors inline-flex items-center gap-1"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Boutique
+            </Link>
+          </div>
         </div>
       </header>
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6 space-y-5">
         {/* Filters */}
-        <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex flex-wrap gap-2 items-center rounded-xl border border-vip-border/70 bg-vip-surface/60 p-3">
           <div className="relative flex-1 min-w-[180px] max-w-sm">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher un article…" className="pl-8" />
@@ -105,11 +116,13 @@ export default function VipStorefront() {
 
         {/* Grid */}
         {loading ? (
-          <div className="flex justify-center py-24"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
+          <div className="flex justify-center py-24"><Loader2 className="h-8 w-8 animate-spin text-vip-gold" /></div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-24 text-muted-foreground">
-            <p className="text-lg font-medium">Aucun article pour le moment</p>
-            <p className="text-sm">Revenez bientôt — la collection VIP est mise à jour régulièrement.</p>
+          <div className="rounded-2xl border border-vip-border/70 bg-vip-surface/50 px-6 py-20 text-center">
+            <p className="text-lg font-semibold text-foreground">Aucun article pour le moment</p>
+            <p className="mt-2 text-sm text-vip-gold-soft/70">
+              Revenez bientôt — la collection VIP est mise à jour régulièrement.
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -119,27 +132,27 @@ export default function VipStorefront() {
                 <Link
                   key={p.id}
                   to={`/vip/${p.id}`}
-                  className="group rounded-xl border bg-card overflow-hidden hover:shadow-md transition-shadow"
+                  className="group rounded-xl border border-vip-border/70 bg-vip-surface overflow-hidden transition-all duration-300 hover:border-vip-gold/40 hover:shadow-vip-hover"
                 >
-                  <div className="relative aspect-[4/5] overflow-hidden bg-muted">
+                  <div className="relative aspect-[4/5] overflow-hidden bg-vip-surface-soft">
                     <img
                       src={p.image_url}
                       alt={p.name_fr ?? ''}
                       loading="lazy"
-                      className={`object-cover w-full h-full group-hover:scale-105 transition-transform duration-300 ${soldOut ? 'opacity-60' : ''}`}
+                      className={`object-cover w-full h-full group-hover:scale-[1.04] transition-transform duration-500 ${soldOut ? 'opacity-55' : ''}`}
                     />
                     {soldOut && (
-                      <span className="absolute top-2 left-2 bg-amber-500 text-white text-xs font-semibold px-2 py-1 rounded-full">
+                      <span className="absolute top-2 left-2 bg-vip-gold/90 text-vip-gold-foreground text-[11px] font-semibold px-2 py-1 rounded-full">
                         Rupture de stock
                       </span>
                     )}
                   </div>
                   <div className="p-3 space-y-1">
-                    <p className="font-medium text-sm leading-snug line-clamp-2">{p.name_fr}</p>
+                    <p className="font-medium text-sm leading-snug line-clamp-2 text-foreground">{p.name_fr}</p>
                     {p.colors.length > 0 && (
                       <p className="text-xs text-muted-foreground line-clamp-1">{p.colors.join(', ')}</p>
                     )}
-                    <p className="font-semibold text-amber-700 dark:text-amber-500">${p.final_price?.toFixed(2)}</p>
+                    <p className="font-semibold text-vip-gold">${p.final_price?.toFixed(2)}</p>
                   </div>
                 </Link>
               );
@@ -147,8 +160,6 @@ export default function VipStorefront() {
           </div>
         )}
       </main>
-
-      <ShopFooter />
     </div>
   );
 }

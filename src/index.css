@@ -107,7 +107,19 @@ All colors MUST be HSL.
     --gradient-ocean: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
     --gradient-glow: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
     --gradient-subtle: linear-gradient(180deg, hsl(var(--background)), hsl(var(--muted)));
-    
+
+    /* VIP storefront — soft champagne on deep navy (low-glare) */
+    --vip-gold: 42 58% 58%;
+    --vip-gold-soft: 42 42% 74%;
+    --vip-gold-foreground: 30 50% 9%;
+    --vip-surface: 215 26% 13%;
+    --vip-surface-soft: 215 24% 10%;
+    --vip-border: 215 20% 22%;
+    --vip-hairline: 42 35% 45%;
+    --gradient-vip: radial-gradient(1100px 480px at 50% -12%, hsl(42 60% 55% / 0.10), transparent 68%), linear-gradient(180deg, hsl(215 26% 10%), hsl(215 30% 7%) 62%);
+    --shadow-vip: 0 12px 30px -16px hsl(0 0% 0% / 0.45);
+    --shadow-vip-hover: 0 18px 44px -20px hsl(42 60% 50% / 0.20), 0 8px 24px -14px hsl(0 0% 0% / 0.45);
+
     --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
     --font-serif: 'Lora', ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
     --font-mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
@@ -209,7 +221,19 @@ All colors MUST be HSL.
     --gradient-ocean: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
     --gradient-glow: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
     --gradient-subtle: linear-gradient(180deg, hsl(var(--background)), hsl(var(--muted)));
-    
+
+    /* VIP storefront — soft champagne on deep navy (low-glare) */
+    --vip-gold: 41 66% 64%;
+    --vip-gold-soft: 42 45% 78%;
+    --vip-gold-foreground: 30 50% 9%;
+    --vip-surface: 215 24% 11%;
+    --vip-surface-soft: 215 26% 8%;
+    --vip-border: 215 20% 18%;
+    --vip-hairline: 41 40% 42%;
+    --gradient-vip: radial-gradient(1100px 480px at 50% -12%, hsl(41 65% 60% / 0.10), transparent 68%), linear-gradient(180deg, hsl(215 26% 9%), hsl(215 30% 6%) 62%);
+    --shadow-vip: 0 12px 30px -16px hsl(0 0% 0% / 0.5);
+    --shadow-vip-hover: 0 18px 44px -20px hsl(41 65% 55% / 0.20), 0 8px 24px -14px hsl(0 0% 0% / 0.5);
+
     --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
     --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
     --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 1px 2px -1px hsl(0 0% 0% / 0.1);

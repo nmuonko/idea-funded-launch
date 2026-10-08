@@ -76,7 +76,16 @@ export default {
   				border: 'hsl(var(--sidebar-border))',
   				ring: 'hsl(var(--sidebar-ring))'
   			},
-  			ocean: {
+  			vip: {
+  	gold: 'hsl(var(--vip-gold))',
+  	'gold-soft': 'hsl(var(--vip-gold-soft))',
+  	'gold-foreground': 'hsl(var(--vip-gold-foreground))',
+  	surface: 'hsl(var(--vip-surface))',
+  	'surface-soft': 'hsl(var(--vip-surface-soft))',
+  	border: 'hsl(var(--vip-border))',
+  	hairline: 'hsl(var(--vip-hairline))'
+  },
+  ocean: {
   				dark: 'hsl(var(--ocean-dark))',
   				medium: 'hsl(var(--ocean-medium))',
   				light: 'hsl(var(--ocean-light))',
@@ -94,6 +103,7 @@ export default {
   			}
   		},
 		backgroundImage: {
+			'gradient-vip': 'var(--gradient-vip)',
 			'gradient-primary': 'linear-gradient(135deg, hsl(var(--gradient-start)), hsl(var(--gradient-mid)), hsl(var(--gradient-end)))',
 			'gradient-radial': 'radial-gradient(circle at top, hsl(var(--gradient-start) / 0.8), transparent 70%)',
 			'gradient-subtle': 'linear-gradient(180deg, hsl(var(--background)), hsl(var(--muted)))',
@@ -103,6 +113,8 @@ export default {
 			'gradient-glossy': 'linear-gradient(to bottom, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%)'
 		},
   		boxShadow: {
+  			vip: 'var(--shadow-vip)',
+  			'vip-hover': 'var(--shadow-vip-hover)',
   			elegant: '0 10px 40px -10px hsl(var(--shadow-elegant) / 0.2)',
   			card: '0 4px 16px -4px hsl(var(--shadow-soft) / 0.1)',
   			glow: '0 0 40px hsl(var(--shadow-glow) / 0.3)',

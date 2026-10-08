@@ -141,7 +141,7 @@ const INTERPRET_SYSTEM = `You convert an AfriShop admin's chat message into acti
 Return STRICT JSON only: {"actions":[...], "reply":"<one short friendly sentence acknowledging, or answering a question>"}
 Action shapes ("targets" is "all" or an array of product numbers; resolve phrases like "the black one", "first five", "all except 6" using the product list):
 {"type":"set_price","targets":...,"price":<number>}           purchase price paid per item
-{"type":"set_sizes","targets":...,"sizes":["M","L"]}          expand ranges like "M to XXL" -> M,L,XL,XXL ; "40 to 43" -> 40,41,42,43
+{"type":"set_sizes","targets":...,"sizes":["M","L"]}          expand ranges like "M to XXL" -> M,L,XL,XXL ; "40 to 43" -> 40,41,42,43 for shoes; for dresses/suits/clothing numeric EU sizes like "40-50" -> 40,42,44,46,48,50 (step 2)
 {"type":"remove_size","targets":...,"size":"XL"}
 {"type":"set_colors","targets":...,"colors":["White"]}
 {"type":"confirm_colors"}
@@ -268,6 +268,7 @@ Deno.serve(async (req) => {
     let quick: string[] = [];
     let showIds: string[] = [];
     let display: "cards" | "grid" = "grid";
+    let createdIds: string[] = [];
 
     // ---------- Photos ----------
     if (images.length) {
@@ -296,6 +297,7 @@ Deno.serve(async (req) => {
         }).select("id").single();
         if (p) created.push(p.id);
       }
+      createdIds = created;
       state.sizes_done = false; state.colors_done = false; state.kept_draft = false;
       const all = await loadProducts();
       const fresh = all.filter((p) => created.includes(p.id));
@@ -321,8 +323,9 @@ Deno.serve(async (req) => {
     }
 
     // ---------- Text ----------
-    if (text && !images.length) {
-      const products = await loadProducts();
+    if (text) {
+      // When photos come with a message ("$120, sizes 40-50"), apply it to the new photos.
+      const products = images.length ? (await loadProducts()).filter((p) => createdIds.includes(p.id)) : await loadProducts();
       const list = products.map((p, i) => {
         const c = cats.find((x) => x.id === p.category_id);
         return `${i + 1}. ${p.name_en ?? p.ai_suggested?.item_type ?? "Unknown"} | category=${c?.name ?? "NONE (suggested " + (p.ai_suggested?.suggested_category ?? p.ai_suggested?.item_type ?? "?") + ")"} | colors=${(p.colors ?? []).join("/") || "-"} | sizes=${(p.sizes ?? []).join("/") || "-"} | paid=${p.purchase_price ?? "-"} | price=${p.final_price ?? "-"} | status=${p.status}`;
@@ -478,9 +481,10 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
           }
         }
       }
-      if (parsed?.reply) lines.unshift(String(parsed.reply).slice(0, 600));
+      if (images.length) { if (parsed?.reply) lines.push(String(parsed.reply).slice(0, 600)); }
+      else if (parsed?.reply) lines.unshift(String(parsed.reply).slice(0, 600));
       else if (!parsed) lines.unshift("Sorry, I couldn't understand that right now — please try again.");
-      showIds = [...touched];
+      showIds = images.length ? [...new Set([...showIds, ...touched])] : [...touched];
     }
 
     // ---------- Next question ----------
@@ -496,7 +500,7 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
     const priced = active.filter((p) => p.final_price);
     const drafts = active.filter((p) => p.status === "draft" && p.final_price);
 
-    if (showIds.length && priced.some((p) => showIds.includes(p.id)) && !images.length) {
+    if (showIds.length && priced.some((p) => showIds.includes(p.id))) {
       const sample = priced.find((p) => showIds.includes(p.id))!;
       if (sample.purchase_price && sample.final_price) {
         const pr = { shipping_cost: Number(sample.shipping_cost ?? 0), shipping_buffer: Number(sample.shipping_buffer ?? 0), profit: Number(sample.profit ?? 0), final_price: Number(sample.final_price) };

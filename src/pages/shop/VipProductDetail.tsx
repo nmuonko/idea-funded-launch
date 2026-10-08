@@ -6,12 +6,16 @@ import { Button } from '@/components/ui/button';
 import { useShopCart } from '@/hooks/useShopCart';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Loader2, ShoppingBag, Check } from 'lucide-react';
+import { VipPhotoGallery, type VipPhoto } from '@/components/VipPhotoGallery';
+import { vipSizeLabel } from '@/lib/vipSizes';
 
 interface VipProduct {
   id: string;
   name_fr: string | null;
   description_fr: string | null;
   image_url: string;
+  image_gallery?: VipPhoto[];
+  gallery_product_id?: string | null;
   final_price: number | null;
   status: 'available' | 'unavailable';
   colors: string[];
@@ -44,7 +48,7 @@ export default function VipProductDetail() {
     (async () => {
       const { data: p } = await supabase
         .from('vip_products')
-        .select('id, name_fr, description_fr, name_en, description_en, image_url, final_price, status, colors, sizes, vip_categories(name, name_fr)')
+        .select('id, name_fr, description_fr, name_en, description_en, image_url, image_gallery, gallery_product_id, final_price, status, colors, sizes, vip_categories(name, name_fr)')
         .eq('id', id)
         .in('status', ['available', 'unavailable'])
         .maybeSingle();
@@ -53,7 +57,8 @@ export default function VipProductDetail() {
         setLoading(false);
         return;
       }
-      setProduct(localizeVip(p as VipProduct));
+      if (p.gallery_product_id) { navigate(`/vip/${p.gallery_product_id}`, { replace: true }); return; }
+      setProduct(localizeVip(p as unknown as VipProduct));
       const { data: v } = await supabase
         .from('vip_product_variants')
         .select('id, size, color, available')
@@ -61,7 +66,9 @@ export default function VipProductDetail() {
       setVariants((v as Variant[]) ?? []);
       setLoading(false);
     })();
-  }, [id]);
+  }, [id, navigate]);
+
+  const photos = useMemo(() => product?.image_gallery?.length ? product.image_gallery : product ? [{ url: product.image_url }] : [], [product]);
 
   const soldOut = product?.status === 'unavailable';
 
@@ -85,12 +92,12 @@ export default function VipProductDetail() {
     if (!product || !canBuy) return;
     setAdding(true);
     try {
-      const variantNote = [color, size].filter(Boolean).join(' · ');
+      const variantNote = [color, size ? vipSizeLabel(size, product.vip_categories?.name ?? '') : null].filter(Boolean).join(' · ');
       await addItem({
         productId: `vip_${product.id}`,
         provider: 'vip',
         title: variantNote ? `${product.name_fr} (${variantNote})` : (product.name_fr ?? 'Article VIP'),
-        imageUrl: product.image_url,
+        imageUrl: photos.find((p) => p.colors?.includes(color ?? ''))?.url ?? product.image_url,
         priceUsd: product.final_price ?? 0,
         quantity: 1,
         productUrl: `https://afrishop-usa.com/vip/${product.id}`,
@@ -128,9 +135,7 @@ export default function VipProductDetail() {
 
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6">
         <div className="grid md:grid-cols-2 gap-6">
-          <div className="rounded-xl overflow-hidden border bg-muted">
-            <img src={product.image_url} alt={product.name_fr ?? ''} className="w-full object-cover" />
-          </div>
+          <VipPhotoGallery photos={photos} title={product.name_fr ?? 'VIP'} selectedColor={color} />
 
           <div className="space-y-5">
             <div>
@@ -157,7 +162,7 @@ export default function VipProductDetail() {
                   {product.colors.map((c) => {
                     const hasAvailable = !variants.length || variants.some((v) => v.available && (v.color === null || v.color === c));
                     return (
-                      <button
+                      <Button variant="outline" size="sm" aria-pressed={color === c}
                         key={c}
                         disabled={!hasAvailable}
                         onClick={() => setColor(c)}
@@ -166,7 +171,7 @@ export default function VipProductDetail() {
                         }`}
                       >
                         {c}
-                      </button>
+                      </Button>
                     );
                   })}
                 </div>
@@ -175,14 +180,14 @@ export default function VipProductDetail() {
 
             {product.sizes.length > 0 && (
               <div>
-                <p className="text-sm font-medium mb-2">Taille {size && <span className="text-muted-foreground">— {size}</span>}</p>
+                <p className="text-sm font-medium mb-2">Taille {size && <span className="text-muted-foreground">— {vipSizeLabel(size, product.vip_categories?.name ?? '')}</span>}</p>
                 <div className="flex flex-wrap gap-1.5">
                   {product.sizes.map((s) => {
                     const hasAvailable = !variants.length || variants.some(
                       (v) => v.available && (v.size === null || v.size === s) && (v.color === null || v.color === color),
                     );
                     return (
-                      <button
+                      <Button variant="outline" size="sm" aria-pressed={size === s}
                         key={s}
                         disabled={!hasAvailable}
                         onClick={() => setSize(s)}
@@ -190,11 +195,12 @@ export default function VipProductDetail() {
                           size === s ? 'bg-primary text-primary-foreground' : hasAvailable ? 'hover:bg-muted' : 'opacity-40 line-through cursor-not-allowed'
                         }`}
                       >
-                        {s}
-                      </button>
+                        {vipSizeLabel(s, product.vip_categories?.name ?? '')}
+                      </Button>
                     );
                   })}
                 </div>
+                {product.sizes.some((s) => vipSizeLabel(s, product.vip_categories?.name ?? '') !== s) && <p className="mt-2 text-xs text-muted-foreground">Équivalences approximatives · taille fournisseur conservée.</p>}
               </div>
             )}
 

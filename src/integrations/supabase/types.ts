@@ -7712,7 +7712,9 @@ export type Database = {
           description_fr: string | null
           eur_usd_rate: number | null
           final_price: number | null
+          gallery_product_id: string | null
           id: string
+          image_gallery: Json
           image_hash: string | null
           image_url: string
           markup_pct_applied: number | null
@@ -7746,7 +7748,9 @@ export type Database = {
           description_fr?: string | null
           eur_usd_rate?: number | null
           final_price?: number | null
+          gallery_product_id?: string | null
           id?: string
+          image_gallery?: Json
           image_hash?: string | null
           image_url: string
           markup_pct_applied?: number | null
@@ -7780,7 +7784,9 @@ export type Database = {
           description_fr?: string | null
           eur_usd_rate?: number | null
           final_price?: number | null
+          gallery_product_id?: string | null
           id?: string
+          image_gallery?: Json
           image_hash?: string | null
           image_url?: string
           markup_pct_applied?: number | null
@@ -7815,6 +7821,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "vip_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vip_products_gallery_product_id_fkey"
+            columns: ["gallery_product_id"]
+            isOneToOne: false
+            referencedRelation: "vip_products"
             referencedColumns: ["id"]
           },
           {

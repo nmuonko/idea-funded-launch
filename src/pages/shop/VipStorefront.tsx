@@ -39,6 +39,7 @@ export default function VipStorefront() {
           .from('vip_products')
           .select('id, name_fr, description_fr, name_en, description_en, image_url, final_price, status, category_id, colors, sizes')
           .in('status', ['available', 'unavailable'])
+           .is('gallery_product_id', null)
           .order('published_at', { ascending: false })
           .limit(300),
         supabase.from('vip_categories').select('id, name, name_fr').eq('is_active', true).order('name'),

@@ -42,7 +42,9 @@ const money = (n: number) => `$${n.toFixed(2)}`;
 
 export function computePrice(purchase: number, weightKg: number, rate: number, bufferPct: number, markupPct: number) {
   const p = Math.round(purchase * 100);
-  const shipping = Math.round(weightKg * rate * 100);
+  // Category shipping price is a flat per-item price for the category weight (e.g. Shirt 0.5 kg = $30).
+  void weightKg;
+  const shipping = Math.round(rate * 100);
   const buffer = Math.round((shipping * bufferPct) / 100);
   const profit = Math.round((p * markupPct) / 100);
   return { shipping_cost: shipping / 100, shipping_buffer: buffer / 100, profit: profit / 100, final_price: (p + shipping + buffer + profit) / 100 };
@@ -120,7 +122,7 @@ Return STRICT JSON only:
  "category":"<exact existing category name or null>",
  "suggested_category":"<short new category name in English if category is null, else null>",
  "new_category_weight_kg":<estimated weight of ONE item in kg, e.g. 0.3 for a handbag, 1.5 for a coat — only when category is null, else null>,
- "new_category_rate_per_kg":<estimated fair shipping rate in USD per kg for this kind of item, 20-60 — only when category is null, else null>,
+ "new_category_rate_per_kg":<estimated flat shipping price in USD for ONE item of this kind, 20-120 — only when category is null, else null>,
  "confidence":<0..1>,
  "colors":["<visible colors in English>"],
  "brand":"<brand only if clearly visible, else null>",
@@ -334,9 +336,9 @@ Deno.serve(async (req) => {
         if (!c) continue;
         const type = String(ps[0].ai_suggested?.item_type ?? c.name);
         const review = ps.filter((p) => p.needs_review).length;
-        lines.push(`**${ps.length === 1 ? "This looks like" : ps.length === images.length ? `All ${ps.length} appear to be` : `${ps.length} appear to be`} ${type}** → category **${c.name}** (${c.default_weight_kg} kg/item, ${c.shipping_rate_per_kg ? `$${c.shipping_rate_per_kg}/kg` : "no shipping rate yet"})${review ? ` — ${review} need a second look` : ""}.`);
+        lines.push(`**${ps.length === 1 ? "This looks like" : ps.length === images.length ? `All ${ps.length} appear to be` : `${ps.length} appear to be`} ${type}** → category **${c.name}** (${c.default_weight_kg} kg/item, ${c.shipping_rate_per_kg ? `$${c.shipping_rate_per_kg} shipping/item` : "no shipping rate yet"})${review ? ` — ${review} need a second look` : ""}.`);
       }
-      if (createdCatInfo) lines.push(`This didn't fit any existing category, so I added **${createdCatInfo.name}** to your catalogue (${createdCatInfo.weight} kg/item, $${createdCatInfo.rate}/kg estimated). You can adjust these in VIP Pricing settings.`);
+      if (createdCatInfo) lines.push(`This didn't fit any existing category, so I added **${createdCatInfo.name}** to your catalogue (${createdCatInfo.weight} kg/item, $${createdCatInfo.rate} shipping/item estimated). You can adjust these in VIP Pricing settings.`);
       const printed = fresh.map((p) => p.ai_suggested?.printed_price).filter((x) => typeof x === "number");
       if (printed.length) lines.push(`I also read a printed price on ${printed.length} photo(s) — tell me if that is what you paid.`);
       showIds = fresh.map((p) => p.id);
@@ -356,7 +358,7 @@ Deno.serve(async (req) => {
         const c = cats.find((x) => x.id === p.category_id);
         return `${i + 1}. ${p.name_en ?? p.ai_suggested?.item_type ?? "Unknown"} | category=${c?.name ?? "NONE (suggested " + (p.ai_suggested?.suggested_category ?? p.ai_suggested?.item_type ?? "?") + ")"} | colors=${(p.colors ?? []).join("/") || "-"} | sizes=${(p.sizes ?? []).join("/") || "-"} | paid=${p.purchase_price ?? "-"} | price=${p.final_price ?? "-"} | status=${p.status}`;
       }).join("\n");
-      const ctx = `Categories: ${cats.map((c) => `${c.name} (${c.default_weight_kg}kg, ${c.shipping_rate_per_kg ?? "no rate"}/kg)`).join("; ")}
+      const ctx = `Categories: ${cats.map((c) => `${c.name} (${c.default_weight_kg}kg, $${c.shipping_rate_per_kg ?? "no rate"} shipping per item)`).join("; ")}
 Current margins: buffer ${bufferPct()}%, profit ${markupPct()}%.
 Shipping method for this import: ${state.shipping_model ?? "not chosen yet"}${state.shipping_model === "italy_fedex" ? ` (total shipment ${state.total_weight_kg ?? "?"} kg, carrier ${state.carrier ?? "?"}, EUR->USD ${state.eur_usd_rate ?? "auto"})` : ""}
 Pending new category: ${state.pending_category ?? "none"}
@@ -432,7 +434,7 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
               if (!nc) break; c = nc as Cat; cats = [...cats, c];
             }
             state.pending_category = null;
-            lines.push(`Saved new category **${c.name}** (${w} kg/item, $${r}/kg). I'll recognise it in future uploads.`);
+            lines.push(`Saved new category **${c.name}** (${w} kg/item, $${r} shipping/item). I'll recognise it in future uploads.`);
             const match = products.filter((p) => !p.category_id && [p.ai_suggested?.suggested_category, p.ai_suggested?.item_type].some((s) => String(s ?? "").toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(String(s ?? "~").toLowerCase())));
             const t = (match.length ? match : products.filter((p) => !p.category_id)).map((p) => p.id);
             if (t.length) {
@@ -540,7 +542,7 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
     } else if (noCat.length) {
       const sug = String(noCat[0].ai_suggested?.suggested_category ?? noCat[0].ai_suggested?.item_type ?? "New category");
       if (state.pending_category) {
-        lines.push(`For **${state.pending_category}**: approximately how much does one item weigh, and what is the shipping price per kg? (e.g. "0.3 kg, $30/kg")`);
+        lines.push(`For **${state.pending_category}**: approximately how much does one item weigh, and what is the shipping price per item? (e.g. "0.5 kg, $30")`);
       } else {
         lines.push(`${noCat.length} item(s) look like **${sug}**, which isn't one of your pricing categories yet. Would you like to add it?`);
         quick = [`Add category ${sug}`, ...cats.filter((c) => c.is_active).slice(0, 3).map((c) => `Use ${c.name}`), "Skip"];

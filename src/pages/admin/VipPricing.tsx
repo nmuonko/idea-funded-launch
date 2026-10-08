@@ -192,7 +192,7 @@ export default function VipPricing() {
               <Input value={c.name} onChange={(e) => setCategories((prev) => prev.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} aria-label="Category name" />
               <Input value={c.name_fr ?? ''} placeholder="French name" onChange={(e) => setCategories((prev) => prev.map((x, j) => (j === i ? { ...x, name_fr: e.target.value } : x)))} aria-label="French name" />
               <Input type="number" step="0.1" value={c.default_weight_kg} onChange={(e) => setCategories((prev) => prev.map((x, j) => (j === i ? { ...x, default_weight_kg: Number(e.target.value) } : x)))} aria-label="Weight kg" />
-              <Input type="number" step="1" value={c.shipping_rate_per_kg ?? ''} placeholder="$/kg" onChange={(e) => setCategories((prev) => prev.map((x, j) => (j === i ? { ...x, shipping_rate_per_kg: e.target.value === '' ? null : Number(e.target.value) } : x)))} aria-label="Rate per kg" />
+              <Input type="number" step="1" value={c.shipping_rate_per_kg ?? ''} placeholder="$ per item" onChange={(e) => setCategories((prev) => prev.map((x, j) => (j === i ? { ...x, shipping_rate_per_kg: e.target.value === '' ? null : Number(e.target.value) } : x)))} aria-label="Shipping per item" />
               <div className="flex items-center gap-1.5">
                 <Switch checked={c.is_active} onCheckedChange={(v) => setCategories((prev) => prev.map((x, j) => (j === i ? { ...x, is_active: v } : x)))} aria-label="Active" />
                 <span className="text-xs text-muted-foreground">{c.is_active ? 'Active' : 'Off'}</span>
@@ -207,7 +207,7 @@ export default function VipPricing() {
               <Input value={newCat.name} onChange={(e) => setNewCat({ ...newCat, name: e.target.value })} placeholder="Name (English)" />
               <Input value={newCat.name_fr} onChange={(e) => setNewCat({ ...newCat, name_fr: e.target.value })} placeholder="French name" />
               <Input type="number" step="0.1" value={newCat.weight} onChange={(e) => setNewCat({ ...newCat, weight: e.target.value })} placeholder="kg" />
-              <Input type="number" step="1" value={newCat.rate} onChange={(e) => setNewCat({ ...newCat, rate: e.target.value })} placeholder="$/kg" />
+              <Input type="number" step="1" value={newCat.rate} onChange={(e) => setNewCat({ ...newCat, rate: e.target.value })} placeholder="$ per item" />
               <Button size="sm" onClick={addCategory} disabled={!newCat.name.trim()}><Plus className="h-3.5 w-3.5" /></Button>
             </div>
           </div>

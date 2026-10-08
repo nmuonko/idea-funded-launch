@@ -9,9 +9,13 @@ import {
   Head,
   Heading,
   Html,
+  Img,
   Preview,
   Text,
 } from 'npm:@react-email/components@0.0.22'
+
+const LOGO_URL =
+  'https://igmkhxffnyzoogcqvdab.supabase.co/storage/v1/object/public/email-assets/afrishop-logo.png'
 
 interface RecoveryEmailProps {
   siteName: string
@@ -22,24 +26,35 @@ export const RecoveryEmail = ({
   siteName,
   confirmationUrl,
 }: RecoveryEmailProps) => (
-  <Html lang="en" dir="ltr">
+  <Html lang="fr" dir="ltr">
     <Head>
       <style>{darkModeCss}</style>
     </Head>
-    <Preview>Reset your password for {siteName}</Preview>
+    <Preview>Réinitialisez votre mot de passe {siteName}</Preview>
     <Body style={main}>
       <Container style={container}>
-        <Heading style={h1}>Reset your password</Heading>
+        <Img
+          src={LOGO_URL}
+          width="140"
+          alt="AfriShop USA"
+          style={logo}
+        />
+        <Heading style={h1}>Réinitialisez votre mot de passe</Heading>
         <Text style={text}>
-          We received a request to reset your password for {siteName}. Click
-          the button below to choose a new password.
+          Nous avons reçu une demande de réinitialisation de votre mot de
+          passe pour {siteName}. Cliquez sur le bouton ci-dessous pour
+          choisir un nouveau mot de passe.
         </Text>
         <Button className="dm-btn" style={button} href={confirmationUrl}>
-          Reset Password
+          Réinitialiser le mot de passe
         </Button>
         <Text style={footer}>
-          If you didn't request a password reset, you can safely ignore this
-          email. Your password will not be changed.
+          Si vous n'êtes pas à l'origine de cette demande, vous pouvez
+          ignorer cet e-mail en toute sécurité. Votre mot de passe ne sera
+          pas modifié.
+        </Text>
+        <Text style={brand}>
+          © AfriShop USA — Vos produits favoris, livrés en Afrique.
         </Text>
       </Container>
     </Body>
@@ -50,6 +65,7 @@ export default RecoveryEmail
 
 const main = { backgroundColor: '#ffffff', fontFamily: 'Arial, sans-serif' }
 const container = { padding: '20px 25px' }
+const logo = { display: 'block' as const, margin: '0 0 24px' }
 const h1 = {
   fontSize: '22px',
   fontWeight: 'bold' as const,
@@ -72,6 +88,7 @@ const button = {
   textDecoration: 'none',
 }
 const footer = { fontSize: '12px', color: '#999999', margin: '30px 0 0' }
+const brand = { fontSize: '12px', color: '#999999', margin: '12px 0 0' }
 // Rendered as a text child, which React may HTML-escape: keep this CSS free of >, &, and quotes.
 const darkModeCss = `
   @media (prefers-color-scheme: dark) {

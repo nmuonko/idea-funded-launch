@@ -203,7 +203,7 @@ Deno.serve(async (req) => {
         const c = cats.find((x) => x.id === k)!;
         const type = String(ps[0].ai_suggested?.item_type ?? c.name);
         const review = ps.filter((p) => p.needs_review).length;
-        lines.push(`**${ps.length} ${ps.length === images.length && ps.length > 1 ? "all " : ""}appear to be ${type}** → category **${c.name}** (${c.default_weight_kg} kg/item, ${c.shipping_rate_per_kg ? `$${c.shipping_rate_per_kg}/kg` : "no shipping rate yet"})${review ? ` — ${review} need a second look` : ""}.`);
+        lines.push(`**${ps.length === 1 ? "This looks like" : ps.length === images.length ? `All ${ps.length} appear to be` : `${ps.length} appear to be`} ${type}** → category **${c.name}** (${c.default_weight_kg} kg/item, ${c.shipping_rate_per_kg ? `$${c.shipping_rate_per_kg}/kg` : "no shipping rate yet"})${review ? ` — ${review} need a second look` : ""}.`);
       }
       const printed = fresh.map((p) => p.ai_suggested?.printed_price).filter((x) => typeof x === "number");
       if (printed.length) lines.push(`I also read a printed price on ${printed.length} photo(s) — tell me if that is what you paid.`);
@@ -381,7 +381,7 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
       quick = cols.length ? ["Confirm colors", ...cols.map((c) => `Only ${c}`)] : ["White", "Black", "Navy Blue", "Red"];
     } else if (drafts.length && !state.kept_draft) {
       const prices = drafts.map((p) => Number(p.final_price));
-      lines.push(`**${drafts.length} product${drafts.length > 1 ? "s are" : " is"} ready for the VIP store.** Final prices ${Math.min(...prices) === Math.max(...prices) ? money(prices[0]) : `range from ${money(Math.min(...prices))} to ${money(Math.max(...prices))}`}. Would you like to publish?`);
+      lines.push(`**${drafts.length} product${drafts.length > 1 ? "s are" : " is"} ready for the VIP store.** ${Math.min(...prices) === Math.max(...prices) ? `Final price: ${money(prices[0])}` : `Final prices range from ${money(Math.min(...prices))} to ${money(Math.max(...prices))}`}. Would you like to publish?`);
       quick = ["Publish all to VIP", "Review products", "Keep as draft"];
       if (!showIds.length) showIds = drafts.map((p) => p.id);
     }

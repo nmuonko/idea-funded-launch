@@ -1,0 +1,1 @@
+- VIP importer is a chat (vip_import_threads/messages + vip-importer-chat function); all pricing and actions run server-side — keeps prices authoritative.

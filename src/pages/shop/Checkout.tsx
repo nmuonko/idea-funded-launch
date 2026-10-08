@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { CheckoutInlineLogin } from '@/components/shop/CheckoutInlineLogin';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
-import { PaymentPlanSelector, type PaymentPlan } from '@/components/shop/PaymentPlanSelector';
+import type { PaymentPlan } from '@/components/shop/PaymentPlanSelector';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -179,11 +179,8 @@ export default function Checkout() {
   const [loading, setLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState('mobile_money');
-  const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(() => {
-    if (typeof window === 'undefined') return 'deposit';
-    const stored = window.sessionStorage.getItem('afri.paymentPlan');
-    return (stored === 'full' || stored === 'deposit') ? stored : 'deposit';
-  });
+  // Partial payments are disabled — checkout is full payment only.
+  const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>('full');
 
   // Persist plan choice so it survives the guest-checkout signup flow
   useEffect(() => {
@@ -876,22 +873,6 @@ export default function Checkout() {
             <div className="grid lg:grid-cols-3 gap-8">
               {/* Left Column - Forms */}
               <div className="lg:col-span-2 space-y-8">
-                {/* Payment Plan (30% deposit / pay in full) — shown first so mobile users see it without scrolling past the address form */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.05 }}
-                >
-                  <PaymentPlanSelector
-                    value={paymentPlan}
-                    onChange={setPaymentPlan}
-                    totalUsd={effectiveCheckoutTotal}
-                    language={language}
-                    eligible={depositEligible}
-                    ineligibleReason={depositIneligibleReason}
-                  />
-                </motion.div>
-
                 {/* Shipping Address */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}

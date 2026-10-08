@@ -5,7 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { useShopCart } from '@/hooks/useShopCart';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Loader2, ShoppingBag, Check } from 'lucide-react';
+import { ArrowLeft, Loader2, ShoppingBag, Check, ChevronDown } from 'lucide-react';
 import { VipPhotoGallery, type VipPhoto } from '@/components/VipPhotoGallery';
 import { vipSizeLabel, type VipSizeDisplay } from '@/lib/vipSizes';
 
@@ -44,10 +44,22 @@ export default function VipProductDetail() {
   const [size, setSize] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [sizeDisplay, setSizeDisplay] = useState<VipSizeDisplay>('letters');
+  const [sizeChartOpen, setSizeChartOpen] = useState(false);
   const fr = vipPrefersFrench();
   const text = (en: string, french: string) => fr ? french : en;
   const category = product?.vip_categories?.name ?? '';
   const convertibleSizes = product?.sizes.some((s) => vipSizeLabel(s, category, 'letters') !== vipSizeLabel(s, category, 'numbers'));
+  const sizeName = (supplierSize: string) => {
+    const label = vipSizeLabel(supplierSize, category, sizeDisplay);
+    if (sizeDisplay !== 'letters') return label;
+    const names: Record<string, string> = {
+      XXS: text('XX-Small', 'XX-Petit'), XS: text('X-Small', 'X-Petit'),
+      S: text('Small', 'Petit'), M: text('Medium', 'Moyen'), L: text('Large', 'Grand'),
+      XL: text('X-Large', 'X-Grand'), XXL: text('XX-Large', 'XX-Grand'),
+      '3XL': text('3X-Large', '3X-Grand'), '4XL': text('4X-Large', '4X-Grand'), '5XL': text('5X-Large', '5X-Grand'),
+    };
+    return names[label] ?? label;
+  };
 
   useEffect(() => {
     (async () => {
@@ -157,8 +169,8 @@ export default function VipProductDetail() {
 
             {product.colors.length > 0 && (
               <div>
-                <p className="text-sm font-medium mb-2">{text('Color', 'Couleur')} {color && <span className="text-muted-foreground">— {color}</span>}</p>
-                <div className="flex flex-wrap gap-1.5">
+                <p className="text-sm text-muted-foreground mb-2">{text('Color:', 'Couleur :')} {color && <span className="font-semibold text-foreground">{color}</span>}</p>
+                <div className="grid grid-cols-3 gap-2" role="group" aria-label={text('Colors', 'Couleurs')}>
                   {product.colors.map((c) => {
                     const hasAvailable = !variants.length || variants.some((v) => v.available && (v.color === null || v.color === c));
                     return (
@@ -166,8 +178,8 @@ export default function VipProductDetail() {
                         key={c}
                         disabled={!hasAvailable}
                         onClick={() => setColor(c)}
-                        className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
-                          color === c ? 'bg-primary text-primary-foreground' : hasAvailable ? 'hover:bg-muted' : 'opacity-40 line-through cursor-not-allowed'
+                        className={`h-auto min-h-9 px-2 py-2 text-xs rounded-md whitespace-normal leading-snug border transition-colors ${
+                          color === c ? 'bg-primary/10 border-primary ring-1 ring-primary text-foreground' : hasAvailable ? 'hover:bg-muted' : 'opacity-40 line-through cursor-not-allowed'
                         }`}
                       >
                         {c}
@@ -180,13 +192,13 @@ export default function VipProductDetail() {
 
             {product.sizes.length > 0 && (
               <div>
-                <div className="flex items-center justify-between gap-3 mb-2">
-                  <p className="text-sm font-medium">{text('Size', 'Taille')}{convertibleSizes && <span className="text-muted-foreground"> · {sizeDisplay === 'letters' ? text('US letters', 'Lettres US') : text('Numbers', 'Numéros')}</span>}</p>
-                  {convertibleSizes && <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" aria-label={text('Switch size format', 'Changer le format des tailles')} aria-pressed={sizeDisplay === 'numbers'} onClick={() => setSizeDisplay(sizeDisplay === 'letters' ? 'numbers' : 'letters')}>
-                    {sizeDisplay === 'letters' ? text('Show numbers', 'Voir les numéros') : text('Show US letters', 'Voir les lettres US')}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
+                  <p className="text-sm text-muted-foreground">{text('Size:', 'Taille :')} {size && <span className="font-semibold text-foreground">{sizeName(size)}</span>}</p>
+                  {convertibleSizes && <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" aria-label={text('Switch size format', 'Changer le format des tailles')} aria-pressed={sizeDisplay === 'numbers'} onClick={() => setSizeDisplay(sizeDisplay === 'letters' ? 'numbers' : 'letters')}>
+                    {sizeDisplay === 'letters' ? text('Numbers', 'Numéros') : text('US letters', 'Lettres US')}
                   </Button>}
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label={text('Sizes', 'Tailles')}>
                   {product.sizes.map((s) => {
                     const hasAvailable = !variants.length || variants.some(
                       (v) => v.available && (v.size === null || v.size === s) && (v.color === null || v.color === color),
@@ -196,16 +208,27 @@ export default function VipProductDetail() {
                         key={s}
                         disabled={!hasAvailable}
                         onClick={() => setSize(s)}
-                        className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
-                          size === s ? 'bg-primary text-primary-foreground' : hasAvailable ? 'hover:bg-muted' : 'opacity-40 line-through cursor-not-allowed'
+                        className={`h-9 px-2.5 py-1.5 text-sm rounded-md border transition-colors ${
+                          size === s ? 'bg-primary/10 border-primary ring-1 ring-primary text-foreground' : hasAvailable ? 'hover:bg-muted' : 'opacity-40 border-dashed line-through cursor-not-allowed'
                         }`}
                       >
-                        {vipSizeLabel(s, category, sizeDisplay)}
+                        {sizeName(s)}
                       </Button>
                     );
                   })}
                 </div>
-                {convertibleSizes && <p className="mt-2 text-xs text-muted-foreground">{sizeDisplay === 'letters' ? text('Approximate US equivalents. Fit may vary.', 'Équivalences US approximatives. La coupe peut varier.') : text('European supplier sizes, not US numeric sizes.', 'Tailles européennes du fournisseur, pas les numéros US.')}</p>}
+                {convertibleSizes && <div className="mt-2">
+                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-0 text-primary hover:bg-transparent" aria-expanded={sizeChartOpen} aria-controls="vip-size-chart" onClick={() => setSizeChartOpen(!sizeChartOpen)}>
+                    {text('Size Chart', 'Guide des tailles')}<ChevronDown className={`h-4 w-4 transition-transform motion-reduce:transition-none ${sizeChartOpen ? 'rotate-180' : ''}`} />
+                  </Button>
+                  {sizeChartOpen && <div id="vip-size-chart" className="mt-2">
+                    <table className="w-full text-sm text-left">
+                      <thead><tr className="border-b"><th className="py-2 font-medium">{text('US letters', 'Lettres US')}</th><th className="py-2 font-medium">{text('European size', 'Taille européenne')}</th></tr></thead>
+                      <tbody>{product.sizes.map((s) => <tr key={s} className={`border-b border-border/50 ${size === s ? 'bg-primary/10' : ''}`}><td className="py-1.5">{vipSizeLabel(s, category, 'letters')}</td><td className="py-1.5">{vipSizeLabel(s, category, 'numbers')}</td></tr>)}</tbody>
+                    </table>
+                    <p className="mt-2 text-xs text-muted-foreground">{text('Approximate equivalents. European numbers are supplier sizes, not US numeric sizes. Fit may vary.', 'Équivalences approximatives. Les numéros européens sont les tailles du fournisseur, pas les tailles US. La coupe peut varier.')}</p>
+                  </div>}
+                </div>}
               </div>
             )}
 

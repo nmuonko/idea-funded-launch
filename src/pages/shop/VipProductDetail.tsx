@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { useShopCart } from '@/hooks/useShopCart';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Loader2, ShoppingBag, Check } from 'lucide-react';
-import { ShopFooter } from '@/components/shop/ShopFooter';
 
 interface VipProduct {
   id: string;
@@ -219,8 +218,6 @@ export default function VipProductDetail() {
           </div>
         </div>
       </main>
-
-      <ShopFooter />
     </div>
   );
 }

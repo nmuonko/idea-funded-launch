@@ -8,6 +8,13 @@
       "when": 1791419258125,
       "tag": "0000_vip_chat_importer",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791419999036,
+      "tag": "0001_vip_italy_fedex_shipping",
+      "breakpoints": true
     }
   ]
 }

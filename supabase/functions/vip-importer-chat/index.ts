@@ -23,12 +23,19 @@ type Cat = { id: string; name: string; name_fr: string | null; default_weight_kg
 type Prod = {
   id: string; category_id: string | null; name_en: string | null; name_fr: string | null; image_url: string;
   purchase_price: number | null; final_price: number | null; status: string; colors: string[]; sizes: string[];
+  shipping_cost?: number | null; shipping_buffer?: number | null; profit?: number | null; shipping_model?: string;
   ai_suggested: Record<string, unknown>; needs_review: boolean; review_reason: string | null; created_at: string;
 };
 type State = {
   sizes_done?: boolean; colors_done?: boolean; markup_pct?: number; buffer_pct?: number;
   pending_category?: string | null; kept_draft?: boolean;
+  shipping_model?: "rate_per_kg" | "italy_fedex";
+  carrier?: "express" | "standard";
+  total_weight_kg?: number;
+  eur_usd_rate?: number;
 };
+
+type Bracket = { min_kg: number; max_kg: number; express_eur: number | null; standard_eur: number | null };
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 
@@ -38,6 +45,36 @@ export function computePrice(purchase: number, weightKg: number, rate: number, b
   const buffer = Math.round((shipping * bufferPct) / 100);
   const profit = Math.round((p * markupPct) / 100);
   return { shipping_cost: shipping / 100, shipping_buffer: buffer / 100, profit: profit / 100, final_price: (p + shipping + buffer + profit) / 100 };
+}
+
+// --- Italy FedEx weight-bracket shipping ---
+function findBracket(brackets: Bracket[], w: number): Bracket | null {
+  const s = [...brackets].sort((a, b) => a.min_kg - b.min_kg);
+  return s.find((b) => w >= b.min_kg && w <= b.max_kg)
+    ?? (w > 0 && s.length && w > s[s.length - 1].max_kg ? s[s.length - 1] : null);
+}
+
+// Largest-remainder split so per-item cents sum exactly to the total.
+function allocateCents(totalCents: number, weights: number[]): number[] {
+  const tw = weights.reduce((s, w) => s + w, 0);
+  if (!weights.length || tw <= 0) return weights.map(() => 0);
+  const raw = weights.map((w) => (w / tw) * totalCents);
+  const out = raw.map((r) => Math.floor(r));
+  let rem = totalCents - out.reduce((s, f) => s + f, 0);
+  for (const { i } of raw.map((r, i) => ({ i, f: r - Math.floor(r) })).sort((a, b) => b.f - a.f)) {
+    if (rem <= 0) break; out[i] += 1; rem -= 1;
+  }
+  return out;
+}
+
+async function fetchEurUsdRate(): Promise<number | null> {
+  try {
+    const res = await fetch("https://open.er-api.com/v6/latest/EUR");
+    if (!res.ok) return null;
+    const data = await res.json();
+    const rate = Number(data?.rates?.USD);
+    return rate > 0 ? rate : null;
+  } catch { return null; }
 }
 
 async function aiJson(apiKey: string, messages: unknown[]): Promise<any | null> {
@@ -96,6 +133,9 @@ Action shapes ("targets" is "all" or an array of product numbers; resolve phrase
 {"type":"start_category","name":"..."}                        admin wants to add a category but weight/rate not given yet
 {"type":"set_markup","percent":<number>}                      profit % for this import only
 {"type":"set_buffer","percent":<number>}                      shipping buffer % for this import only
+{"type":"set_shipping_method","method":"rate_per_kg|italy_fedex"}   "Italy", "FedEx", "Italy shipping" -> italy_fedex; "per kg", "normal" -> rate_per_kg
+{"type":"set_shipment","total_weight_kg":<number>,"carrier":"express|standard"}   total Italy shipment weight + FedEx service
+{"type":"set_eur_rate","rate":<number>}                         manual EUR->USD rate (e.g. 1.08)
 {"type":"delete","targets":...}
 {"type":"skip_uncategorized"}                                 admin says skip the items without category
 {"type":"set_title","targets":[n],"name_en":"..."}
@@ -136,26 +176,69 @@ Deno.serve(async (req) => {
 
     const { data: catRows } = await supa.from("vip_categories").select("*").order("name");
     let cats = (catRows ?? []) as Cat[];
-    const { data: settings } = await supa.from("vip_settings").select("shipping_buffer_percent, profit_markup_percent").eq("id", 1).maybeSingle();
+    const { data: settings } = await supa.from("vip_settings").select("shipping_buffer_percent, profit_markup_percent, eur_usd_rate").eq("id", 1).maybeSingle();
     const bufferPct = () => Number(state.buffer_pct ?? settings?.shipping_buffer_percent ?? 10);
     const markupPct = () => Number(state.markup_pct ?? settings?.profit_markup_percent ?? 30);
 
     const loadProducts = async (): Promise<Prod[]> => {
       const { data } = await supa.from("vip_products")
-        .select("id, category_id, name_en, name_fr, image_url, purchase_price, final_price, status, colors, sizes, ai_suggested, needs_review, review_reason, created_at")
+        .select("id, category_id, name_en, name_fr, image_url, purchase_price, final_price, status, colors, sizes, ai_suggested, needs_review, review_reason, created_at, shipping_cost, shipping_buffer, profit, shipping_model")
         .eq("thread_id", threadId).order("created_at").order("id");
       return (data ?? []) as Prod[];
+    };
+
+    // Italy FedEx: resolve the EUR->USD rate once per request (manual state > settings > live rate)
+    let cachedEurRate: number | null | undefined;
+    const eurRate = async (): Promise<number | null> => {
+      if (cachedEurRate !== undefined) return cachedEurRate;
+      const manual = Number(state.eur_usd_rate ?? settings?.eur_usd_rate);
+      cachedEurRate = manual > 0 ? manual : await fetchEurUsdRate();
+      return cachedEurRate;
     };
 
     const reprice = async (ids: string[]) => {
       if (!ids.length) return;
       const { data } = await supa.from("vip_products").select("id, category_id, purchase_price").in("id", ids);
-      for (const p of data ?? []) {
+      const rows = (data ?? []).filter((p) => p.purchase_price);
+      if (!rows.length) return;
+
+      if (state.shipping_model === "italy_fedex") {
+        // Italy FedEx: bracket price for the TOTAL shipment, converted EUR->USD,
+        // allocated per item by weight. Per-kg category rates are not used.
+        if (!state.total_weight_kg || !state.carrier) return;
+        const { data: brRows } = await supa.from("vip_shipping_brackets").select("min_kg, max_kg, express_eur, standard_eur").eq("is_active", true);
+        const bracket = findBracket((brRows ?? []) as Bracket[], state.total_weight_kg);
+        const costEur = bracket ? (state.carrier === "express" ? bracket.express_eur : bracket.standard_eur) : null;
+        const rate = await eurRate();
+        if (costEur == null || !rate) return;
+        const weights = rows.map((p) => Number(cats.find((c) => c.id === p.category_id)?.default_weight_kg ?? 0));
+        const totalUsdCents = Math.round(costEur * 100 * rate);
+        const alloc = allocateCents(totalUsdCents, weights);
+        const allocEur = allocateCents(Math.round(costEur * 100), weights);
+        for (let i = 0; i < rows.length; i++) {
+          const p = rows[i];
+          const shippingUsd = alloc[i] / 100;
+          const buffer = Math.round((alloc[i] * bufferPct()) / 100);
+          const profit = Math.round((Math.round(Number(p.purchase_price) * 100) * markupPct()) / 100);
+          const finalCents = Math.round(Number(p.purchase_price) * 100) + alloc[i] + buffer + profit;
+          await supa.from("vip_products").update({
+            shipping_cost: shippingUsd, shipping_buffer: buffer / 100, profit: profit / 100, final_price: finalCents / 100,
+            weight_kg: weights[i], rate_per_kg: null,
+            shipping_model: "italy_fedex", carrier: `fedex_${state.carrier}`,
+            eur_usd_rate: rate, shipping_cost_eur: allocEur[i] / 100,
+            buffer_pct_applied: bufferPct(), markup_pct_applied: markupPct(), updated_at: new Date().toISOString(),
+          }).eq("id", p.id);
+        }
+        return;
+      }
+
+      for (const p of rows) {
         const cat = cats.find((c) => c.id === p.category_id);
-        if (!cat || !p.purchase_price || !cat.shipping_rate_per_kg) continue;
+        if (!cat || !cat.shipping_rate_per_kg) continue;
         const pr = computePrice(Number(p.purchase_price), Number(cat.default_weight_kg), Number(cat.shipping_rate_per_kg), bufferPct(), markupPct());
         await supa.from("vip_products").update({
           ...pr, weight_kg: cat.default_weight_kg, rate_per_kg: cat.shipping_rate_per_kg,
+          shipping_model: "rate_per_kg", carrier: null, eur_usd_rate: null, shipping_cost_eur: null,
           buffer_pct_applied: bufferPct(), markup_pct_applied: markupPct(), updated_at: new Date().toISOString(),
         }).eq("id", p.id);
       }
@@ -225,6 +308,7 @@ Deno.serve(async (req) => {
       }).join("\n");
       const ctx = `Categories: ${cats.map((c) => `${c.name} (${c.default_weight_kg}kg, ${c.shipping_rate_per_kg ?? "no rate"}/kg)`).join("; ")}
 Current margins: buffer ${bufferPct()}%, profit ${markupPct()}%.
+Shipping method for this import: ${state.shipping_model ?? "not chosen yet"}${state.shipping_model === "italy_fedex" ? ` (total shipment ${state.total_weight_kg ?? "?"} kg, carrier ${state.carrier ?? "?"}, EUR->USD ${state.eur_usd_rate ?? "auto"})` : ""}
 Pending new category: ${state.pending_category ?? "none"}
 Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
       const parsed = apiKey ? await aiJson(apiKey, [
@@ -307,6 +391,45 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
             }
             break;
           }
+          case "set_shipping_method": {
+            const m = String(a.method ?? "");
+            if (m !== "rate_per_kg" && m !== "italy_fedex") break;
+            state.shipping_model = m;
+            if (m === "rate_per_kg") { state.carrier = undefined; state.total_weight_kg = undefined; }
+            lines.push(m === "italy_fedex"
+              ? "Italy FedEx pricing it is. What is the **total shipment weight** and which service — Express or Standard? (e.g. \"8 kg standard\")"
+              : "Using the normal per-kg category rates for this import.");
+            break;
+          }
+          case "set_shipment": {
+            const w = Number(a.total_weight_kg);
+            const car = String(a.carrier ?? "").toLowerCase();
+            if (w > 0 && w < 10000) state.total_weight_kg = Math.round(w * 100) / 100;
+            if (car === "express" || car === "standard") state.carrier = car;
+            if (state.shipping_model !== "italy_fedex") state.shipping_model = "italy_fedex";
+            if (state.total_weight_kg && state.carrier) {
+              const { data: brRows } = await supa.from("vip_shipping_brackets").select("min_kg, max_kg, express_eur, standard_eur").eq("is_active", true);
+              const b = findBracket((brRows ?? []) as Bracket[], state.total_weight_kg);
+              const cost = b ? (state.carrier === "express" ? b.express_eur : b.standard_eur) : null;
+              if (b && cost != null) {
+                lines.push(`Shipment ${state.total_weight_kg} kg via FedEx ${state.carrier === "express" ? "Express" : "Standard"} → bracket ${b.min_kg}–${b.max_kg} kg = **€${cost}** for the whole shipment, split across items by weight.`);
+                const t = products.map((p) => p.id); await reprice(t); t.forEach((i) => touched.add(i));
+              } else if (b) {
+                lines.push(`FedEx ${state.carrier} is not available for the ${b.min_kg}–${b.max_kg} kg bracket — ${state.carrier === "standard" ? "Express" : "Standard"} only.`);
+              } else {
+                lines.push(`No shipping bracket covers ${state.total_weight_kg} kg — check the brackets in VIP Pricing settings.`);
+              }
+            }
+            break;
+          }
+          case "set_eur_rate": {
+            const r = Number(a.rate);
+            if (!(r > 0.5 && r < 3)) break;
+            state.eur_usd_rate = r;
+            lines.push(`EUR→USD rate set to ${r} for this import.`);
+            const t = products.map((p) => p.id); await reprice(t); t.forEach((i) => touched.add(i));
+            break;
+          }
           case "set_markup": case "set_buffer": {
             const pct = Number(a.percent);
             if (!(pct >= 0 && pct <= 500)) break;
@@ -349,10 +472,10 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
 
     if (showIds.length && priced.some((p) => showIds.includes(p.id)) && !images.length) {
       const sample = priced.find((p) => showIds.includes(p.id))!;
-      const c = cats.find((x) => x.id === sample.category_id);
-      if (c?.shipping_rate_per_kg && sample.purchase_price) {
-        const pr = computePrice(Number(sample.purchase_price), Number(c.default_weight_kg), Number(c.shipping_rate_per_kg), bufferPct(), markupPct());
-        if (display === "cards") lines.push(`Purchase ${money(Number(sample.purchase_price))} · Shipping ${money(pr.shipping_cost)} · Buffer ${money(pr.shipping_buffer)} · Profit ${money(pr.profit)}\n\n**Selling price: ${money(pr.final_price)}${showIds.length > 1 ? " each" : ""}**\n\nEnglish and French names and descriptions are ready.`);
+      if (sample.purchase_price && sample.final_price) {
+        const pr = { shipping_cost: Number(sample.shipping_cost ?? 0), shipping_buffer: Number(sample.shipping_buffer ?? 0), profit: Number(sample.profit ?? 0), final_price: Number(sample.final_price) };
+        const via = sample.shipping_model === "italy_fedex" ? " (Italy FedEx, allocated by weight)" : "";
+        if (display === "cards") lines.push(`Purchase ${money(Number(sample.purchase_price))} · Shipping ${money(pr.shipping_cost)}${via} · Buffer ${money(pr.shipping_buffer)} · Profit ${money(pr.profit)}\n\n**Selling price: ${money(pr.final_price)}${showIds.length > 1 ? " each" : ""}**\n\nEnglish and French names and descriptions are ready.`);
       }
     }
 
@@ -366,6 +489,12 @@ Products:\n${list || "(none yet — admin has not uploaded photos)"}`;
         lines.push(`${noCat.length} item(s) look like **${sug}**, which isn't one of your pricing categories yet. Would you like to add it?`);
         quick = [`Add category ${sug}`, ...cats.filter((c) => c.is_active).slice(0, 3).map((c) => `Use ${c.name}`), "Skip"];
       }
+    } else if (!state.shipping_model) {
+      lines.push("**Which shipping pricing should this import use?**");
+      quick = ["Normal per-kg rates", "Italy FedEx shipping"];
+    } else if (state.shipping_model === "italy_fedex" && (!state.total_weight_kg || !state.carrier)) {
+      lines.push("For the Italy shipment: what is the **total shipment weight** and which FedEx service — Express or Standard? (e.g. \"8 kg standard\")");
+      quick = ["5 kg express", "8 kg standard", "10 kg standard"];
     } else if (noPrice.length) {
       const c = cats.find((x) => x.id === noPrice[0].category_id);
       lines.push(`**How much did you pay for each ${c?.name ?? "item"}?**${noPrice.length !== active.length ? ` (${noPrice.length} still need a price)` : ""}`);

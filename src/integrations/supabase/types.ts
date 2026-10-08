@@ -7704,11 +7704,13 @@ export type Database = {
           ai_suggested: Json
           batch_id: string | null
           buffer_pct_applied: number | null
+          carrier: string | null
           category_id: string | null
           colors: Json
           created_at: string
           description_en: string | null
           description_fr: string | null
+          eur_usd_rate: number | null
           final_price: number | null
           id: string
           image_hash: string | null
@@ -7724,6 +7726,8 @@ export type Database = {
           review_reason: string | null
           shipping_buffer: number | null
           shipping_cost: number | null
+          shipping_cost_eur: number | null
+          shipping_model: string
           sizes: Json
           status: string
           thread_id: string | null
@@ -7734,11 +7738,13 @@ export type Database = {
           ai_suggested?: Json
           batch_id?: string | null
           buffer_pct_applied?: number | null
+          carrier?: string | null
           category_id?: string | null
           colors?: Json
           created_at?: string
           description_en?: string | null
           description_fr?: string | null
+          eur_usd_rate?: number | null
           final_price?: number | null
           id?: string
           image_hash?: string | null
@@ -7754,6 +7760,8 @@ export type Database = {
           review_reason?: string | null
           shipping_buffer?: number | null
           shipping_cost?: number | null
+          shipping_cost_eur?: number | null
+          shipping_model?: string
           sizes?: Json
           status?: string
           thread_id?: string | null
@@ -7764,11 +7772,13 @@ export type Database = {
           ai_suggested?: Json
           batch_id?: string | null
           buffer_pct_applied?: number | null
+          carrier?: string | null
           category_id?: string | null
           colors?: Json
           created_at?: string
           description_en?: string | null
           description_fr?: string | null
+          eur_usd_rate?: number | null
           final_price?: number | null
           id?: string
           image_hash?: string | null
@@ -7784,6 +7794,8 @@ export type Database = {
           review_reason?: string | null
           shipping_buffer?: number | null
           shipping_cost?: number | null
+          shipping_cost_eur?: number | null
+          shipping_model?: string
           sizes?: Json
           status?: string
           thread_id?: string | null
@@ -7816,6 +7828,7 @@ export type Database = {
       }
       vip_settings: {
         Row: {
+          eur_usd_rate: number | null
           id: number
           price_rounding: string
           profit_markup_percent: number
@@ -7824,6 +7837,7 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          eur_usd_rate?: number | null
           id?: number
           price_rounding?: string
           profit_markup_percent?: number
@@ -7832,12 +7846,46 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          eur_usd_rate?: number | null
           id?: number
           price_rounding?: string
           profit_markup_percent?: number
           shipping_buffer_percent?: number
           updated_at?: string
           updated_by?: string | null
+        }
+        Relationships: []
+      }
+      vip_shipping_brackets: {
+        Row: {
+          created_at: string
+          express_eur: number | null
+          id: string
+          is_active: boolean
+          max_kg: number
+          min_kg: number
+          standard_eur: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          express_eur?: number | null
+          id?: string
+          is_active?: boolean
+          max_kg: number
+          min_kg: number
+          standard_eur?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          express_eur?: number | null
+          id?: string
+          is_active?: boolean
+          max_kg?: number
+          min_kg?: number
+          standard_eur?: number | null
+          updated_at?: string
         }
         Relationships: []
       }

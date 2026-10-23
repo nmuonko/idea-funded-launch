@@ -11,4 +11,4 @@
 # VIP admin action error
 - [x] Check signed-in Sold out and Restock actions without leaving availability changed.
 - [x] Add session recovery and specific failure details to VIP product actions.
-- [ ] Verify recovery tests and updated action flow.
+- [x] Verify three recovery tests and signed-in Sold out/Restock; expired-session rejection shows a sign-in message when the managed test session cannot refresh.

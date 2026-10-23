@@ -7,3 +7,8 @@
 - [x] Remove category label and localize product controls for English browsers.
 - [x] Default to US letters with a numeric-size toggle while preserving ordered sizes.
 - [x] Enable and verify touch swiping, mouse dragging, and size switching on a real product.
+
+# VIP admin action error
+- [x] Check signed-in Sold out and Restock actions without leaving availability changed.
+- [x] Add session recovery and specific failure details to VIP product actions.
+- [x] Verify three recovery tests and signed-in Sold out/Restock; expired-session rejection shows a sign-in message when the managed test session cannot refresh.

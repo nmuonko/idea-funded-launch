@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Search, Loader2, Trash2, EyeOff, Upload, Package, DollarSign, Layers, TrendingUp } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { VipPhotoGallery, type VipPhoto } from '@/components/VipPhotoGallery';
+import { vipPublishRequest } from '@/lib/vipPublishRequest';
 
 interface VipProduct {
   id: string;
@@ -84,11 +85,7 @@ export default function VipProducts() {
     if (!ids.length) return;
     setBusy(true);
     try {
-      const { data, error } = await supabase.functions.invoke('vip-publish', {
-        body: { action, product_ids: ids, ...extra },
-      });
-      if (error) throw error;
-      if (!data?.ok) throw new Error(data?.message ?? data?.error ?? 'failed');
+      await vipPublishRequest({ action, product_ids: ids, ...extra });
       toast({ title: 'Done' });
       setSelected(new Set());
       await load();

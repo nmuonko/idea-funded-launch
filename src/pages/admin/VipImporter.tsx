@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { vipPublishRequest } from '@/lib/vipPublishRequest';
 import { ArrowUp, Paperclip, Plus, Loader2, X, Shirt, MessageSquare, Pencil } from 'lucide-react';
 
 interface Thread { id: string; title: string; updated_at: string }
@@ -114,17 +115,21 @@ export default function VipImporter() {
   };
 
   const productAction = async (p: Prod, status: string) => {
-    const { data, error } = await supabase.functions.invoke('vip-publish', { body: { action: 'set_status', product_ids: [p.id], status } });
-    if (error || !data?.ok) { toast({ title: 'Not updated', description: data?.message || 'This product still needs a category or price.', variant: 'destructive' }); return; }
+    try {
+      await vipPublishRequest({ action: 'set_status', product_ids: [p.id], status });
+    } catch (error) {
+      toast({ title: 'Not updated', description: error instanceof Error ? error.message : 'Please try again.', variant: 'destructive' }); return;
+    }
     setProducts((s) => ({ ...s, [p.id]: { ...p, status } }));
   };
 
   const saveEdit = async () => {
     if (!editing) return;
-    const { data, error } = await supabase.functions.invoke('vip-publish', {
-      body: { action: 'edit', product_id: editing.id, name_en: editing.name_en ?? '', name_fr: editing.name_fr ?? '', colors: editing.colors, sizes: editing.sizes, final_price: editing.final_price },
-    });
-    if (error || !data?.ok) { toast({ title: 'Not saved', variant: 'destructive' }); return; }
+    try {
+      await vipPublishRequest({ action: 'edit', product_id: editing.id, name_en: editing.name_en ?? '', name_fr: editing.name_fr ?? '', colors: editing.colors, sizes: editing.sizes, final_price: editing.final_price });
+    } catch (error) {
+      toast({ title: 'Not saved', description: error instanceof Error ? error.message : 'Please try again.', variant: 'destructive' }); return;
+    }
     setProducts((s) => ({ ...s, [editing.id]: editing })); setEditing(null);
   };
 
